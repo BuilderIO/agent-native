@@ -19468,10 +19468,14 @@ function DesignEditor() {
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
             <PresenceBar
-              activeUsers={activeUsers ?? []}
+              activeUsers={[
+                ...(currentUser ? [currentUser] : []),
+                ...(activeUsers ?? []),
+              ]}
               agentPresent={agentPresent}
               agentActive={agentActive}
               currentUserEmail={currentUser?.email}
+              showCurrentUser
               followingEmail={followingEmail}
               onAvatarClick={handleAvatarClick}
               disableAgentClick

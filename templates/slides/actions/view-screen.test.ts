@@ -315,6 +315,44 @@ describe("view-screen", () => {
     expect(result).toContain("selectedText: 4-Step");
   });
 
+  it("routes image selections away from text replacement", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Image deck",
+        data: JSON.stringify({
+          slides: [
+            {
+              id: "slide-a",
+              content: '<img data-slide-object-id="image-1" />',
+            },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      deckId: "deck-1",
+      slideId: "slide-a",
+      mode: "box-selected",
+      items: [
+        {
+          selector: '[data-slide-object-id="image-1"]',
+          objectId: "image-1",
+          kind: "image",
+          tagName: "img",
+        },
+      ],
+    };
+
+    const result = await action.run({});
+
+    expect(result).not.toContain("objectId: image-1");
+    expect(result).toContain(
+      "imageStatus: image selection has no editable text content; use the targeted image/markup workflow",
+    );
+  });
+
   it("does not surface a selection left over from a different deck", async () => {
     mockRows = [
       {

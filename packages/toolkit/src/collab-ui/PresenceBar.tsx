@@ -29,8 +29,10 @@ export interface PresenceBarProps {
   agentActive?: boolean;
   /** @deprecated Agent editing is represented by the AI presence circle and tooltip. */
   showAgentEditingDot?: boolean;
-  /** Current user's email (to exclude from the list). */
+  /** Current user's email, excluded unless showCurrentUser is true. */
   currentUserEmail?: string;
+  /** Include the current user in the roster as a non-followable avatar. */
+  showCurrentUser?: boolean;
   /** Max visible avatars before "+N" overflow. Default: 5 */
   maxVisible?: number;
   /** Additional CSS classes. */
@@ -234,13 +236,16 @@ function AgentAvatar({
 function OverflowMenu({
   users,
   followingEmail,
+  currentUserEmail,
   onSelect,
 }: {
   users: CollabUser[];
   followingEmail?: string | null;
+  currentUserEmail?: string;
   onSelect?: (user: CollabUser) => void;
 }) {
   const followingLower = followingEmail?.trim().toLowerCase() ?? null;
+  const currentLower = currentUserEmail?.trim().toLowerCase() ?? null;
 
   return (
     <DropdownMenu>
@@ -267,10 +272,14 @@ function OverflowMenu({
           const isFollowing =
             followingLower != null &&
             user.email.trim().toLowerCase() === followingLower;
+          const isCurrent =
+            currentLower != null &&
+            user.email.trim().toLowerCase() === currentLower;
           return (
             <DropdownMenuItem
               key={user.email}
               onSelect={() => onSelect?.(user)}
+              disabled={isCurrent}
             >
               <span
                 style={{
@@ -307,6 +316,7 @@ export function PresenceBar({
   agentPresent,
   agentActive,
   currentUserEmail,
+  showCurrentUser,
   maxVisible = 5,
   className,
   onAvatarClick,
@@ -318,7 +328,10 @@ export function PresenceBar({
     const uniqueUsers = dedupeCollabUsersByEmail(activeUsers);
     const humans = uniqueUsers.filter((u) => {
       const email = u.email.trim().toLowerCase();
-      return email !== currentEmail && email !== "agent@system";
+      return (
+        email !== "agent@system" &&
+        (showCurrentUser === true || email !== currentEmail)
+      );
     });
     const hasAgentUser = uniqueUsers.some(
       (u) => u.email.trim().toLowerCase() === "agent@system",
@@ -327,10 +340,17 @@ export function PresenceBar({
       humanUsers: humans,
       showAgent: agentPresent || agentActive || hasAgentUser,
     };
-  }, [activeUsers, currentUserEmail, agentPresent, agentActive]);
+  }, [
+    activeUsers,
+    currentUserEmail,
+    showCurrentUser,
+    agentPresent,
+    agentActive,
+  ]);
 
   const visibleUsers = humanUsers.slice(0, maxVisible);
   const overflowUsers = humanUsers.slice(maxVisible);
+  const currentLower = currentUserEmail?.trim().toLowerCase() ?? null;
 
   if (!showAgent && humanUsers.length === 0) return null;
 
@@ -364,7 +384,11 @@ export function PresenceBar({
                 key={u.email}
                 user={u}
                 isFirst={i === 0}
-                onClick={onAvatarClick ? () => onAvatarClick(u) : undefined}
+                onClick={
+                  onAvatarClick && u.email.trim().toLowerCase() !== currentLower
+                    ? () => onAvatarClick(u)
+                    : undefined
+                }
                 isFollowing={
                   followingLower != null &&
                   u.email.trim().toLowerCase() === followingLower
@@ -375,6 +399,7 @@ export function PresenceBar({
               <OverflowMenu
                 users={overflowUsers}
                 followingEmail={followingEmail}
+                currentUserEmail={currentUserEmail}
                 onSelect={onAvatarClick ?? undefined}
               />
             )}

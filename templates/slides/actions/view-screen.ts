@@ -313,10 +313,12 @@ export default defineAction({
         lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
         if (Array.isArray(selection.items) && selection.items.length > 0) {
           for (const [index, item] of selection.items.entries()) {
+            const isImageSelection =
+              item.kind === "image" || item.tagName?.toLowerCase() === "img";
             lines.push(
               `selected ${index + 1}: ${item.kind ?? "element"} ${item.tagName ?? ""} selector=${item.selector ?? "(none)"}`,
             );
-            if (item.objectId) {
+            if (item.objectId && !isImageSelection) {
               lines.push(`objectId: ${item.objectId}`);
               lines.push(
                 "objectIdStatus: stable selected-element target; use it with one update-slide replace edit when selectedText is unavailable",
@@ -331,7 +333,11 @@ export default defineAction({
                 "selectedTextStatus: exact browser range; use verbatim as edits.find with expectedMatches: 1",
               );
             }
-            if (item.text) {
+            if (isImageSelection) {
+              lines.push(
+                "imageStatus: image selection has no editable text content; use the targeted image/markup workflow",
+              );
+            } else if (item.text) {
               lines.push(`text: ${item.text}`);
               if (!item.selectedText) {
                 lines.push(

@@ -79,6 +79,49 @@ describe("PresenceBar", () => {
     expect(onAvatarClick).not.toHaveBeenCalled();
   });
 
+  it("can show the current user without allowing self-follow", () => {
+    const onAvatarClick = vi.fn();
+    const currentUser = {
+      email: "steve@example.com",
+      name: "Steve",
+      color: "#123456",
+    };
+    const otherUser = {
+      email: "other@example.com",
+      name: "Other",
+      color: "#654321",
+    };
+
+    act(() => {
+      root.render(
+        <PresenceBar
+          activeUsers={[currentUser, otherUser]}
+          currentUserEmail={currentUser.email}
+          showCurrentUser
+          onAvatarClick={onAvatarClick}
+        />,
+      );
+    });
+
+    const currentAvatar = container.querySelector<HTMLElement>(
+      '[aria-label="Steve (steve@example.com)"]',
+    );
+    expect(currentAvatar?.getAttribute("role")).toBeNull();
+
+    act(() =>
+      currentAvatar?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    expect(onAvatarClick).not.toHaveBeenCalled();
+
+    const otherAvatar = container.querySelector<HTMLElement>(
+      '[aria-label="Other (other@example.com)"]',
+    );
+    act(() =>
+      otherAvatar?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    expect(onAvatarClick).toHaveBeenCalledWith(otherUser);
+  });
+
   it("keeps overflow collaborators available for follow mode", () => {
     const onAvatarClick = vi.fn();
     const activeUsers = Array.from({ length: 6 }, (_, index) => ({
