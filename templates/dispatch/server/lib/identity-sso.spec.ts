@@ -111,6 +111,16 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     );
     return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
   }
+  if (/^UPDATE identity_sso_bootstrap SET consumed_at = NULL/i.test(sql)) {
+    const row = bootstrapRows.find(
+      (candidate) => candidate.handle_hash === args[0],
+    );
+    if (row && row.consumed_at != null) {
+      row.consumed_at = null;
+      return { rows: [], rowsAffected: 1 };
+    }
+    return { rows: [], rowsAffected: 0 };
+  }
   if (/^SELECT state, app_id, client_id/i.test(sql)) {
     const row = codeRows.find((candidate) => candidate.code_hash === args[0]);
     return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
@@ -375,6 +385,11 @@ describe("bootstrap handle store", () => {
     await expect(
       mod.consumeIdentityBootstrapHandle(handle),
     ).resolves.toBeNull();
+
+    await mod.releaseIdentityBootstrapHandle(handle);
+    await expect(
+      mod.consumeIdentityBootstrapHandle(handle),
+    ).not.resolves.toBeNull();
   });
 
   it("does not issue request-time DDL in production serverless runtime", async () => {

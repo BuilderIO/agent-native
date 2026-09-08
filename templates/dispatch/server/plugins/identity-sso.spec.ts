@@ -15,8 +15,10 @@ const getOrgContextMock = vi.hoisted(() => vi.fn());
 const invalidateMemberOrgCachesMock = vi.hoisted(() => vi.fn());
 const hasGoogleAuthIdentityMock = vi.hoisted(() => vi.fn());
 const addSessionMock = vi.hoisted(() => vi.fn());
+const createBetterAuthSessionForEmailMock = vi.hoisted(() => vi.fn());
 const ensureIdentityUserMock = vi.hoisted(() => vi.fn());
 const setFrameworkSessionCookieMock = vi.hoisted(() => vi.fn());
+const setBetterAuthSessionCookieMock = vi.hoisted(() => vi.fn());
 
 interface CodeRow {
   code_hash: string;
@@ -85,8 +87,10 @@ vi.mock("@agent-native/core/server", () => ({
   getSession: getSessionMock,
   hasGoogleAuthIdentity: hasGoogleAuthIdentityMock,
   addSession: addSessionMock,
+  createBetterAuthSessionForEmail: createBetterAuthSessionForEmailMock,
   ensureIdentityUser: ensureIdentityUserMock,
   setFrameworkSessionCookie: setFrameworkSessionCookieMock,
+  setBetterAuthSessionCookie: setBetterAuthSessionCookieMock,
 }));
 vi.mock("@agent-native/core/shared", () => ({
   signInJourney: signInJourneyMock,
@@ -218,6 +222,16 @@ vi.mock("@agent-native/core/db", () => ({
         );
         return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
       }
+      if (/^UPDATE identity_sso_bootstrap SET consumed_at = NULL/i.test(sql)) {
+        const row = bootstrapRows.find(
+          (candidate) => candidate.handle_hash === args[0],
+        );
+        if (row && row.consumed_at != null) {
+          row.consumed_at = null;
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 0 };
+      }
       if (/^UPDATE identity_sso_bootstrap SET consumed_at/i.test(sql)) {
         const row = bootstrapRows.find(
           (candidate) => candidate.handle_hash === args[1],
@@ -276,7 +290,8 @@ const {
   bootstrapHandler,
   organizationFederationHandler,
 } = await import("./identity-sso.js");
-const { createCodeChallenge } = await import("../lib/identity-sso.js");
+const { createCodeChallenge, createIdentityBootstrapHandle } =
+  await import("../lib/identity-sso.js");
 
 const AUTHORITY = "https://dispatch.agent-native.com";
 const CALLBACK =
@@ -323,6 +338,15 @@ beforeEach(() => {
   signInJourneyMock.mockReturnValue({ signInHref: "/_agent-native/sign-in" });
   getOrgDomainMock.mockResolvedValue("example.test");
   hasGoogleAuthIdentityMock.mockResolvedValue(false);
+  createBetterAuthSessionForEmailMock.mockResolvedValue({
+    email: "user@example.test",
+    token: "better-auth-session",
+    userId: "identity-user",
+  });
+  ensureIdentityUserMock.mockResolvedValue({
+    id: "identity-user",
+    accounts: [],
+  });
   getOrgContextMock.mockResolvedValue({
     orgId: "org-1",
     orgName: "Example Org",
@@ -743,6 +767,7 @@ describe("silent browser bootstrap", () => {
         redirect_uri: CALLBACK,
         state: STATE,
         code_challenge: createCodeChallenge(VERIFIER),
+        org_id: "org-1",
         scope: "identity-bootstrap",
       },
     });
@@ -769,6 +794,46 @@ describe("silent browser bootstrap", () => {
     expect(bootstrapRows).toHaveLength(1);
     expect(bootstrapRows[0]?.handle_hash).not.toBe(
       continuation.searchParams.get("handle"),
+    );
+    expect(featureFlagMocks.isEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "browser.identity-sso" }),
+      {
+        userEmail: "user@example.test",
+        userKey: "user@example.test",
+        orgId: "org-1",
+      },
+    );
+  });
+
+  it("releases a claimed handle when continuation work fails", async () => {
+    const handle = await createIdentityBootstrapHandle({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge: createCodeChallenge(VERIFIER)!,
+      email: "user@example.test",
+    });
+    ensureIdentityUserMock.mockRejectedValueOnce(new Error("temporary"));
+
+    const failed = await bootstrapHandler(
+      event(`/_agent-native/identity/bootstrap/continue?handle=${handle}`),
+    );
+
+    expect(failed.status).toBe(503);
+    expect(bootstrapRows[0]?.consumed_at).toBeNull();
+
+    const retried = await bootstrapHandler(
+      event(`/_agent-native/identity/bootstrap/continue?handle=${handle}`),
+    );
+    expect(retried.status).toBe(302);
+    expect(
+      new URL(retried.headers.get("Location")!).searchParams.get("code"),
+    ).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(setBetterAuthSessionCookieMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "better-auth-session",
     );
   });
 });

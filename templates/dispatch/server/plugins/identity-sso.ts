@@ -37,8 +37,10 @@ import {
   getSession,
   hasGoogleAuthIdentity,
   addSession,
+  createBetterAuthSessionForEmail,
   ensureIdentityUser,
   setFrameworkSessionCookie,
+  setBetterAuthSessionCookie,
 } from "@agent-native/core/server";
 import { signInJourney } from "@agent-native/core/shared";
 import { defineEventHandler, getHeader, getMethod, readBody } from "h3";
@@ -64,6 +66,7 @@ import {
   DEFAULT_ALLOWED_ORIGINS,
   isValidSsoState,
   normalizeIdentityAuthority,
+  releaseIdentityBootstrapHandle,
   resolveIdentitySsoApp,
   getIdentitySsoAppRegistry,
 } from "../lib/identity-sso.js";
@@ -1033,6 +1036,7 @@ export const availabilityHandler = defineEventHandler(
 async function verifyIdentityBootstrapRequest(event: H3Event): Promise<{
   email: string;
   name?: string;
+  orgId?: string;
   appId: string;
   clientId: string;
   redirectUri: string;
@@ -1062,6 +1066,11 @@ async function verifyIdentityBootstrapRequest(event: H3Event): Promise<{
     const state = typeof claims?.state === "string" ? claims.state : "";
     const codeChallenge =
       typeof claims?.code_challenge === "string" ? claims.code_challenge : "";
+    const orgId =
+      typeof claims?.org_id === "string" &&
+      /^[A-Za-z0-9_-]{1,128}$/.test(claims.org_id)
+        ? claims.org_id
+        : undefined;
     const issuer =
       typeof claims?.iss === "string"
         ? normalizeIdentityAuthority(claims.iss)
@@ -1090,6 +1099,7 @@ async function verifyIdentityBootstrapRequest(event: H3Event): Promise<{
     return {
       email,
       ...(name ? { name } : {}),
+      ...(orgId ? { orgId } : {}),
       appId,
       clientId,
       redirectUri,
@@ -1110,7 +1120,12 @@ export const bootstrapHandler = defineEventHandler(
       }
       const verified = await verifyIdentityBootstrapRequest(event);
       if (!verified) return jsonResponse({ error: "Unauthorized" }, 401);
-      if (!(await isBrowserIdentitySsoEnabledForEmail(verified.email))) {
+      if (
+        !(await isBrowserIdentitySsoEnabledForEmail(
+          verified.email,
+          verified.orgId,
+        ))
+      ) {
         return jsonResponse({ error: "feature_disabled" }, 404);
       }
       try {
@@ -1156,7 +1171,20 @@ export const bootstrapHandler = defineEventHandler(
         return new Response("Invalid sign-in request", { status: 400 });
 
       try {
-        await ensureIdentityUser(bootstrap.email, bootstrap.name);
+        const identityUser = await ensureIdentityUser(
+          bootstrap.email,
+          bootstrap.name,
+        );
+        const betterAuthSession = await createBetterAuthSessionForEmail(
+          bootstrap.email,
+        );
+        if (
+          !betterAuthSession ||
+          betterAuthSession.userId !== identityUser.id
+        ) {
+          throw new Error("Could not create the local auth session.");
+        }
+        await setBetterAuthSessionCookie(event, betterAuthSession.token);
         const sessionToken = randomBytes(32).toString("hex");
         await addSession(sessionToken, bootstrap.email);
         setFrameworkSessionCookie(event, sessionToken);
@@ -1176,6 +1204,7 @@ export const bootstrapHandler = defineEventHandler(
         );
       } catch (error) {
         void error;
+        await releaseIdentityBootstrapHandle(handle).catch(() => {});
         return new Response("Could not finish sign-in", { status: 503 });
       }
     }

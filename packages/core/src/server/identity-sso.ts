@@ -76,6 +76,7 @@ const CODE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
 const SSO_VERIFIER_COOKIE_PREFIX = "agent_native_sso_verifier_";
 const MAX_ASSERTION_AGE_SECONDS = 5 * 60;
 const MAX_BOOTSTRAP_NAME_LENGTH = 200;
+const ORG_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 function html(body: string, status = 200): Response {
@@ -541,6 +542,9 @@ async function startIdentityBootstrap(
           state,
           code_challenge: challenge,
           scope: IDENTITY_SSO_BOOTSTRAP_SCOPE,
+          ...(current.orgId && ORG_ID_PATTERN.test(current.orgId)
+            ? { org_id: current.orgId }
+            : {}),
           ...(current.name?.trim()
             ? { name: current.name.trim().slice(0, MAX_BOOTSTRAP_NAME_LENGTH) }
             : {}),

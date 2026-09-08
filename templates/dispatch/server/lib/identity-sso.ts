@@ -659,3 +659,16 @@ export async function consumeIdentityBootstrapHandle(
       : {}),
   };
 }
+
+export async function releaseIdentityBootstrapHandle(
+  handle: string,
+): Promise<void> {
+  if (!CODE.test(handle)) return;
+  await ensureBootstrapTable();
+  await getDbExec().execute({
+    sql:
+      "UPDATE identity_sso_bootstrap SET consumed_at = NULL " +
+      "WHERE handle_hash = ? AND consumed_at IS NOT NULL",
+    args: [identityCodeHash(handle)],
+  });
+}
