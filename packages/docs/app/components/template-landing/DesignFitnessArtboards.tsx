@@ -48,7 +48,7 @@ const inverse = (screenPx: number) => `${screenPx / BOARD_SCALE}px`;
  * `object-fit: cover` does the cropping.
  */
 const HERO_ATHLETE_SRC =
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcc5bd41b153b48d39f60ae618963dd01?format=webp&width=920";
+  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9eb46e6b1f494d6694c8b93785d3cb77?format=webp&width=920";
 const HERO_ATHLETE_POSITION = "75% center";
 
 const NAV_LINKS = ["Programs", "Classes", "Coaches", "Pricing"];
@@ -104,6 +104,8 @@ function ImageSlot({
           className="ft-slot-img"
           src={src}
           alt=""
+          crossOrigin="anonymous"
+          decoding="async"
           style={{ objectPosition }}
         />
       ) : (
