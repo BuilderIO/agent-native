@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
 
@@ -90,6 +90,10 @@ beforeEach(() => {
   mocks.renderReportChartSvg.mockReturnValue(
     "<svg xmlns='http://www.w3.org/2000/svg'/>",
   );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("fetchReportPanelData", () => {
@@ -557,6 +561,53 @@ describe("renderReportEmail", () => {
     expect(chartInput.labels).toEqual(["2026-07-01", "2026-07-02"]);
     expect(chartInput.series).toEqual([
       { label: "signups", data: [3, 5], color: expect.any(String) },
+    ]);
+  });
+
+  it("pads finite dashboard ranges in email charts through today", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00Z"));
+    const dailyPanel = panel({
+      id: "daily",
+      chartType: "line",
+      config: {
+        pivot: { xKey: "date", seriesKey: "template", valueKey: "visitors" },
+      },
+    });
+
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([dailyPanel]),
+        filters: { f_timeRange: "5d" },
+      },
+      panelData: new Map([
+        [
+          "daily",
+          {
+            status: "rows" as const,
+            rows: [
+              { date: "2026-07-03", template: "content", visitors: 1 },
+              { date: "2026-07-04", template: "content", visitors: 4 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      labels: string[];
+      series: Array<{ label: string; data: Array<number | null> }>;
+    };
+    expect(chartInput.labels).toEqual([
+      "2026-07-01",
+      "2026-07-02",
+      "2026-07-03",
+      "2026-07-04",
+      "2026-07-05",
+    ]);
+    expect(chartInput.series).toEqual([
+      { label: "content", data: [0, 0, 1, 4, 0], color: expect.any(String) },
     ]);
   });
 
