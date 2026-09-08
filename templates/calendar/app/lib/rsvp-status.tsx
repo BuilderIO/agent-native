@@ -72,7 +72,9 @@ export function RsvpStatusIcon({
   );
 }
 
-export function hasTimeProposal(event: CalendarEvent): boolean {
+export function hasTimeProposal(
+  event: Pick<CalendarEvent, "attendees" | "organizer">,
+): boolean {
   const attendees = event.attendees ?? [];
   const otherAttendees = attendees.filter((attendee) => !attendee.self);
 

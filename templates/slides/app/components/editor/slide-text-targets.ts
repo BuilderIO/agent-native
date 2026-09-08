@@ -91,6 +91,14 @@ function ownsRichTextLayer(element: HTMLElement): boolean {
 }
 
 /**
+ * Smart groups contain layout wrappers that the rich-text schema cannot
+ * round-trip, so edit the clicked text leaf without replacing the group.
+ */
+function ownsRichTextEditingLayer(element: HTMLElement): boolean {
+  return ownsRichTextLayer(element) && !isSmartGroup(element);
+}
+
+/**
  * Rich text is a single canvas layer, so the blocks inside it are structure
  * rather than layers and must not each earn their own Layers panel row.
  */
@@ -216,7 +224,7 @@ function findSlideRichTextOwner(
   while (element && element !== root && root.contains(element)) {
     if (isSlideCanvasShell(element)) break;
     if (RICH_TEXT_TABLE_TAGS.has(element.tagName)) break;
-    if (ownsRichTextLayer(element)) owner = element;
+    if (ownsRichTextEditingLayer(element)) owner = element;
     element = element.parentElement;
   }
   return owner;

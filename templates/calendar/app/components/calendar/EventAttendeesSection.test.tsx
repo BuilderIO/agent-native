@@ -125,6 +125,82 @@ describe("EventAttendeesSection attendee controls", () => {
     expect(document.querySelector("button button")).toBeNull();
   });
 
+  it("shows the matching Google Calendar proposal action with RSVP controls", () => {
+    const googleCalendarLink =
+      "https://calendar.google.com/calendar/u/0/r/eventedit/abc";
+    const organizerEvent: CalendarEvent = {
+      id: "event-proposal-review",
+      title: "Planning",
+      description: "",
+      location: "",
+      start: "2026-07-10T16:00:00.000Z",
+      end: "2026-07-10T17:00:00.000Z",
+      allDay: false,
+      source: "google",
+      htmlLink: googleCalendarLink,
+      organizer: { email: "me@example.com", self: true },
+      responseStatus: "accepted",
+      createdAt: "2026-07-10T15:00:00.000Z",
+      updatedAt: "2026-07-10T15:00:00.000Z",
+      attendees: [
+        {
+          email: "me@example.com",
+          displayName: "Me",
+          self: true,
+          organizer: true,
+          responseStatus: "accepted",
+        },
+        {
+          email: "guest@example.com",
+          displayName: "Guest",
+          responseStatus: "tentative",
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(<EventAttendeesSection event={organizerEvent} />);
+    });
+
+    const reviewLink = Array.from(document.querySelectorAll("a")).find(
+      (link) => link.textContent === "eventForm.reviewProposedTime",
+    );
+    expect(reviewLink).toBeTruthy();
+    expect(reviewLink?.getAttribute("href")).toBe(googleCalendarLink);
+    expect(reviewLink?.getAttribute("target")).toBe("_blank");
+
+    const attendeeEvent: CalendarEvent = {
+      ...organizerEvent,
+      id: "event-proposal-send",
+      organizer: { email: "owner@example.com", self: false },
+      responseStatus: "needsAction",
+      attendees: [
+        {
+          email: "owner@example.com",
+          displayName: "Owner",
+          organizer: true,
+          responseStatus: "accepted",
+        },
+        {
+          email: "me@example.com",
+          displayName: "Me",
+          self: true,
+          responseStatus: "needsAction",
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(<EventAttendeesSection event={attendeeEvent} />);
+    });
+
+    const proposeLink = Array.from(document.querySelectorAll("a")).find(
+      (link) => link.textContent === "eventForm.proposeNewTime",
+    );
+    expect(proposeLink).toBeTruthy();
+    expect(proposeLink?.getAttribute("href")).toBe(googleCalendarLink);
+  });
+
   it("shows the event zone for the organizer and the browser zone for self", () => {
     const event: CalendarEvent = {
       id: "event-timezones",
