@@ -86,7 +86,7 @@ export default defineAction({
         'JSON-encoded array of {email, name} mentions, e.g. [{"email":"a@x.com","name":"A"}]',
       ),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const documentId = args.documentId;
     const content = args.content;
 
@@ -132,6 +132,13 @@ export default defineAction({
 
     const mentions = parseMentions(args.mentions);
     const mentionsJson = mentions.length > 0 ? JSON.stringify(mentions) : null;
+    const submissionSource =
+      ctx?.caller === "mcp" || ctx?.caller === "webmcp"
+        ? "mcp"
+        : ctx?.caller === "tool"
+          ? "agent"
+          : (ctx?.caller ?? null);
+    const submissionRunId = ctx?.runId ?? null;
 
     await db.insert(schema.documentComments).values({
       id,
@@ -147,6 +154,8 @@ export default defineAction({
       mentionsJson,
       authorEmail: email,
       authorName: name,
+      submissionSource,
+      submissionRunId,
     });
 
     const notified = await notifyDocumentComment({
@@ -157,6 +166,7 @@ export default defineAction({
       ownerEmail,
       authorEmail: email,
       authorName: name,
+      submissionSource,
       content,
       mentions,
       isReply: Boolean(parentId ?? args.threadId),

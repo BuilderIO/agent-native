@@ -205,6 +205,28 @@ describe("update-document compare-and-swap", () => {
     expect(current.updatedAt).toBe(remoteUpdatedAt);
   });
 
+  it("rejects a stale draft title even when its body matches the current Page", async () => {
+    const documentId = await createDocument({ content: "same body" });
+    const stale = await documentRow(documentId);
+    const newer = new Date(
+      new Date(stale.updatedAt).getTime() + 1000,
+    ).toISOString();
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Newer title", updatedAt: newer })
+      .where(eq(schema.documents.id, documentId));
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        title: "Stale draft title",
+        content: "same body",
+        baseUpdatedAt: stale.updatedAt,
+      }),
+    );
+    expect("conflict" in result && result.conflict).toBe(true);
+    expect((await documentRow(documentId)).title).toBe("Newer title");
+  });
+
   it("does not CAS-guard title/icon-only saves even when baseUpdatedAt is stale", async () => {
     const documentId = await createDocument({ content: "original" });
     const staleSnapshot = await documentRow(documentId);

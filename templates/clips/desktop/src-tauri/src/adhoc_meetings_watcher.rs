@@ -598,6 +598,14 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         return Ok(());
     }
 
+    let meetings_state = app
+        .try_state::<MeetingsWatcherState>()
+        .ok_or_else(|| "no MeetingsWatcherState".to_string())?;
+    if !meetings_state.experiment_enabled()? {
+        reset_evidence(app);
+        return Ok(());
+    }
+
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, client);

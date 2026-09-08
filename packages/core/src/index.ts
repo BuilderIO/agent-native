@@ -174,6 +174,15 @@ export {
   createFeatureFlagA2AActionRouteAuth,
   createFeatureFlagsPlugin,
 } from "./feature-flags/server.js";
+export {
+  defineExperiment,
+  defineExperiments,
+  getExperimentDefinition,
+  listExperiments,
+  registerExperiments,
+  type ExperimentDefinition,
+} from "./experiments/index.js";
+export { createExperimentsPlugin } from "./experiments/server.js";
 
 // Server
 export {

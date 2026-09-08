@@ -1292,6 +1292,7 @@ interface SqlChartProps {
   resolvedSql?: string;
   className?: string;
   loadData?: boolean;
+  timeRange?: number;
   reportScreenshot?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
@@ -1303,6 +1304,7 @@ export function SqlChart({
   panel,
   resolvedSql,
   loadData = true,
+  timeRange,
   reportScreenshot = false,
   onExportCsvChange,
   onCopyTableChange,
@@ -1342,11 +1344,12 @@ export function SqlChart({
     if (panel.config?.pivot && rawRows.length) {
       const pivoted = pivotRows(rawRows, panel.config.pivot, {
         fillDateGaps: panel.chartType !== "bar",
+        timeRange,
       });
       return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
     }
     return { rows: rawRows, forcedYKeys: undefined };
-  }, [rawRows, panel.chartType, panel.config?.pivot]);
+  }, [rawRows, panel.chartType, panel.config?.pivot, timeRange]);
 
   const { xKey, yKeys } = useMemo(
     () => detectKeys(queryRows, panel.config, forcedYKeys),

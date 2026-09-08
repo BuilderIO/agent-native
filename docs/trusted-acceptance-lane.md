@@ -213,7 +213,7 @@ the blast radius.
 
 The hosted-QA identity uses the framework's normal email/password session path,
 not `AUTH_DISABLED`, direct session seeding, a provider account, or a production
-identity. The controller creates a synthetic `+qa` email and a random 256-bit
+identity. The controller creates a synthetic `+autoz` email and a random 256-bit
 password for one lease, registers it at the exact acceptance origin, verifies a
 wrong password fails in an isolated browser context, and closes the credential
 over an in-memory callback. `AUTH_SKIP_EMAIL_VERIFICATION=1` is installed only

@@ -8,6 +8,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
 import { useSettingsPanelController } from "./useSettingsPanelController.js";
 
+vi.mock("../experiments/ExperimentsSettings.js", () => ({
+  ExperimentsSettings: ({
+    experiments,
+  }: {
+    experiments: readonly { key: string; displayName?: string }[];
+  }) => (
+    <div data-testid="experiments-content">
+      {experiments.map((experiment) => (
+        <span key={experiment.key}>
+          {experiment.displayName ?? experiment.key}
+        </span>
+      ))}
+    </div>
+  ),
+}));
+
 function stubMobileViewport(isMobile: boolean) {
   vi.stubGlobal(
     "matchMedia",
@@ -197,6 +213,90 @@ describe("SettingsTabsPage", () => {
 
     expect(container.textContent).toContain("General content");
     expect(container.textContent).not.toContain("Integration content");
+  });
+
+  it("only adds experiments when definitions exist and indexes each experiment", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            experiments={[
+              {
+                key: "clips.meetings",
+                displayName: "Meetings and transcription",
+                description: "Try meetings",
+              },
+            ]}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelector("#settings-tab-experiments")).not.toBeNull();
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    expect(searchInput).not.toBeNull();
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(searchInput, "meetings");
+      searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const result = container.querySelector('[role="option"]');
+    expect(result).not.toBeNull();
+    expect(result?.textContent).toContain("Meetings and transcription");
+    await act(async () =>
+      result?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+
+    expect(window.location.pathname).toBe(
+      "/settings/experiments/experiment-clips.meetings",
+    );
+    expect(
+      container.querySelector("[data-testid=experiments-content]")?.textContent,
+    ).toContain("Meetings and transcription");
+
+    await act(async () => {
+      root.unmount();
+      root = createRoot(container);
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage general={<div>General content</div>} />
+        </MemoryRouter>,
+      );
+    });
+    expect(container.querySelector("#settings-tab-experiments")).toBeNull();
+  });
+
+  it("places experiments after app-specific tabs such as notifications", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "notifications",
+              label: "Notifications",
+              content: <div>Notifications content</div>,
+            },
+          ]}
+          experiments={[{ key: "clips.meetings", displayName: "Meetings" }]}
+        />,
+      );
+    });
+
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLElement>("[id^='settings-tab-']"),
+    ).map((tab) => tab.id);
+    expect(tabs.indexOf("settings-tab-notifications")).toBeLessThan(
+      tabs.indexOf("settings-tab-experiments"),
+    );
   });
 
   it("restores a connections tab from its canonical route after a remount", () => {

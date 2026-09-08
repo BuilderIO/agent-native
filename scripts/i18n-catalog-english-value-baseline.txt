@@ -339,7 +339,6 @@ templates/clips/app/i18n/es-ES|meetingsRoute.guideDesktopDescription|Desktop cap
 templates/clips/app/i18n/es-ES|meetingsRoute.guideDesktopTitle|Keep Clips Desktop open
 templates/clips/app/i18n/es-ES|meetingsRoute.guideStartDescription|Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.
 templates/clips/app/i18n/es-ES|meetingsRoute.guideStartTitle|Click Start notes
-templates/clips/app/i18n/es-ES|meetingsRoute.howToTriggerDescription|Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history.
 templates/clips/app/i18n/es-ES|meetingsRoute.howToTriggerTitle|How to trigger meeting notes
 templates/clips/app/i18n/es-ES|meetingsRoute.intro|Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.
 templates/clips/app/i18n/es-ES|meetingsRoute.noMeetingsDescription|Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar.
@@ -537,7 +536,6 @@ templates/clips/app/i18n/pt-BR|meetingsRoute.guideDesktopDescription|Desktop cap
 templates/clips/app/i18n/pt-BR|meetingsRoute.guideDesktopTitle|Keep Clips Desktop open
 templates/clips/app/i18n/pt-BR|meetingsRoute.guideStartDescription|Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.
 templates/clips/app/i18n/pt-BR|meetingsRoute.guideStartTitle|Click Start notes
-templates/clips/app/i18n/pt-BR|meetingsRoute.howToTriggerDescription|Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history.
 templates/clips/app/i18n/pt-BR|meetingsRoute.howToTriggerTitle|How to trigger meeting notes
 templates/clips/app/i18n/pt-BR|meetingsRoute.intro|Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.
 templates/clips/app/i18n/pt-BR|meetingsRoute.noMeetingsDescription|Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar.
