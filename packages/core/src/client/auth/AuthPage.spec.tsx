@@ -73,7 +73,7 @@ describe("AuthPage", () => {
     expect(html).not.toContain("onclick");
   });
 
-  it("composes the shared marketing home and product screenshot for branded auth", () => {
+  it("composes the shared marketing home and animated background for branded auth", () => {
     const onboardingHtml = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
     });
@@ -82,14 +82,13 @@ describe("AuthPage", () => {
 
     expect(html).toContain('data-agent-native-marketing-home="true"');
     expect(html).toContain('class="auth-marketing-screenshot"');
-    expect(html).toContain("/auth-marketing/slides.webp");
+    expect(html).not.toContain('<img class="auth-marketing-screenshot"');
     expect(html).toContain("New to Slides?");
     expect(html).toContain('href="https://agent-native.com/apps/slides"');
     expect(html).toContain('class="auth-marketing-learn-more"');
     expect(onboardingHtml).toContain(
       "bottom: max(1rem, env(safe-area-inset-bottom));\n    inset-inline-end: max(1rem, env(safe-area-inset-right));",
     );
-    expect(html).not.toContain('data-agent-native-starfield="true"');
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
     expect(html).toContain('class="form-panel');

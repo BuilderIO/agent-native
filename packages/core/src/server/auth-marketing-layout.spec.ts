@@ -1,11 +1,9 @@
 // Contract: the marketing panel's "New to <app>? Learn more" link, its
-// bottom-right placement, and the product-screenshot blur/opacity treatment
+// bottom-right placement, and the branded auth background blur/opacity treatment
 // were deleted as dead code twice in one day. This spec renders the real
 // onboarding HTML for every entry in BUILT_IN_AUTH_MARKETING and asserts the
 // structural contract directly, so a future deletion fails a test instead of
 // flipping a unit expectation.
-import { existsSync } from "node:fs";
-
 import { afterEach, describe, expect, it } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/index.js";
@@ -20,12 +18,6 @@ function readAuthPageData(html: string): AuthPageProps {
   if (!match) throw new Error("auth page data is missing");
   return JSON.parse(match[1]!) as AuthPageProps;
 }
-
-const templateScreenshotFile = (slug: string, screenshotPath: string) =>
-  new URL(
-    `../../../../templates/${slug}/public${screenshotPath}`,
-    import.meta.url,
-  );
 
 describe("built-in auth marketing layout contract", () => {
   afterEach(() => {
@@ -50,6 +42,7 @@ describe("built-in auth marketing layout contract", () => {
       expect(props.marketing?.appName).toBe(marketing.appName);
       expect(html).toContain('data-agent-native-marketing-home="true"');
       expect(html).toContain('class="marketing-panel"');
+      expect(html).not.toMatch(/<img[^>]*class="auth-marketing-screenshot"/);
 
       // (e) the layout background/wrapper classes the config depends on
       expect(html).toContain('<body class="has-marketing">');
@@ -64,18 +57,10 @@ describe("built-in auth marketing layout contract", () => {
       const shortName = marketing.appName.replace(/^Agent-Native\s+/i, "");
       expect(html).toContain(`New to ${shortName}?`);
       expect(html).toContain(">Learn more<");
-
-      // (d) the marketing screenshot resolves to a file that exists on disk
-      if (marketing.screenshotPath) {
-        expect(html).toContain(`src="${marketing.screenshotPath}"`);
-        expect(
-          existsSync(templateScreenshotFile(slug, marketing.screenshotPath)),
-        ).toBe(true);
-      }
     },
   );
 
-  it("declares the placement-class CSS rules and the screenshot blur/opacity treatment", () => {
+  it("declares the placement-class CSS rules and the auth background treatment", () => {
     const html = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
     });
@@ -84,7 +69,7 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toMatch(
       /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*bottom:/,
     );
-    // the product-screenshot dim/blur treatment used by the marketing panel
+    // the auth background dim/blur treatment used by the marketing panel
     expect(html).toMatch(
       /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*filter:\s*blur\(18px\);[^}]*opacity:\s*0\.8;/,
     );
