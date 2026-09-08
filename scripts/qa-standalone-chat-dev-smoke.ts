@@ -1863,6 +1863,24 @@ async function setDarkMode(page: Page, enabled: boolean): Promise<void> {
       document.documentElement.dataset.theme === nextTheme,
     theme,
   );
+  // The theme class changes before the composer's color transition finishes.
+  await page.waitForFunction(
+    () => {
+      const composer = document.querySelector(".agentkit-composer");
+      return (
+        composer !== null &&
+        composer
+          .getAnimations()
+          .every(
+            (animation) =>
+              !(animation instanceof CSSTransition) ||
+              animation.playState === "finished",
+          )
+      );
+    },
+    undefined,
+    { timeout: 5_000 },
+  );
 }
 
 type LayoutBox = {
