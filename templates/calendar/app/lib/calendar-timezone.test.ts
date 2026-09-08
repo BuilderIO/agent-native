@@ -8,6 +8,7 @@ import {
   getCalendarDayBounds,
   getDisplayDateInTimezone,
   getDateKeyInTimezone,
+  getEventDateKey,
   getEventSegmentForCalendarDay,
   getViewDateRange,
   isAllDayCalendarEvent,
@@ -103,6 +104,36 @@ describe("calendar timezone helpers", () => {
     expect(
       getEventSegmentForCalendarDay(event, dateKeyToDate("2026-08-13"), "UTC"),
     ).toMatchObject({ topMinutes: 0, durationMinutes: 24 * 60 });
+  });
+
+  it("recognizes provider midnight bounds without misclassifying short events", () => {
+    const timezone = "Asia/Tokyo";
+    const allDayEvent = {
+      start: dateTimeInTimezoneToIso("2026-08-13", "00:00", timezone),
+      end: dateTimeInTimezoneToIso("2026-08-14", "00:00", timezone),
+      startTimeZone: timezone,
+      endTimeZone: timezone,
+      allDay: false as const,
+    };
+
+    expect(isAllDayCalendarEvent(allDayEvent, timezone)).toBe(true);
+    expect(getEventDateKey(allDayEvent, timezone)).toBe("2026-08-13");
+    expect(
+      eventOverlapsCalendarDay(
+        allDayEvent,
+        dateKeyToDate("2026-08-13"),
+        timezone,
+      ),
+    ).toBe(true);
+    expect(
+      isAllDayCalendarEvent(
+        {
+          ...allDayEvent,
+          end: dateTimeInTimezoneToIso("2026-08-13", "01:00", timezone),
+        },
+        timezone,
+      ),
+    ).toBe(false);
   });
 
   it("formats event wall-clock fields in the event timezone", () => {

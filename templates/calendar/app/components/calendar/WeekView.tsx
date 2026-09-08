@@ -637,28 +637,30 @@ export const WeekView = memo(function WeekView({
     () =>
       events.filter(
         (event) =>
-          isAllDayCalendarEvent(event) || isFullDayOutOfOfficeEvent(event),
+          isAllDayCalendarEvent(event, timezone) ||
+          isFullDayOutOfOfficeEvent(event),
       ),
-    [events],
+    [events, timezone],
   );
 
   const outOfOfficeEvents = useMemo(
     () =>
       events.filter(
         (event) =>
-          !isAllDayCalendarEvent(event) &&
+          !isAllDayCalendarEvent(event, timezone) &&
           isOutOfOfficeEvent(event) &&
           !isFullDayOutOfOfficeEvent(event),
       ),
-    [events],
+    [events, timezone],
   );
 
   const timedEvents = useMemo(
     () =>
       events.filter(
-        (event) => !isAllDayCalendarEvent(event) && !isOutOfOfficeEvent(event),
+        (event) =>
+          !isAllDayCalendarEvent(event, timezone) && !isOutOfOfficeEvent(event),
       ),
-    [events],
+    [events, timezone],
   );
 
   const { workingLocations, regularEvents } = useMemo(

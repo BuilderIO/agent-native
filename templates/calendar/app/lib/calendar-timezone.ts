@@ -44,12 +44,54 @@ export function normalizeTimezone(timezone?: string): string {
   return isCalendarTimezone(timezone) ? timezone : getBrowserTimezone();
 }
 
+type CalendarEventTimeBounds = Pick<
+  CalendarEvent,
+  "allDay" | "start" | "end" | "startTimeZone" | "endTimeZone"
+>;
+
+function getEventTimezone(
+  event: Pick<CalendarEvent, "startTimeZone" | "endTimeZone">,
+  fallbackTimezone?: string,
+): string | undefined {
+  return [event.startTimeZone, event.endTimeZone, fallbackTimezone].find(
+    (value): value is string => isCalendarTimezone(value),
+  );
+}
+
 export function isAllDayCalendarEvent(
-  event: Pick<CalendarEvent, "allDay" | "start" | "end">,
+  event: CalendarEventTimeBounds,
+  timezone?: string,
 ): boolean {
-  return (
+  if (
     event.allDay ||
     (DATE_ONLY_PATTERN.test(event.start) && DATE_ONLY_PATTERN.test(event.end))
+  ) {
+    return true;
+  }
+
+  // Some provider feeds preserve an all-day event as zoned midnight instants
+  // and lose the explicit flag.
+  const eventTimezone = getEventTimezone(event, timezone);
+  if (!eventTimezone) return false;
+
+  const start = dateTimeParts(event.start, eventTimezone);
+  const end = dateTimeParts(event.end, eventTimezone);
+  if (!start || !end || end.date <= start.date) return false;
+
+  const startAtMidnight = new Date(
+    dateTimeInTimezoneToIso(start.date, "00:00", eventTimezone),
+  ).getTime();
+  const endAtMidnight = new Date(
+    dateTimeInTimezoneToIso(end.date, "00:00", eventTimezone),
+  ).getTime();
+  const actualStart = new Date(event.start).getTime();
+  const actualEnd = new Date(event.end).getTime();
+
+  return (
+    Number.isFinite(actualStart) &&
+    Number.isFinite(actualEnd) &&
+    actualStart === startAtMidnight &&
+    actualEnd === endAtMidnight
   );
 }
 
@@ -176,20 +218,22 @@ export function getViewDateRange(
   );
 }
 
-function dateOnlyPart(value: string | undefined): string | null {
+function eventDatePart(
+  value: string | undefined,
+  timezone: string,
+): string | null {
   if (!value) return null;
   if (DATE_ONLY_PATTERN.test(value)) return value;
-  return value.slice(0, 10);
+  return getDateTimePartsInTimezone(value, timezone)?.date ?? null;
 }
 
-function eventDateRange(
-  event: Pick<CalendarEvent, "start" | "end" | "allDay">,
-  timezone: string,
-) {
-  if (isAllDayCalendarEvent(event)) {
-    const startDate = dateOnlyPart(event.start);
+function eventDateRange(event: CalendarEventTimeBounds, timezone: string) {
+  if (isAllDayCalendarEvent(event, timezone)) {
+    const eventTimezone =
+      getEventTimezone(event, timezone) ?? normalizeTimezone(timezone);
+    const startDate = eventDatePart(event.start, eventTimezone);
     const endDate =
-      dateOnlyPart(event.end) ??
+      eventDatePart(event.end, eventTimezone) ??
       (startDate ? addCalendarDays(startDate, 1) : null);
     return startDate && endDate ? { startDate, endDate } : null;
   }
@@ -207,7 +251,7 @@ export function getEventDateKey(
 }
 
 export function moveEventToCalendarDate(
-  event: Pick<CalendarEvent, "start" | "end" | "allDay">,
+  event: CalendarEventTimeBounds,
   targetDate: Date,
   timezone: string,
 ): { start: string; end: string } | null {
@@ -215,9 +259,12 @@ export function moveEventToCalendarDate(
   const sourceStartDate = getEventDateKey(event, timezone);
   if (!sourceStartDate) return null;
 
-  if (isAllDayCalendarEvent(event)) {
+  if (isAllDayCalendarEvent(event, timezone)) {
+    const eventTimezone =
+      getEventTimezone(event, timezone) ?? normalizeTimezone(timezone);
     const sourceEndDate =
-      dateOnlyPart(event.end) ?? addCalendarDays(sourceStartDate, 1);
+      eventDatePart(event.end, eventTimezone) ??
+      addCalendarDays(sourceStartDate, 1);
     const spanDays = Math.max(
       1,
       Math.round(
@@ -266,7 +313,7 @@ export function eventOverlapsCalendarDay(
 ): boolean {
   const normalizedTimezone = normalizeTimezone(timezone);
   const dayBounds = getCalendarDayBounds(day, normalizedTimezone);
-  if (isAllDayCalendarEvent(event)) {
+  if (isAllDayCalendarEvent(event, normalizedTimezone)) {
     const range = eventDateRange(event, normalizedTimezone);
     const dayDate = dayBounds.date;
     return Boolean(

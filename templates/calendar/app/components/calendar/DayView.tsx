@@ -560,10 +560,10 @@ export const DayView = memo(function DayView({
     () =>
       events.filter(
         (event) =>
-          isAllDayCalendarEvent(event) ||
+          isAllDayCalendarEvent(event, timezone) ||
           fullDayOutOfOfficeCoversDate(event, date),
       ),
-    [date, events],
+    [date, events, timezone],
   );
   const { workingLocations, regularEvents: regularAllDayEvents } = useMemo(
     () => partitionAllDayEvents(allDayEvents),
@@ -573,18 +573,19 @@ export const DayView = memo(function DayView({
     () =>
       events.filter(
         (event) =>
-          !isAllDayCalendarEvent(event) &&
+          !isAllDayCalendarEvent(event, timezone) &&
           isOutOfOfficeEvent(event) &&
           !isFullDayOutOfOfficeEvent(event),
       ),
-    [events],
+    [events, timezone],
   );
   const timedEvents = useMemo(
     () =>
       events.filter(
-        (event) => !isAllDayCalendarEvent(event) && !isOutOfOfficeEvent(event),
+        (event) =>
+          !isAllDayCalendarEvent(event, timezone) && !isOutOfOfficeEvent(event),
       ),
-    [events],
+    [events, timezone],
   );
   const layout = useMemo(
     () => computeTimedEventLayout(timedEvents, date, timezone),
