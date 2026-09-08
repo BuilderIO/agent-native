@@ -820,21 +820,21 @@ async function loadDailyAndMonthlyUsage(usage: {
   };
 }
 
-async function loadDailyActiveUsers(
+async function loadWeeklyActiveUsers(
   usage: { where: string; args: unknown[] },
-  sinceMs: number,
-): Promise<
-  Map<string, { dailyActiveUsers: number; weeklyActiveUsers: number }>
-> {
+  startDate: string,
+  endDate: string,
+): Promise<Map<string, number>> {
   const dayBucketExpression = `CAST(created_at / ${DAY_MS} AS INTEGER)`;
-  const rows = await queryRows<Record<string, unknown>>(
-    `SELECT ${dayBucketExpression} AS day_bucket, owner_email
-      FROM token_usage
-      WHERE ${usage.where}
-      GROUP BY ${dayBucketExpression}, owner_email
-      ORDER BY ${dayBucketExpression} ASC`,
-    usage.args,
-  );
+  const result = await getDbExec().execute({
+    sql: `SELECT ${dayBucketExpression} AS day_bucket, owner_email
+        FROM token_usage
+        WHERE ${usage.where}
+        GROUP BY ${dayBucketExpression}, owner_email
+        ORDER BY ${dayBucketExpression} ASC`,
+    args: usage.args,
+  });
+  const rows = result.rows as Record<string, unknown>[];
   const usersByDay = new Map<string, Set<string>>();
   for (const row of rows) {
     const day = new Date(numberField(row, "day_bucket") * DAY_MS)
@@ -845,32 +845,23 @@ async function loadDailyActiveUsers(
     usersByDay.set(day, users);
   }
 
-  const visibleStart = new Date(Math.floor(sinceMs / DAY_MS) * DAY_MS)
-    .toISOString()
-    .slice(0, 10);
-  const days = [...usersByDay.keys()].sort();
-  const activityByDay = new Map<
-    string,
-    { dailyActiveUsers: number; weeklyActiveUsers: number }
-  >();
-  for (let index = 0; index < days.length; index += 1) {
-    const day = days[index];
-    const dayStart = Date.parse(`${day}T00:00:00Z`);
+  const activityByDay = new Map<string, number>();
+  const firstDay = Date.parse(`${startDate}T00:00:00Z`);
+  const lastDay = Date.parse(`${endDate}T00:00:00Z`);
+  for (let dayStart = firstDay; dayStart <= lastDay; dayStart += DAY_MS) {
+    const day = new Date(dayStart).toISOString().slice(0, 10);
     const weeklyUsers = new Set<string>();
-    for (let previousIndex = index; previousIndex >= 0; previousIndex -= 1) {
-      const previousDay = days[previousIndex];
-      const previousStart = Date.parse(`${previousDay}T00:00:00Z`);
-      if (dayStart - previousStart > 6 * DAY_MS) break;
+    for (
+      let previousDayStart = dayStart;
+      previousDayStart >= dayStart - 6 * DAY_MS;
+      previousDayStart -= DAY_MS
+    ) {
+      const previousDay = new Date(previousDayStart).toISOString().slice(0, 10);
       for (const user of usersByDay.get(previousDay) ?? []) {
         weeklyUsers.add(user);
       }
     }
-    if (day >= visibleStart) {
-      activityByDay.set(day, {
-        dailyActiveUsers: usersByDay.get(day)?.size ?? 0,
-        weeklyActiveUsers: weeklyUsers.size,
-      });
-    }
+    activityByDay.set(day, weeklyUsers.size);
   }
   return activityByDay;
 }
@@ -1012,8 +1003,9 @@ export async function listDispatchUsageMetrics(input: {
             : usageScope(sinceMs, memberEmails),
           orgId,
         );
+  const visibleSinceMs = Math.floor(sinceMs / DAY_MS) * DAY_MS;
   const adoptionSinceMs = Math.min(
-    sinceMs - 6 * DAY_MS,
+    visibleSinceMs - 6 * DAY_MS,
     generatedAt - 7 * DAY_MS,
   );
   const adoptionUsage =
@@ -1159,22 +1151,34 @@ export async function listDispatchUsageMetrics(input: {
     });
   }
 
-  const [
-    { daily: usageDaily, monthlyByUser: monthlyUsage },
-    appAdoptionMap,
-    activeUserTrends,
-  ] = await Promise.all([
-    loadDailyAndMonthlyUsage(usage),
-    loadAppAdoption(usage, adoptionUsage, generatedAt),
-    loadDailyActiveUsers(adoptionUsage, sinceMs),
-  ]);
-  const daily = usageDaily.map((row) => ({
-    ...row,
-    ...(activeUserTrends.get(row.date) ?? {
-      dailyActiveUsers: row.activeUsers,
-      weeklyActiveUsers: row.activeUsers,
-    }),
-  }));
+  const [{ daily: usageDaily, monthlyByUser: monthlyUsage }, appAdoptionMap] =
+    await Promise.all([
+      loadDailyAndMonthlyUsage(usage),
+      loadAppAdoption(usage, adoptionUsage, generatedAt),
+    ]);
+  const usageByDate = new Map(usageDaily.map((row) => [row.date, row]));
+  const weeklyActiveUsers =
+    usageDaily.length === 0
+      ? null
+      : await loadWeeklyActiveUsers(
+          adoptionUsage,
+          usageDaily[0].date,
+          usageDaily[usageDaily.length - 1].date,
+        );
+  const daily = weeklyActiveUsers
+    ? [...weeklyActiveUsers.entries()].map(([date, weeklyUsers]) => ({
+        ...(usageByDate.get(date) ?? {
+          date,
+          costCents: 0,
+          calls: 0,
+          chatCalls: 0,
+          activeUsers: 0,
+          dailyActiveUsers: 0,
+          weeklyActiveUsers: 0,
+        }),
+        weeklyActiveUsers: weeklyUsers,
+      }))
+    : usageDaily;
 
   const monthlyByUser =
     viewScope === "app"

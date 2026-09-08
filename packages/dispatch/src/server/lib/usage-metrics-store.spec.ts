@@ -801,26 +801,30 @@ describe("listDispatchUsageMetrics", () => {
         cacheWriteTokens: 2,
       },
     ]);
-    expect(metrics.daily).toEqual([
-      {
-        date: "2026-07-01",
-        costCents: 100,
-        calls: 1,
-        chatCalls: 1,
-        activeUsers: 1,
-        dailyActiveUsers: 1,
-        weeklyActiveUsers: 1,
-      },
-      {
-        date: "2026-07-15",
-        costCents: 200,
-        calls: 1,
-        chatCalls: 0,
-        activeUsers: 1,
-        dailyActiveUsers: 1,
-        weeklyActiveUsers: 2,
-      },
-    ]);
+    expect(metrics.daily).toHaveLength(15);
+    expect(metrics.daily[0]).toMatchObject({
+      date: "2026-07-01",
+      costCents: 100,
+      calls: 1,
+      chatCalls: 1,
+      activeUsers: 1,
+      dailyActiveUsers: 1,
+      weeklyActiveUsers: 1,
+    });
+    expect(metrics.daily[9]).toMatchObject({
+      date: "2026-07-10",
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 1,
+    });
+    expect(metrics.daily[14]).toMatchObject({
+      date: "2026-07-15",
+      costCents: 200,
+      calls: 1,
+      chatCalls: 0,
+      activeUsers: 1,
+      dailyActiveUsers: 1,
+      weeklyActiveUsers: 2,
+    });
     expect(metrics.workspaceAppCreationsByUserMonth).toEqual([
       {
         month: "2026-07",

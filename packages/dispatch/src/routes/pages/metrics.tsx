@@ -266,7 +266,7 @@ function formatTrendDate(value: string): string {
   });
 }
 
-function completeTrendRows(rows: DailyUsageMetric[]): DailyUsageMetric[] {
+function completeUsageTrendRows(rows: DailyUsageMetric[]): DailyUsageMetric[] {
   if (rows.length < 2) return rows;
   const byDate = new Map(rows.map((row) => [row.date, row]));
   const start = new Date(`${rows[0].date}T12:00:00`);
@@ -294,7 +294,7 @@ function completeTrendRows(rows: DailyUsageMetric[]): DailyUsageMetric[] {
 }
 
 function UserActivityTrend({ rows }: { rows: DailyUsageMetric[] }) {
-  const chartData = completeTrendRows(rows).map((row) => ({
+  const chartData = rows.map((row) => ({
     ...row,
     dau: row.dailyActiveUsers,
     wau: row.weeklyActiveUsers,
@@ -595,7 +595,7 @@ function UsageTrend({
   rows: DailyUsageMetric[];
   billing: UsageBillingMode;
 }) {
-  const chartData = completeTrendRows(rows).map((row) => ({
+  const chartData = completeUsageTrendRows(rows).map((row) => ({
     ...row,
     spend: displayAmountFromCostCents(row.costCents, billing),
   }));
