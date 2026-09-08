@@ -60,7 +60,7 @@ import {
   localizeDocsHref,
   type DocsLocale,
 } from "./docs-locale";
-import { renderMarkdownToHtml } from "./MarkdownRenderer";
+import MarkdownRenderer from "./MarkdownRenderer";
 
 export {
   DOC_BLOCK_LANGUAGES,
@@ -106,23 +106,6 @@ function getDocBlockRegistry(): BlockRegistry {
 /* Render context                                                              */
 /* -------------------------------------------------------------------------- */
 
-function MarkdownInline({
-  markdown,
-  locale,
-}: {
-  markdown: string;
-  locale: DocsLocale;
-}): ReactNode {
-  return (
-    <div
-      className="docs-content"
-      dangerouslySetInnerHTML={{
-        __html: renderMarkdownToHtml(markdown, locale),
-      }}
-    />
-  );
-}
-
 /**
  * The read-only render context shared by every docs block. Wires markdown-bearing
  * blocks (callout bodies, annotated-code notes) to the docs markdown renderer and
@@ -139,7 +122,7 @@ function useDocBlockContext(locale: DocsLocale): BlockRenderContext {
       showCodeAnnotationOverlays: false,
       localizeHref: (href) => localizeDocsHref(href, locale),
       renderMarkdown: (markdown) => (
-        <MarkdownInline markdown={markdown} locale={locale} />
+        <MarkdownRenderer markdown={markdown} locale={locale} />
       ),
       renderBlock: ({ block, compactVisuals }) => (
         <DocNestedBlock

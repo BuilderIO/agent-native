@@ -438,21 +438,19 @@ const frFR = {
   },
   homepage: {
     hero: {
-      title: "Le framework pour les applications agentiques.",
-      bodyLine1:
-        "Un framework TypeScript open source pour des apps avec une interface et un agent.",
-      bodyLine2:
-        "Définissez chaque action une fois et appelez-la depuis n’importe où.",
+      title: "Le framework des applications agentic",
+      bodyLine1: "Créez des agents autonomes avec des interfaces intuitives.",
+      bodyLine2: "Apportez votre propre LLM. Déployez où vous voulez.",
       tryAnApp: "Essayer une app",
     },
     install: {
       copyCommand: "Copier la commande d'installation",
     },
     actions: {
-      title: "Appelez une action depuis n’importe où.",
-      bodyLine1: "Définissez une capacité avec defineAction().",
+      title: "Une action alimente chaque surface",
+      bodyLine1: "Définissez une capacité une seule fois avec defineAction().",
       bodyLine2:
-        "Votre UI React, votre agent, vos clients HTTP et vos intégrations utilisent tous le même code.",
+        "Votre agent, votre UI React, vos clients HTTP et vos intégrations utilisent tous le même code.",
       diagramAlt:
         "Une action alimente l'UI, MCP, le chat de l'agent, A2A, HTTP API et CLI",
     },
@@ -547,7 +545,7 @@ const frFR = {
         "Décrivez en langage courant ce que vous voulez créer et l’agent le fera pour vous.",
       stepThreeTitle: "Déployer",
       stepThreeBody:
-        "Quand vous êtes prêt, déployez votre application en un clic dans Builder.",
+        "Quand vous êtes prêt, déployez votre agent et son UI en un clic dans Builder.",
     },
   },
   templatesPage: {
