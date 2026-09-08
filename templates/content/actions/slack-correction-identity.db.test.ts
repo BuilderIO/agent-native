@@ -10,7 +10,7 @@ import { serializePropertyOptions } from "../shared/properties.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `slack-correction-identity-${process.pid}-${Date.now()}.sqlite`,
+  `slack-correction-identity-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "slack-correction-owner@example.com";
 
@@ -22,7 +22,7 @@ let updateDocument: typeof import("./update-document.js").default;
 let setDocumentProperty: typeof import("./set-document-property.js").default;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -37,9 +37,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function seedDesignAsksDatabase() {

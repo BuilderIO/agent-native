@@ -1,6 +1,8 @@
 import { recordChange } from "@agent-native/core/server/poll";
+import { eq } from "drizzle-orm";
 import { defineEventHandler, setResponseStatus, createEventStream } from "h3";
 
+import { getDb, schema } from "../db/index.js";
 import { resolveSlidesRequestAuth } from "./request-auth-context.js";
 
 // --- SSE for change notifications ---
@@ -46,6 +48,44 @@ export interface NotifyClientsOptions {
 }
 
 /**
+ * Look up the deck's owner/org/visibility for the poll service's owned/org
+ * fast path (see `canSeeChangeForUser` in packages/core/src/server/poll.ts).
+ * Without these, an unowned "deck" change only carries resourceType +
+ * resourceId, so the access-aware branch treats every viewer — including the
+ * deck's own owner — as a cache miss on their first event: it returns
+ * "pending" and holds the cursor back until the next 60s fallback poll.
+ * Best-effort: on any DB error (or a since-deleted deck) fall back to an
+ * unscoped event rather than blocking or failing the broadcast.
+ */
+async function resolveDeckChangeScope(
+  deckId: string,
+): Promise<Pick<NotifyClientsOptions, "owner" | "orgId" | "visibility">> {
+  try {
+    const rows = await getDb()
+      .select({
+        ownerEmail: schema.decks.ownerEmail,
+        orgId: schema.decks.orgId,
+        visibility: schema.decks.visibility,
+      })
+      .from(schema.decks)
+      .where(eq(schema.decks.id, deckId));
+    const row = rows[0];
+    if (!row) return {};
+    return {
+      owner: row.ownerEmail,
+      ...(row.orgId ? { orgId: row.orgId } : {}),
+      ...(row.visibility === "public" ? { visibility: "public" as const } : {}),
+    };
+  } catch (err) {
+    console.error(
+      `[slides] notifyClients: failed to resolve owner scope for deck ${deckId}`,
+      err,
+    );
+    return {};
+  }
+}
+
+/**
  * Broadcast a deck change to all connected UI clients. Exported so agent
  * actions (add-slide, update-slide, create-deck) can notify the frontend
  * after a direct DB write — otherwise the UI has no way to know the deck
@@ -57,11 +97,17 @@ export interface NotifyClientsOptions {
  * carrying `slideId` / `actor` so the client can attribute agent edits to a
  * specific slide. The wire payload always includes `type` and `deckId`; extra
  * fields are only present when supplied.
+ *
+ * Callers that already know the event's owner/org/visibility scope (e.g.
+ * `delete-deck`'s per-recipient fanout) should keep passing it explicitly —
+ * that skips the lookup below entirely. Every other caller only knows the
+ * deckId, so this resolves the scope from the deck row itself (one query,
+ * one place) instead of requiring all 14+ call sites to look it up.
  */
-export function notifyClients(
+export async function notifyClients(
   deckId: string,
   typeOrOptions: string | NotifyClientsOptions = "deck-changed",
-) {
+): Promise<void> {
   const options: NotifyClientsOptions =
     typeof typeOrOptions === "string" ? { type: typeOrOptions } : typeOrOptions;
   const type = options.type ?? "deck-changed";
@@ -70,6 +116,14 @@ export function notifyClients(
   if (options.actor) payload.actor = options.actor;
   if (options.agentChangeId) payload.agentChangeId = options.agentChangeId;
   const message = JSON.stringify(payload);
+  const scope =
+    options.owner || options.orgId || options.visibility
+      ? {
+          ...(options.owner ? { owner: options.owner } : {}),
+          ...(options.orgId ? { orgId: options.orgId } : {}),
+          ...(options.visibility ? { visibility: options.visibility } : {}),
+        }
+      : await resolveDeckChangeScope(deckId);
   // Publish the same notification through Core's shared sync stream so the
   // client does not need a second deck-specific SSE connection. Keep the
   // legacy in-process stream below for older clients and external consumers.
@@ -79,9 +133,7 @@ export function notifyClients(
     key: deckId,
     resourceType: "deck",
     resourceId: deckId,
-    ...(options.owner ? { owner: options.owner } : {}),
-    ...(options.orgId ? { orgId: options.orgId } : {}),
-    ...(options.visibility ? { visibility: options.visibility } : {}),
+    ...scope,
     ...payload,
   });
   if (process.env.DEBUG_SLIDES_SSE) {

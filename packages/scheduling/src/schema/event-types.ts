@@ -16,6 +16,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const eventTypes = table("event_types", {
   id: text("id").primaryKey(),
@@ -29,7 +30,7 @@ export const eventTypes = table("event_types", {
   /** JSON array of additional duration choices, e.g. [15, 30, 60] */
   durations: text("durations"),
   position: integer("position").notNull().default(0),
-  hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
+  hidden: boolean("hidden").notNull().default(false),
   color: text("color"),
 
   // Scheduling model
@@ -69,21 +70,15 @@ export const eventTypes = table("event_types", {
 
   // Capacity & policies
   seatsPerTimeSlot: integer("seats_per_time_slot"),
-  requiresConfirmation: integer("requires_confirmation", { mode: "boolean" })
+  requiresConfirmation: boolean("requires_confirmation")
     .notNull()
     .default(false),
-  disableGuests: integer("disable_guests", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  hideCalendarNotes: integer("hide_calendar_notes", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  disableGuests: boolean("disable_guests").notNull().default(false),
+  hideCalendarNotes: boolean("hide_calendar_notes").notNull().default(false),
   successRedirectUrl: text("success_redirect_url"),
   bookingLimits: text("booking_limits"),
   /** Lock timezone on Booker (for in-person or local-only events) */
-  lockTimeZoneToggle: integer("lock_time_zone_toggle", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  lockTimeZoneToggle: boolean("lock_time_zone_toggle").notNull().default(false),
 
   // Recurring (JSON RecurringEventRule) — Tier 2
   recurringEvent: text("recurring_event"),
@@ -107,7 +102,7 @@ export const eventTypeHosts = table("event_type_hosts", {
   eventTypeId: text("event_type_id").notNull(),
   userEmail: text("user_email").notNull(),
   /** Fixed hosts always attend; non-fixed hosts rotate in round-robin */
-  isFixed: integer("is_fixed", { mode: "boolean" }).notNull().default(false),
+  isFixed: boolean("is_fixed").notNull().default(false),
   /** Relative weight for weighted round-robin (default 1) */
   weight: integer("weight").notNull().default(1),
   /** Lower number = higher priority in round-robin tiebreak */
@@ -144,9 +139,7 @@ export const hashedLinks = table("hashed_links", {
   hash: text("hash").notNull().unique(),
   eventTypeId: text("event_type_id").notNull(),
   expiresAt: text("expires_at"),
-  isSingleUse: integer("is_single_use", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  isSingleUse: boolean("is_single_use").notNull().default(false),
   usedAt: text("used_at"),
   createdAt: text("created_at").notNull(),
 });

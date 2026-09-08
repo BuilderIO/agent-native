@@ -527,6 +527,28 @@ describe("projectFactoryAuditReport", () => {
 });
 
 describe("auditItemSubject", () => {
+  it("titles a GitHub item with its pull request title, not its body", () => {
+    expect(
+      auditItemSubject(
+        {
+          id: "item",
+          title: "Fix duplicate clear icons in Settings search",
+          summary: "### Summary\nFixes a bug where two clear icons rendered.",
+          source: "github",
+          sourceUrl: "https://github.com/acme/demo/pull/12",
+        },
+        [
+          event({
+            id: "poll",
+            action: "poll-github-sources",
+            kind: "observe",
+            summary: "Observed 1 pull request.",
+          }),
+        ],
+      ),
+    ).toBe("Fix duplicate clear icons in Settings search");
+  });
+
   it("prefers the stored feedback summary over a generic Slack title", () => {
     expect(
       auditItemSubject(

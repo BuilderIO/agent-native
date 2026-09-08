@@ -158,8 +158,8 @@ const koKR = {
           body: "작업을 한 번 정의하고 UI, agent, HTTP, MCP, A2A, CLI에서 사용합니다.",
         },
         sqlStateOrm: {
-          title: "SQL 상태와 ORM",
-          body: "지속되는 앱 데이터, application state, migration, 공급자 독립 schema.",
+          title: "PostgreSQL 상태와 ORM",
+          body: "지속되는 앱 데이터, application state, migration, PostgreSQL/PGlite schema.",
         },
         dbAdmin: {
           title: "데이터베이스 관리",
@@ -212,7 +212,7 @@ const koKR = {
       body1:
         "Agent-Native 는 agentic applications를 만들기 위한 오픈소스 framework 입니다. Chat에서 시작하고, shared actions를 정의한 뒤, 같은 state를 중심으로 UI, jobs, 협업을 추가하세요.",
       body2:
-        "자체 데이터베이스, 호스팅 제공자, 모델 스택, app 코드를 가져오세요.",
+        "로컬 PGlite 또는 호스팅 PostgreSQL과 호스팅 제공자, 모델 스택, app 코드를 사용하세요.",
       cta: "framework 가이드 읽기",
       primitives: {
         actions: {
@@ -223,17 +223,17 @@ const koKR = {
         sharedState: {
           title: "공유 상태",
           description:
-            "SQL-backed app state 가 사람, agents, sessions 를 동기화된 상태로 유지합니다.",
+            "PostgreSQL/PGlite로 뒷받침되는 app state가 사람, agents, sessions를 동기화된 상태로 유지합니다.",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "app-agent loop, tools, skills, memory, jobs, observability 가 함께 제공됩니다.",
         },
-        backendAgnostic: {
-          title: "백엔드 독립적",
+        postgresSpecific: {
+          title: "PostgreSQL 전용",
           description:
-            "Drizzle 이 지원하는 어떤 SQL 데이터베이스와 Nitro 호환 호스트든 연결할 수 있습니다.",
+            "프레임워크의 PostgreSQL 스키마 도우미를 로컬 PGlite 또는 Nitro 호환 호스트의 호스팅 Postgres와 함께 사용하세요.",
         },
       },
     },
@@ -312,7 +312,7 @@ const koKR = {
     },
     quickStart: {
       title: "명령으로 시작",
-      body: "명령 하나가 actions, durable threads, SQLite로 뒷받침되는 chat-first 로컬 app을 만듭니다. 아직 브라우저 UI가 필요 없는 automation-first workflow에만 `--headless`를 사용하세요.",
+      body: "명령 하나가 actions, durable threads, PGlite로 뒷받침되는 chat-first 로컬 app을 만듭니다. 아직 브라우저 UI가 필요 없는 automation-first workflow에만 `--headless`를 사용하세요.",
     },
     finalCta: {
       title: "agentic era 를 위해 구축된 소프트웨어",
@@ -447,9 +447,9 @@ const koKR = {
     },
     actions: {
       title: "하나의 Action이 모든 표면을 구동합니다",
-      bodyLine1: "Action은 에이전트가 할 수 있는 일을 정의합니다.",
+      bodyLine1: "defineAction()으로 기능을 한 번만 정의하세요.",
       bodyLine2:
-        "각 기능을 한 번만 정의하고 에이전트, UI, HTTP API, MCP, A2A, CLI에서 그대로 사용하세요.",
+        "에이전트, React UI, HTTP 클라이언트와 통합 기능이 모두 같은 코드를 호출합니다.",
       diagramAlt:
         "하나의 Action이 UI, MCP, 에이전트 채팅, A2A, HTTP API, CLI를 구동합니다",
     },
@@ -470,7 +470,7 @@ const koKR = {
           body: "에이전트가 사용자가 무엇을 보고, 선택하고, 편집하는지 알고 있습니다.",
         },
         sharedSql: {
-          title: "공유 SQL 데이터",
+          title: "공유 PostgreSQL 데이터",
           body: "사용자와 에이전트가 동일한 신뢰 출처를 읽고 업데이트합니다.",
         },
         skillsMemory: {
@@ -496,13 +496,13 @@ const koKR = {
       },
     },
     stack: {
-      title: "기존 스택과 함께 작동",
-      body: "LLM, 데이터베이스, 도구, 인프라를 그대로 사용하세요. Agent-Native는 오픈 소스 TypeScript이므로 구축한 모든 것은 여러분의 것입니다.",
+      title: "나만의 스택을 가져오세요",
+      body: "Agent-Native는 오픈 소스 TypeScript입니다. 모델, 데이터베이스, 호스팅을 선택하고 애플리케이션 코드를 자신의 저장소에 보관하세요.",
       exploreApps: "Agent-Native로 만든 앱 살펴보기",
     },
     showcase: {
-      title: "Agent-Native로 무엇을 만들 수 있나요?",
-      body: "회의, 디자인, 프레젠테이션, 데이터 등을 위한 UI가 있는 에이전트를 구축하세요. 이 오픈 소스 앱 중 하나로 시작하거나 직접 구축할 수 있습니다.",
+      title: "Agent-Native로 만든 실제 앱",
+      body: "무료로 사용하거나 무한히 커스터마이즈할 수 있는 Agent-Native 오픈 소스 앱입니다.",
       browseApps: "앱 살펴보기",
       scrollLeft: "앱 왼쪽으로 스크롤",
       scrollRight: "앱 오른쪽으로 스크롤",
@@ -521,17 +521,30 @@ const koKR = {
       download: "다운로드",
       apps: "앱",
       privacyPolicy: "개인정보 처리방침",
-      saasTerms: "호스팅 서비스 약관",
+      saasTerms: "SaaS 약관",
       legalResources: "법률 리소스",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "로컬에서 빌드하지 않으시나요?",
-      exploreApp: "먼저 라이브 앱을 살펴보세요",
-      between: "또는",
-      joinWaitlist: "대기자 명단에 등록하고",
-      end: "브라우저에서 빌드하세요.",
+    tabs: {
+      label: "빌드 방식 선택",
+      local: "로컬에서 빌드",
+      localDescription: "CLI를 사용해 컴퓨터에서 빌드합니다.",
+      cloud: "클라우드에서 빌드",
+      cloudDescription: "Builder.io를 사용해 브라우저에서 빌드합니다.",
+    },
+    cloud: {
+      intro:
+        "아무것도 설치하지 않고 동일한 앱을 빌드할 수 있습니다. 원하는 것을 설명하면 Builder가 호스팅하는 워크스페이스에서 에이전트가 코드를 작성하고 실행합니다.",
+      stepOneTitle: "Builder 계정 만들기",
+      stepOneBody:
+        "Builder 계정으로 브라우저에서 빌드합니다. API 키를 직접 준비하지 않아도 무료로 시작할 수 있습니다.",
+      stepTwoTitle: "프롬프트해 보세요",
+      stepTwoBody:
+        "만들고 싶은 것을 자연어로 설명하면 에이전트가 대신 만들어 줍니다.",
+      stepThreeTitle: "배포",
+      stepThreeBody:
+        "준비가 되면 Builder에서 한 번의 클릭으로 에이전트와 UI를 배포하세요.",
     },
   },
   templatesPage: {
@@ -611,6 +624,8 @@ const koKR = {
     buildOnline: "온라인에서 빌드",
     popoverTitle: "브라우저에서 빌드",
     popoverBody:
+      "Builder.io를 사용해 클라우드에서 agent-native 앱을 빠르게 생성하세요.",
+    waitlistBody:
       "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
     emailLabel: "이메일",
     emailPlaceholder: "you@company.com",
@@ -620,6 +635,9 @@ const koKR = {
       "대기자 명단에 등록되었습니다. 온라인 빌드 액세스가 열리면 이메일로 알려드릴게요.",
     invalidEmail: "유효한 이메일 주소를 입력하세요.",
     submitError: "대기자 명단에 참여하지 못했습니다. 다시 시도하세요.",
+    waitlistUnavailable:
+      "이 환경에서는 아직 대기자 명단에 등록할 수 없습니다. 대신 호스팅된 문서 사이트에서 시도해 보세요.",
+    launchBuilder: "Builder 실행",
   },
   templateCard: {
     pasteIntoTerminal: "터미널에 붙여넣으세요.",
@@ -1067,7 +1085,7 @@ const koKR = {
       s004: "구체화",
       s005: "모든 템플릿",
       s006: "오픈 소스 AI HTML 프로토타이핑 스튜디오",
-      s007: "프롬프트에서 대화형 Alpine/Tailwind 프로토타입을 생성하고, 변형을 비교하고, 조정 컨트롤을 사용하여 개선하고, 소유한 실제 파일을 내보냅니다.",
+      s007: "대화형 디자인과 프로토타입을 만드세요. 익숙한 도구로 다듬거나 대화형 편집으로 마무리하세요. 어디로든 내보낼 수 있습니다.",
       s008: "무언가 디자인하기",
       s009: "작동 원리",
       s010: "필요한 모든 것",
@@ -1121,6 +1139,7 @@ const koKR = {
       s058: "템플릿에서 시작하고 소스를 편집하는 에이전트를 사용하여 대화형 프로토타입 생성을 시작합니다.",
       s059: "문서 읽기",
       s060: "모든 템플릿 보기",
+      s061: "100% 무료, 오픈 소스, 사용자 지정 가능.",
       faq: {
         question1: "AI가 모형이 아니라 실제 코드로 디자인을 생성할 수 있나요?",
         answer1:
@@ -2097,6 +2116,9 @@ const koKR = {
     databaseProviders: "데이터베이스 프로바이더",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "국제화",
     localFileMode: "로컬 파일 모드",

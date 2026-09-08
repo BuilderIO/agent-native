@@ -107,4 +107,45 @@ describe("database form view config", () => {
     expect(duplicated.views).toHaveLength(2);
     expect(duplicated.views[1].formQuestions).toEqual(form.formQuestions);
   });
+
+  it("normalizes and duplicates table column presentation state", () => {
+    const table = createDatabaseView("Table", "table", {
+      wrapCells: false,
+      columnWrapOverrides: { name: true, status: false },
+      frozenThroughColumnId: null,
+    });
+    const duplicated = duplicateDatabaseView(
+      {
+        activeViewId: table.id,
+        views: [table],
+        sorts: [],
+        filters: [],
+        columnWidths: {},
+      },
+      table.id,
+    );
+    expect(duplicated.views[1]).toMatchObject({
+      columnWrapOverrides: { name: true, status: false },
+      frozenThroughColumnId: null,
+    });
+
+    const normalized = normalizeClientDatabaseViewConfig({
+      activeViewId: "table",
+      views: [
+        {
+          ...table,
+          columnWrapOverrides: {
+            name: true,
+            status: "invalid",
+          } as unknown as Record<string, boolean>,
+          frozenThroughColumnId: "",
+        },
+      ],
+      sorts: [],
+      filters: [],
+      columnWidths: {},
+    });
+    expect(normalized.views[0]?.columnWrapOverrides).toEqual({ name: true });
+    expect(normalized.views[0]?.frozenThroughColumnId).toBeUndefined();
+  });
 });

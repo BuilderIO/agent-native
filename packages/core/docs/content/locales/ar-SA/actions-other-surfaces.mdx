@@ -98,6 +98,8 @@ export default defineAction({
 
 أبقِ `link` كخيار احتياطي لـ CLI ومضيفي MCP غير القادرين على عرض واجهة المستخدم. وهو أيضًا هدف الإطلاق الخاص بالتضمين. جسر التضمين (جلسة بدء التضمين الموقَّعة، وعرض النقل مقابل الإطار المتحكَّم به، وجسر المضيف `ui/*`، وCSP، وتقييد الارتفاع) تملكه [الوكلاء الخارجيون](/docs/external-agents#mcp-app-bridge).
 
+لا يوجد فحص تلقائي للتأكد من أن قالبًا ما يحتوي على `view-screen` أو `navigate` أو مجموعة create/read/update/list الخاصة بموردِه الأساسي؛ يشحن الهيكل الأساسي `view-screen` و`navigate`، ويرفض `pnpm guard:external-result-contract` أي صياغة "انتظر المستخدم" في `description` أو `nextRequiredAction` لإجراء مكشوف خارجيًا، ويشترط رابطًا عميقًا لأي إجراء `create-*` جديد مكشوف خارجيًا. وجودها بند مراجعة.
+
 ## Actions قياسية {#standard-actions}
 
 ينبغي أن يتضمن كل قالب هذين الاثنين من أجل [الوعي بالسياق](/docs/context-awareness).

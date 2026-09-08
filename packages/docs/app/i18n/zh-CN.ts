@@ -154,8 +154,8 @@ const zhCN = {
           body: "一次定义工作，然后从 UI、agent、HTTP、MCP、A2A 和 CLI 使用它。",
         },
         sqlStateOrm: {
-          title: "SQL 状态与 ORM",
-          body: "持久应用数据、application state、迁移，以及不绑定供应商的 schema。",
+          title: "PostgreSQL 状态与 ORM",
+          body: "持久应用数据、application state、迁移，以及 PostgreSQL/PGlite schema。",
         },
         dbAdmin: {
           title: "数据库管理",
@@ -207,7 +207,8 @@ const zhCN = {
       title: "面向 agent-native apps 的框架",
       body1:
         "Agent-Native 是一个开源框架，用来构建 agentic applications：从 Chat 开始，定义共享 actions，再围绕同一份 state 添加 UI、jobs 和协作。",
-      body2: "使用你自己的数据库、托管服务、模型栈和 app 代码。",
+      body2:
+        "使用本地 PGlite 或托管 PostgreSQL，以及你自己的托管服务、模型栈和 app 代码。",
       cta: "阅读框架指南",
       primitives: {
         actions: {
@@ -224,10 +225,10 @@ const zhCN = {
           description:
             "app-agent loop、tools、skills、memory、jobs 和可观测性一起交付。",
         },
-        backendAgnostic: {
-          title: "后端无关",
+        postgresSpecific: {
+          title: "PostgreSQL 专用",
           description:
-            "接入任何 Drizzle 支持的 SQL 数据库和 Nitro 兼容的托管环境。",
+            "使用框架的 PostgreSQL schema 助手，在本地使用 PGlite，或在任何 Nitro 兼容主机上使用托管 Postgres。",
         },
       },
     },
@@ -305,7 +306,7 @@ const zhCN = {
     },
     quickStart: {
       title: "从一条命令开始",
-      body: "一条命令会创建一个聊天优先的本地 app，背后有 actions、durable threads 和 SQLite 支撑。只有 automation-first workflow 暂时不需要浏览器 UI 时才使用 `--headless`。",
+      body: "一条命令会创建一个聊天优先的本地 app，背后有 actions、durable threads 和 PGlite 支撑。只有 automation-first workflow 暂时不需要浏览器 UI 时才使用 `--headless`。",
     },
     finalCta: {
       title: "为 agentic 时代而建的软件",
@@ -440,9 +441,8 @@ const zhCN = {
     },
     actions: {
       title: "一个 Action 驱动所有能力面",
-      bodyLine1: "Action 定义你的 agent 能做什么。",
-      bodyLine2:
-        "只需定义一次每项能力，即可在 agent、UI、HTTP API、MCP、A2A 或 CLI 中使用。",
+      bodyLine1: "使用 defineAction() 一次定义一项能力。",
+      bodyLine2: "你的 agent、React UI、HTTP 客户端和集成都调用同一份代码。",
       diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
     },
     builtIn: {
@@ -462,7 +462,7 @@ const zhCN = {
           body: "agent 知道用户正在查看、选择和编辑的内容。",
         },
         sharedSql: {
-          title: "共享的 SQL 数据",
+          title: "共享的 PostgreSQL 数据",
           body: "用户和 agent 读取并更新同一份可信数据源。",
         },
         skillsMemory: {
@@ -488,13 +488,13 @@ const zhCN = {
       },
     },
     stack: {
-      title: "适配你的技术栈",
-      body: "带上你自己的 LLM、数据库、工具和基础设施。Agent-Native 是开源的 TypeScript，因此你构建的一切始终归你所有。",
+      title: "使用你自己的技术栈",
+      body: "Agent-Native 是开源 TypeScript。选择你的模型、数据库和托管方式，并将应用代码保留在你的代码仓库中。",
       exploreApps: "探索用 Agent-Native 构建的应用",
     },
     showcase: {
-      title: "你能用 Agent-Native 构建什么？",
-      body: "为会议、设计、演示文稿、数据等工作构建带 UI 的 agent。从这些开源应用之一开始，或构建你自己的 agent。",
+      title: "用 Agent-Native 构建的真实应用",
+      body: "可免费使用或无限定制的开源 Agent-Native 应用。",
       browseApps: "浏览应用",
       scrollLeft: "向左滚动应用",
       scrollRight: "向右滚动应用",
@@ -513,17 +513,28 @@ const zhCN = {
       download: "下载",
       apps: "应用",
       privacyPolicy: "隐私政策",
-      saasTerms: "托管服务条款",
+      saasTerms: "SaaS 条款",
       legalResources: "法律资源",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "不在本地构建？",
-      exploreApp: "先试用在线应用",
-      between: "或",
-      joinWaitlist: "加入候补名单",
-      end: "改为在浏览器中构建。",
+    tabs: {
+      label: "选择构建方式",
+      local: "本地构建",
+      localDescription: "使用 CLI 在你的计算机上构建。",
+      cloud: "云端构建",
+      cloudDescription: "使用 Builder.io 在浏览器中构建。",
+    },
+    cloud: {
+      intro:
+        "无需安装任何内容，即可构建相同的应用。描述你想要的内容，智能体会在 Builder 为你托管的工作区中编写并运行代码。",
+      stepOneTitle: "创建 Builder 账号",
+      stepOneBody:
+        "使用 Builder 账号在浏览器中构建。免费开始，无需自带 API 密钥。",
+      stepTwoTitle: "开始输入提示",
+      stepTwoBody: "用自然语言描述你想构建的内容，智能体会为你创建。",
+      stepThreeTitle: "部署",
+      stepThreeBody: "准备好后，在 Builder 中一键部署你的 agent 及其 UI。",
     },
   },
   templatesPage: {
@@ -597,7 +608,8 @@ const zhCN = {
     readDocs: "阅读文档",
     buildOnline: "在线构建",
     popoverTitle: "在浏览器中构建",
-    popoverBody:
+    popoverBody: "使用 Builder.io 在云端快速生成 agent-native 应用。",
+    waitlistBody:
       "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
     emailLabel: "邮箱",
     emailPlaceholder: "you@company.com",
@@ -606,6 +618,8 @@ const zhCN = {
     joined: "你已加入候补名单。在线构建访问开放后我们会发送邮件通知你。",
     invalidEmail: "请输入有效的邮箱地址。",
     submitError: "无法加入候补名单。请重试。",
+    waitlistUnavailable: "此环境暂不支持加入候补名单。请改用托管的文档网站。",
+    launchBuilder: "启动 Builder",
   },
   templateCard: {
     pasteIntoTerminal: "粘贴到您的终端中。",
@@ -1048,7 +1062,7 @@ const zhCN = {
       s004: "精炼",
       s005: "所有模板",
       s006: "开源 AI HTML 原型工作室",
-      s007: "根据提示生成交互式 Alpine/Tailwind 原型，比较变体，使用调整控件进行优化，并导出您拥有的真实文件。",
+      s007: "创建交互式设计和原型。使用熟悉的工具进行优化，或进行对话编辑。可导出到任何地方。",
       s008: "设计点什么",
       s009: "它是如何运作的",
       s010: "你需要的一切",
@@ -1102,6 +1116,7 @@ const zhCN = {
       s058: "从模板开始，并开始使用编辑源的代理生成交互式原型。",
       s059: "阅读文档",
       s060: "查看所有模板",
+      s061: "100% 免费、开源且可自定义。",
       faq: {
         question1: "AI 能生成真正的代码设计，而不只是模型图吗？",
         answer1:
@@ -2065,6 +2080,9 @@ const zhCN = {
     databaseProviders: "数据库提供商",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "国际化",
     localFileMode: "本地文件模式",

@@ -156,8 +156,8 @@ const arSA = {
           body: "عرّف العمل مرة واحدة واستخدمه من UI وagent وHTTP وMCP وA2A وCLI.",
         },
         sqlStateOrm: {
-          title: "حالة SQL وORM",
-          body: "بيانات تطبيق دائمة، وحالة application، وترحيلات، ومخططات غير مرتبطة بالمزود.",
+          title: "حالة PostgreSQL وORM",
+          body: "بيانات تطبيق دائمة، وحالة application، وترحيلات، ومخططات PostgreSQL وPGlite.",
         },
         dbAdmin: {
           title: "إدارة قاعدة البيانات",
@@ -210,7 +210,7 @@ const arSA = {
       body1:
         "Agent-Native هو framework مفتوح المصدر لبناء agentic applications: ابدأ مع Chat، وعرّف actions مشتركة، ثم أضف UI و jobs والتعاون حول نفس state.",
       body2:
-        "استخدم قاعدة بياناتك ومزود الاستضافة و model stack وكود app الخاص بك.",
+        "استخدم PGlite المحلي أو PostgreSQL المستضاف، ومزوّد الاستضافة وmodel stack وكود app الخاص بك.",
       cta: "اقرأ دليل framework",
       primitives: {
         actions: {
@@ -221,17 +221,17 @@ const arSA = {
         sharedState: {
           title: "حالة مشتركة",
           description:
-            "يحافظ SQL-backed app state على تزامن البشر و agents و sessions.",
+            "تحافظ حالة التطبيق المدعومة بـPostgreSQL وPGlite على تزامن البشر و agents و sessions.",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "يتم شحن app-agent loop و tools و skills و memory و jobs و observability معا.",
         },
-        backendAgnostic: {
-          title: "غير مرتبط بbackend معين",
+        postgresSpecific: {
+          title: "خاص بـPostgreSQL",
           description:
-            "وصّل أي قاعدة بيانات SQL مدعومة من Drizzle وأي host متوافق مع Nitro.",
+            "استخدم مساعدات مخطط PostgreSQL في إطار العمل مع PGlite المحلي أو Postgres المستضاف على أي مضيف متوافق مع Nitro.",
         },
       },
     },
@@ -310,7 +310,7 @@ const arSA = {
     },
     quickStart: {
       title: "ابدأ مع أمر واحد",
-      body: "ينشئ أمر واحد app محلية chat-first مدعومة ب actions و durable threads و SQLite. استخدم `--headless` فقط لـ workflows automation-first التي لا تحتاج UI في المتصفح بعد.",
+      body: "ينشئ أمر واحد app محلية chat-first مدعومة ب actions و durable threads و PGlite. استخدم `--headless` فقط لـ workflows automation-first التي لا تحتاج UI في المتصفح بعد.",
     },
     finalCta: {
       title: "software مبني لعصر agentic era",
@@ -445,9 +445,9 @@ const arSA = {
     },
     actions: {
       title: "Action واحد يشغّل كل الواجهات",
-      bodyLine1: "تحدد الـ Actions ما يمكن لوكيلك فعله.",
+      bodyLine1: "عرّف قدرة مرة واحدة باستخدام defineAction().",
       bodyLine2:
-        "عرّف كل قدرة مرة واحدة، ثم استخدمها من الوكيل أو واجهة المستخدم أو HTTP API أو MCP أو A2A أو CLI.",
+        "يستدعي الوكيل وواجهة React وعملاء HTTP والتكاملات لديك الشفرة نفسها.",
       diagramAlt:
         "Action واحد يشغّل الواجهة وMCP ودردشة الوكيل وA2A وHTTP API وCLI",
     },
@@ -468,7 +468,7 @@ const arSA = {
           body: "الوكيل يعرف ما يشاهده المستخدمون وما يحددونه وما يحررونه.",
         },
         sharedSql: {
-          title: "بيانات SQL مشتركة",
+          title: "بيانات PostgreSQL المشتركة",
           body: "المستخدمون والوكلاء يقرأون ويحدّثون المصدر الموثوق نفسه.",
         },
         skillsMemory: {
@@ -494,13 +494,13 @@ const arSA = {
       },
     },
     stack: {
-      title: "يعمل مع حزمتك التقنية",
-      body: "أحضر LLM وقاعدة البيانات والأدوات والبنية التحتية الخاصة بك. Agent-Native مفتوح المصدر بلغة TypeScript، لذا يبقى كل ما تبنيه ملكك.",
+      title: "أحضر حزمتك التقنية",
+      body: "Agent-Native مفتوح المصدر بلغة TypeScript. اختر النموذج وقاعدة البيانات والاستضافة، واحتفظ بكود التطبيق في مستودعك.",
       exploreApps: "استكشف التطبيقات المبنية بـ Agent-Native",
     },
     showcase: {
-      title: "ما الذي يمكنك بناؤه باستخدام Agent-Native؟",
-      body: "أنشئ وكلاء بواجهات استخدام للاجتماعات والتصميم والعروض التقديمية والبيانات والمزيد. ابدأ من أحد هذه التطبيقات مفتوحة المصدر أو ابنِ وكيلك بنفسك.",
+      title: "تطبيقات حقيقية مبنية بـ Agent-Native",
+      body: "تطبيقات Agent-Native مفتوحة المصدر يمكنك استخدامها مجانًا أو تخصيصها بلا حدود.",
       browseApps: "استعرض التطبيقات",
       scrollLeft: "تمرير التطبيقات إلى اليسار",
       scrollRight: "تمرير التطبيقات إلى اليمين",
@@ -519,17 +519,29 @@ const arSA = {
       download: "تنزيل",
       apps: "التطبيقات",
       privacyPolicy: "سياسة الخصوصية",
-      saasTerms: "شروط الخدمة المستضافة",
+      saasTerms: "شروط SaaS",
       legalResources: "الموارد القانونية",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "ألا تريد البناء محليًا؟",
-      exploreApp: "استكشف تطبيقًا مباشرًا",
-      between: "أولًا، أو",
-      joinWaitlist: "انضم إلى قائمة الانتظار",
-      end: "للبناء في المتصفح بدلًا من ذلك.",
+    tabs: {
+      label: "اختر طريقة البناء",
+      local: "البناء محليًا",
+      localDescription: "استخدم CLI للبناء على جهازك.",
+      cloud: "البناء في السحابة",
+      cloudDescription: "ابنِ في المتصفح باستخدام Builder.io.",
+    },
+    cloud: {
+      intro:
+        "ابنِ التطبيقات نفسها من دون تثبيت أي شيء. صِف ما تريده، وسيكتب الوكيل التعليمات البرمجية ويشغّلها في مساحة عمل يستضيفها Builder لك.",
+      stepOneTitle: "أنشئ حسابًا في Builder",
+      stepOneBody:
+        "استخدم حساب Builder الخاص بك للبناء في المتصفح. ابدأ مجانًا من دون إحضار مفاتيح API.",
+      stepTwoTitle: "ابدأ بكتابة طلبك",
+      stepTwoBody: "صِف ما تريد بناءه بلغة واضحة وسيُنشئه الوكيل لك.",
+      stepThreeTitle: "النشر",
+      stepThreeBody:
+        "عندما تكون مستعدًا، انشر وكيلك وواجهة المستخدم الخاصة به بنقرة واحدة في Builder.",
     },
   },
   templatesPage: {
@@ -607,7 +619,8 @@ const arSA = {
     readDocs: "اقرأ المستندات",
     buildOnline: "ابنِ عبر الإنترنت",
     popoverTitle: "أنشئ في المتصفح",
-    popoverBody:
+    popoverBody: "أنشئ تطبيقات agent-native بسرعة في السحابة مع Builder.io.",
+    waitlistBody:
       "يمكن لـ Builder.io إنشاء تطبيق agent-native وتخصيصه في السحابة — مع الإجراءات والمصادقة وحالة SQL ودردشة الوكيل. انضم إلى قائمة الانتظار للوصول المبكر.",
     emailLabel: "البريد الإلكتروني",
     emailPlaceholder: "you@company.com",
@@ -617,6 +630,9 @@ const arSA = {
       "أنت على قائمة الانتظار. سنرسل لك بريدًا عندما يتوفر الوصول للبناء عبر الإنترنت.",
     invalidEmail: "أدخل بريدًا إلكترونيًا صالحًا.",
     submitError: "تعذر الانضمام إلى قائمة الانتظار. حاول مرة أخرى.",
+    waitlistUnavailable:
+      "لا تتوفر عمليات التسجيل في قائمة الانتظار هنا بعد. يُرجى تجربة موقع المستندات المستضاف بدلًا من ذلك.",
+    launchBuilder: "شغّل Builder",
   },
   templateCard: {
     pasteIntoTerminal: "لصق في المحطة الخاصة بك.",
@@ -1062,7 +1078,7 @@ const arSA = {
       s004: "صقل",
       s005: "جميع القوالب",
       s006: "استوديو النماذج الأولية AI HTML مفتوح المصدر",
-      s007: "أنشئ نماذج أولية تفاعلية لـ Alpine/Tailwind من خلال موجه، وقارن بين المتغيرات، وقم بالتحسين باستخدام عناصر التحكم، وقم بتصدير الملفات الحقيقية التي تمتلكها.",
+      s007: "أنشئ تصاميم ونماذج أولية تفاعلية. حسّنها بأدوات مألوفة أو أجرِ تعديلات المحادثة. صدّرها إلى أي مكان.",
       s008: "صمّم شيئًا",
       s009: "كيف يعمل",
       s010: "كل ما تحتاجه",
@@ -1116,6 +1132,7 @@ const arSA = {
       s058: "افصل القالب وابدأ في إنشاء نماذج أولية تفاعلية باستخدام وكيل يقوم بتحرير المصدر.",
       s059: "اقرأ المستندات",
       s060: "عرض كافة القوالب",
+      s061: "مجاني 100%، ومفتوح المصدر، وقابل للتخصيص.",
       faq: {
         question1: "هل يستطيع AI إنشاء تصميم بكود حقيقي لا بمجرد نموذج بصري؟",
         answer1:
@@ -2091,6 +2108,9 @@ const arSA = {
     databaseProviders: "موفرو قواعد البيانات",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "التدويل",
     localFileMode: "Local File Mode",

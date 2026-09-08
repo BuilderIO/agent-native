@@ -90,7 +90,7 @@ describe("autoJoinDomainMatchingOrgs", () => {
     // unreadable". Caching it would let one blip lock every account at that
     // domain out of its org for the whole TTL.
     mockExecute.mockRejectedValueOnce(
-      new Error("no such table: organizations"),
+      new Error('relation "organizations" does not exist'),
     );
     expect(await autoJoinDomainMatchingOrgs("a@flaky.dev")).toEqual({
       joined: [],
@@ -202,7 +202,9 @@ describe("autoJoinDomainMatchingOrgs", () => {
     mockExecute.mockResolvedValueOnce({
       rows: [{ orgId: "orgA" }, { orgId: "orgB" }],
     });
-    mockExecute.mockRejectedValueOnce(new Error("UNIQUE constraint failed"));
+    mockExecute.mockRejectedValueOnce(
+      new Error("duplicate key value violates unique constraint"),
+    );
     mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT orgB succeeds
 
     const out = await autoJoinDomainMatchingOrgs("race@builder.io");
@@ -211,7 +213,7 @@ describe("autoJoinDomainMatchingOrgs", () => {
 
   it("swallows missing-table errors (template without org module)", async () => {
     mockExecute.mockRejectedValueOnce(
-      new Error("no such table: organizations"),
+      new Error('relation "organizations" does not exist'),
     );
     const out = await autoJoinDomainMatchingOrgs("a@builder.io");
     expect(out).toEqual({ joined: [], activeOrgId: null });

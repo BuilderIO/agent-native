@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// `widenIntColumnsToBigInt` resolves `isPostgres()` through `./client.js`,
-// which derives the dialect from `process.env.DATABASE_URL`. These tests stub
-// that env and pass an injected fake client, so no real database is required.
-
 describe("widenIntColumnsToBigInt", () => {
   let originalEnv: NodeJS.ProcessEnv;
   beforeEach(() => {
@@ -50,14 +46,6 @@ describe("widenIntColumnsToBigInt", () => {
       "ALTER TABLE agent_runs ALTER COLUMN started_at TYPE BIGINT",
       "ALTER TABLE agent_runs ALTER COLUMN completed_at TYPE BIGINT",
     ]);
-  });
-
-  it("is a no-op on SQLite (never touches the DB)", async () => {
-    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
-    const { widenIntColumnsToBigInt } = await import("./widen-columns.js");
-    const { client, calls } = fakeClient(["started_at"]);
-    await widenIntColumnsToBigInt("agent_runs", ["started_at"], client);
-    expect(calls).toEqual([]);
   });
 
   it("issues no ALTER when no requested column is int4", async () => {

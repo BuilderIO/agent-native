@@ -257,13 +257,14 @@ describe("runFrameworkReleaseMigrations", () => {
   });
 
   // CRM published green for weeks while its release migrations were applied to
-  // a throwaway SQLite file in the build container, so its `jwks`/`user` tables
+  // a throwaway local database in the build container, so its `jwks`/`user` tables
   // never existed on the database the deployed functions use.
   it("fails a production release migration that resolved to a local database", async () => {
     mocks.getAppConfig.mockReturnValue({
       migration: { deployContext: "production" },
     });
     mocks.isLocalDatabase.mockReturnValue(true);
+    mocks.getDatabaseUrl.mockReturnValue("pglite:/tmp/release-test");
 
     await expect(runFrameworkReleaseMigrations(null)).rejects.toThrow(
       /unusable database/,
@@ -285,7 +286,7 @@ describe("runFrameworkReleaseMigrations", () => {
   });
 
   // Netlify hands the CLI a masked secret outside its own build infra. That is
-  // neither empty nor a file: URL, so isLocalDatabase() calls it "not local"
+  // neither empty nor a PGlite URL, so isLocalDatabase() calls it "not local"
   // while it is unconnectable — factory published green off exactly this.
   it("fails when the production database url is a masked secret", async () => {
     mocks.getAppConfig.mockReturnValue({

@@ -17,7 +17,7 @@ test("classifies Mailosaur rate limits as inconclusive", async () => {
   try {
     await assert.rejects(
       waitForVerificationEmail(
-        "signup+qa-test-bot-test@test-server.mailosaur.net",
+        "signup+autoz-test@test-server.mailosaur.net",
         Date.now() - 1_000,
       ),
       (error: unknown) => {

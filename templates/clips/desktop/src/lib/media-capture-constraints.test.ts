@@ -53,10 +53,9 @@ describe("desktop media capture constraints", () => {
     expect(options.video).not.toHaveProperty("displaySurface");
   });
 
-  it("only requests system audio when screen capture and the mic are enabled", () => {
-    expect(shouldRequestSystemAudio(true, true)).toBe(true);
+  it("keeps system audio independent from the microphone toggle", () => {
+    expect(shouldRequestSystemAudio(true)).toBe(true);
     expect(shouldRequestSystemAudio(true, false)).toBe(false);
-    expect(shouldRequestSystemAudio(true, true, false)).toBe(false);
     expect(shouldRequestSystemAudio(false, true)).toBe(false);
   });
 

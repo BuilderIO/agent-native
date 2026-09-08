@@ -15,7 +15,7 @@ below only cleans up branch resources left by the former isolation flow.
    `preview-schema-only/pr-*` or legacy `preview/pr-*` Neon branches and
    removes old branch-scoped `DATABASE_URL` env overrides.
 
-`@agent-native/core` stays provider-agnostic — it only reads `DATABASE_URL`.
+`@agent-native/core` uses PostgreSQL through `DATABASE_URL`.
 The Neon/Netlify specifics live in the workflow and each template's
 `netlify.toml`. Factory is intentionally excluded from this workflow because
 its production Netlify site is manually deployed and is not Git-connected,

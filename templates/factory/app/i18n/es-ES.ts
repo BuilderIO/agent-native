@@ -105,14 +105,10 @@ const messages = {
     empty: "Aún no hay observaciones.",
     risk: "Riesgo",
     status: "Estado",
-    author: "Autor",
     coverage: "Cobertura",
     reason: "Motivo",
     evidence: "Evidencia",
-    evidenceDescription: "El hilo o informe de origen de este elemento.",
     actionsTaken: "Registro",
-    actionsTakenDescription:
-      "Decisiones sombra, gobernanza y trabajo ya iniciado para este elemento.",
     threadTruncated: "Este hilo de Slack está truncado.",
     threadUnavailable: "No se pudo cargar este hilo de Slack.",
     noEvidence: "No hay evidencia de origen para este elemento.",
@@ -135,8 +131,6 @@ const messages = {
     noteLabel: "Nota de feedback",
     submitFeedback: "Registrar feedback",
     feedbackTitle: "Registrar feedback",
-    feedbackDescription:
-      "Indica si la decisión sombra fue correcta. Se guarda para revisión; no inicia una ejecución.",
     feedbackError: "No se pudo registrar el feedback.",
     noDecisions: "Aún no hay decisiones registradas.",
     rulesTitle: "Reglas de triage",

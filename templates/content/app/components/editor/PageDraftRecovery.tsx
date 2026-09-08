@@ -47,13 +47,16 @@ export function PageDraftRecovery({
         restore &&
         (draft.title !== document.title || draft.content !== document.content)
       ) {
+        if (!draft.baseDocumentUpdatedAt) {
+          throw new Error("The draft has no original document version.");
+        }
         const saved = await update.mutateAsync({
           id: document.id,
           title: draft.title,
           content: draft.content,
-          baseUpdatedAt: document.updatedAt,
-          loadedUpdatedAt: document.updatedAt,
-          loadedContentWasEmpty: false,
+          baseUpdatedAt: draft.baseDocumentUpdatedAt,
+          loadedUpdatedAt: draft.baseDocumentUpdatedAt,
+          loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
         });
         if (
           isDocumentUpdateConflict(saved) ||

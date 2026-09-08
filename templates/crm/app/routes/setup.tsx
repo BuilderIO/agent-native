@@ -138,7 +138,7 @@ export default function SetupRoute() {
             <p className="text-sm leading-6 text-muted-foreground">
               Run accounts, people, opportunities, saved views, tasks, and
               cadence without connecting another CRM. Your CRM is
-              local-authoritative and portable across SQLite, Postgres, and D1.
+              local-authoritative and uses PostgreSQL.
             </p>
           </div>
           <Button

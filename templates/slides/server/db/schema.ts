@@ -6,6 +6,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const decks = table("decks", {
   id: text("id").primaryKey(),
@@ -38,9 +39,7 @@ export const designSystems = table("design_systems", {
   data: text("data").notNull(),
   assets: text("assets"),
   customInstructions: text("custom_instructions").notNull().default(""),
-  isDefault: integer("is_default", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  isDefault: boolean("is_default").notNull().default(false),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
@@ -82,7 +81,7 @@ export const slideComments = table("slide_comments", {
   anchor: text("anchor"),
   authorEmail: text("author_email").notNull(),
   authorName: text("author_name"),
-  resolved: integer("resolved", { mode: "boolean" }).notNull().default(false),
+  resolved: boolean("resolved").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

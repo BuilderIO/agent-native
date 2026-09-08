@@ -14,6 +14,7 @@ import { extensionPath } from "../../extensions/path.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { agentNativePath } from "../api-path.js";
+import { getBrowserTabId } from "../browser-tab-id.js";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -119,11 +120,16 @@ export function ExtensionsListPage({
 
   useEffect(() => {
     if (embedded) return;
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ view: "extensions" }),
-    }).catch(() => {});
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+      ),
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ view: "extensions" }),
+      },
+    ).catch(() => {});
   }, [embedded]);
 
   useEffect(() => {

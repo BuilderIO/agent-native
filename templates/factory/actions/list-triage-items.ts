@@ -138,6 +138,9 @@ export default defineAction({
       if (batch.length === 0) break;
       for (const item of batch) {
         lastExamined = item;
+        // Kept even though poll-github-sources now filters at ingest: rows
+        // stored before that change still carry excluded authors, and this is
+        // the only thing keeping them out of an automation's work list.
         if (
           context?.caller === "automation" &&
           calling &&

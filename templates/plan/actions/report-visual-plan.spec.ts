@@ -1,12 +1,16 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { registerShareableResource } from "@agent-native/core/sharing";
-import { createClient, type Client } from "@libsql/client";
+
+const { PGlite } = createRequire(
+  new URL("../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
 import { eq } from "drizzle-orm";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import {
   afterAll,
   beforeAll,
@@ -19,8 +23,28 @@ import {
 
 import * as planSchema from "../server/db/schema.js";
 
-let client: Client;
-let db: LibSQLDatabase<typeof planSchema>;
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(statement: SqlStatement) {
+  if (typeof statement === "string") {
+    const results = [];
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      results.push(await client.query(postgresSql(sql)));
+    return results.at(-1);
+  }
+  return client.query(postgresSql(statement.sql), statement.args ?? []);
+}
+
+let client: PGlite;
+let db: PgliteDatabase<typeof planSchema>;
 let dbDir: string;
 
 vi.mock("../server/db/index.js", () => ({
@@ -83,9 +107,9 @@ beforeAll(async () => {
   process.env.PLAN_LOCAL_MODE = "0";
 
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-report-action-"));
-  client = createClient({ url: `file:${path.join(dbDir, "test.db")}` });
+  client = await PGlite.create(dbDir);
   db = drizzle(client, { schema: planSchema });
-  await client.executeMultiple(`
+  await execute(`
     CREATE TABLE plans (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, brief TEXT NOT NULL,
       kind TEXT NOT NULL DEFAULT 'plan',
@@ -147,14 +171,14 @@ beforeAll(async () => {
     .default as AnyAction;
 }, 30_000);
 
-afterAll(() => {
-  client?.close();
+afterAll(async () => {
+  await client?.close();
   if (dbDir) fs.rmSync(dbDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
   // guard:allow-unscoped -- test-only fixture cleanup resets isolated temp DB.
-  await client.executeMultiple(`
+  await execute(`
     DELETE FROM plan_reports;
     DELETE FROM plan_shares;
     DELETE FROM plans;

@@ -305,13 +305,8 @@ const messages = {
     sharePublicly: "公开分享",
     sharePubliclyDescription: "要公开分享内容，请连接云数据库。",
     providerDescriptions: {
-      turso: "边缘 SQLite",
       neon: "无服务器 Postgres",
       supabase: "开源 Firebase 替代方案",
-      d1: "边缘 SQLite",
-    },
-    providerNames: {
-      d1: "Cloudflare D1",
     },
     setupSteps: "设置步骤",
     authToken: "认证令牌",

@@ -58,6 +58,10 @@ export default createAgentChatPlugin({
   systemPrompt: FORMS_SYSTEM_PROMPT,
   leanPrompt: true,
   initialToolNames: INITIAL_TOOL_NAMES,
+  mcp: {
+    instructions:
+      'Build with create-form, then patch-form-fields for individual field changes and update-form for title/settings; publish with update-form { status: "published" }. Read a form with get-form, the workspace with list-forms. Analyze with response-insights (chart/table/combined) and list-responses / export-responses; never invent SQL.',
+  },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   nativeActionsInDev: true,
   skipFilesContext: true,

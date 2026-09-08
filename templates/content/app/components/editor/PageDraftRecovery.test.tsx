@@ -5,7 +5,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  draft: null as null | { title: string; content: string; version: number },
+  draft: null as null | {
+    title: string;
+    content: string;
+    version: number;
+    baseDocumentUpdatedAt?: string | null;
+    loadedContentWasEmpty?: number;
+  },
   update: vi.fn(),
   remove: vi.fn(),
   refetch: vi.fn(),
@@ -52,7 +58,13 @@ describe("Page draft recovery", () => {
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
-    state.draft = { title: "Draft", content: "Draft body", version: 3 };
+    state.draft = {
+      title: "Draft",
+      content: "Draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "original-version",
+      loadedContentWasEmpty: 1,
+    };
     state.refetch.mockResolvedValue(undefined);
     state.update.mockResolvedValue({ title: "Draft", content: "Draft body" });
     state.remove.mockResolvedValue({ status: "deleted" });
@@ -70,10 +82,27 @@ describe("Page draft recovery", () => {
     await act(async () =>
       container.querySelector<HTMLButtonElement>("button")!.click(),
     );
+    expect(state.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUpdatedAt: "original-version",
+        loadedUpdatedAt: "original-version",
+        loadedContentWasEmpty: true,
+      }),
+    );
     expect(state.remove).not.toHaveBeenCalled();
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
     expect(container.textContent).toContain("Draft body");
     expect(container.querySelector("textarea")).toBeNull();
+  });
+  it("retains a draft with an unknown original version without overwriting the Page", async () => {
+    state.draft!.baseDocumentUpdatedAt = null;
+    act(render);
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.remove).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
   });
   it("uses the exact draft version when discarding without writing the Page", async () => {
     act(render);

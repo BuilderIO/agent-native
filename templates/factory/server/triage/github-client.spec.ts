@@ -117,6 +117,40 @@ describe("GitHub triage client", () => {
     ).rejects.toThrow("GitHub App configuration is incomplete");
   });
 
+  it("counts pull requests the issues endpoint returned instead of hiding them", async () => {
+    const issue = (number: number, extra: Record<string, unknown> = {}) => ({
+      number,
+      title: `Item ${number}`,
+      body: null,
+      state: "open",
+      html_url: `https://github.test/issues/${number}`,
+      user: { id: 17, login: "author" },
+      labels: [],
+      created_at: "now",
+      updated_at: "now",
+      ...extra,
+    });
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      response([
+        issue(1),
+        issue(2, { pull_request: { url: "https://api.github.test/pulls/2" } }),
+        issue(3, { pull_request: { url: "https://api.github.test/pulls/3" } }),
+      ]),
+    );
+    const client = createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    });
+
+    // Two of the three raw entries were pull requests. Reporting one issue with
+    // unparsed 0 would read as "this repository has one open issue".
+    await expect(client.listOpenIssues(repository, 3)).resolves.toMatchObject({
+      items: [expect.objectContaining({ number: 1 })],
+      unparsed: 2,
+      hasMore: true,
+    });
+  });
+
   it("resolves the workspace token and bounds open reads", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       response([
@@ -142,11 +176,12 @@ describe("GitHub triage client", () => {
       fetchImpl,
     }).listOpenPullRequests(repository);
 
-    expect(pullRequests[0]).toMatchObject({
+    expect(pullRequests.items[0]).toMatchObject({
       number: 7,
       headSha: "sha-7",
       userId: 17,
     });
+    expect(pullRequests.hasMore).toBe(false);
     expect(
       new URL(String(fetchImpl.mock.calls[0]?.[0])).searchParams.get(
         "per_page",
@@ -219,7 +254,9 @@ describe("GitHub triage client", () => {
       fetchImpl,
     });
 
-    await expect(client.listOpenIssues(repository)).resolves.toHaveLength(1);
+    await expect(client.listOpenIssues(repository)).resolves.toMatchObject({
+      items: [expect.anything()],
+    });
     await expect(client.checkMember(repository, "reviewer")).resolves.toEqual({
       username: "reviewer",
       isMember: true,

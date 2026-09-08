@@ -489,7 +489,7 @@ Cada `defineAction` se monta automáticamente en `/_agent-native/actions/<name>`
 
 Este no es un modo sin base de datos ni sin estado. El bucle de agente de la aplicación almacena sesiones,
 hilos, ejecuciones, configuración, credenciales, estado de la aplicación y registros de compartición en
-SQL. El desarrollo local usa SQLite por defecto; las aplicaciones de automatización-primero alojadas deben
+SQL. El desarrollo local usa PGlite por defecto; las aplicaciones de automatización-primero alojadas deben
 usar una base de datos SQL persistente.
 
 Si necesitas todo el bucle del agente sin navegador desde la carpeta del proyecto, usa:

@@ -511,7 +511,7 @@ describe("plan comment notification recipients (adversarial)", () => {
 
   it("suppresses synthetic QA owner and QA participants", () => {
     const root = notifyComment("root", {
-      authorEmail: "tester+qa@example.test",
+      authorEmail: "tester+autoz@example.test",
     });
     const reply = notifyComment("reply", {
       authorEmail: "reply@example.com",
@@ -520,11 +520,11 @@ describe("plan comment notification recipients (adversarial)", () => {
     const recipients = planCommentNotificationRecipients({
       comment: reply,
       comments: [root, reply],
-      planOwnerEmail: "ci+qa@build.invalid",
+      planOwnerEmail: "ci+autoz@build.invalid",
     });
     const emails = recipients.map((r) => r.email);
-    expect(emails).not.toContain("tester+qa@example.test");
-    expect(emails).not.toContain("ci+qa@build.invalid");
+    expect(emails).not.toContain("tester+autoz@example.test");
+    expect(emails).not.toContain("ci+autoz@build.invalid");
   });
 });
 

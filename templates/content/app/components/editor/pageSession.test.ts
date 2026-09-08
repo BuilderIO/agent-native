@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { savePageWithRecovery } from "./pageSession";
+import { mayClearRecoveryDraft, savePageWithRecovery } from "./pageSession";
 
 describe("savePageWithRecovery", () => {
   it("retains a rejected primary edit before surfacing the failure", async () => {
@@ -59,5 +59,30 @@ describe("savePageWithRecovery", () => {
       }),
     ).rejects.toThrow("cleanup conflict");
     expect(retain).not.toHaveBeenCalled();
+  });
+});
+
+describe("recovery draft cleanup", () => {
+  it("preserves a conflict draft after a no-op save of the winning server content", async () => {
+    const draft = { title: "Page", content: "My conflicting edit" };
+    const remove = vi.fn();
+    await savePageWithRecovery({
+      save: async () => ({ contentPersisted: true }),
+      retain: vi.fn(),
+      clear: async () => {
+        if (
+          mayClearRecoveryDraft(draft, {
+            title: "Page",
+            content: "Winning server edit",
+          })
+        )
+          remove();
+      },
+    });
+    expect(remove).not.toHaveBeenCalled();
+    expect(mayClearRecoveryDraft(draft, { ...draft })).toBe(true);
+    expect(
+      mayClearRecoveryDraft(draft, { ...draft, title: "Another title" }),
+    ).toBe(false);
   });
 });

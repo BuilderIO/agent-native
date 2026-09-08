@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `update-document-cas-${process.pid}-${Date.now()}.sqlite`,
+  `update-document-cas-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -21,7 +21,7 @@ const EDITOR = "editor@example.com";
 const VIEWER = "viewer@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -31,9 +31,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;
@@ -205,6 +203,28 @@ describe("update-document compare-and-swap", () => {
     expect(current.content).toBe("pulled from notion");
     expect(current.title).toBe("Untitled");
     expect(current.updatedAt).toBe(remoteUpdatedAt);
+  });
+
+  it("rejects a stale draft title even when its body matches the current Page", async () => {
+    const documentId = await createDocument({ content: "same body" });
+    const stale = await documentRow(documentId);
+    const newer = new Date(
+      new Date(stale.updatedAt).getTime() + 1000,
+    ).toISOString();
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Newer title", updatedAt: newer })
+      .where(eq(schema.documents.id, documentId));
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        title: "Stale draft title",
+        content: "same body",
+        baseUpdatedAt: stale.updatedAt,
+      }),
+    );
+    expect("conflict" in result && result.conflict).toBe(true);
+    expect((await documentRow(documentId)).title).toBe("Newer title");
   });
 
   it("does not CAS-guard title/icon-only saves even when baseUpdatedAt is stale", async () => {

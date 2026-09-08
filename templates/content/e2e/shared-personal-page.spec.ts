@@ -157,7 +157,7 @@ test("an editor can read and edit one shared Personal page without gaining its p
   const marker = `QA shared Personal bc4a2441 ${Date.now()}`;
   const originalBody = `${marker} original body`;
   const editedBody = `${marker} recipient edit`;
-  const recipientEmail = `shared-personal+qa-${Date.now()}@content.test`;
+  const recipientEmail = `shared-personal+autoz-${Date.now()}@content.test`;
   const createdIds: string[] = [];
   const recipientContext = await browser.newContext();
   const recipient = await registerRecipient(

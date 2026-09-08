@@ -41,8 +41,8 @@ export const runSlidesMigrations = runMigrations(
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     data TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -58,8 +58,8 @@ export const runSlidesMigrations = runMigrations(
     author_email TEXT NOT NULL,
     author_name TEXT,
     resolved INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     // v3-v5: sharing columns for decks.
@@ -85,7 +85,7 @@ export const runSlidesMigrations = runMigrations(
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     // v7: design systems table
@@ -98,8 +98,8 @@ export const runSlidesMigrations = runMigrations(
     data TEXT NOT NULL,
     assets TEXT,
     is_default INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -115,7 +115,7 @@ export const runSlidesMigrations = runMigrations(
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     // v9: link decks to design systems
@@ -123,12 +123,10 @@ export const runSlidesMigrations = runMigrations(
       version: 9,
       sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
     },
-    // v10-v15: fix boolean columns on Postgres only. The adaptSqlForPostgres
-    // rewriter turns INTEGER → BIGINT, so migrations v2 & v7 created the columns
-    // as bigint. Drizzle's integer({ mode: "boolean" }) maps to pg boolean, so
-    // inserts send a JS boolean that Postgres rejects ("column is of type bigint
-    // but expression is of type boolean"). Convert both columns to boolean.
-    // SQLite doesn't need this — its INTEGER works fine with boolean mode.
+    // v10-v15: fix legacy boolean columns on Postgres. The migration rewriter
+    // turns INTEGER into BIGINT, so migrations v2 and v7 created the columns as
+    // bigint. The current schema uses native BOOLEAN values, so convert both
+    // columns before Drizzle inserts JS booleans.
     {
       version: 10,
       sql: {
@@ -174,7 +172,7 @@ export const runSlidesMigrations = runMigrations(
     title TEXT NOT NULL,
     slides TEXT NOT NULL,
     aspect_ratio TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -190,7 +188,7 @@ export const runSlidesMigrations = runMigrations(
     title TEXT NOT NULL,
     data TEXT NOT NULL,
     change_label TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   );
   CREATE INDEX IF NOT EXISTS deck_versions_deck_owner_created_idx ON deck_versions (deck_id, owner_email, created_at)`,
     },
@@ -199,8 +197,7 @@ export const runSlidesMigrations = runMigrations(
     // correlated EXISTS subqueries against the shares tables; the deck list
     // orders by updated_at; slide comments are fetched per deck. None of these
     // had supporting indexes (deck_versions already got one in v18). Plain
-    // CREATE INDEX IF NOT EXISTS so the SQL is valid on both Postgres and
-    // SQLite (no DESC/partial/PG-only syntax).
+    // CREATE INDEX IF NOT EXISTS keeps these indexes idempotent.
     {
       version: 19,
       sql: `CREATE INDEX IF NOT EXISTS decks_owner_org_updated_idx ON decks (owner_email, org_id, updated_at);
@@ -226,7 +223,7 @@ export const runSlidesMigrations = runMigrations(
     size INTEGER NOT NULL,
     provider TEXT,
     owner_email TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   );
   CREATE INDEX IF NOT EXISTS uploaded_assets_owner_created_idx ON uploaded_assets (owner_email, created_at)`,
     },
@@ -248,7 +245,7 @@ export const runSlidesMigrations = runMigrations(
     message TEXT NOT NULL,
     payload TEXT,
     created_by TEXT NOT NULL DEFAULT 'human',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   );
   CREATE INDEX IF NOT EXISTS deck_events_deck_created_idx ON deck_events (deck_id, created_at)`,
     },
@@ -316,8 +313,8 @@ WHERE principal_type = 'user'`,
     author_email TEXT NOT NULL,
     author_name TEXT,
     resolved INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   );
   ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS anchor TEXT`,
     },

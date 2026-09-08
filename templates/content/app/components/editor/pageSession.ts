@@ -1,3 +1,14 @@
+export function mayClearRecoveryDraft(
+  draft: { title: string; content: string } | null,
+  persisted: { title: string; content: string },
+): boolean {
+  return (
+    draft !== null &&
+    draft.title === persisted.title &&
+    draft.content === persisted.content
+  );
+}
+
 export interface PageSaveResult {
   contentPersisted: boolean;
 }

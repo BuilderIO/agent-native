@@ -339,7 +339,7 @@ agents.example.com {
 - Defina `BETTER_AUTH_URL` como a URL pública para aquele caminho de app. As
   URLs de callback do OAuth devem usar a mesma URL pública.
 - Não confie no sistema de arquivos do container para dados de produção. Use
-  Postgres (ou outro back-end SQL persistente) para `DATABASE_URL`.
+  PostgreSQL para `DATABASE_URL`.
 - Se o Cloudflare terminar o TLS na frente da VPS, configure o Cloudflare para
   enviar os headers normais `X-Forwarded-Proto` / `X-Forwarded-Host` e rotear
   o host público para o container do proxy.

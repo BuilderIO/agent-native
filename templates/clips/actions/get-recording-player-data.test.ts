@@ -263,6 +263,7 @@ describe("get-recording-player-data view count", () => {
         expiresAt: null,
         status: "ready",
         chaptersJson: "[]",
+        folderId: "folder-1",
         videoUrl: "https://cdn.example.com/rec-1.webm",
         videoSizeBytes: 1234,
       },
@@ -289,6 +290,7 @@ describe("get-recording-player-data view count", () => {
 
     expect(result.viewCount).toBe(0);
     expect(result.recording.id).toBe("rec-1");
+    expect(result.recording.folderId).toBe("folder-1");
   });
 
   it("exposes pending seekable repair state to the player", async () => {
