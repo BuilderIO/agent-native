@@ -336,7 +336,8 @@ identity:
 - Before finishing the sweep, search every reply authored in that sweep for
   vague unresolved wording and edit or remove it. Re-read the affected threads
   after each edit. Check that skipped subjective/product/policy items still
-  have neither an eye reaction nor a reply from the invoking identity.
+  have no open eye (`👀` without this workflow's `✅`) and no reply from the
+  invoking identity. A claimed-and-released item may retain both reactions.
 
 A useful reply shape is:
 

@@ -72,7 +72,9 @@ export function Layout({ children }: LayoutProps) {
   });
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("slides");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [chatRunning, setChatRunning] = useState(false);
+  const [runningChatTabs, setRunningChatTabs] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [composerText, setComposerText] = useState("");
   const [slidesSelection, setSlidesSelection] =
     useState<SlidesAgentSelection | null>(() => readPublishedSlidesSelection());
@@ -83,9 +85,17 @@ export function Layout({ children }: LayoutProps) {
   useEffect(() => {
     const onChatRunning = (event: Event) => {
       const detail = (event as CustomEvent).detail;
-      if (typeof detail?.isRunning === "boolean") {
-        setChatRunning(detail.isRunning);
-      }
+      if (typeof detail?.isRunning !== "boolean") return;
+      const tabId =
+        typeof detail.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__";
+      setRunningChatTabs((current) => {
+        const next = new Set(current);
+        if (detail.isRunning) next.add(tabId);
+        else next.delete(tabId);
+        return next;
+      });
     };
     window.addEventListener("agentNative.chatRunning", onChatRunning);
     return () =>
@@ -269,7 +279,7 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen={false}
           chatViewTransition
           chatViewTransitionHandoff={chatHomeHandoffPending}
-          openOnChatRunning={chatRunning || chatHomeHandoffActive}
+          openOnChatRunning={runningChatTabs.size > 0 || chatHomeHandoffActive}
           onFullscreenRequest={openAgentChatFullscreen}
           emptyStateText={t("agent.emptyState")}
           suggestions={[

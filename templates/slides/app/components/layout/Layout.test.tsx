@@ -92,7 +92,12 @@ describe("Slides Layout", () => {
     act(() => {
       window.dispatchEvent(
         new CustomEvent("agentNative.chatRunning", {
-          detail: { isRunning: true },
+          detail: { isRunning: true, tabId: "chat-a" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "chat-b" },
         }),
       );
     });
@@ -103,7 +108,18 @@ describe("Slides Layout", () => {
     act(() => {
       window.dispatchEvent(
         new CustomEvent("agentNative.chatRunning", {
-          detail: { isRunning: false },
+          detail: { isRunning: false, tabId: "chat-a" },
+        }),
+      );
+    });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ openOnChatRunning: true }),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "chat-b" },
         }),
       );
     });

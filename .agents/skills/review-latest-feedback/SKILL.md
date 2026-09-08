@@ -125,7 +125,7 @@ Also search for the invoking identity's eye-marked parents before applying the
 disclosure filter:
 
 ```
-slack_search: hasmy::eyes: -hasmy::white_check_mark: in:<#CHANNEL>
+slack_search: hasmy:eyes -hasmy:white_check_mark in:<#CHANNEL>
 ```
 
 The test for "answered" is mechanical: **did a person speak after your
@@ -257,7 +257,7 @@ is how this rule becomes a no-op.
 Find them alongside the newest-message scan:
 
 ```
-slack_search: hasmy::upvote: in:<#CHANNEL>
+slack_search: hasmy:upvote in:<#CHANNEL>
 ```
 
 `hasmy:` is already scoped to the connected identity you verified, so every
@@ -296,7 +296,7 @@ slack_search: has:reaction in:<#CHANNEL>
 
 Read each matching parent and its reaction metadata. Use other valid workflow
 identities' eyes only to detect **Owned elsewhere**; leave those items out of
-your worklist. The `hasmy::eyes: -hasmy::white_check_mark:` cursor optimizes
+your worklist. The `hasmy:eyes -hasmy:white_check_mark` cursor optimizes
 the current identity's scan but is never the only cursor. Keep your active claims in the worklist until a verified fix,
 targeted clarification, or Phase 0 release.
 
