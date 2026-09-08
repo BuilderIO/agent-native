@@ -137,18 +137,32 @@ describe("tracking registry", () => {
         identified.push(userId);
       },
     });
-    const email = "signup+qa-test-bot-123@example.com";
+    const email = "signup+autoz-run-123@example.com";
 
     expect(isQaTestEmail(email)).toBe(true);
     track("signup", { email }, { userId: email });
     track("client_event", undefined, { userId: email });
     track("property_event", { userEmail: email });
+    track("canonical_property_event", { user_email: email });
     identify(email, { email });
     identify("auth-user-qa", { email });
     identify("auth-user-qa", { userEmail: email });
 
     expect(events).toEqual([]);
     expect(identified).toEqual([]);
+  });
+
+  it("suppresses +autoz identities from ambient request tracking", async () => {
+    const events = captureEvents();
+    const email = "signup+autoz-run-123@example.com";
+
+    expect(isQaTestEmail(email)).toBe(true);
+    await runWithRequestContext({ userEmail: email }, () => {
+      track("ambient_event");
+      identify("auth-user");
+    });
+
+    expect(events).toEqual([]);
   });
 
   it("suppresses synthetic browser traffic before providers", async () => {

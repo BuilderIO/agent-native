@@ -15,7 +15,7 @@ import { CreativeContextComposerChip } from "@agent-native/creative-context/clie
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { extractGoogleSlidesUrls } from "@shared/google-docs";
 import { IconMenu2 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
@@ -72,6 +72,10 @@ export function Layout({ children }: LayoutProps) {
   });
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("slides");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [runningChatTabs, setRunningChatTabs] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const wasChatRoute = useRef(isChatRoute);
   const [composerText, setComposerText] = useState("");
   const [slidesSelection, setSlidesSelection] =
     useState<SlidesAgentSelection | null>(() => readPublishedSlidesSelection());
@@ -79,6 +83,32 @@ export function Layout({ children }: LayoutProps) {
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
+  useEffect(() => {
+    if (wasChatRoute.current && !isChatRoute) {
+      setRunningChatTabs(new Set());
+    }
+    wasChatRoute.current = isChatRoute;
+  }, [isChatRoute]);
+
+  useEffect(() => {
+    const onChatRunning = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (typeof detail?.isRunning !== "boolean") return;
+      const tabId =
+        typeof detail.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__";
+      setRunningChatTabs((current) => {
+        const next = new Set(current);
+        if (detail.isRunning) next.add(tabId);
+        else next.delete(tabId);
+        return next;
+      });
+    };
+    window.addEventListener("agentNative.chatRunning", onChatRunning);
+    return () =>
+      window.removeEventListener("agentNative.chatRunning", onChatRunning);
+  }, []);
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
       setSlidesSelection(
@@ -257,7 +287,7 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen={false}
           chatViewTransition
           chatViewTransitionHandoff={chatHomeHandoffPending}
-          openOnChatRunning={chatHomeHandoffActive}
+          openOnChatRunning={runningChatTabs.size > 0 || chatHomeHandoffActive}
           onFullscreenRequest={openAgentChatFullscreen}
           emptyStateText={t("agent.emptyState")}
           suggestions={[

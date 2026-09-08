@@ -66,6 +66,31 @@ const messages: AgentChatTranslation = {
   "onboarding.builderProvisioningDescription":
     "正在建立或重新使用您的 Builder.io 帳戶，通常需要幾秒鐘。",
   "onboarding.builderConnectionDescription": "在新視窗中按一下即可完成連線。",
+  "onboarding.capability.llm.keySummary": "連線 AI 提供者或本機模型",
+  "onboarding.capability.fileStorage.keySummary":
+    "Builder 儲存空間或相容 S3 的儲存桶",
+  "onboarding.capability.voiceInput.label": "語音輸入",
+  "onboarding.capability.voiceInput.keySummary": "瀏覽器語音辨識或語音轉文字",
+  "onboarding.capability.voiceInput.why":
+    "語音輸入會將口述要求轉換為文字；隨時都可以使用鍵盤輸入。",
+  "onboarding.capability.assetsImageGeneration.label": "影像生成",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder 點數或影像提供者金鑰",
+  "onboarding.capability.assetsImageGeneration.why":
+    "影像生成是建立符合品牌素材的核心工作流程。",
+  "onboarding.capability.assetsVideoGeneration.label": "影片生成",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API 金鑰",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "影片生成是選用功能；Assets 的核心工作流程是影像生成。",
+  "onboarding.capability.clipsObjectStorage.label": "物件儲存空間",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder 儲存空間或相容 S3 的儲存桶",
+  "onboarding.capability.clipsObjectStorage.why":
+    "錄製的影片需要持久的物件儲存空間，才能播放或分享。",
+  "onboarding.capability.clipsTranscription.keySummary": "語音轉文字提供者金鑰",
+  "onboarding.capability.about": "關於{{label}}",
+  "onboarding.capability.why": "為什麼需要{{label}}",
+  "onboarding.openAiKeySettings": "開啟 AI 金鑰設定",
   "aboutAgentNative.title": "關於 Agent-Native",
   "aboutAgentNative.version": "版本",
   "aboutAgentNative.environment": "環境",

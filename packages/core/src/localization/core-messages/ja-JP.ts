@@ -72,6 +72,34 @@ const messages: AgentChatTranslation = {
     "Builder.io アカウントを作成または再利用しています。通常は数秒かかります。",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
+  "onboarding.capability.llm.keySummary":
+    "AIプロバイダーまたはローカルモデルに接続",
+  "onboarding.capability.fileStorage.keySummary":
+    "BuilderストレージまたはS3互換バケット",
+  "onboarding.capability.voiceInput.label": "音声入力",
+  "onboarding.capability.voiceInput.keySummary":
+    "ブラウザーの音声認識または音声文字変換",
+  "onboarding.capability.voiceInput.why":
+    "音声入力は話したリクエストをテキストに変換します。入力はいつでも使えます。",
+  "onboarding.capability.assetsImageGeneration.label": "画像生成",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builderクレジットまたは画像プロバイダーのキー",
+  "onboarding.capability.assetsImageGeneration.why":
+    "画像生成はブランドに合ったアセットを作る中心的なワークフローです。",
+  "onboarding.capability.assetsVideoGeneration.label": "動画生成",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini APIキー",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "動画生成は任意です。Assetsの中心的なワークフローは画像生成です。",
+  "onboarding.capability.clipsObjectStorage.label": "オブジェクトストレージ",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "BuilderストレージまたはS3互換バケット",
+  "onboarding.capability.clipsObjectStorage.why":
+    "録画した動画は、再生または共有する前に永続的なオブジェクトストレージを必要とします。",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "音声文字変換プロバイダーのキー",
+  "onboarding.capability.about": "{{label}}について",
+  "onboarding.capability.why": "{{label}}が必要な理由",
+  "onboarding.openAiKeySettings": "AIキー設定を開く",
   "aboutAgentNative.title": "Agent-Native について",
   "aboutAgentNative.version": "バージョン",
   "aboutAgentNative.environment": "環境",

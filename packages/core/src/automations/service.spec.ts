@@ -386,12 +386,76 @@ Send the digest.`);
       expect.stringContaining("createdBy: alice@example.com"),
     );
 
+    const updatedContent = resourcePutMock.mock.calls[0][2] as string;
+    expect(updatedContent).toContain('deliveryPlatform: "slack"');
+    expect(updatedContent).toContain('deliveryDestination: "channel-1"');
+    expect(updatedContent).toContain("mcp__mail__send");
+    expect(updatedContent.indexOf("deliveryPlatform:")).toBeGreaterThan(
+      updatedContent.indexOf("mcpTools:"),
+    );
+
     await deleteAutomation(
       { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       "organization",
       "notify",
     );
     expect(resourceDeleteMock).toHaveBeenCalledWith("automation-1");
+  });
+
+  it("patches Factory extras in place instead of rebuilding the job document", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(
+      resource(`---
+enabled: true
+slackChannelId: C0BUK2293SA
+displayName: Slack feedback
+triggerType: schedule
+schedule: "*/5 * * * *"
+createdBy: alice@example.com
+orgId: "org-1"
+appId: factory
+runAs: creator
+---
+
+Observe Slack.`),
+    );
+
+    await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "factory" },
+      {
+        name: "notify",
+        scope: "organization",
+        enabled: false,
+      },
+    );
+
+    const updatedContent = resourcePutMock.mock.calls[0][2] as string;
+    expect(updatedContent).toContain("enabled: false");
+    expect(updatedContent).toContain("slackChannelId: C0BUK2293SA");
+    expect(updatedContent).toContain("displayName: Slack feedback");
+    expect(updatedContent.indexOf("slackChannelId: C0BUK2293SA")).toBeLessThan(
+      updatedContent.indexOf("triggerType: schedule"),
+    );
+  });
+
+  it("rejects an invalid delegatedPolicyId on update without rewriting the job", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          name: "notify",
+          scope: "organization",
+          delegatedPolicyId: "crm-safe\nenabled: false",
+        },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringMatching(/Delegated automation policy IDs/),
+    });
+    expect(resourcePutMock).not.toHaveBeenCalled();
   });
 
   it("rejects an ordinary org member mutating another creator's automation", async () => {

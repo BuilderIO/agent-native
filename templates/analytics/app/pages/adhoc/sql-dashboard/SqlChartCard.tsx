@@ -56,6 +56,7 @@ import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
 import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
+import { timeRangeDays } from "./pivot";
 import type { SqlPanel } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
@@ -137,6 +138,7 @@ export function SqlChartCard({
   filters,
 }: SqlChartCardProps) {
   const t = useT();
+  const timeRange = timeRangeDays(filters?.timeRange);
   const queryClient = useQueryClient();
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
@@ -446,6 +448,7 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData
+            timeRange={timeRange}
             reportScreenshot={reportScreenshot}
             extensionContext={extensionContext}
           />
@@ -549,6 +552,7 @@ export function SqlChartCard({
                   panel={panel}
                   resolvedSql={resolvedSql}
                   loadData
+                  timeRange={timeRange}
                   reportScreenshot={reportScreenshot}
                   extensionContext={extensionContext}
                 />
@@ -735,6 +739,7 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData={shouldLoadData}
+            timeRange={timeRange}
             reportScreenshot={reportScreenshot}
             onExportCsvChange={handleExportCsvChange}
             onCopyTableChange={handleCopyTableChange}
@@ -754,6 +759,7 @@ export function SqlChartCard({
                 panel={panel}
                 resolvedSql={resolvedSql}
                 loadData
+                timeRange={timeRange}
                 reportScreenshot={reportScreenshot}
                 extensionContext={extensionContext}
               />

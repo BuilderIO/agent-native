@@ -22,6 +22,10 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+const migrateProductionTsSource = readFileSync(
+  new URL("../../scripts/migrate-production.ts", import.meta.url),
+  "utf8",
+);
 const analyticsRollupsTsSource = readFileSync(
   new URL("../lib/first-party-analytics-rollups.ts", import.meta.url),
   "utf8",
@@ -438,5 +442,13 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       "Skipping Analytics migrations in production serverless runtime",
     );
     expect(pluginSource).not.toContain("ANALYTICS_SKIP_BOOT_MIGRATIONS");
+  });
+});
+
+describe("Analytics release migrations repair persisted first-party dashboards", () => {
+  it("runs the bounded dashboard repair after both release migration sets", () => {
+    expect(migrateProductionTsSource).toMatch(
+      /await runFrameworkReleaseMigrations\(null\);[\s\S]*?await runAnalyticsMigrations\(null\);[\s\S]*?await repairPersistedFirstPartyDashboardQueries\(\);/,
+    );
   });
 });

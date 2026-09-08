@@ -213,21 +213,33 @@ if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
 const betaWorkflowConcurrency = asRecord(
   parsedWorkflows.get(betaPath)?.concurrency,
 );
-if (betaWorkflowConcurrency) {
+const betaWorkflowGroup = String(betaWorkflowConcurrency?.group ?? "");
+if (
+  !betaWorkflowGroup.includes("github.event_name == 'push'") ||
+  !betaWorkflowGroup.includes("'deploy-agent-native-beta-sites-prebuilt'") ||
+  !betaWorkflowGroup.includes(
+    "'deploy-agent-native-beta-sites-prebuilt-manual'",
+  ) ||
+  betaWorkflowConcurrency["cancel-in-progress"] !== false
+) {
   issues.push(
-    `${betaPath} must not use a workflow-level queue that can evict a pending main push`,
+    `${betaPath} must coalesce pending main pushes without canceling an active fleet publish`,
   );
 }
 const reusableConcurrencyGroup = String(
   asRecord(reusableDocument?.concurrency)?.group ?? "",
 );
+const normalizedReusableConcurrencyGroup = reusableConcurrencyGroup.replace(
+  /\s+/g,
+  " ",
+);
 if (
-  !reusableConcurrencyGroup.includes(
-    "format('netlify-prebuilt-beta-{0}', inputs.site)",
+  !normalizedReusableConcurrencyGroup.includes(
+    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}-{1}', inputs.caller, inputs.site)",
   )
 ) {
   issues.push(
-    `${reusablePath} beta publishes must share one non-canceling remote queue per site`,
+    `${reusablePath} beta publishes must isolate automatic and manual child queues per site`,
   );
 }
 
@@ -693,7 +705,7 @@ for (const [path, target, buildContext] of [
   }
   const expectedCaller =
     path === betaPath
-      ? "${{ github.event_name == 'workflow_dispatch' && inputs.migrated_source_sha != '' && 'recovery' || 'fleet' }}"
+      ? "${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}"
       : "fleet";
   if (deployWith?.caller !== expectedCaller) {
     issues.push(
@@ -710,6 +722,16 @@ for (const [path, target, buildContext] of [
 
 const betaMigrateJob = asRecord(
   asRecord(parsedWorkflows.get(betaPath)?.jobs)?.migrate,
+);
+const betaResolveSourceJob = asRecord(
+  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.["resolve-source"],
+);
+const betaResolveSourceStep = (
+  (betaResolveSourceJob?.steps as Array<Record<string, unknown>> | undefined) ??
+  []
+).find((step) => step.id === "source");
+const betaResolveSourceScript = String(
+  asRecord(betaResolveSourceStep?.with)?.script ?? "",
 );
 const betaDeployJob = asRecord(
   asRecord(parsedWorkflows.get(betaPath)?.jobs)?.deploy,
@@ -805,11 +827,27 @@ if (
 const reusableBetaFreshness = reusable;
 if (
   reusableBetaFreshness.includes("allowPinnedRecovery") ||
+  !reusableBetaFreshness.includes(
+    "Verify beta source is current immediately before upload",
+  ) ||
   !reusableBetaFreshness.includes("core.setOutput('current', String(current))")
 ) {
   issues.push(
     `${reusablePath} must reject stale beta recovery sources before upload`,
   );
+}
+if (
+  !betaResolveSourceScript.includes(
+    "context.eventName === 'workflow_dispatch'",
+  ) ||
+  !betaResolveSourceScript.includes(
+    "sourceSha.toLowerCase() !== mainSha.toLowerCase()",
+  ) ||
+  !betaResolveSourceScript.includes(
+    "Manual beta source_ref must equal current main",
+  )
+) {
+  issues.push(`${betaPath} must reject stale manual source_ref values`);
 }
 
 if (

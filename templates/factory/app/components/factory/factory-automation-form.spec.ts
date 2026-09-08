@@ -11,6 +11,7 @@ import {
   isConnectorExplicitlyMissing,
   isDestinationFilled,
   isDestinationReady,
+  omitNullDestination,
   persistAuthorFilter,
 } from "./factory-automation-form";
 
@@ -146,6 +147,13 @@ describe("factory-automation-form destination gating", () => {
     expect(
       canSaveFactoryAutomation({ ...slack, displayName: "" }, disconnected),
     ).toBe(false);
+  });
+
+  it("omits unused destination nulls instead of sending them as empty clears", () => {
+    expect(omitNullDestination(null)).toBeUndefined();
+    expect(omitNullDestination(undefined)).toBeUndefined();
+    expect(omitNullDestination("C0BUK2293SA")).toBe("C0BUK2293SA");
+    expect(omitNullDestination("")).toBe("");
   });
 
   it("points workspace connect at Dispatch admin integrations", () => {

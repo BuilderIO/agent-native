@@ -436,20 +436,19 @@ const enUS = {
   },
   homepage: {
     hero: {
-      title: "The framework for agent-native apps.",
-      bodyLine1:
-        "An open-source TypeScript framework for apps with a UI and an agent.",
-      bodyLine2: "Define each action once and call it from anywhere.",
+      title: "The agentic application framework",
+      bodyLine1: "Build autonomous agents with intuitive UIs.",
+      bodyLine2: "Bring your own LLM. Deploy anywhere.",
       tryAnApp: "Try an app",
     },
     install: {
       copyCommand: "Copy install command",
     },
     actions: {
-      title: "Call one action from anywhere.",
-      bodyLine1: "Define a capability with defineAction().",
+      title: "One Action powers every surface",
+      bodyLine1: "Define a capability once with defineAction().",
       bodyLine2:
-        "Your React UI, agent, HTTP clients, and integrations all call the same code.",
+        "Your agent, React UI, HTTP clients, and integrations all call the same code.",
       diagramAlt:
         "One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI",
     },
@@ -545,7 +544,7 @@ const enUS = {
         "Describe what you want to build in plain language and the agent will create it for you.",
       stepThreeTitle: "Deploy",
       stepThreeBody:
-        "When you're ready, deploy your app with one click in Builder.",
+        "When you're ready, deploy your agent and its UI with one click in Builder.",
     },
   },
   templatesPage: {
@@ -570,6 +569,7 @@ const enUS = {
     tryCommunityDemo: "Try demo",
     customizeDescription: "Use this app as a starting point.",
     customizeOnline: "Online",
+    customizeOnlineBadge: "Join waitlist",
     customizeLocally: "Local",
     communityNew: "New",
     communityComingSoon: "Coming soon",
@@ -625,6 +625,18 @@ const enUS = {
     popoverTitle: "Build in the browser",
     popoverBody:
       "Rapidly generate agent-native apps in the cloud with Builder.io.",
+    waitlistBody:
+      "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
+    emailLabel: "Email",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "Join waitlist",
+    joining: "Joining…",
+    joined:
+      "You're on the waitlist. We'll email you when build-online access opens.",
+    invalidEmail: "Enter a valid email address.",
+    submitError: "Couldn't join the waitlist. Please try again.",
+    waitlistUnavailable:
+      "Waitlist signups aren't available in this environment yet. Please try the hosted docs site instead.",
     launchBuilder: "Launch Builder",
   },
   templateCard: {
@@ -1101,7 +1113,7 @@ const enUS = {
       s004: "Refine",
       s005: "All Apps",
       s006: "Open-Source Figma alternative",
-      s007: "Generate interactive Alpine/Tailwind prototypes from a prompt, compare variants, refine with tweak controls, and export real files you own.",
+      s007: "Create interactive designs and prototypes. Refine with familiar tools or make conversational edits. Export anywhere.",
       s008: "Design Something",
       s009: "How it works",
       s010: "Everything you need",
@@ -1155,6 +1167,7 @@ const enUS = {
       s058: "Start from the app and begin generating interactive prototypes with an agent that edits the source.",
       s059: "Read the docs",
       s060: "View all apps",
+      s061: "100% free, open-source, and customizable.",
     },
     dispatch: {
       faq: {
@@ -2103,6 +2116,9 @@ const enUS = {
     databaseProviders: "Database providers",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "Internationalization",
     localFileMode: "Local File Mode",

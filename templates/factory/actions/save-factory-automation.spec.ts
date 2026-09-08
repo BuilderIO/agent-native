@@ -284,4 +284,38 @@ Observe Slack.
     expect(saved).toContain("nextRun: 2026-08-24T00:00:00.000Z");
     expect(saved).not.toMatch(/^domain:/m);
   });
+
+  it("rejects list-row null destinations and accepts omitted ones", async () => {
+    const { default: action } = await import("./save-factory-automation.js");
+    const slackSave = {
+      factoryId: "support-triage",
+      automationId: "resource-1",
+      name: "factories/support-triage/factory-slack-feedback",
+      prompt: "Watch Slack more closely.",
+      enabled: true,
+      slackChannelId: "C123",
+    };
+    const asPosted = JSON.parse(
+      JSON.stringify({
+        ...slackSave,
+        repository: null,
+        sentryOrgSlug: null,
+        sentryProjectSlug: null,
+        sentryEnvironment: null,
+      }),
+    ) as Record<string, unknown>;
+    expect(action.schema.safeParse(asPosted).success).toBe(false);
+
+    const omitted = JSON.parse(
+      JSON.stringify({
+        ...slackSave,
+        repository: undefined,
+        sentryOrgSlug: undefined,
+        sentryProjectSlug: undefined,
+        sentryEnvironment: undefined,
+      }),
+    ) as Record<string, unknown>;
+    expect(omitted).not.toHaveProperty("repository");
+    expect(action.schema.safeParse(omitted).success).toBe(true);
+  });
 });
