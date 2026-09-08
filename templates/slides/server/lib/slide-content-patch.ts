@@ -257,7 +257,7 @@ function applyObjectReplace(
   }
 
   const target = targets[0]!;
-  if (target.innerStart === target.innerEnd) {
+  if (target.isVoid) {
     throw new SlideContentEditError(
       `objectId "${objectId}" targets <${target.tagName}>, which has no editable text content`,
     );
@@ -274,11 +274,17 @@ function applyObjectReplace(
 function findObjectTargets(
   html: string,
   objectId: string,
-): Array<{ innerStart: number; innerEnd: number; tagName: string }> {
+): Array<{
+  innerStart: number;
+  innerEnd: number;
+  tagName: string;
+  isVoid: boolean;
+}> {
   const targets: Array<{
     innerStart: number;
     innerEnd: number;
     tagName: string;
+    isVoid: boolean;
   }> = [];
   let cursor = 0;
 
@@ -305,11 +311,13 @@ function findObjectTargets(
     }
     const openingTag = html.slice(tagStart, tagEnd + 1);
     if (hasObjectId(openingTag, objectId)) {
-      if (isVoidTag(tagName, openingTag)) {
+      const isVoid = isVoidTag(tagName, openingTag);
+      if (isVoid) {
         targets.push({
           innerStart: tagEnd + 1,
           innerEnd: tagEnd + 1,
           tagName,
+          isVoid,
         });
       } else {
         const closing = findMatchingCloseTag(html, tagName, tagEnd + 1);
@@ -322,6 +330,7 @@ function findObjectTargets(
           innerStart: tagEnd + 1,
           innerEnd: closing.start,
           tagName,
+          isVoid,
         });
       }
     }
@@ -338,11 +347,48 @@ function findObjectTargets(
 }
 
 function hasObjectId(tag: string, objectId: string): boolean {
-  const match =
-    /\bdata-slide-object-id\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i.exec(
-      tag,
-    );
-  return (match?.[1] ?? match?.[2] ?? match?.[3]) === objectId;
+  const tagName = /^<[A-Za-z][\w:-]*/.exec(tag)?.[0];
+  if (!tagName) return false;
+
+  let cursor = tagName.length;
+  while (cursor < tag.length) {
+    while (/\s/.test(tag[cursor] ?? "")) cursor += 1;
+    if (tag[cursor] === "/" || tag[cursor] === ">") break;
+
+    const attributeStart = cursor;
+    while (cursor < tag.length && !/[\s=>/]/.test(tag[cursor] ?? "")) {
+      cursor += 1;
+    }
+    const attributeName = tag.slice(attributeStart, cursor).toLowerCase();
+    while (/\s/.test(tag[cursor] ?? "")) cursor += 1;
+    if (tag[cursor] !== "=") {
+      while (cursor < tag.length && !/[\s>]/.test(tag[cursor] ?? "")) {
+        cursor += 1;
+      }
+      continue;
+    }
+
+    cursor += 1;
+    while (/\s/.test(tag[cursor] ?? "")) cursor += 1;
+    const quote =
+      tag[cursor] === '"' || tag[cursor] === "'" ? tag[cursor] : null;
+    if (quote) cursor += 1;
+    const valueStart = cursor;
+    if (quote) {
+      while (cursor < tag.length && tag[cursor] !== quote) cursor += 1;
+    } else {
+      while (cursor < tag.length && !/[\s>]/.test(tag[cursor] ?? "")) {
+        cursor += 1;
+      }
+    }
+    const value = tag.slice(valueStart, cursor);
+    if (quote && tag[cursor] === quote) cursor += 1;
+    if (attributeName === "data-slide-object-id" && value === objectId) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function findMatchingCloseTag(

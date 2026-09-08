@@ -37,6 +37,35 @@ describe("applySlideContentEdits", () => {
     ).rejects.toThrow('objectId "title" matched 2 slide objects');
   });
 
+  it("replaces an empty non-void selected element", async () => {
+    const result = await applySlideContentEdits(
+      '<div data-slide-object-id="title"></div>',
+      [{ objectId: "title", replace: "New" }],
+    );
+
+    expect(result.content).toBe('<div data-slide-object-id="title">New</div>');
+  });
+
+  it("does not read object ids from another attribute's quoted value", async () => {
+    await expect(
+      applySlideContentEdits(
+        '<div title="data-slide-object-id=title" data-slide-object-id="other">Keep</div>',
+        [{ objectId: "title", replace: "New" }],
+      ),
+    ).rejects.toThrow('objectId "title" found no matching slide object');
+  });
+
+  it("rejects selected void elements without editable inner content", async () => {
+    await expect(
+      applySlideContentEdits(
+        '<img data-slide-object-id="image" src="hero.png">',
+        [{ objectId: "image", replace: "New" }],
+      ),
+    ).rejects.toThrow(
+      'objectId "image" targets <img>, which has no editable text content',
+    );
+  });
+
   it("applies several exact edits in order without regenerating untouched source", async () => {
     const result = await applySlideContentEdits(
       '<section data-id="hero"><h1>Old</h1><p>Keep\nthis</p></section>',
