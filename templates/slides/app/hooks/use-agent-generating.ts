@@ -1,5 +1,6 @@
 import {
   useAgentChatGenerating,
+  useAgentEngineConfigured,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -33,6 +34,7 @@ type AgentGeneratingSubmitOptions = Pick<
  */
 export function useAgentGenerating() {
   const [generating, send, stopReason] = useAgentChatGenerating();
+  const engineConfigured = useAgentEngineConfigured();
   const [recentlyGenerating, setRecentlyGenerating] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -51,6 +53,16 @@ export function useAgentGenerating() {
       stopDebounceRef.current = null;
     }
   }, []);
+
+  const providerMissing = engineConfigured.state === "missing";
+
+  useEffect(() => {
+    if (!providerMissing) return;
+    clearStopDebounce();
+    clearWatchdog();
+    setRecentlyGenerating(false);
+    setTimedOut(false);
+  }, [clearStopDebounce, clearWatchdog, providerMissing]);
 
   useEffect(() => {
     if (stopReason === "stopped") {
@@ -117,6 +129,7 @@ export function useAgentGenerating() {
 
   return {
     generating:
+      !providerMissing &&
       stopReason !== "stopped" &&
       (generating || recentlyGenerating) &&
       !timedOut,
