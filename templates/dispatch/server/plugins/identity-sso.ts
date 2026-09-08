@@ -31,6 +31,7 @@ import {
   getOrgContext,
   getOrgDomain,
   invalidateMemberOrgCaches,
+  isGoogleSignInRequiredForEmail,
 } from "@agent-native/core/org";
 import {
   getH3App,
@@ -1281,6 +1282,19 @@ export const bootstrapActivationHandler = defineEventHandler(
     }
 
     try {
+      // Bootstrap has no Dispatch browser request context to prove the auth
+      // provider. Match the normal identity assertion policy before minting
+      // either Dispatch session when the target organization requires Google.
+      if (
+        (await isGoogleSignInRequiredForEmail(bootstrap.email)) &&
+        !(await hasGoogleAuthIdentity(bootstrap.email))
+      ) {
+        await releaseIdentityBootstrapActivation(activation).catch(() => {});
+        return jsonResponse(
+          { error: "This organization requires Google sign-in." },
+          403,
+        );
+      }
       const identityUser = await ensureIdentityUser(
         bootstrap.email,
         bootstrap.name,

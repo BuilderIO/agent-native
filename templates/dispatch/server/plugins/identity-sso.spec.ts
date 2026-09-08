@@ -13,6 +13,7 @@ const verifyA2ATokenMock = vi.hoisted(() => vi.fn());
 const getOrgDomainMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 const invalidateMemberOrgCachesMock = vi.hoisted(() => vi.fn());
+const isGoogleSignInRequiredForEmailMock = vi.hoisted(() => vi.fn());
 const hasGoogleAuthIdentityMock = vi.hoisted(() => vi.fn());
 const addSessionMock = vi.hoisted(() => vi.fn());
 const createBetterAuthSessionForEmailMock = vi.hoisted(() => vi.fn());
@@ -89,6 +90,7 @@ vi.mock("@agent-native/core/org", () => ({
   getOrgContext: getOrgContextMock,
   getOrgDomain: getOrgDomainMock,
   invalidateMemberOrgCaches: invalidateMemberOrgCachesMock,
+  isGoogleSignInRequiredForEmail: isGoogleSignInRequiredForEmailMock,
 }));
 vi.mock("@agent-native/core/server", () => ({
   getH3App: vi.fn(() => ({ use: vi.fn() })),
@@ -404,6 +406,7 @@ beforeEach(() => {
   });
   signInJourneyMock.mockReturnValue({ signInHref: "/_agent-native/sign-in" });
   getOrgDomainMock.mockResolvedValue("example.test");
+  isGoogleSignInRequiredForEmailMock.mockResolvedValue(false);
   hasGoogleAuthIdentityMock.mockResolvedValue(false);
   createBetterAuthSessionForEmailMock.mockResolvedValue({
     email: "user@example.test",
@@ -972,6 +975,53 @@ describe("silent browser bootstrap", () => {
       "user@example.test",
     );
     expect(setBetterAuthSessionCookieMock).toHaveBeenCalled();
+  });
+
+  it("does not activate a non-Google identity into a Google-only organization", async () => {
+    isGoogleSignInRequiredForEmailMock.mockResolvedValue(true);
+    const handle = await createIdentityBootstrapHandle({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge: createCodeChallenge(VERIFIER)!,
+      email: "user@example.test",
+    });
+    const continuation = await bootstrapHandler(
+      event(`/_agent-native/identity/bootstrap/continue?handle=${handle}`),
+    );
+    const code = new URL(
+      continuation.headers.get("Location")!,
+    ).searchParams.get("code");
+    const tokenResponse = await tokenHandler(
+      event("/_agent-native/identity/token", {
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          code,
+          state: STATE,
+          app_id: "mail",
+          client_id: "mail",
+          redirect_uri: CALLBACK,
+          code_verifier: VERIFIER,
+        },
+      }),
+    );
+    const tokenBody = await tokenResponse.json();
+    const activation = await bootstrapActivationHandler(
+      event(
+        `/_agent-native/identity/bootstrap/activate?activation=${tokenBody.bootstrap_activation}&return=%2Fafter`,
+      ),
+    );
+    expect(activation.status).toBe(403);
+    expect(await activation.json()).toEqual({
+      error: "This organization requires Google sign-in.",
+    });
+    expect(ensureIdentityUserMock).not.toHaveBeenCalled();
+    expect(createBetterAuthSessionForEmailMock).not.toHaveBeenCalled();
+    expect(addSessionMock).not.toHaveBeenCalled();
+    expect(bootstrapRows[0]?.activated_at).toBeNull();
   });
 });
 
