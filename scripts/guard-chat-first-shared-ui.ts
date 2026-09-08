@@ -60,9 +60,12 @@ const chatHomeUsesDurableHandoff =
     chatHomeRoute,
   ) &&
     chatHomeRoute.includes("useNavigate")) ||
-    /window\.location\.replace\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`\s*\)/s.test(
+    (/import\s*\{\s*appPath\s*\}\s*from\s*["']@agent-native\/core\/client\/api-path["']/.test(
       chatHomeRoute,
-    ));
+    ) &&
+      /window\.location\.replace\(\s*appPath\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`\s*\)\s*\)/s.test(
+        chatHomeRoute,
+      )));
 
 const chatRailViolations = [
   chatSidebar.includes("<SidebarFooterActions")
