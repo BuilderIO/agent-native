@@ -44,7 +44,7 @@ const DESIGN_MUTATION_OBJECTS =
 const DESIGN_ADVISORY_WORDS =
   /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|teach(?:ing)?|tip|tips|thoughts?|tutorials?)\b/i;
 const DESIGN_TEST_REQUEST =
-  /\bvisual(?:[\s-]+(?:regression|snapshot))?(?:[\s-]+(?:test|tests|testing|suite|suites)|[\s-]+snapshot)\b/i;
+  /\bvisual(?:[\s-]+(?:regression|snapshot))?(?:[\s-]+(?:test|tests|testing|suite|suites)|[\s-]+snapshots?)\b/i;
 const DESIGN_WORD_PATTERN = /\b[\w-]+\b/g;
 const DESIGN_ADVISORY_SKILL_VERBS = new Set(["develop", "improve", "learn"]);
 const DESIGN_ADVISORY_SKILL_PRONOUNS = new Set(["my", "your"]);
@@ -324,7 +324,14 @@ function removeAdvisorySkillsClauses(text: string): string {
 }
 
 function removeDesignTestRequests(text: string): string {
-  return text.replace(new RegExp(DESIGN_TEST_REQUEST.source, "gi"), " ");
+  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+then)?|then)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?${DESIGN_MUTATION_VERBS.source}|[.!?,;]|$`;
+  return text.replace(
+    new RegExp(
+      `${DESIGN_TEST_REQUEST.source}(?:\\s+(?:for|of|on|in|against|with|using)\\b[^.!?,;]*?(?=${mutationClauseBoundary}))?`,
+      "gi",
+    ),
+    " ",
+  );
 }
 
 export function looksLikeDesignMutationRequest(text: string): boolean {
