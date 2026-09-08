@@ -2,7 +2,6 @@ import {
   BUG_REPORT_POPUP_RESPONSE_HEADERS,
   isBugReportSubmissionMessage,
   parseBugReportContext,
-  type BugReportContext,
 } from "@shared/bug-report";
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useOutlet } from "react-router";

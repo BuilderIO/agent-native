@@ -515,6 +515,15 @@ export default function ShareRoute() {
   const [panel, setPanel] = useState<SharePanel>("transcript");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
+  const selectCommentsPanel = useCallback(() => {
+    setPanel("comments");
+    requestAnimationFrame(() => {
+      commentsSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, []);
   const [downloading, setDownloading] = useState(false);
   const [accessRequestSent, setAccessRequestSent] = useState(false);
   const [accessRequestError, setAccessRequestError] = useState<string | null>(
@@ -1445,7 +1454,7 @@ export default function ShareRoute() {
                   onTimeUpdate={(ms) => setCurrentMs(ms)}
                   onCommentClick={
                     viewerCanUseFullscreenInteractions
-                      ? () => setPanel("comments")
+                      ? selectCommentsPanel
                       : undefined
                   }
                   onFullscreenChange={setIsPlayerFullscreen}
@@ -1463,7 +1472,7 @@ export default function ShareRoute() {
                           const liveMs = resolvePlaybackMs();
                           setCurrentMs(liveMs);
                           if (!isPlayerFullscreen) {
-                            setPanel("comments");
+                            selectCommentsPanel();
                             return;
                           }
                           setCommentAtMs(liveMs);

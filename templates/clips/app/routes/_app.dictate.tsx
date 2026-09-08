@@ -411,6 +411,7 @@ function DictationRow({
 
   useEffect(() => {
     if (!initialExpanded) return;
+    setExpanded(true);
     rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [initialExpanded]);
 
