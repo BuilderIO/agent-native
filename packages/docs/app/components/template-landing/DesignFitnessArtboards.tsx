@@ -39,6 +39,13 @@ export const FRAME_BODY_HEIGHT = 700;
  */
 export const ARTBOARD_MIN_HEIGHT = FRAME_BODY_HEIGHT / BOARD_SCALE;
 
+/**
+ * The design's page background. Exported so the frame body behind the artboard
+ * matches it — the frame is taller than the content, and a white backing would
+ * flash below the fold.
+ */
+export const ARTBOARD_BG = "#0b0616";
+
 /** Logical size of the selected CTA, mirrored by the inspector's W/H fields. */
 export const SELECTED_CTA_WIDTH = 160;
 export const SELECTED_CTA_HEIGHT = 52;
@@ -155,9 +162,9 @@ function SelectedCta({ full = false }: { full?: boolean }) {
   );
 }
 
-function Wordmark({ onDark }: { onDark?: boolean }) {
+function Wordmark() {
   return (
-    <span className={onDark ? "ft-wordmark is-on-dark" : "ft-wordmark"}>
+    <span className="ft-wordmark">
       pulse<span className="ft-wordmark-dot">.</span>
     </span>
   );
@@ -354,8 +361,14 @@ export const DESIGN_FITNESS_CSS = [
   // Palette. Fixed, not theme-derived: this is the user's design sitting on the
   // canvas, so it must look identical whether the editor around it is light or
   // dark — exactly like a real artboard.
-  ".design-mock .ft { --ft-ink: #140c2e; --ft-ink-soft: rgba(20, 12, 46, 0.62); --ft-ink-faint: rgba(20, 12, 46, 0.38); --ft-surface: #fffdf8; --ft-card: #ffffff; --ft-line: rgba(20, 12, 46, 0.1); --ft-lime: #d8ff3e; --ft-coral: #ff5b4a; --ft-cyan: #3fe0d0; --ft-violet: #7c4dff; --ft-amber: #ffb020; }",
-  ".design-mock .ft { width: 100%; min-height: 100%; background: var(--ft-surface); color: var(--ft-ink); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }",
+  //
+  // The design is dark. A near-white page filled most of the canvas and became
+  // the brightest thing in the hero, pulling attention off the editor chrome;
+  // the deep violet lets the lime/coral/cyan accents do the work instead.
+  // `--ft-ink` stays dark on purpose: it is the text colour for those bright
+  // fills, not a surface.
+  `.design-mock .ft { --ft-ink: #140c2e; --ft-bg: ${ARTBOARD_BG}; --ft-elevated: #16102b; --ft-hero-bg: #1c1342; --ft-fg: #f6f3ff; --ft-fg-soft: rgba(246, 243, 255, 0.66); --ft-line: rgba(246, 243, 255, 0.12); --ft-line-strong: rgba(246, 243, 255, 0.3); --ft-lime: #d8ff3e; --ft-coral: #ff5b4a; --ft-cyan: #3fe0d0; --ft-violet: #7c4dff; --ft-violet-text: #a78bfa; --ft-amber: #ffb020; }`,
+  ".design-mock .ft { width: 100%; min-height: 100%; background: var(--ft-bg); color: var(--ft-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }",
   // The docs shell colors every h1-h4 and prose paragraph directly, so an
   // artboard heading would otherwise pick up the docs foreground instead of the
   // design's own ink.
@@ -370,23 +383,22 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-nav { display: flex; height: 88px; flex-shrink: 0; align-items: center; gap: 48px; padding: 0 48px; }",
   ".design-mock .ft-wordmark { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; }",
   ".design-mock .ft-wordmark-dot { color: var(--ft-coral); }",
-  ".design-mock .ft-wordmark.is-on-dark { color: var(--ft-surface); }",
-  ".design-mock .ft-nav-links { display: flex; flex: 1; align-items: center; gap: 32px; color: var(--ft-ink-soft); font-size: 17px; font-weight: 500; }",
-  ".design-mock .ft-nav-cta { display: flex; height: 48px; flex-shrink: 0; align-items: center; padding: 0 26px; border-radius: 999px; background: var(--ft-ink); color: var(--ft-surface); font-size: 17px; font-weight: 600; }",
-  ".design-mock .ft-nav-menu { margin-left: auto; color: var(--ft-ink-soft); font-size: 16px; font-weight: 600; }",
+  ".design-mock .ft-nav-links { display: flex; flex: 1; align-items: center; gap: 32px; color: var(--ft-fg-soft); font-size: 17px; font-weight: 500; }",
+  ".design-mock .ft-nav-cta { display: flex; height: 48px; flex-shrink: 0; align-items: center; padding: 0 26px; border-radius: 999px; background: var(--ft-fg); color: var(--ft-ink); font-size: 17px; font-weight: 600; }",
+  ".design-mock .ft-nav-menu { margin-left: auto; color: var(--ft-fg-soft); font-size: 16px; font-weight: 600; }",
 
   // Hero
-  ".design-mock .ft-hero { position: relative; display: flex; flex-shrink: 0; align-items: center; gap: 48px; overflow: hidden; margin: 0 24px; padding: 44px 48px; border-radius: 36px; background: var(--ft-ink); color: var(--ft-surface); }",
-  ".design-mock .ft-hero-blob { position: absolute; border-radius: 999px; filter: blur(4px); opacity: 0.55; }",
+  ".design-mock .ft-hero { position: relative; display: flex; flex-shrink: 0; align-items: center; gap: 48px; overflow: hidden; margin: 0 24px; padding: 44px 48px; border-radius: 36px; background: var(--ft-hero-bg); color: var(--ft-fg); }",
+  ".design-mock .ft-hero-blob { position: absolute; border-radius: 999px; filter: blur(4px); opacity: 0.7; }",
   ".design-mock .ft-hero-blob-a { width: 420px; height: 420px; right: -120px; top: -180px; background: radial-gradient(circle, var(--ft-violet), transparent 68%); }",
   ".design-mock .ft-hero-blob-b { width: 360px; height: 360px; left: -140px; bottom: -200px; background: radial-gradient(circle, var(--ft-cyan), transparent 68%); }",
   ".design-mock .ft-hero-copy { position: relative; flex: 1; min-width: 0; }",
   ".design-mock .ft-eyebrow { display: inline-flex; align-items: center; height: 30px; padding: 0 14px; border-radius: 999px; background: rgba(216, 255, 62, 0.16); color: var(--ft-lime); font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }",
   ".design-mock .ft-headline { margin: 20px 0 0; font-size: 68px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.02; }",
   ".design-mock .ft-headline em { color: var(--ft-lime); font-style: italic; }",
-  ".design-mock .ft-subhead { margin: 20px 0 0; max-width: 440px; color: rgba(255, 253, 248, 0.72); font-size: 19px; line-height: 1.5; }",
+  ".design-mock .ft-subhead { margin: 20px 0 0; max-width: 440px; color: var(--ft-fg-soft); font-size: 19px; line-height: 1.5; }",
   ".design-mock .ft-hero-actions { display: flex; align-items: center; gap: 16px; margin-top: 32px; }",
-  ".design-mock .ft-cta-ghost { display: flex; height: 52px; align-items: center; padding: 0 24px; border: 2px solid rgba(255, 253, 248, 0.32); border-radius: 999px; color: var(--ft-surface); font-size: 17px; font-weight: 600; }",
+  ".design-mock .ft-cta-ghost { display: flex; height: 52px; align-items: center; padding: 0 24px; border: 2px solid var(--ft-line-strong); border-radius: 999px; color: var(--ft-fg); font-size: 17px; font-weight: 600; }",
   ".design-mock .ft-hero-art { width: 460px; height: 380px; flex-shrink: 0; border-radius: 28px; }",
 
   // The selected `Start free trial` CTA and its editor chrome.
@@ -403,10 +415,11 @@ export const DESIGN_FITNESS_CSS = [
 
   // Stat strip
   ".design-mock .ft-stats { display: grid; flex-shrink: 0; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 24px 0; }",
-  ".design-mock .ft-stat { display: flex; flex-direction: column; gap: 6px; padding: 24px 26px; border-radius: 24px; }",
+  // Ink text, not the page foreground: all three fills are bright, so the
+  // near-white body colour would land near 2:1 on them and the label's 0.72
+  // opacity would drop it further.
+  ".design-mock .ft-stat { display: flex; flex-direction: column; gap: 6px; padding: 24px 26px; border-radius: 24px; color: var(--ft-ink); }",
   ".design-mock .ft-stat.is-lime { background: var(--ft-lime); }",
-  // Ink, not surface: coral is a light mid-tone, so white on it lands near 2:1
-  // and the label's 0.72 opacity drops it further. Matches its siblings.
   ".design-mock .ft-stat.is-coral { background: var(--ft-coral); }",
   ".design-mock .ft-stat.is-cyan { background: var(--ft-cyan); }",
   ".design-mock .ft-stat-value { font-size: 44px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }",
@@ -416,36 +429,38 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-section { flex-shrink: 0; padding: 30px 48px 0; }",
   ".design-mock .ft-section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }",
   ".design-mock .ft-section-title { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -0.03em; }",
-  ".design-mock .ft-section-link { color: var(--ft-violet); font-size: 16px; font-weight: 600; }",
+  ".design-mock .ft-section-link { color: var(--ft-violet-text); font-size: 16px; font-weight: 600; }",
   ".design-mock .ft-class-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }",
-  ".design-mock .ft-class { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 2px solid var(--ft-line); border-radius: 26px; background: var(--ft-card); }",
+  ".design-mock .ft-class { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 2px solid var(--ft-line); border-radius: 26px; background: var(--ft-elevated); }",
   // Covers are ~345px wide, so 190 keeps the roughly 4:3 photos from being
   // sliced into letterbox strips without pushing the frame into the toolbar.
   ".design-mock .ft-class .ft-slot { height: 190px; border-radius: 18px; }",
   ".design-mock .ft-class-title { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; }",
-  ".design-mock .ft-class-meta { color: var(--ft-ink-soft); font-size: 15px; font-weight: 500; }",
+  ".design-mock .ft-class-meta { color: var(--ft-fg-soft); font-size: 15px; font-weight: 500; }",
 
   // Plans
   ".design-mock .ft-plan-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }",
-  ".design-mock .ft-plan { display: flex; flex-direction: column; gap: 8px; padding: 28px; border: 2px solid var(--ft-line); border-radius: 26px; background: var(--ft-card); }",
-  ".design-mock .ft-plan.is-featured { border-color: transparent; background: var(--ft-ink); color: var(--ft-surface); }",
+  ".design-mock .ft-plan { display: flex; flex-direction: column; gap: 8px; padding: 28px; border: 2px solid var(--ft-line); border-radius: 26px; background: var(--ft-elevated); }",
+  // Violet fill rather than the old dark panel, which would now be the same
+  // value as the page it sits on.
+  ".design-mock .ft-plan.is-featured { border-color: transparent; background: var(--ft-violet); color: var(--ft-fg); }",
   ".design-mock .ft-plan-name { font-size: 17px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; }",
   ".design-mock .ft-plan-price { font-size: 50px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.05; }",
   ".design-mock .ft-plan-period { font-size: 18px; font-weight: 600; opacity: 0.5; }",
   ".design-mock .ft-plan.is-featured .ft-plan-price { color: var(--ft-lime); }",
-  ".design-mock .ft-plan-meta { color: var(--ft-ink-soft); font-size: 15px; font-weight: 500; }",
-  ".design-mock .ft-plan.is-featured .ft-plan-meta { color: rgba(255, 253, 248, 0.7); }",
+  ".design-mock .ft-plan-meta { color: var(--ft-fg-soft); font-size: 15px; font-weight: 500; }",
+  ".design-mock .ft-plan.is-featured .ft-plan-meta { color: rgba(255, 255, 255, 0.78); }",
   ".design-mock .ft-plan-cta { display: flex; height: 48px; align-items: center; justify-content: center; margin-top: 12px; border: 2px solid var(--ft-line); border-radius: 999px; font-size: 16px; font-weight: 700; }",
   ".design-mock .ft-plan.is-featured .ft-plan-cta { border-color: transparent; background: var(--ft-lime); color: var(--ft-ink); }",
 
   // Closing band
-  ".design-mock .ft-band { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 28px 24px 24px; padding: 30px 40px; border-radius: 32px; background: linear-gradient(100deg, var(--ft-violet), var(--ft-coral) 62%, var(--ft-amber)); color: var(--ft-surface); }",
+  ".design-mock .ft-band { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 28px 24px 24px; padding: 30px 40px; border-radius: 32px; background: linear-gradient(100deg, var(--ft-violet), var(--ft-coral) 62%, var(--ft-amber)); color: var(--ft-fg); }",
   ".design-mock .ft-band-title { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }",
-  ".design-mock .ft-band-cta { display: flex; height: 52px; align-items: center; padding: 0 26px; border-radius: 999px; background: var(--ft-surface); color: var(--ft-ink); font-size: 17px; font-weight: 700; }",
+  ".design-mock .ft-band-cta { display: flex; height: 52px; align-items: center; padding: 0 26px; border-radius: 999px; background: var(--ft-fg); color: var(--ft-ink); font-size: 17px; font-weight: 700; }",
 
   // Footer
   ".design-mock .ft-footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 0 48px; padding: 32px 0 40px; border-top: 2px solid var(--ft-line); }",
-  ".design-mock .ft-footer-links { display: flex; align-items: center; gap: 28px; color: var(--ft-ink-soft); font-size: 16px; font-weight: 500; }",
+  ".design-mock .ft-footer-links { display: flex; align-items: center; gap: 28px; color: var(--ft-fg-soft); font-size: 16px; font-weight: 500; }",
 
   // Mobile breakpoint. Same design, stacked.
   ".design-mock .ft-mobile .ft-nav { height: 68px; gap: 0; padding: 0 20px; }",
