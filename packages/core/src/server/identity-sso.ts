@@ -39,7 +39,7 @@ import {
 } from "./better-auth-instance.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
-import { createOAuthSession, getOrigin } from "./google-oauth.js";
+import { createOAuthSession, getAppUrl, getOrigin } from "./google-oauth.js";
 import { hasIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import {
   consumeSsoState,
@@ -246,12 +246,29 @@ function identitySsoBootstrapCookieAttrs(
       hubHost !== sharedDomain &&
       !hubHost.endsWith(`.${sharedDomain}`)
     ) {
-      return null;
+      return {};
     }
     return { domain: `.${sharedDomain}` };
   }
-  if (hubHost && hubHost !== host) return null;
   return {};
+}
+
+export function canIdentitySsoBootstrapBindingCookieReachHub(
+  event: H3Event,
+  hub: string,
+): boolean {
+  const attrs = identitySsoBootstrapCookieAttrs(event, hub);
+  if (!attrs) return false;
+  if (attrs.domain) return true;
+  try {
+    return (
+      new URL(`http://${getHeader(event, "host")}`).hostname ===
+      new URL(hub).hostname
+    );
+  } catch (error) {
+    void error;
+    return false;
+  }
 }
 
 export function setIdentitySsoBootstrapBindingCookie(
@@ -288,6 +305,44 @@ export function clearIdentitySsoBootstrapBindingCookie(event: H3Event): void {
     ...attrs,
     path: IDENTITY_SSO_BOOTSTRAP_PATH,
   });
+}
+
+function inlineJson(value: string): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function identitySsoBridgePage(
+  event: H3Event,
+  options: {
+    frameUrl: string;
+    hubOrigin: string;
+    completeField: "redirect_uri" | "return_url";
+  },
+): Response {
+  const bindingUrl = getAppUrl(event, `${IDENTITY_SSO_BOOTSTRAP_PATH}/binding`);
+  const frameUrl = inlineJson(options.frameUrl);
+  const bindingUrlLiteral = inlineJson(bindingUrl);
+  const hubOrigin = inlineJson(options.hubOrigin);
+  const completeField = inlineJson(options.completeField);
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Continuing sign-in</title></head><body><iframe id="identity-sso-bridge" title="Continuing sign-in" src=${frameUrl} style="width:1px;height:1px;border:0;position:absolute;opacity:0" aria-hidden="true"></iframe><script>(()=>{const f=document.getElementById("identity-sso-bridge"),h=${hubOrigin},b=${bindingUrlLiteral},field=${completeField};if(!f)return;const fail=()=>{document.body.textContent="Could not finish sign-in. Please return and try again."};window.addEventListener("message",async e=>{if(e.source!==f.contentWindow||e.origin!==h)return;if(e.data?.type==="agent-native-identity-bridge-ready"){try{const r=await fetch(b,{credentials:"same-origin",cache:"no-store"}),v=await r.json();if(!r.ok||typeof v.binding!=="string")throw new Error();f.contentWindow?.postMessage({type:"agent-native-identity-bridge-binding",binding:v.binding},h)}catch{fail()}}else if(e.data?.type==="agent-native-identity-bridge-complete"){const value=e.data?.[field];try{const u=new URL(value,window.location.origin);if(u.origin!==window.location.origin)throw new Error();window.top?.location.replace(u.toString())}catch{fail()}}});})();</script></body></html>`,
+    {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Security-Policy": `default-src 'none'; connect-src 'self'; frame-src ${options.hubOrigin}; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'`,
+        "Content-Type": "text/html; charset=utf-8",
+        "Referrer-Policy": "no-referrer",
+      },
+    },
+  );
+}
+
+function addBridgeParams(url: string, sourceOrigin: string): string {
+  const bridged = new URL(url);
+  bridged.searchParams.set("bridge", "1");
+  bridged.searchParams.set("source_origin", sourceOrigin);
+  return bridged.toString();
 }
 
 function clearPkceVerifierCookie(event: H3Event, state: string): void {
@@ -683,7 +738,15 @@ async function startIdentityBootstrap(
     ) {
       return redirect(event, returnPath);
     }
-    return redirect(event, continueUrl.toString());
+    const sourceOrigin = new URL(binding.redirectUri).origin;
+    if (canIdentitySsoBootstrapBindingCookieReachHub(event, hub)) {
+      return redirect(event, continueUrl.toString());
+    }
+    return identitySsoBridgePage(event, {
+      frameUrl: addBridgeParams(continueUrl.toString(), sourceOrigin),
+      hubOrigin: new URL(hub).origin,
+      completeField: "redirect_uri",
+    });
   } catch (error) {
     void error;
     return redirect(event, returnPath);
@@ -745,6 +808,28 @@ export async function handleIdentitySso(
 
   const hub = resolveIdentityHubUrl(event);
   if (!hub) return new Response("Not found", { status: 404 });
+
+  if (sub === `${IDENTITY_SSO_BOOTSTRAP_PATH}/binding`) {
+    if (method !== "GET" && method !== "HEAD") {
+      return new Response("Method not allowed", { status: 405 });
+    }
+    const current = await getSession(event).catch((error) => {
+      void error;
+      return null;
+    });
+    const binding = getIdentitySsoBootstrapBindingCookie(event);
+    if (!current?.email || !binding || !STATE_PATTERN.test(binding)) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    return new Response(JSON.stringify({ binding }), {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json",
+        "Referrer-Policy": "no-referrer",
+      },
+    });
+  }
 
   if (sub === "/bootstrap") {
     if (method !== "GET" && method !== "HEAD") {
@@ -949,6 +1034,16 @@ export async function handleIdentitySso(
         "return",
         safeReturnPath(stateResult.returnPath),
       );
+      if (!canIdentitySsoBootstrapBindingCookieReachHub(event, hub)) {
+        return identitySsoBridgePage(event, {
+          frameUrl: addBridgeParams(
+            activationUrl.toString(),
+            new URL(binding.redirectUri).origin,
+          ),
+          hubOrigin: new URL(hub).origin,
+          completeField: "return_url",
+        });
+      }
       return redirect(event, activationUrl.toString());
     }
     return redirect(event, safeReturnPath(stateResult.returnPath));
@@ -963,6 +1058,7 @@ export function isIdentitySsoBypassPath(p: string): boolean {
     p === "/_agent-native/identity/login" ||
     p === "/_agent-native/identity/callback" ||
     p === "/_agent-native/identity/bootstrap" ||
+    p === `${IDENTITY_SSO_BOOTSTRAP_PATH}/binding` ||
     p === `${IDENTITY_SSO_BOOTSTRAP_PATH}/continue` ||
     p === IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH
   );

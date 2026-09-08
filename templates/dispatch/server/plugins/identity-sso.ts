@@ -144,6 +144,70 @@ function bodyString(body: unknown, key: string): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+function bridgeOrigin(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" &&
+        !(
+          url.protocol === "http:" &&
+          ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname)
+        ))
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch (error) {
+    void error;
+    return null;
+  }
+}
+
+function inlineBridgeJson(value: string): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function identitySsoBridgeHtml(
+  sourceOrigin: string,
+  completeField: "redirect_uri" | "return_url",
+): Response {
+  const sourceOriginLiteral = inlineBridgeJson(sourceOrigin);
+  const completeFieldLiteral = inlineBridgeJson(completeField);
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><title>Continuing sign-in</title></head><body><script>(()=>{const o=${sourceOriginLiteral},field=${completeFieldLiteral},fail=()=>{document.body.textContent="Could not finish sign-in. Please return and try again."};window.parent.postMessage({type:"agent-native-identity-bridge-ready"},o);window.addEventListener("message",async e=>{if(e.source!==window.parent||e.origin!==o||e.data?.type!=="agent-native-identity-bridge-binding"||typeof e.data.binding!=="string")return;try{const r=await fetch(window.location.pathname+window.location.search,{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:JSON.stringify({binding:e.data.binding})}),v=await r.json();if(!r.ok||typeof v[field]!=="string")throw new Error();window.parent.postMessage({type:"agent-native-identity-bridge-complete",[field]:v[field]},o)}catch{fail()}})})();</script></body></html>`,
+    {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Security-Policy": `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors ${sourceOrigin}`,
+        "Content-Type": "text/html; charset=utf-8",
+        "Referrer-Policy": "no-referrer",
+      },
+    },
+  );
+}
+
+function jsonResponseWithStagedCookies(
+  event: H3Event,
+  body: unknown,
+  status: number,
+): Response {
+  const headers = new Headers({
+    "Cache-Control": "private, no-store",
+    "Content-Type": "application/json",
+    "Referrer-Policy": "no-referrer",
+  });
+  const staged = (event as any).res?.headers?.getSetCookie?.() ?? [];
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response(JSON.stringify(body), { status, headers });
+}
+
 async function resolveOrgDomain(
   orgId: string | undefined,
 ): Promise<string | undefined> {
@@ -1134,9 +1198,70 @@ async function verifyIdentityBootstrapRequest(event: H3Event): Promise<{
   return null;
 }
 
+async function redeemIdentityBootstrapContinuation(
+  handle: string,
+  binding: string,
+): Promise<string | null> {
+  const bootstrap = await consumeIdentityBootstrapHandle(handle, binding);
+  if (!bootstrap) return null;
+  try {
+    const code = await createIdentityAuthorizationCode({
+      state: bootstrap.state,
+      appId: bootstrap.appId,
+      clientId: bootstrap.clientId,
+      redirectUri: bootstrap.redirectUri,
+      authority: bootstrap.authority,
+      codeChallenge: bootstrap.codeChallenge,
+      email: bootstrap.email,
+      name: bootstrap.name,
+      bootstrapHandle: handle,
+      bootstrapAuthProvider: bootstrap.authProvider,
+    });
+    return buildRedirectLocation(bootstrap.redirectUri, code, bootstrap.state);
+  } catch (error) {
+    void error;
+    await releaseIdentityBootstrapHandle(handle).catch(() => {});
+    throw error;
+  }
+}
+
 export const bootstrapHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
     const method = getMethod(event);
+    let url: URL;
+    try {
+      url = new URL(getRequestUrl(event), "http://an.invalid");
+    } catch {
+      return new Response("Invalid sign-in request", { status: 400 });
+    }
+    const bridge = url.searchParams.get("bridge") === "1";
+    const sourceOrigin = bridgeOrigin(url.searchParams.get("source_origin"));
+
+    if (method === "POST" && bridge) {
+      if (!sourceOrigin)
+        return new Response("Invalid sign-in request", { status: 400 });
+      if (!(await canAttemptBrowserIdentitySso())) {
+        return jsonResponse({ error: "feature_disabled" }, 404);
+      }
+      const body = await readBody(event).catch((error) => {
+        void error;
+        return null;
+      });
+      let location: string | null;
+      try {
+        location = await redeemIdentityBootstrapContinuation(
+          url.searchParams.get("handle") ?? "",
+          bodyString(body, "binding") ?? "",
+        );
+      } catch (error) {
+        void error;
+        return jsonResponse({ error: "identity_unavailable" }, 503);
+      }
+      if (!location)
+        return jsonResponse({ error: "invalid_sign_in_request" }, 400);
+      return jsonResponse({ redirect_uri: location }, 200);
+    }
+
     if (method === "POST") {
       if (!(await canAttemptBrowserIdentitySso())) {
         return jsonResponse({ error: "feature_disabled" }, 404);
@@ -1185,47 +1310,26 @@ export const bootstrapHandler = defineEventHandler(
     }
 
     if (method === "GET") {
-      let handle = "";
-      try {
-        handle =
-          new URL(getRequestUrl(event), "http://an.invalid").searchParams.get(
-            "handle",
-          ) ?? "";
-      } catch {
-        return new Response("Invalid sign-in request", { status: 400 });
+      if (bridge) {
+        if (!sourceOrigin) {
+          return new Response("Invalid sign-in request", { status: 400 });
+        }
+        return identitySsoBridgeHtml(sourceOrigin, "redirect_uri");
       }
-      const bootstrap = await consumeIdentityBootstrapHandle(
-        handle,
-        getIdentitySsoBootstrapBindingCookie(event) ?? "",
-      ).catch((error) => {
-        void error;
-        return null;
-      });
-      if (!bootstrap)
-        return new Response("Invalid sign-in request", { status: 400 });
-
+      const handle = url.searchParams.get("handle") ?? "";
+      let location: string | null;
       try {
-        const code = await createIdentityAuthorizationCode({
-          state: bootstrap.state,
-          appId: bootstrap.appId,
-          clientId: bootstrap.clientId,
-          redirectUri: bootstrap.redirectUri,
-          authority: bootstrap.authority,
-          codeChallenge: bootstrap.codeChallenge,
-          email: bootstrap.email,
-          name: bootstrap.name,
-          bootstrapHandle: handle,
-          bootstrapAuthProvider: bootstrap.authProvider,
-        });
-        return redirectWithStagedCookies(
-          event,
-          buildRedirectLocation(bootstrap.redirectUri, code, bootstrap.state),
+        location = await redeemIdentityBootstrapContinuation(
+          handle,
+          getIdentitySsoBootstrapBindingCookie(event) ?? "",
         );
       } catch (error) {
         void error;
-        await releaseIdentityBootstrapHandle(handle).catch(() => {});
         return new Response("Could not finish sign-in", { status: 503 });
       }
+      if (!location)
+        return new Response("Invalid sign-in request", { status: 400 });
+      return redirectWithStagedCookies(event, location);
     }
 
     return jsonResponse({ error: "Method not allowed" }, 405);
@@ -1265,28 +1369,47 @@ function resolveBootstrapReturnUrl(
 export const bootstrapActivationHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
     const method = getMethod(event);
+    let url: URL;
+    try {
+      url = new URL(getRequestUrl(event), "http://an.invalid");
+    } catch {
+      return new Response("Invalid sign-in request", { status: 400 });
+    }
+    const bridge = url.searchParams.get("bridge") === "1";
+    const sourceOrigin = bridgeOrigin(url.searchParams.get("source_origin"));
     if (method === "HEAD") {
       return new Response(null, {
         status: 204,
         headers: { "Cache-Control": "no-store" },
       });
     }
-    if (method !== "GET") {
+    if (method !== "GET" && !(method === "POST" && bridge)) {
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
     if (!(await canAttemptBrowserIdentitySso())) {
       return new Response("Not found", { status: 404 });
     }
 
-    let activation = "";
-    let rawReturn = "/";
-    try {
-      const url = new URL(getRequestUrl(event), "http://an.invalid");
-      activation = url.searchParams.get("activation") ?? "";
-      rawReturn = url.searchParams.get("return") ?? "/";
-    } catch {
+    const activation = url.searchParams.get("activation") ?? "";
+    const rawReturn = url.searchParams.get("return") ?? "/";
+    if (bridge && !sourceOrigin) {
       return new Response("Invalid sign-in request", { status: 400 });
     }
+    if (method === "GET" && bridge) {
+      return identitySsoBridgeHtml(sourceOrigin!, "return_url");
+    }
+    const body =
+      method === "POST"
+        ? await readBody(event).catch((error) => {
+            void error;
+            return null;
+          })
+        : null;
+    const browserBinding =
+      bodyString(body, "binding") ??
+      (method === "GET"
+        ? (getIdentitySsoBootstrapBindingCookie(event) ?? "")
+        : "");
 
     let bootstrap: Awaited<
       ReturnType<typeof consumeIdentityBootstrapActivation>
@@ -1294,7 +1417,7 @@ export const bootstrapActivationHandler = defineEventHandler(
     try {
       bootstrap = await consumeIdentityBootstrapActivation(
         activation,
-        getIdentitySsoBootstrapBindingCookie(event) ?? "",
+        browserBinding,
       );
     } catch (error) {
       void error;
@@ -1363,6 +1486,13 @@ export const bootstrapActivationHandler = defineEventHandler(
         setIdentityGoogleAuthCookie(event, bootstrap.email);
       }
       clearIdentitySsoBootstrapBindingCookie(event);
+      if (bridge) {
+        return jsonResponseWithStagedCookies(
+          event,
+          { return_url: returnUrl },
+          200,
+        );
+      }
       return redirectWithStagedCookies(event, returnUrl);
     } catch (error) {
       void error;

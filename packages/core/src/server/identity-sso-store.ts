@@ -168,6 +168,10 @@ export function isCanonicalIdentitySsoClientOrigin(
   return Boolean(origin && CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS.has(origin));
 }
 
+export function isCanonicalIdentitySsoClientConfigured(): boolean {
+  return isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
+}
+
 export function isCanonicalAgentNativeAppRequest(
   host: string | undefined,
   forwardedProtocol: string | undefined,

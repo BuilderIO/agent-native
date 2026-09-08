@@ -68,6 +68,7 @@ import {
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
   isCanonicalIdentitySsoClientRequest,
+  isCanonicalIdentitySsoClientConfigured,
   isIdentitySsoAvailableForRequest,
 } from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
@@ -1278,10 +1279,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   });
   const identitySsoAuto =
     identitySsoEnabled &&
-    isCanonicalIdentitySsoClientRequest(
+    (isCanonicalIdentitySsoClientRequest(
       identitySsoRequestHost,
       identitySsoRequestProtocol,
-    );
+    ) ||
+      (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
   const marketingStyles = hasMarketing
     ? `
   body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }

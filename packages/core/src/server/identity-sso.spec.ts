@@ -86,6 +86,8 @@ vi.mock("./auth.js", () => ({
 }));
 vi.mock("./google-oauth.js", () => ({
   createOAuthSession: (...args: any[]) => createOAuthSessionMock(...args),
+  getAppUrl: (event: any, path: string) =>
+    `https://${event.headers?.host ?? "mail.agent-native.com"}${path}`,
   getOrigin: (event: any) =>
     `https://${event.headers?.host ?? "mail.agent-native.com"}`,
 }));
@@ -165,8 +167,12 @@ vi.mock("./identity-sso-store.js", () => ({
   }),
 }));
 
-const { handleIdentitySso, isIdentitySsoBypassPath, resolveIdentityHubUrl } =
-  await import("./identity-sso.js");
+const {
+  canIdentitySsoBootstrapBindingCookieReachHub,
+  handleIdentitySso,
+  isIdentitySsoBypassPath,
+  resolveIdentityHubUrl,
+} = await import("./identity-sso.js");
 
 const HUB = "https://dispatch.agent-native.com";
 const SECRET = "test-a2a-secret";
@@ -344,6 +350,44 @@ describe("identity SSO browser contract", () => {
     );
     expect(location.searchParams.has("token")).toBe(false);
     expect(location.searchParams.has("id_token")).toBe(false);
+  });
+
+  it("uses a source-origin bridge when the configured hub is on another site", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_IDENTITY_HUB_URL",
+      "https://identity.example.test",
+    );
+    vi.stubEnv("AGENT_NATIVE_IDENTITY_FEDERATION_SECRET", SECRET);
+    getSessionMock.mockResolvedValue({ email: "alice@example.test" });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          continue_url:
+            "https://identity.example.test/_agent-native/identity/bootstrap/continue?handle=" +
+            "h".repeat(43),
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const request = event("/_agent-native/identity/bootstrap?return=%2Fafter", {
+      headers: { host: "workspace.example.test" },
+    });
+    const response = await handleIdentitySso(request, "/bootstrap");
+
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('id="identity-sso-bridge"');
+    expect(body).toContain("source_origin");
+    expect(request.cookies.an_identity_bootstrap_binding).toMatch(
+      /^[A-Za-z0-9_-]{43}$/,
+    );
+    expect(
+      canIdentitySsoBootstrapBindingCookieReachHub(
+        request,
+        "https://identity.example.test",
+      ),
+    ).toBe(false);
   });
 
   it("preserves prompt=none for silent browser probes", async () => {
@@ -603,6 +647,9 @@ describe("additive JIT linking", () => {
 
 describe("route boundaries", () => {
   it("bypasses auth for both browser bootstrap hops", () => {
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/bootstrap/binding"),
+    ).toBe(true);
     expect(
       isIdentitySsoBypassPath("/_agent-native/identity/bootstrap/continue"),
     ).toBe(true);

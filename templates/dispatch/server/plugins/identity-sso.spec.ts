@@ -872,6 +872,22 @@ describe("authorization code and PKCE handlers", () => {
 });
 
 describe("silent browser bootstrap", () => {
+  it("serves a postMessage bridge for a hub on another site", async () => {
+    const response = await bootstrapHandler(
+      event(
+        `/_agent-native/identity/bootstrap/continue?handle=${"h".repeat(43)}&bridge=1&source_origin=${encodeURIComponent("https://workspace.example.test")}`,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-security-policy")).toContain(
+      "frame-ancestors https://workspace.example.test",
+    );
+    expect(await response.text()).toContain(
+      "agent-native-identity-bridge-ready",
+    );
+  });
+
   it("issues a one-time continuation only for an enabled registered app", async () => {
     featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
     featureFlagMocks.isEnabled.mockResolvedValue(true);
@@ -1055,6 +1071,21 @@ describe("silent browser bootstrap", () => {
       "org-1",
       "cross-app bootstrap organization context",
     );
+  });
+
+  it("serves an activation bridge without consuming the token", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    const response = await bootstrapActivationHandler(
+      event(
+        `/_agent-native/identity/bootstrap/activate?activation=${"a".repeat(43)}&bridge=1&source_origin=${encodeURIComponent("https://workspace.example.test")}`,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain(
+      "agent-native-identity-bridge-ready",
+    );
+    expect(bootstrapRows).toHaveLength(0);
   });
 
   it("does not activate a non-Google identity into a Google-only organization", async () => {
