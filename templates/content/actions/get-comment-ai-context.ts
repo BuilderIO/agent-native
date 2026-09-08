@@ -11,7 +11,7 @@ import { documentRevisionToken } from "./_document-edit-mutation.js";
 
 export default defineAction({
   description:
-    "Read the exact comment conversation, submitted snapshot, Page body and revision for this scoped request. Read this before the dedicated operation. An existing result is durable; do not duplicate it.",
+    "Read the current Page body and exact comment conversation before the dedicated operation. Use the current content for Page facts; earlier replies may describe an older revision. The submitted conversation records the request context. An existing result is durable; do not duplicate it.",
   schema: z.object({}),
   run: async () => {
     const request = await requireCommentAiRequest();
