@@ -497,6 +497,13 @@ export default defineAction({
       }
     }
 
+    if (notified) {
+      await db
+        .update(reg.sharesTable)
+        .set({ notifiedAt: new Date().toISOString() })
+        .where(eq(reg.sharesTable.id, id));
+    }
+
     if (args.principalType === "user") {
       const app = getAppConfig().app.slug ?? "unknown";
       track(

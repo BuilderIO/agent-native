@@ -66,6 +66,7 @@ type DirectShare = {
   recipient: string;
   createdBy: string;
   createdAt: string;
+  notifiedAt: string | null;
 };
 
 type RecordingState = {
@@ -287,6 +288,10 @@ export function isSuppressedTransactionalRecipient(
 function normalizeShare(share: DirectShare): DirectShare | null {
   const recipient = normalizedEmail(share.recipient);
   if (!recipient || isSuppressedTransactionalRecipient(recipient)) return null;
+  // An unnotified row is an access grant, not a share — meeting participants
+  // are granted the recording silently. Nudging one tells the recipient a
+  // colleague shared a clip with them, which never happened.
+  if (!share.notifiedAt) return null;
   return { ...share, recipient };
 }
 
@@ -325,6 +330,7 @@ function defaultRepository(): TransactionalEmailRepository {
         recipient: schema.recordingShares.principalId,
         createdBy: schema.recordingShares.createdBy,
         createdAt: schema.recordingShares.createdAt,
+        notifiedAt: schema.recordingShares.notifiedAt,
       })
       .from(schema.recordingShares)
       .where(
@@ -390,6 +396,7 @@ function defaultRepository(): TransactionalEmailRepository {
             recipient: schema.recordingShares.principalId,
             createdBy: schema.recordingShares.createdBy,
             createdAt: schema.recordingShares.createdAt,
+            notifiedAt: schema.recordingShares.notifiedAt,
           })
           .from(schema.recordingShares)
           .where(
