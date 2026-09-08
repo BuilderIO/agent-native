@@ -42,6 +42,9 @@ describe("Design final response guard", () => {
     expect(
       looksLikeDesignMutationRequest("can you create another version of this"),
     ).toBe(true);
+    expect(looksLikeDesignMutationRequest("create a LinkedIn visual")).toBe(
+      true,
+    );
     expect(looksLikeDesignMutationRequest("how do I create a design?")).toBe(
       false,
     );
