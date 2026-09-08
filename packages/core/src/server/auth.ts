@@ -194,6 +194,7 @@ import {
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
+import { clearIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import {
   isCanonicalAgentNativeAppRequest,
   isCanonicalIdentitySsoClientRequest,
@@ -1290,6 +1291,7 @@ async function persistMagicLinkLegacySession(
   const token = resolved?.token ?? decodeSessionCookieValue(rawToken);
   setFrameworkSessionCookie(event, token);
   if (!resolved) return;
+  clearIdentityGoogleAuthCookie(event);
   try {
     await addSession(resolved.token, resolved.email);
   } catch (error) {
@@ -1730,6 +1732,7 @@ async function performLogout(
   invalidateSessionEmailCache();
 
   clearFrameworkSessionCookies(event);
+  clearIdentityGoogleAuthCookie(event);
   clearFirstRunOnboardingCookie(event);
   optOutOfAuthDisabledSession(event);
 
@@ -4099,6 +4102,7 @@ function createLocalDevAuthHandler(config?: BetterAuthConfig) {
         return { error: "Local development sign-in is unavailable" };
       }
       setFrameworkSessionCookie(event, session.token);
+      clearIdentityGoogleAuthCookie(event);
       setFirstRunOnboardingCookie(event);
       await addSession(session.token, session.email);
       return authLoginResponse(event, session.token, session.email);
@@ -4192,6 +4196,7 @@ async function maybeAutoCreateDevSession(
     if (!result?.token) return null;
 
     setFrameworkSessionCookie(event, result.token);
+    clearIdentityGoogleAuthCookie(event);
     setFirstRunOnboardingCookie(event);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
 
@@ -5562,6 +5567,7 @@ async function mountBetterAuthRoutes(
       if (isSignOut) optOutOfAuthDisabledSession(event);
       const authRequest = toWebRequest(event);
       let requestForAuth = authRequest;
+      let emailAuthEmail: string | undefined;
       const signupCookieHeader = isEmailSignup
         ? authRequest.headers.get("cookie")
         : undefined;
@@ -5608,6 +5614,9 @@ async function mountBetterAuthRoutes(
           .json()
           .catch(() => undefined)) as { email?: unknown } | undefined;
         const email = typeof body?.email === "string" ? body.email : "";
+        if (reqPath.includes("/sign-in/email")) {
+          emailAuthEmail = normalizeAuthEmail(email) ?? undefined;
+        }
         if (email && (await isGoogleSignInRequiredForEmail(email))) {
           return new Response(
             JSON.stringify({ error: GOOGLE_AUTH_REQUIRED_MESSAGE }),
@@ -5743,6 +5752,7 @@ async function mountBetterAuthRoutes(
           ? getSetCookieHeaders(stagedHeaders).length
           : 0;
         clearFrameworkSessionHintCookies(event);
+        clearIdentityGoogleAuthCookie(event);
         if (stagedHeaders) {
           for (const cookie of getSetCookieHeaders(stagedHeaders).slice(
             stagedCookieCount,
@@ -5770,6 +5780,17 @@ async function mountBetterAuthRoutes(
             (response as Response).headers.append("set-cookie", cookie);
           }
         }
+      }
+
+      if (
+        emailAuthEmail &&
+        isResponse &&
+        (response as Response).status >= 200 &&
+        (response as Response).status < 400 &&
+        extractSessionTokenFromAuthResponse(response as Response)
+      ) {
+        clearIdentityGoogleAuthCookie(event);
+        response = mergeStagedCookies(event, response as Response);
       }
 
       if (isMagicLinkVerification && isResponse) {
@@ -5997,6 +6018,7 @@ async function mountBetterAuthRoutes(
         });
         if (result?.token) {
           setFrameworkSessionCookie(event, result.token);
+          clearIdentityGoogleAuthCookie(event);
           setFirstRunOnboardingCookie(event);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {
@@ -6422,6 +6444,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         });
         if (result?.token) {
           setFrameworkSessionCookie(event, result.token);
+          clearIdentityGoogleAuthCookie(event);
           setFirstRunOnboardingCookie(event);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {

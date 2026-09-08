@@ -17,6 +17,7 @@ interface CodeRow {
   org_name: string | null;
   org_role: "owner" | "admin" | "member" | null;
   bootstrap_handle_hash: string | null;
+  bootstrap_auth_provider: "google" | null;
   jti: string;
   expires_at: number;
   consumed_at: number | null;
@@ -34,12 +35,15 @@ interface BootstrapRow {
   code_challenge: string;
   email: string;
   name: string | null;
+  org_id: string | null;
+  auth_provider: "google" | null;
   created_at: number;
   expires_at: number;
   consumed_at: number | null;
   activation_hash: string | null;
   activation_expires_at: number | null;
   activated_at: number | null;
+  browser_binding_hash: string | null;
 }
 
 const codeRows: CodeRow[] = [];
@@ -83,6 +87,7 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       org_name: args[15],
       org_role: args[16],
       bootstrap_handle_hash: args[17],
+      bootstrap_auth_provider: args[18],
       activation_hash: null,
       activation_expires_at: null,
       activated_at: null,
@@ -100,12 +105,15 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       code_challenge: args[6],
       email: args[7],
       name: args[8],
+      org_id: args[12],
+      auth_provider: args[13],
       created_at: args[9],
       expires_at: args[10],
       consumed_at: args[11],
       activation_hash: null,
       activation_expires_at: null,
       activated_at: null,
+      browser_binding_hash: null,
     });
     return { rows: [], rowsAffected: 1 };
   }
@@ -118,7 +126,7 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     return { rows: [], rowsAffected: 0 };
   }
   if (
-    /^SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at FROM identity_sso_bootstrap/i.test(
+    /^SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at, org_id, auth_provider FROM identity_sso_bootstrap/i.test(
       sql,
     )
   ) {
@@ -134,6 +142,7 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     if (
       row &&
       row.consumed_at != null &&
+      row.browser_binding_hash != null &&
       row.activation_hash == null &&
       row.activated_at == null
     ) {
@@ -144,7 +153,7 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     return { rows: [], rowsAffected: 0 };
   }
   if (
-    /^SELECT app_id, client_id, redirect_uri, authority, email, name, activation_expires_at, activated_at FROM identity_sso_bootstrap/i.test(
+    /^SELECT app_id, client_id, redirect_uri, authority, email, name, activation_expires_at, activated_at, org_id, auth_provider, browser_binding_hash FROM identity_sso_bootstrap/i.test(
       sql,
     )
   ) {
@@ -152,6 +161,16 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       (candidate) => candidate.activation_hash === args[0],
     );
     return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+  }
+  if (/^UPDATE identity_sso_bootstrap SET browser_binding_hash = /i.test(sql)) {
+    const row = bootstrapRows.find(
+      (candidate) => candidate.handle_hash === args[1],
+    );
+    if (row && row.consumed_at != null && row.browser_binding_hash == null) {
+      row.browser_binding_hash = args[0];
+      return { rows: [], rowsAffected: 1 };
+    }
+    return { rows: [], rowsAffected: 0 };
   }
   if (/^UPDATE identity_sso_bootstrap SET activated_at = NULL/i.test(sql)) {
     const row = bootstrapRows.find(
@@ -167,7 +186,11 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     const row = bootstrapRows.find(
       (candidate) => candidate.activation_hash === args[1],
     );
-    if (row && row.activated_at == null) {
+    if (
+      row &&
+      row.activated_at == null &&
+      row.browser_binding_hash === args[2]
+    ) {
       row.activated_at = args[0];
       return { rows: [], rowsAffected: 1 };
     }
@@ -179,6 +202,7 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     );
     if (row && row.consumed_at != null) {
       row.consumed_at = null;
+      row.browser_binding_hash = null;
       return { rows: [], rowsAffected: 1 };
     }
     return { rows: [], rowsAffected: 0 };
@@ -488,12 +512,18 @@ describe("bootstrap handle store", () => {
     await expect(mod.consumeIdentityBootstrapHandle(handle)).resolves.toEqual(
       expect.objectContaining({ email: "user@example.test" }),
     );
+    const browserBinding = "b".repeat(43);
+    await expect(
+      mod.bindIdentityBootstrapHandle(handle, browserBinding),
+    ).resolves.toBe(true);
 
     const activation = await mod.createIdentityBootstrapActivation(
       createHash("sha256").update(handle).digest("base64url"),
     );
     expect(activation).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(await mod.consumeIdentityBootstrapActivation(activation!)).toEqual({
+    expect(
+      await mod.consumeIdentityBootstrapActivation(activation!, browserBinding),
+    ).toEqual({
       appId: "mail",
       clientId: "mail",
       redirectUri: CALLBACK,
@@ -501,7 +531,7 @@ describe("bootstrap handle store", () => {
       email: "user@example.test",
     });
     await expect(
-      mod.consumeIdentityBootstrapActivation(activation!),
+      mod.consumeIdentityBootstrapActivation(activation!, browserBinding),
     ).resolves.toBeNull();
   });
 });

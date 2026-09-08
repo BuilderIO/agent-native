@@ -30,6 +30,7 @@ const STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const CODE = /^[A-Za-z0-9_-]{43}$/;
 const CODE_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
 const CODE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
+const ORG_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 export const IDENTITY_SCOPE = "identity";
@@ -323,6 +324,7 @@ export interface CreateIdentityAuthorizationCodeInput {
   orgName?: string | null;
   orgRole?: "owner" | "admin" | "member" | null;
   bootstrapHandle?: string | null;
+  bootstrapAuthProvider?: "google" | null;
 }
 
 export interface ConsumedIdentityAuthorizationCode {
@@ -333,6 +335,7 @@ export interface ConsumedIdentityAuthorizationCode {
   orgName?: string;
   orgRole?: "owner" | "admin" | "member";
   bootstrapHandleHash?: string;
+  bootstrapAuthProvider?: "google";
   jti: string;
 }
 
@@ -359,7 +362,8 @@ function buildCodeTableSql(): string {
       org_id TEXT,
       org_name TEXT,
       org_role TEXT,
-      bootstrap_handle_hash TEXT
+      bootstrap_handle_hash TEXT,
+      bootstrap_auth_provider TEXT
     )
   `;
 }
@@ -397,7 +401,10 @@ function buildBootstrapTableSql(): string {
       consumed_at BIGINT,
       activation_hash TEXT,
       activation_expires_at BIGINT,
-      activated_at BIGINT
+      activated_at BIGINT,
+      org_id TEXT,
+      auth_provider TEXT,
+      browser_binding_hash TEXT
     )
   `;
 }
@@ -434,6 +441,8 @@ export async function createIdentityAuthorizationCode(
     !CODE_CHALLENGE.test(input.codeChallenge) ||
     !input.email ||
     (input.bootstrapHandle != null && !CODE.test(input.bootstrapHandle)) ||
+    (input.bootstrapAuthProvider != null &&
+      input.bootstrapAuthProvider !== "google") ||
     !resolveIdentitySsoApp(input.appId, input.clientId, input.redirectUri)
   ) {
     throw new Error("INVALID_IDENTITY_AUTHORIZATION_CODE");
@@ -448,8 +457,8 @@ export async function createIdentityAuthorizationCode(
   await getDbExec().execute({
     sql:
       "INSERT INTO identity_sso_authorization_code " +
-      "(code_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, created_at, expires_at, consumed_at, org_id, org_name, org_role, bootstrap_handle_hash) " +
-      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
+      "(code_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, created_at, expires_at, consumed_at, org_id, org_name, org_role, bootstrap_handle_hash, bootstrap_auth_provider) " +
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
     args: [
       identityCodeHash(code),
       input.state,
@@ -469,6 +478,7 @@ export async function createIdentityAuthorizationCode(
       claims.org_name ?? null,
       claims.org_role ?? null,
       bootstrapHandleHash,
+      input.bootstrapAuthProvider ?? null,
     ],
   });
   void getDbExec()
@@ -504,7 +514,7 @@ export async function consumeIdentityAuthorizationCode(input: {
   const codeHash = identityCodeHash(input.code);
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, expires_at, consumed_at, org_id, org_name, org_role, bootstrap_handle_hash " +
+      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, expires_at, consumed_at, org_id, org_name, org_role, bootstrap_handle_hash, bootstrap_auth_provider " +
       "FROM identity_sso_authorization_code WHERE code_hash = $1",
     args: [codeHash],
   });
@@ -554,6 +564,9 @@ export async function consumeIdentityAuthorizationCode(input: {
     row.bootstrap_handle_hash
       ? { bootstrapHandleHash: row.bootstrap_handle_hash }
       : {}),
+    ...(row.bootstrap_auth_provider === "google"
+      ? { bootstrapAuthProvider: "google" as const }
+      : {}),
     jti: row.jti,
   };
 }
@@ -567,6 +580,8 @@ export interface CreateIdentityBootstrapHandleInput {
   codeChallenge: string;
   email: string;
   name?: string | null;
+  orgId?: string | null;
+  authProvider?: "google" | null;
 }
 
 export interface ConsumedIdentityBootstrapHandle {
@@ -578,6 +593,8 @@ export interface ConsumedIdentityBootstrapHandle {
   codeChallenge: string;
   email: string;
   name?: string;
+  orgId?: string;
+  authProvider?: "google";
 }
 
 export async function createIdentityBootstrapHandle(
@@ -589,6 +606,8 @@ export async function createIdentityBootstrapHandle(
     !CLIENT_ID.test(input.clientId) ||
     !CODE_CHALLENGE.test(input.codeChallenge) ||
     !input.email.includes("@") ||
+    (input.orgId != null && !ORG_ID_PATTERN.test(input.orgId)) ||
+    (input.authProvider != null && input.authProvider !== "google") ||
     !resolveIdentitySsoApp(input.appId, input.clientId, input.redirectUri)
   ) {
     throw new Error("INVALID_IDENTITY_BOOTSTRAP_HANDLE");
@@ -599,8 +618,8 @@ export async function createIdentityBootstrapHandle(
   await getDbExec().execute({
     sql:
       "INSERT INTO identity_sso_bootstrap " +
-      "(handle_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, created_at, expires_at, consumed_at) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "(handle_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, created_at, expires_at, consumed_at, org_id, auth_provider) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     args: [
       identityCodeHash(handle),
       input.state,
@@ -614,6 +633,8 @@ export async function createIdentityBootstrapHandle(
       now,
       now + IDENTITY_SSO_BOOTSTRAP_TTL_MS,
       null,
+      input.orgId?.trim() || null,
+      input.authProvider ?? null,
     ],
   });
   void getDbExec()
@@ -633,7 +654,7 @@ export async function consumeIdentityBootstrapHandle(
   const handleHash = identityCodeHash(handle);
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at " +
+      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at, org_id, auth_provider " +
       "FROM identity_sso_bootstrap WHERE handle_hash = ?",
     args: [handleHash],
   });
@@ -673,7 +694,28 @@ export async function consumeIdentityBootstrapHandle(
     ...(typeof row.name === "string" && row.name.trim()
       ? { name: row.name.trim() }
       : {}),
+    ...(typeof row.org_id === "string" && row.org_id
+      ? { orgId: row.org_id }
+      : {}),
+    ...(row.auth_provider === "google"
+      ? { authProvider: "google" as const }
+      : {}),
   };
+}
+
+export async function bindIdentityBootstrapHandle(
+  handle: string,
+  browserBinding: string,
+): Promise<boolean> {
+  if (!CODE.test(handle) || !CODE.test(browserBinding)) return false;
+  await ensureBootstrapTable();
+  const result = await getDbExec().execute({
+    sql:
+      "UPDATE identity_sso_bootstrap SET browser_binding_hash = ? " +
+      "WHERE handle_hash = ? AND consumed_at IS NOT NULL AND browser_binding_hash IS NULL",
+    args: [identityCodeHash(browserBinding), identityCodeHash(handle)],
+  });
+  return affectedRows(result) === 1;
 }
 
 export async function releaseIdentityBootstrapHandle(
@@ -683,7 +725,7 @@ export async function releaseIdentityBootstrapHandle(
   await ensureBootstrapTable();
   await getDbExec().execute({
     sql:
-      "UPDATE identity_sso_bootstrap SET consumed_at = NULL " +
+      "UPDATE identity_sso_bootstrap SET consumed_at = NULL, browser_binding_hash = NULL " +
       "WHERE handle_hash = ? AND consumed_at IS NOT NULL",
     args: [identityCodeHash(handle)],
   });
@@ -699,7 +741,7 @@ export async function createIdentityBootstrapActivation(
   const result = await getDbExec().execute({
     sql:
       "UPDATE identity_sso_bootstrap SET activation_hash = ?, activation_expires_at = ?, activated_at = NULL " +
-      "WHERE handle_hash = ? AND consumed_at IS NOT NULL AND activation_hash IS NULL AND activated_at IS NULL",
+      "WHERE handle_hash = ? AND consumed_at IS NOT NULL AND activation_hash IS NULL AND activated_at IS NULL AND browser_binding_hash IS NOT NULL",
     args: [
       identityCodeHash(activation),
       now + IDENTITY_SSO_BOOTSTRAP_TTL_MS,
@@ -716,17 +758,21 @@ export interface ConsumedIdentityBootstrapActivation {
   authority: string;
   email: string;
   name?: string;
+  orgId?: string;
+  authProvider?: "google";
 }
 
 export async function consumeIdentityBootstrapActivation(
   activation: string,
+  browserBinding: string,
 ): Promise<ConsumedIdentityBootstrapActivation | null> {
-  if (!CODE.test(activation)) return null;
+  if (!CODE.test(activation) || !CODE.test(browserBinding)) return null;
   await ensureBootstrapTable();
   const activationHash = identityCodeHash(activation);
+  const browserBindingHash = identityCodeHash(browserBinding);
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT app_id, client_id, redirect_uri, authority, email, name, activation_expires_at, activated_at " +
+      "SELECT app_id, client_id, redirect_uri, authority, email, name, activation_expires_at, activated_at, org_id, auth_provider, browser_binding_hash " +
       "FROM identity_sso_bootstrap WHERE activation_hash = ?",
     args: [activationHash],
   });
@@ -737,6 +783,7 @@ export async function consumeIdentityBootstrapActivation(
   );
   if (
     row.activated_at != null ||
+    !safeEqual(String(row.browser_binding_hash ?? ""), browserBindingHash) ||
     !Number.isFinite(expiresAt) ||
     expiresAt < Date.now() ||
     typeof row.app_id !== "string" ||
@@ -751,8 +798,8 @@ export async function consumeIdentityBootstrapActivation(
   const result = await getDbExec().execute({
     sql:
       "UPDATE identity_sso_bootstrap SET activated_at = ? " +
-      "WHERE activation_hash = ? AND activated_at IS NULL",
-    args: [Date.now(), activationHash],
+      "WHERE activation_hash = ? AND activated_at IS NULL AND browser_binding_hash = ?",
+    args: [Date.now(), activationHash, browserBindingHash],
   });
   if (affectedRows(result) !== 1) return null;
   return {
@@ -763,6 +810,12 @@ export async function consumeIdentityBootstrapActivation(
     email: row.email.trim().toLowerCase(),
     ...(typeof row.name === "string" && row.name.trim()
       ? { name: row.name.trim() }
+      : {}),
+    ...(typeof row.org_id === "string" && row.org_id
+      ? { orgId: row.org_id }
+      : {}),
+    ...(row.auth_provider === "google"
+      ? { authProvider: "google" as const }
       : {}),
   };
 }

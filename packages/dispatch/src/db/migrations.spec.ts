@@ -86,7 +86,7 @@ describe("dispatch migrations", () => {
     const { rows } = await freshExec.execute(
       "SELECT MAX(version) as version FROM dispatch_migrations",
     );
-    expect(rows[0]?.version).toBe(8);
+    expect(rows[0]?.version).toBe(9);
     const { rows: identityRows } = await freshExec.execute({
       sql: `SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = ?`,
@@ -105,6 +105,9 @@ describe("dispatch migrations", () => {
         { column_name: "expires_at", data_type: "bigint" },
         { column_name: "consumed_at", data_type: "bigint" },
         { column_name: "activation_expires_at", data_type: "bigint" },
+        { column_name: "browser_binding_hash", data_type: "text" },
+        { column_name: "org_id", data_type: "text" },
+        { column_name: "auth_provider", data_type: "text" },
       ]),
     );
     const { rows: widenedRows } = await freshExec.execute({

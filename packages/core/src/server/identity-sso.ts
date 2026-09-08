@@ -39,6 +39,7 @@ import {
 } from "./better-auth-instance.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
 import { createOAuthSession, getOrigin } from "./google-oauth.js";
+import { hasIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import {
   consumeSsoState,
   createSsoState,
@@ -554,6 +555,9 @@ async function startIdentityBootstrap(
           ...(current.name?.trim()
             ? { name: current.name.trim().slice(0, MAX_BOOTSTRAP_NAME_LENGTH) }
             : {}),
+          ...(hasIdentityGoogleAuthCookie(event, current.email)
+            ? { identity_auth_provider: "google" }
+            : {}),
         },
       },
     );
@@ -828,6 +832,7 @@ export async function handleIdentitySso(
     try {
       await createOAuthSession(event, identity.email, {
         hasProductionSession: false,
+        authProvider: null,
       });
     } catch {
       return errorPage(

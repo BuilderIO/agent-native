@@ -95,6 +95,7 @@ vi.mock("../org/auth-policy.js", () => ({
     googleAuthRequiredMock(...args),
 }));
 vi.mock("./better-auth-instance.js", () => ({
+  getAuthSecret: () => "test-auth-secret",
   getBetterAuth: async () => ({
     api: { signUpEmail: (...args: any[]) => signUpEmailMock(...args) },
   }),

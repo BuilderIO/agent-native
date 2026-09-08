@@ -352,4 +352,18 @@ export const dispatchMigrations: MigrationEntry[] = [
     `,
     run: widenLegacyDispatchTimestamps,
   },
+  {
+    version: 9,
+    name: "identity-sso-bootstrap-browser-binding-and-rollout-context",
+    sql: `
+      ALTER TABLE identity_sso_authorization_code
+        ADD COLUMN IF NOT EXISTS bootstrap_auth_provider TEXT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS org_id TEXT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS auth_provider TEXT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS browser_binding_hash TEXT;
+    `,
+  },
 ];
