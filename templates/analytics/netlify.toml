@@ -4,7 +4,7 @@ ignore = "node ./scripts/netlify-ignore-build.mjs analytics"
 # core explicitly here so a cached Netlify install cannot bundle an older agent
 # loop into Analytics' server functions (including A2A/MCP final-response
 # guards).
-command = "export DATABASE_URL=${ANALYTICS_DATABASE_URL:-${NETLIFY_DATABASE_URL:-$DATABASE_URL}} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter analytics build && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter analytics migrate:production; fi"
+command = "if [ -n \"${ANALYTICS_DATABASE_URL_SECRET:-}\" ]; then export ANALYTICS_DATABASE_URL=\"$ANALYTICS_DATABASE_URL_SECRET\"; fi && unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED && export DATABASE_URL=\"${ANALYTICS_DATABASE_URL:-$DATABASE_URL}\" && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter analytics build && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter analytics migrate:production; fi"
 publish = "templates/analytics/dist"
 functions = "templates/analytics/.netlify/functions-internal"
 
