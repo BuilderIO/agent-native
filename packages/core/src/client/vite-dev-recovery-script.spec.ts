@@ -74,4 +74,29 @@ describe("getViteDevRecoveryScript", () => {
 
     expect(setTimeout).toHaveBeenCalledTimes(scheduledAfterInstall);
   });
+
+  it("owns Vite route-module preload failures before React Router reloads", () => {
+    const addEventListener = vi.spyOn(window, "addEventListener");
+    const setTimeout = vi.spyOn(globalThis, "setTimeout");
+
+    runScript();
+
+    const preloadHandler = addEventListener.mock.calls.find(
+      ([type]) => type === "vite:preloadError",
+    )?.[1] as ((event: Event) => void) | undefined;
+    expect(preloadHandler).toBeTypeOf("function");
+
+    const preventDefault = vi.fn();
+    const scheduledAfterInstall = setTimeout.mock.calls.length;
+    preloadHandler?.({
+      payload: {
+        message:
+          "Failed to fetch dynamically imported module: http://localhost:3000/chat/assets/route.js",
+      },
+      preventDefault,
+    } as unknown as Event);
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(setTimeout.mock.calls.length).toBeGreaterThan(scheduledAfterInstall);
+  });
 });
