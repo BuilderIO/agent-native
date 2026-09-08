@@ -2324,12 +2324,15 @@ ${embeddedAuthCss}
     z-index: 1;
     display: flex;
     align-items: center;
-    justify-content: safe center;
+    justify-content: flex-start;
     width: 100%;
     min-width: 0;
     max-width: none;
     padding: 1rem;
     overflow-y: auto;
+  }
+  .auth-marketing-home.has-product-screenshot .form-panel > .card {
+    margin-block: auto;
   }
   .auth-marketing-home .form-panel { min-width: 0; }
   .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
