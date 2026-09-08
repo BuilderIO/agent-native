@@ -104,7 +104,7 @@ export default function DesignTemplate() {
   });
 
   return (
-    <TemplateLandingShell gutterClassName="">
+    <TemplateLandingShell>
       <TemplateHero
         eyebrow={<DesignWordmark />}
         title={t("templateLanding.design.s006")}
