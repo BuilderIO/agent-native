@@ -106,9 +106,9 @@ describe("calendar timezone helpers", () => {
     ).toMatchObject({ topMinutes: 0, durationMinutes: 24 * 60 });
   });
 
-  it("recognizes provider midnight bounds without misclassifying short events", () => {
+  it("keeps explicit midnight timed bounds out of the all-day lane", () => {
     const timezone = "Asia/Tokyo";
-    const allDayEvent = {
+    const timedEvent = {
       start: dateTimeInTimezoneToIso("2026-08-13", "00:00", timezone),
       end: dateTimeInTimezoneToIso("2026-08-14", "00:00", timezone),
       startTimeZone: timezone,
@@ -116,24 +116,33 @@ describe("calendar timezone helpers", () => {
       allDay: false as const,
     };
 
-    expect(isAllDayCalendarEvent(allDayEvent, timezone)).toBe(true);
-    expect(getEventDateKey(allDayEvent, timezone)).toBe("2026-08-13");
+    expect(isAllDayCalendarEvent(timedEvent)).toBe(false);
     expect(
       eventOverlapsCalendarDay(
-        allDayEvent,
+        timedEvent,
         dateKeyToDate("2026-08-13"),
         timezone,
       ),
     ).toBe(true);
+    expect(getEventDateKey(timedEvent, timezone)).toBe("2026-08-13");
+  });
+
+  it("preserves the all-day representation when moving a date-only event", () => {
     expect(
-      isAllDayCalendarEvent(
+      moveEventToCalendarDate(
         {
-          ...allDayEvent,
-          end: dateTimeInTimezoneToIso("2026-08-13", "01:00", timezone),
+          start: "2026-08-13",
+          end: "2026-08-14",
+          allDay: false,
         },
-        timezone,
+        dateKeyToDate("2026-08-17"),
+        "UTC",
       ),
-    ).toBe(false);
+    ).toEqual({
+      start: "2026-08-17",
+      end: "2026-08-18",
+      allDay: true,
+    });
   });
 
   it("formats event wall-clock fields in the event timezone", () => {
