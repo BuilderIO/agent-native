@@ -578,7 +578,8 @@ function ManualSetupCard({
       <PopoverContent
         align="end"
         sideOffset={6}
-        className="max-h-[min(640px,calc(100vh-2rem))] w-[min(420px,calc(100vw-2rem))] overflow-y-auto p-4"
+        collisionPadding={16}
+        className="max-h-[min(640px,calc(100dvh-2rem),var(--radix-popover-content-available-height))] w-[min(420px,calc(100vw-2rem))] overflow-y-auto p-4"
       >
         <div className="space-y-3">
           {summaryContent}
@@ -778,6 +779,7 @@ interface EngineInfo {
   requiredEnvVars: string[];
   installPackage?: string;
   packageInstalled?: boolean;
+  configured?: boolean;
 }
 
 const PROVIDER_DOCS: Record<string, string> = {
@@ -834,6 +836,7 @@ function LLMSectionInner({
   const [clearBaseUrl, setClearBaseUrl] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
@@ -845,6 +848,8 @@ function LLMSectionInner({
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
   const [envProbeAvailable, setEnvProbeAvailable] = useState(false);
   const [enginesLoaded, setEnginesLoaded] = useState(false);
+  const [engineCatalogAvailable, setEngineCatalogAvailable] = useState(false);
+  const selectionEditedRef = useRef(false);
   const [statusProbeAvailable, setStatusProbeAvailable] = useState(false);
   const probeGenerationRef = useRef({ env: 0, status: 0 });
 
@@ -928,22 +933,45 @@ function LLMSectionInner({
   }, [refreshEnvKeys, refreshSettingsStatus]);
 
   useEffect(() => {
-    callAction("manage-agent-engine" as any, { action: "list" } as any)
-      .then((data) => {
-        if (!data) return;
-        const engineData = data as {
-          engines?: EngineInfo[];
-          current?: { engine?: string; model?: string };
-        };
-        setEngines(engineData.engines ?? []);
-        const cur = engineData.current ?? {};
-        setCurrentEngine(cur.engine ?? "anthropic");
-        setCurrentModel(cur.model ?? "");
-        setSelectedEngine(cur.engine ?? "anthropic");
-        setSelectedModel(cur.model ?? "");
-      })
-      .catch(() => {})
-      .finally(() => setEnginesLoaded(true));
+    let generation = 0;
+    let initialized = false;
+    const refresh = () => {
+      const request = ++generation;
+      setEngineCatalogAvailable(false);
+      void callAction("manage-agent-engine" as any, { action: "list" } as any)
+        .then((data) => {
+          if (request !== generation || !data) return;
+          const engineData = data as {
+            engines?: EngineInfo[];
+            current?: { engine?: string; model?: string };
+          };
+          if (!Array.isArray(engineData.engines)) return;
+          setEngines(engineData.engines);
+          setEngineCatalogAvailable(true);
+          if (!initialized) {
+            initialized = true;
+            const cur = engineData.current ?? {};
+            setCurrentEngine(cur.engine ?? "anthropic");
+            setCurrentModel(cur.model ?? "");
+            if (!selectionEditedRef.current) {
+              setSelectedEngine(cur.engine ?? "anthropic");
+              setSelectedModel(cur.model ?? "");
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (request === generation) setEnginesLoaded(true);
+        });
+    };
+    refresh();
+    window.addEventListener("agent-engine:configured-changed", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      generation++;
+      window.removeEventListener("agent-engine:configured-changed", refresh);
+      window.removeEventListener("focus", refresh);
+    };
   }, []);
 
   const selectedEngineInfo = engines.find((e) => e.name === selectedEngine);
@@ -962,6 +990,10 @@ function LLMSectionInner({
   const configuredProviderIds = useMemo(() => {
     const configured = new Set<AgentProviderId>();
     for (const option of AGENT_PROVIDER_CATALOG) {
+      const engine = engines.find((entry) => entry.name === option.engine);
+      if (engine?.packageInstalled === false || engine?.configured === false) {
+        continue;
+      }
       if (
         option.key &&
         envKeys.some((entry) => entry.key === option.key && entry.configured)
@@ -969,7 +1001,15 @@ function LLMSectionInner({
         configured.add(option.id);
       }
     }
-    if (settingsStatus) {
+    if (
+      settingsStatus &&
+      engines.some(
+        (engine) =>
+          engine.name === settingsStatus.engine &&
+          engine.packageInstalled !== false &&
+          engine.configured !== false,
+      )
+    ) {
       const statusProvider = providerIdForEngine(settingsStatus.engine);
       if (statusProvider) configured.add(statusProvider);
       if (settingsStatus.envVar) {
@@ -980,10 +1020,11 @@ function LLMSectionInner({
       }
     }
     return configured;
-  }, [envKeys, settingsStatus]);
+  }, [engines, envKeys, settingsStatus]);
   const builderConnected =
     builderStatusAvailable && (connected || builderFlow.configured);
-  const configurationKnown = envProbeAvailable && statusProbeAvailable;
+  const configurationKnown =
+    envProbeAvailable && statusProbeAvailable && engineCatalogAvailable;
   const builderEngineSelected = selectedEngine === "builder";
   const selectedConfigurationKnown = builderEngineSelected
     ? builderStatusAvailable
@@ -993,7 +1034,8 @@ function LLMSectionInner({
     (!builderEngineSelected &&
       configurationKnown &&
       selectedEnginePackageInstalled &&
-      (envConfigured || settingsConfigured));
+      (selectedEngineInfo?.configured ??
+        (envConfigured || settingsConfigured)));
   const sourceBadge = computeSourceBadge({
     settingsConfigured: configurationKnown && settingsConfigured,
     settingsStatus: configurationKnown ? settingsStatus : null,
@@ -1111,19 +1153,25 @@ function LLMSectionInner({
   };
 
   const handleApply = async () => {
+    if (applying) return;
+    setApplying(true);
     setApplyError(null);
+    setApplyNote(false);
     try {
-      await setAgentEngineProvider({
+      const selection = await setAgentEngineProvider({
         provider: selectedProvider,
         model: selectedModel,
       });
-      setCurrentEngine(selectedEngine);
-      setCurrentModel(selectedModel);
+      setCurrentEngine(selection.engine);
+      setCurrentModel(selection.model);
+      setSelectedEngine(selection.engine);
+      setSelectedModel(selection.model);
       setApplyNote(true);
-      notifyConfigChanged();
       setTimeout(() => setApplyNote(false), 4000);
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setApplying(false);
     }
   };
 
@@ -1188,7 +1236,11 @@ function LLMSectionInner({
               id="llm-manual-setup"
               title="Custom keys"
               hint={manualSetupHint}
-              sourceBadge={builderConnected ? undefined : sourceBadge}
+              sourceBadge={
+                builderConnected || engineChanged || !anyKeyConfigured
+                  ? undefined
+                  : sourceBadge
+              }
               bare={isPage}
               popover
               popoverLabel={
@@ -1214,7 +1266,7 @@ function LLMSectionInner({
                 ) : undefined
               }
             >
-              <div className="space-y-2 mb-1">
+              <fieldset disabled={applying} className="space-y-2 mb-1">
                 <AgentProviderPicker
                   value={selectedProvider}
                   configuredProviders={
@@ -1222,6 +1274,7 @@ function LLMSectionInner({
                   }
                   layout={isPage ? "page" : "compact"}
                   onChange={(provider) => {
+                    selectionEditedRef.current = true;
                     const option = getAgentProviderOption(provider);
                     setSelectedEngine(option.engine);
                     setSelectedModel(option.defaultModel);
@@ -1229,6 +1282,9 @@ function LLMSectionInner({
                     setBaseUrl("");
                     setClearBaseUrl(false);
                     setAdvancedOpen(false);
+                    setApplyError(null);
+                    setApplyNote(false);
+                    setTestResult(null);
                   }}
                 />
 
@@ -1240,7 +1296,13 @@ function LLMSectionInner({
                     type="text"
                     list={`model-suggestions-${selectedEngine}`}
                     value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
+                    onChange={(e) => {
+                      selectionEditedRef.current = true;
+                      setSelectedModel(e.target.value);
+                      setApplyError(null);
+                      setApplyNote(false);
+                      setTestResult(null);
+                    }}
                     placeholder={
                       selectedEngineInfo?.defaultModel ?? "e.g. model-id"
                     }
@@ -1507,6 +1569,7 @@ function LLMSectionInner({
                 )}
                 {applyError && (
                   <p
+                    role="alert"
                     className={cn(
                       "text-destructive",
                       isPage ? "text-xs" : "text-[10px]",
@@ -1525,7 +1588,7 @@ function LLMSectionInner({
                     Changes take effect on next conversation
                   </p>
                 )}
-              </div>
+              </fieldset>
             </ManualSetupCard>
           </div>
         </div>
