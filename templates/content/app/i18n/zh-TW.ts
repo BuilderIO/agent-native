@@ -632,6 +632,10 @@ const messages = {
     untitledDatabase: "無標題資料庫",
   },
   comments: {
+    aiBadge: "AI",
+    aiAttribution: "由 AI 代表 {{name}} 發佈",
+    aiSourceMcp: "MCP",
+    aiSourceAgent: "應用程式內代理程式",
     filter: "篩選",
     add: "新增評論...",
     title: "評論",

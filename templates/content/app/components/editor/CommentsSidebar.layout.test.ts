@@ -10,6 +10,7 @@ import {
   estimateThreadCardHeight,
   findPendingCommentOffset,
   findThreadPosition,
+  getAiCommentSource,
   layoutCommentThreads,
   scrollToCommentAnchor,
 } from "./CommentsSidebar";
@@ -29,6 +30,14 @@ function rect(top: number) {
 }
 
 describe("comments sidebar layout", () => {
+  it("attributes only comments submitted through AI surfaces", () => {
+    expect(getAiCommentSource("mcp")).toBe("mcp");
+    expect(getAiCommentSource("agent")).toBe("agent");
+    expect(getAiCommentSource("frontend")).toBeNull();
+    expect(getAiCommentSource("automation")).toBeNull();
+    expect(getAiCommentSource(null)).toBeNull();
+  });
+
   it("tracks both document and desktop-rail positions for a highlight", () => {
     document.body.innerHTML =
       '<div id="scroll"><div data-document-scroll-content><span data-comment-thread="thread-1"></span></div></div><div id="rail"></div>';
