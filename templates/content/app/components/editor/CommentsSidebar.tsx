@@ -170,16 +170,19 @@ function CommentAttributionBadge({ comment }: { comment: Comment }) {
             event.stopPropagation();
             setOpen(true);
           }}
-          className="pointer-events-auto inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted px-1 text-[9px] font-semibold leading-none text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="pointer-events-auto -m-1 inline-flex shrink-0 items-center justify-center rounded p-1 leading-none text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           data-comment-ai-attribution={source}
         >
-          {t("comments.aiBadge")}
+          <span className="inline-flex h-4 min-w-5 items-center justify-center rounded border border-border bg-muted/50 px-1 text-[10px] font-semibold leading-none tracking-wide">
+            {t("comments.aiBadge")}
+          </span>
         </button>
       </TooltipTrigger>
       <TooltipContent
         side="top"
-        align="center"
-        className="w-max max-w-[calc(100vw-2rem)] p-2 text-xs"
+        align="start"
+        sideOffset={6}
+        className="w-max max-w-60 px-2 py-1.5 text-xs leading-4"
       >
         <span className="grid gap-0.5">
           <span>{attribution}</span>
@@ -1025,7 +1028,7 @@ function HistoryThreadView({
       />
       <div className="pointer-events-none relative p-3">
         {thread.quotedText ? (
-          <p className="mb-2 line-clamp-2 border-s-2 border-border ps-2 text-xs italic text-muted-foreground">
+          <p className="mb-2 line-clamp-2 border-s-2 border-border ps-[26px] text-xs italic leading-4 text-muted-foreground">
             {thread.quotedText}
           </p>
         ) : null}
@@ -1036,10 +1039,10 @@ function HistoryThreadView({
             className="size-5 shrink-0"
           />
           <div className="min-w-0 flex-1">
-            <div className="mb-0.5 flex min-w-0 items-center gap-1.5">
+            <div className="mb-1 flex h-5 min-w-0 items-center gap-1.5">
               <span
                 id={labelId}
-                className="truncate text-[12px] font-semibold text-foreground"
+                className="truncate text-[13px] font-semibold leading-5 text-foreground"
               >
                 {first.author_name ?? first.author_email.split("@")[0]}
               </span>
@@ -1047,7 +1050,7 @@ function HistoryThreadView({
             </div>
             <div
               id={contentId}
-              className="break-words text-start text-[13px] text-foreground/90 [&_a]:pointer-events-auto [&_a]:relative"
+              className="break-words text-start text-[13px] leading-5 text-foreground/90 [&_a]:pointer-events-auto [&_a]:relative"
             >
               {renderCommentBody(first.content, first.mentions)}
             </div>
@@ -1196,10 +1199,11 @@ function ThreadView({
         </button>
         {thread.comments.map((c) => (
           <div key={c.id} className="mb-3 last:mb-0">
-            <div className="flex items-center gap-2 mb-0.5">
+            <div className="mb-1 flex min-h-5 items-center gap-2">
               <CommentAvatar
                 email={c.author_email}
                 name={c.author_name ?? c.author_email}
+                className="size-5 shrink-0"
               />
               <span className="text-[13px] font-semibold text-foreground">
                 {c.author_name ?? c.author_email.split("@")[0]}
@@ -1209,7 +1213,7 @@ function ThreadView({
                 {formatDate(c.created_at)}
               </span>
             </div>
-            <div className="ps-8 text-[13px] leading-relaxed text-foreground/90">
+            <div className="ps-7 text-[13px] leading-5 text-foreground/90">
               {renderCommentBody(c.content, c.mentions)}
             </div>
           </div>
@@ -1274,7 +1278,7 @@ function ResolvedThreadView({
   return (
     <div className="group/resolved w-full min-w-0 overflow-hidden rounded-lg bg-muted/40 p-3 ring-1 ring-border/40">
       {thread.quotedText && (
-        <p className="mb-1.5 truncate border-s-2 border-border ps-2 text-xs italic text-muted-foreground">
+        <p className="mb-2 truncate border-s-2 border-border ps-[26px] text-xs italic leading-4 text-muted-foreground">
           {thread.quotedText}
         </p>
       )}
@@ -1282,16 +1286,16 @@ function ResolvedThreadView({
         <CommentAvatar
           email={first.author_email}
           name={first.author_name ?? first.author_email}
-          className="h-5 w-5 shrink-0 opacity-80"
+          className="h-5 w-5 shrink-0 self-start opacity-80"
         />
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[12px] font-semibold text-muted-foreground">
+          <div className="mb-1 flex h-5 min-w-0 items-center gap-1.5">
+            <span className="truncate text-[13px] font-semibold leading-5 text-muted-foreground">
               {first.author_name ?? first.author_email.split("@")[0]}
             </span>
             <CommentAttributionBadge comment={first} />
           </div>
-          <div className="truncate text-[13px] text-muted-foreground">
+          <div className="truncate text-[13px] leading-5 text-muted-foreground">
             {renderCommentBody(first.content, first.mentions)}
           </div>
         </div>
