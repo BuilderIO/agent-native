@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestRunContext,
   getRequestUserEmail,
@@ -56,6 +56,13 @@ export default defineAction({
   schema: z.object({
     documentId: z.string().describe("Document ID"),
     content: z.string().min(1).describe("Comment text"),
+    clientOperationId: z
+      .string()
+      .uuid()
+      .optional()
+      .describe(
+        "Optional UUID identifying this submission; reuse unchanged on retries. Becomes the comment ID.",
+      ),
     threadId: z
       .string()
       .min(1)
@@ -97,23 +104,7 @@ export default defineAction({
     const access = await assertAccess("document", documentId, "commenter");
     const ownerEmail = access.resource.ownerEmail as string;
     const db = getDb();
-    if (args.threadId && args.parentId) {
-      const [parent] = await db
-        .select({ threadId: schema.documentComments.threadId })
-        .from(schema.documentComments)
-        .where(
-          and(
-            eq(schema.documentComments.id, args.parentId),
-            eq(schema.documentComments.documentId, documentId),
-          ),
-        )
-        .limit(1);
-      if (!parent || parent.threadId !== args.threadId) {
-        throw new Error("Reply parent does not belong to the selected thread");
-      }
-    }
-
-    const id = Math.random().toString(36).slice(2, 14);
+    const id = args.clientOperationId ?? crypto.randomUUID();
     const threadId = args.threadId ?? id;
     const parentId = args.parentId ?? null;
     const email = getRequestUserEmail();
@@ -140,7 +131,7 @@ export default defineAction({
           : (ctx?.caller ?? null);
     const submissionRunId = ctx?.runId ?? null;
 
-    await db.insert(schema.documentComments).values({
+    const values = {
       id,
       ownerEmail,
       documentId,
@@ -156,7 +147,95 @@ export default defineAction({
       authorName: name,
       submissionSource,
       submissionRunId,
+    };
+
+    const inserted = await db.transaction(async (tx) => {
+      const existingReceipt = async () => {
+        const [existing] = await tx
+          .select()
+          .from(schema.documentComments)
+          .where(
+            and(
+              eq(schema.documentComments.id, id),
+              eq(schema.documentComments.documentId, documentId),
+              eq(schema.documentComments.authorEmail, email),
+            ),
+          )
+          .limit(1);
+        if (!existing) return false;
+        if (
+          Object.entries(values).some(
+            ([key, value]) =>
+              key !== "authorName" &&
+              key !== "submissionSource" &&
+              key !== "submissionRunId" &&
+              existing[key as keyof typeof existing] !== value,
+          )
+        ) {
+          fail("Comment submission ID conflicts with another submission", {
+            statusCode: 409,
+            errorCode: "comment_submission_conflict",
+          });
+        }
+        return true;
+      };
+      if (args.clientOperationId && (await existingReceipt())) return false;
+      if (args.threadId && args.parentId) {
+        // Resolution takes the same root lock before its thread-wide update.
+        const [root] = await tx
+          .select()
+          .from(schema.documentComments)
+          .where(
+            and(
+              eq(schema.documentComments.id, args.threadId),
+              eq(schema.documentComments.documentId, documentId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (args.clientOperationId && (await existingReceipt())) return false;
+        const [parent] = await tx
+          .select()
+          .from(schema.documentComments)
+          .where(
+            and(
+              eq(schema.documentComments.id, args.parentId),
+              eq(schema.documentComments.documentId, documentId),
+            ),
+          )
+          .limit(1);
+        if (
+          !root ||
+          root.threadId !== args.threadId ||
+          !parent ||
+          parent.threadId !== args.threadId
+        ) {
+          fail("Reply parent does not belong to the selected thread", {
+            statusCode: 409,
+          });
+        }
+        if (root.resolved) {
+          fail("Reopen the thread before replying", {
+            statusCode: 409,
+            errorCode: "comment_thread_resolved",
+          });
+        }
+      }
+      const created = await tx
+        .insert(schema.documentComments)
+        .values(values)
+        .onConflictDoNothing({ target: schema.documentComments.id })
+        .returning({ id: schema.documentComments.id });
+      if (!created.length) {
+        if (await existingReceipt()) return false;
+        fail("Comment submission ID conflicts with another submission", {
+          statusCode: 409,
+          errorCode: "comment_submission_conflict",
+        });
+      }
+      return true;
     });
+    if (!inserted) return { id, threadId, notified: null, replayed: true };
 
     const notified = await notifyDocumentComment({
       documentId,
