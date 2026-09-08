@@ -128,7 +128,7 @@ export async function addCommentWithGuard(
   const threadId = args.threadId ?? id;
   const parentId = args.parentId ?? null;
   const actorKind =
-    getRequestRunContext() ||
+    getRequestRunContext()?.runId ||
     ctx?.caller === "tool" ||
     ctx?.caller === "mcp" ||
     ctx?.caller === "a2a"

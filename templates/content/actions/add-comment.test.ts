@@ -24,7 +24,8 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({
-  getRequestRunContext: () => (state.agent ? { caller: "mcp" } : undefined),
+  getRequestRunContext: () =>
+    state.agent ? { runId: "agent-run-1" } : { browserTabId: "human-tab-1" },
   getRequestUserEmail: () => "author@example.com",
   getRequestUserName: () => "Authenticated Profile Name",
 }));
@@ -160,7 +161,7 @@ describe("add-comment reply boundary", () => {
     });
   });
 
-  it("preserves human identity outside trusted agent execution", async () => {
+  it("preserves human identity when request context contains only a browser tab", async () => {
     state.agent = false;
     await run({
       documentId: "doc-1",
