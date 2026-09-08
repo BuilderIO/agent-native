@@ -168,6 +168,25 @@ describe("suggestion creation replay", () => {
     });
   });
 
+  it("refuses creation when commenter access was revoked inside the transaction", async () => {
+    prior = null;
+    registerReviewableResource({
+      type: "doc",
+      resolveAccess: (_id, ctx) => ({
+        role: ctx?.transaction ? "viewer" : "commenter",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+      }),
+    });
+    await expect(
+      createResourceSuggestion.run(args, {
+        caller: "tool",
+        userEmail: "agent@example.com",
+      }),
+    ).rejects.toThrow("Not allowed");
+    expect(insertSuggestion).not.toHaveBeenCalled();
+  });
+
   it("passes the active transaction to proposal validation", async () => {
     prior = null;
     await expect(

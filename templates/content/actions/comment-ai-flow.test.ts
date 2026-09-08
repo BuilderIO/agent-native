@@ -141,6 +141,7 @@ vi.mock("../server/db/index.js", () => {
 
 import applyRequest from "./apply-comment-ai-request.js";
 import createSuggestion from "./create-comment-ai-suggestion.js";
+import getContext from "./get-comment-ai-context.js";
 import replyRequest from "./reply-to-comment-ai-request.js";
 
 const ctx = {
@@ -421,5 +422,18 @@ describe("apply-and-resolve partial failure recovery", () => {
         resolved: true,
       },
     });
+  });
+});
+
+it("returns current running context when retrying an incomplete operation", async () => {
+  state.request.status = "needs-review";
+  state.request.error = "Previous run ended";
+  state.request.snapshotJson = "[]";
+  state.source.root = { quotedText: null };
+  const result = await run(getContext, {});
+  expect(result).toMatchObject({
+    request: { status: "running", error: null },
+    operationCompleted: false,
+    nextAction: "reply-to-comment-ai-request",
   });
 });

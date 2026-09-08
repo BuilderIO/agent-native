@@ -909,7 +909,9 @@ export function CommentsSidebar({
                 <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
                   <span>
                     {operation?.kind.split("_").join(" ")} ·{" "}
-                    {suggestion.authorEmail ?? suggestion.actorKind}
+                    {suggestion.actorKind === "agent"
+                      ? t("comments.aiBadge")
+                      : (suggestion.authorEmail ?? suggestion.actorKind)}
                   </span>
                   <span>{suggestion.status}</span>
                 </div>
@@ -978,6 +980,7 @@ export function CommentsSidebar({
                   emptyState={t("comments.empty")}
                   replyPlaceholder={t("comments.reply")}
                   resolveLabel={t("comments.resolve")}
+                  agentLabel={t("comments.aiBadge")}
                 />
               </article>
             );

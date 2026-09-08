@@ -89,7 +89,7 @@ export function resolveRegisteredAccessContext(
 ): AccessContext {
   if (!reg?.resolveAccessContext) return ctx;
   const resolved = reg.resolveAccessContext(ctx);
-  return ctx.authCapability
+  const preserved = ctx.authCapability
     ? {
         ...resolved,
         authCapability: ctx.authCapability,
@@ -105,6 +105,9 @@ export function resolveRegisteredAccessContext(
           ...resolved,
           federationMembershipValidated: ctx.federationMembershipValidated,
         };
+  return ctx.transaction
+    ? { ...preserved, transaction: ctx.transaction }
+    : preserved;
 }
 
 function normalizeEmailForAccess(email: string | undefined): string | null {
@@ -130,6 +133,7 @@ async function isOrgMember(
   reg: ShareableResourceRegistration,
   memberOrgId: string,
   email: string,
+  ctx: AccessContext,
 ): Promise<boolean> {
   const db = reg.getDb() as any;
   const rows = await db
@@ -174,6 +178,7 @@ async function isOrgMember(
       userEmail: email,
       userKey: email,
       orgId: memberOrgId,
+      transaction: ctx.transaction,
     }))
   ) {
     return true;
@@ -667,7 +672,7 @@ async function resolveAccessImpl(
     resource.visibility === "org" &&
     resource.orgId &&
     normalizedUserEmail &&
-    (await isOrgMember(reg, resource.orgId, normalizedUserEmail))
+    (await isOrgMember(reg, resource.orgId, normalizedUserEmail, ctx))
   ) {
     const role = await highestShareRole(reg, resourceId, ctx, resource);
     return { role: role ?? "viewer", resource };
@@ -710,7 +715,7 @@ async function highestShareRole(
   let best: ShareRole | null = null;
 
   if (reg.supportsGroupShares && normalizedUserEmail && resource.orgId) {
-    if (await isOrgMember(reg, resource.orgId, normalizedUserEmail)) {
+    if (await isOrgMember(reg, resource.orgId, normalizedUserEmail, ctx)) {
       const groupRows = await db
         .select({
           principalId: reg.sharesTable.principalId,

@@ -29,9 +29,11 @@ export default defineAction({
         throw new Error(
           "The Page changed after this comment request was submitted. Start a fresh request to use the new revision.",
         );
-      await updateCommentAiRequest(request, { status: "running" });
+      const current = await updateCommentAiRequest(request, {
+        status: "running",
+      });
       return {
-        request: receipt,
+        request: current,
         operationCompleted: false,
         nextAction: {
           reply: "reply-to-comment-ai-request",

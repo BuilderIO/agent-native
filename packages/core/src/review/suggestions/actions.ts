@@ -146,7 +146,7 @@ export const createResourceSuggestion = defineAction({
     return url ? { url, label: "Open suggestion" } : null;
   },
   run: async (args, ctx) => {
-    const access = await assertReviewableResourceAccess(
+    await assertReviewableResourceAccess(
       args.resourceType,
       args.resourceId,
       ctx as any,
@@ -195,9 +195,15 @@ export const createResourceSuggestion = defineAction({
       }
       const adapter = getSuggestionAdapter(args.adapterKind);
       if (!adapter) throw new Error("Suggestion adapter not registered");
+      const creationAccess = await assertReviewableResourceAccess(
+        args.resourceType,
+        args.resourceId,
+        { ...(ctx as any), transaction: tx },
+        "commenter",
+      );
       const adapterContext = {
         ...(ctx as any),
-        suggestionAccess: access,
+        suggestionAccess: creationAccess,
         transaction: tx,
       };
       const operations =
@@ -215,9 +221,9 @@ export const createResourceSuggestion = defineAction({
           baseRevision: args.baseRevision,
           status: "pending",
           summary: args.summary,
-          ownerEmail: access.ownerEmail ?? null,
-          orgId: access.orgId ?? null,
-          visibility: access.visibility ?? "private",
+          ownerEmail: creationAccess.ownerEmail ?? null,
+          orgId: creationAccess.orgId ?? null,
+          visibility: creationAccess.visibility ?? "private",
           metadata: args.metadata ?? null,
           operations,
         },

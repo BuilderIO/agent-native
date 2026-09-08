@@ -10,6 +10,7 @@ import {
   assertAccess,
   ForbiddenError,
   resolveAccess,
+  resolveRegisteredAccessContext,
 } from "./access.js";
 import listResourceShares from "./actions/list-resource-shares.js";
 import setResourceVisibility from "./actions/set-resource-visibility.js";
@@ -46,6 +47,29 @@ type Db = ReturnType<typeof drizzle>;
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: Db;
+
+it("preserves a transaction through resource-specific context normalization", () => {
+  const transaction = {
+    execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+  };
+  const resolved = resolveRegisteredAccessContext(
+    {
+      type: "normalized-transaction-test",
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      getDb: () => db,
+      resolveAccessContext: (ctx) => ({ userEmail: ctx.userEmail }),
+    },
+    {
+      userEmail: viewerEmail,
+      orgId,
+      transaction,
+    },
+  );
+
+  expect(resolved).toEqual({ userEmail: viewerEmail, transaction });
+});
 
 async function insertDoc(values: {
   id: string;
