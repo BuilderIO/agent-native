@@ -4,25 +4,24 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import {
-  formatHtmlStyleSummary,
-  summarizeHtmlStyles,
+  formatAgentDesignSystemContext,
+  loadAgentDesignSystemContext,
 } from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
-import {
-  pickRepresentativeSlide,
-  slideStyleFragment,
-} from "../shared/representative-slide.js";
+import { summarizeDeckStyle } from "../shared/representative-slide.js";
 import {
   hashSlideContent,
   slideFitMeasurementMatchesSlide,
   type DeckFitState,
 } from "../shared/slide-fit.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
+import getDesignSystem from "./get-design-system.js";
 
 type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
   slideId: string;
@@ -227,31 +226,30 @@ export default defineAction({
       // The slide being edited is one of many; without the deck's shared
       // vocabulary an agent asked to restyle it invents a palette that only
       // that slide uses. Summarize the siblings so the edit can match them.
-      const deckStyle = formatHtmlStyleSummary(
-        summarizeHtmlStyles(
-          slides
-            .map((s, i) => ({
-              label: `slide ${i + 1}`,
-              html: slideStyleFragment(s),
-            }))
-            .filter((fragment) => fragment.html.length > 0),
-        ),
-        { noun: "slide" },
+      const { deckStyle, representativeSlideIndex } = summarizeDeckStyle(
+        slides,
+        slideIndex,
+      );
+      const designSystem = await loadAgentDesignSystemContext(
+        resolveDeckDesignSystemId(rows[0], deck),
+        getDesignSystem,
       );
       // Counts show the palette, not the composition; one real sibling
       // shows spacing, element order, and sizes to mirror. A class-styled
       // deck tallies nothing, and still has a sibling worth reading.
-      const representative = pickRepresentativeSlide(slides, slideIndex);
-      if (deckStyle.length > 0 || representative !== null) {
+      if (deckStyle.length > 0 || representativeSlideIndex !== null) {
         lines.push(``);
         lines.push(`### Deck style (shared across slides)`);
         lines.push(...deckStyle);
-        if (representative !== null) {
-          const sibling = slides[representative]!;
+        if (representativeSlideIndex !== null) {
+          const sibling = slides[representativeSlideIndex]!;
           lines.push(
-            `representativeSlide: id=${sibling.id} (slide ${representative + 1}, layout=${sibling.layout ?? "-"})   ← before a style or layout change, read it with get-deck { id: deckId, slideId: "${sibling.id}", compact: "false" } and mirror its structure and values`,
+            `representativeSlide: id=${sibling.id} (slide ${representativeSlideIndex + 1}, layout=${sibling.layout ?? "-"})   ← before a style or layout change, read it with get-deck { id: deckId, slideId: "${sibling.id}", compact: "false" } and mirror its structure and values`,
           );
         }
+      }
+      if (designSystem) {
+        lines.push("", ...formatAgentDesignSystemContext(designSystem));
       }
       if (currentSlide?.content) {
         lines.push(``);

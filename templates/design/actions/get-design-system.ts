@@ -22,6 +22,10 @@ const MAX_NAMED_TOKENS = 220;
 const MAX_CUSTOM_CSS_CHARS = 3_000;
 const MAX_NOTES_CHARS = 3_000;
 const MAX_CORE_TOKEN_JSON_CHARS = 2_000;
+const MAX_SUMMARY_CONTEXT_CHARS = 1_500;
+const MAX_SUMMARY_TOKEN_VALUES = 16;
+const MAX_SUMMARY_INSTRUCTIONS_CHARS = 600;
+const MAX_SUMMARY_DESCRIPTION_CHARS = 600;
 
 interface BuilderGenerationContext {
   builderDesignSystemId: string;
@@ -64,7 +68,10 @@ function formatJson(value: unknown, maxChars = MAX_JSON_CONTEXT_CHARS): string {
  * reads as "a few colors" no matter how much was imported — these names are the
  * difference between the user's design system and a palette that resembles it.
  */
-function formatNamedTokens(tokens: unknown): string[] {
+function formatNamedTokens(
+  tokens: unknown,
+  limit = MAX_NAMED_TOKENS,
+): string[] {
   if (!Array.isArray(tokens)) return [];
   const usable = tokens.filter(
     (token): token is Record<string, string> =>
@@ -74,7 +81,7 @@ function formatNamedTokens(tokens: unknown): string[] {
       typeof (token as { value?: unknown }).value === "string",
   );
   if (usable.length === 0) return [];
-  const shown = usable.slice(0, MAX_NAMED_TOKENS);
+  const shown = usable.slice(0, limit);
   const lines = [
     `Named tokens from the source system (${usable.length} total).`,
     "These are the design team's own names. Use them verbatim as CSS custom " +
@@ -249,15 +256,77 @@ function buildDesignSystemAgentContext({
   return truncate(lines.filter(Boolean).join("\n"), MAX_AGENT_CONTEXT_CHARS);
 }
 
+/**
+ * Bounded, network-free summary for the reads that fire on every chat turn
+ * (view-screen, get-design, get-design-snapshot). No Builder docs fetch and
+ * no data/assets blobs — just enough to keep going until the caller needs
+ * the full context.
+ */
+function buildCompactDesignSystemAgentContext({
+  id,
+  title,
+  description,
+  data,
+  customInstructions,
+  builderDesignSystemId,
+}: {
+  id: string;
+  title: string;
+  description?: string | null;
+  data?: string | null;
+  customInstructions?: string | null;
+  builderDesignSystemId: string | null;
+}): string {
+  const lines: string[] = [
+    "## Selected Design System Context (summary)",
+    `Use "${title}" (id: ${id}) as the visual source of truth for this generation.`,
+  ];
+
+  if (description?.trim()) {
+    lines.push("", "Description:", description.trim());
+  }
+
+  if (customInstructions?.trim()) {
+    lines.push(
+      "",
+      "Custom instructions:",
+      truncate(customInstructions.trim(), MAX_SUMMARY_INSTRUCTIONS_CHARS),
+    );
+  }
+
+  if (builderDesignSystemId) {
+    lines.push(
+      "",
+      `Builder-linked design system (builderDesignSystemId=${builderDesignSystemId}): token values and docs are returned only by get-design-system { id } without compact.`,
+    );
+  } else {
+    const parsedData = parseJson(data) as Record<string, unknown> | null;
+    const tokens = parsedData?.tokens;
+    const namedTokens = formatNamedTokens(tokens, MAX_SUMMARY_TOKEN_VALUES);
+    if (namedTokens.length > 0) {
+      lines.push("", ...namedTokens);
+    }
+  }
+
+  return truncate(lines.filter(Boolean).join("\n"), MAX_SUMMARY_CONTEXT_CHARS);
+}
+
 export default defineAction({
   description:
-    "Get a design system by ID. Returns full design system data including colors, typography, spacing, assets, and a compact agentContext for generation.",
+    "Get a design system by ID. Returns the full design system (colors, typography, spacing, assets, Builder docs) and its agentContext for generation; call it once before the first slide or screen you author and reuse it for every later write. compact='true' returns only the bounded summary that deck and design reads already include.",
   schema: z.object({
     id: z.string().describe("Design system ID"),
+    compact: z
+      .enum(["true", "false"])
+      .optional()
+      .describe(
+        "'true' returns a bounded, network-free summary: no Builder docs fetch, agentContext capped at 1,500 chars, no data/assets blobs. Omit for the full context you need before authoring.",
+      ),
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ id }) => {
+  mcpApp: { compactCatalog: true },
+  run: async ({ id, compact }) => {
     const access = await resolveAccess("design-system", id);
     if (!access) {
       throw Object.assign(new Error("Design system not found"), {
@@ -267,6 +336,27 @@ export default defineAction({
 
     const row = access.resource;
     const builderReference = parseBuilderDesignSystemProxyReference(row.data);
+
+    if (compact === "true") {
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.description
+          ? truncate(row.description, MAX_SUMMARY_DESCRIPTION_CHARS)
+          : row.description,
+        builderDesignSystemId: builderReference?.builderDesignSystemId ?? null,
+        agentContext: buildCompactDesignSystemAgentContext({
+          id: row.id,
+          title: row.title,
+          description: row.description,
+          data: row.data,
+          customInstructions: row.customInstructions,
+          builderDesignSystemId:
+            builderReference?.builderDesignSystemId ?? null,
+        }),
+      };
+    }
+
     const builder = builderReference
       ? await hydrateBuilderDesignSystemReference(builderReference).catch(
           (error) => ({

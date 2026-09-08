@@ -1,4 +1,7 @@
-import { summarizeHtmlStyles } from "@agent-native/core/shared";
+import {
+  formatHtmlStyleSummary,
+  summarizeHtmlStyles,
+} from "@agent-native/core/shared";
 
 import { backgroundCssValue } from "./slide-background.js";
 
@@ -70,4 +73,39 @@ export function pickRepresentativeSlide(
     others[0] ??
     null
   );
+}
+
+/**
+ * The deck style summary and its representative slide, computed together so
+ * every caller (view-screen, get-deck) shows an agent the same "established
+ * deck style" instead of each re-deriving its own.
+ */
+export function summarizeDeckStyle(
+  slides: StyledSlide[],
+  currentIndex = -1,
+): {
+  deckStyle: string[];
+  representativeSlideIndex: number | null;
+  representativeSlideId: string | null;
+} {
+  const deckStyle = formatHtmlStyleSummary(
+    summarizeHtmlStyles(
+      slides
+        .map((slide, index) => ({
+          label: `slide ${index + 1}`,
+          html: slideStyleFragment(slide),
+        }))
+        .filter((fragment) => fragment.html.length > 0),
+    ),
+    { noun: "slide" },
+  );
+  const representativeSlideIndex = pickRepresentativeSlide(
+    slides,
+    currentIndex,
+  );
+  const representativeSlideId =
+    representativeSlideIndex !== null
+      ? (slides[representativeSlideIndex]?.id ?? null)
+      : null;
+  return { deckStyle, representativeSlideIndex, representativeSlideId };
 }

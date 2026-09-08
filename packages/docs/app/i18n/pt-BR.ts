@@ -436,19 +436,20 @@ const ptBR = {
   },
   homepage: {
     hero: {
-      title: "O framework para aplicativos agentic",
-      bodyLine1: "Crie agentes autônomos com interfaces intuitivas.",
-      bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
+      title: "O framework para apps agentic.",
+      bodyLine1:
+        "Um framework TypeScript de código aberto para apps com uma UI e um agente.",
+      bodyLine2: "Defina cada Action uma vez e chame-a de qualquer lugar.",
       tryAnApp: "Experimentar um app",
     },
     install: {
       copyCommand: "Copiar comando de instalação",
     },
     actions: {
-      title: "Uma Action alimenta cada superfície",
-      bodyLine1: "Actions definem o que seu agente pode fazer.",
+      title: "Chame uma Action de qualquer lugar.",
+      bodyLine1: "Defina uma capacidade com defineAction().",
       bodyLine2:
-        "Defina cada capacidade uma vez e use-a pelo agente, UI, HTTP API, MCP, A2A ou CLI.",
+        "Sua UI React, seu agente, clientes HTTP e integrações usam o mesmo código.",
       diagramAlt:
         "Uma Action alimenta UI, MCP, chat do agente, A2A, HTTP API e CLI",
     },
@@ -495,13 +496,13 @@ const ptBR = {
       },
     },
     stack: {
-      title: "Funciona com sua stack",
-      body: "Traga seu LLM, banco de dados, ferramentas e infraestrutura. Agent-Native é TypeScript de código aberto, então tudo o que você cria continua sendo seu.",
+      title: "Traga sua própria stack",
+      body: "Agent-Native é TypeScript de código aberto. Escolha seu modelo, banco de dados e hospedagem, e mantenha o código da aplicação no seu repositório.",
       exploreApps: "Explore apps criados com Agent-Native",
     },
     showcase: {
-      title: "O que você pode construir com Agent-Native?",
-      body: "Crie agentes com UIs para reuniões, design, apresentações, dados e muito mais. Comece com um destes apps de código aberto ou crie o seu.",
+      title: "Apps reais criados com Agent-Native",
+      body: "Apps Agent-Native de código aberto que você pode usar gratuitamente ou personalizar infinitamente.",
       browseApps: "Explorar apps",
       scrollLeft: "Rolar apps para a esquerda",
       scrollRight: "Rolar apps para a direita",
@@ -520,7 +521,7 @@ const ptBR = {
       download: "Baixar",
       apps: "Apps",
       privacyPolicy: "Política de Privacidade",
-      saasTerms: "Termos do serviço hospedado",
+      saasTerms: "Termos de SaaS",
       legalResources: "Recursos jurídicos",
     },
   },

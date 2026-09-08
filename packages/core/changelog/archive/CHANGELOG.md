@@ -1,3 +1,10 @@
+## 0.161.21
+
+### Patch Changes
+
+- 0d81f46: Keep the core tool-schema seam regression test formatted with the current source formatter.
+- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
+
 ## 0.161.20
 
 ### Patch Changes

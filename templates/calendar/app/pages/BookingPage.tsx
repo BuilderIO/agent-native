@@ -1,10 +1,6 @@
 import { useSession } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import {
-  DefaultSpinner,
-  PoweredByBadge,
-  StarfieldBackground,
-} from "@agent-native/core/client/ui";
+import { DefaultSpinner, PoweredByBadge } from "@agent-native/core/client/ui";
 import type { Booking } from "@shared/api";
 import { getWeekStartsOn } from "@shared/calendar-week";
 import { IconAlertTriangle, IconCalendar } from "@tabler/icons-react";
@@ -25,6 +21,7 @@ import {
   type BookingFormValue,
 } from "@/components/booking/BookingForm";
 import { DatePicker } from "@/components/booking/DatePicker";
+import { OceanBookingBackground } from "@/components/booking/ocean-booking-background";
 import { RequiredHostsBadge } from "@/components/booking/RequiredHostsBadge";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
 import {
@@ -77,7 +74,7 @@ function BookingPageShell({
         className,
       )}
     >
-      <StarfieldBackground className="fixed inset-0 z-0 opacity-[0.3] dark:opacity-[0.15]" />
+      <OceanBookingBackground className="fixed inset-0 z-0" />
       <div className="fixed top-4 right-4 z-50 flex items-center gap-1">
         <LanguagePicker variant="ghost-icon" />
         <ThemeToggle />

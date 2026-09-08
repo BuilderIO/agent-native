@@ -506,9 +506,10 @@ const generateDesignAction = defineAction({
     "Do not use this action to replace a selected variant screen after a " +
     "variant pick; call `get-design-snapshot` for the selected `fileId` and " +
     "`edit-design` that same `fileId` instead. " +
-    "When `designSystemId` is provided, first use `get-design-system` and apply " +
-    "its `agentContext` tokens/docs before writing the file content; do not " +
-    "treat the id alone as enough design-system context. " +
+    "Before writing, use `designSystem.agentContext` from create-design or " +
+    "get-design-system, or call get-design-snapshot for an existing design; " +
+    "apply its tokens/docs before writing file content. Do not treat an id " +
+    "alone as enough design-system context. " +
     "Every web design must be responsive. This action adds responsive editor " +
     "breakpoints: by default a Desktop 1440x900 base frame plus a Mobile " +
     "breakpoint (no auto tablet, no duplicate desktop). Pass `devices` to honor " +

@@ -431,19 +431,18 @@ const zhCN = {
   },
   homepage: {
     hero: {
-      title: "面向 agentic 应用的框架",
-      bodyLine1: "构建配备直观 UI 的自主型 agent。",
-      bodyLine2: "使用你自己的 LLM，随处部署。",
+      title: "面向 agentic 应用的框架。",
+      bodyLine1: "一个面向带有 UI 和 agent 的应用的开源 TypeScript 框架。",
+      bodyLine2: "只需定义一次每个 Action，即可从任何地方调用。",
       tryAnApp: "试用应用",
     },
     install: {
       copyCommand: "复制安装命令",
     },
     actions: {
-      title: "一个 Action 驱动所有能力面",
-      bodyLine1: "Action 定义你的 agent 能做什么。",
-      bodyLine2:
-        "只需定义一次每项能力，即可在 agent、UI、HTTP API、MCP、A2A 或 CLI 中使用。",
+      title: "从任何地方调用一个 Action。",
+      bodyLine1: "使用 defineAction() 定义一项能力。",
+      bodyLine2: "你的 React UI、agent、HTTP 客户端和集成都会调用同一份代码。",
       diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
     },
     builtIn: {
@@ -489,13 +488,13 @@ const zhCN = {
       },
     },
     stack: {
-      title: "适配你的技术栈",
-      body: "带上你自己的 LLM、数据库、工具和基础设施。Agent-Native 是开源的 TypeScript，因此你构建的一切始终归你所有。",
+      title: "使用你自己的技术栈",
+      body: "Agent-Native 是开源 TypeScript。选择你的模型、数据库和托管方式，并将应用代码保留在你的代码仓库中。",
       exploreApps: "探索用 Agent-Native 构建的应用",
     },
     showcase: {
-      title: "你能用 Agent-Native 构建什么？",
-      body: "为会议、设计、演示文稿、数据等工作构建带 UI 的 agent。从这些开源应用之一开始，或构建你自己的 agent。",
+      title: "用 Agent-Native 构建的真实应用",
+      body: "可免费使用或无限定制的开源 Agent-Native 应用。",
       browseApps: "浏览应用",
       scrollLeft: "向左滚动应用",
       scrollRight: "向右滚动应用",
@@ -514,7 +513,7 @@ const zhCN = {
       download: "下载",
       apps: "应用",
       privacyPolicy: "隐私政策",
-      saasTerms: "托管服务条款",
+      saasTerms: "SaaS 条款",
       legalResources: "法律资源",
     },
   },

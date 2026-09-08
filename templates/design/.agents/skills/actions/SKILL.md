@@ -90,11 +90,12 @@ run: async (args) => await fetchEvents(args.from, args.to); // good
 run: async (args) => JSON.stringify(await fetchEvents(...)); // bad
 ```
 
-A create/update result is read by more than the caller. Three keys are well-known and survive result truncation:
+A create/update result is read by more than the caller. These keys are well-known and survive result truncation:
 
 - `id` — the created or updated record. Pair it with a pure, synchronous `link` builder on the action (`link: (result) => ({ url: buildDeepLink({ app, view, params: { id: result.id } }), label })`) so MCP hosts and the desktop app surface an "Open …" deep link that lands in the editing view focused on the record; returning `url`/`urlPath` in the result works too.
 - `nextRequiredAction` — the name of the next **tool** to call when the operation is one step of a flow the agent should keep driving (`nextRequiredAction: "update-slide"`). Never phrase it as waiting for the user: an MCP/WebMCP/A2A caller cannot receive an in-app answer. The agent loop keeps this field in continuation prompts even when the rest of a large result is dropped, and MCP callers see it as `Next: …`.
 - `message`/`summary` — the one-line status external callers read; everything else stays in the structured result.
+- `designSystem` — when a record can link a brand or design system, expose it as `designSystem: AgentDesignSystemContext | null` via `loadAgentDesignSystemContext(id, getDesignSystemAction)` from core's shared `design-system-agent-context`. Reads get the bounded summary (`scope: "summary"`, with a `next` line naming the full read); only the create action and `get-design-system` itself pass `{ full: true }`. `status: "unavailable"` is not `null`: keep the id and the message. Print it in text results with `formatAgentDesignSystemContext`; do not name the field anything else.
 
 An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. The full external contract (link builders, `mcpApp`, `publicAgent`, payload limits, the author rule) is the `external-agents` skill.
 

@@ -6,6 +6,7 @@ import { and, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { getDeckUrl } from "./_app-url.js";
 
@@ -350,7 +351,7 @@ export default defineAction({
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-          designSystemId: row.designSystemId ?? data.designSystemId ?? null,
+          designSystemId: resolveDeckDesignSystemId(row, data),
           createdAt:
             typeof data.createdAt === "string" ? data.createdAt : row.createdAt,
           updatedAt: row.updatedAt,

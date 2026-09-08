@@ -438,19 +438,20 @@ const esES = {
   },
   homepage: {
     hero: {
-      title: "El framework de aplicaciones agentic",
-      bodyLine1: "Crea agentes autónomos con interfaces intuitivas.",
-      bodyLine2: "Usa tu propio LLM. Despliega donde quieras.",
+      title: "El framework para apps agénticas.",
+      bodyLine1:
+        "Un framework de TypeScript de código abierto para apps con una UI y un agente.",
+      bodyLine2: "Define cada acción una vez y llámala desde cualquier lugar.",
       tryAnApp: "Probar una app",
     },
     install: {
       copyCommand: "Copiar comando de instalación",
     },
     actions: {
-      title: "Una acción impulsa cada superficie",
-      bodyLine1: "Las acciones definen lo que puede hacer tu agente.",
+      title: "Llama a una acción desde cualquier lugar.",
+      bodyLine1: "Define una capacidad con defineAction().",
       bodyLine2:
-        "Define cada capacidad una vez y úsala desde el agente, la UI, HTTP API, MCP, A2A o CLI.",
+        "Tu UI de React, tu agente, los clientes HTTP y las integraciones usan el mismo código.",
       diagramAlt:
         "Una acción impulsa la UI, MCP, el chat del agente, A2A, HTTP API y CLI",
     },
@@ -497,13 +498,13 @@ const esES = {
       },
     },
     stack: {
-      title: "Funciona con tu stack",
-      body: "Trae tu LLM, base de datos, herramientas e infraestructura. Agent-Native es TypeScript de código abierto, así que todo lo que construyes sigue siendo tuyo.",
+      title: "Usa tu propio stack",
+      body: "Agent-Native es TypeScript de código abierto. Elige tu modelo, base de datos y hosting, y conserva el código de la aplicación en tu repositorio.",
       exploreApps: "Explora apps creadas con Agent-Native",
     },
     showcase: {
-      title: "¿Qué puedes crear con Agent-Native?",
-      body: "Crea agentes con UI para reuniones, diseño, presentaciones, datos y mucho más. Empieza con una de estas apps de código abierto o crea el tuyo.",
+      title: "Apps reales creadas con Agent-Native",
+      body: "Apps Agent-Native de código abierto que puedes usar gratis o personalizar sin límites.",
       browseApps: "Explorar apps",
       scrollLeft: "Desplazar apps a la izquierda",
       scrollRight: "Desplazar apps a la derecha",
@@ -522,7 +523,7 @@ const esES = {
       download: "Descargar",
       apps: "Apps",
       privacyPolicy: "Política de privacidad",
-      saasTerms: "Términos del servicio alojado",
+      saasTerms: "Términos de SaaS",
       legalResources: "Recursos legales",
     },
   },
