@@ -1786,32 +1786,41 @@ export function App({
 
   useEffect(() => {
     let cancelled = false;
-    if (authStatus !== "authed") {
-      setExperimentValues({});
-      emit("clips:experiments-updated", { values: {} }).catch(() => {});
-      return () => {
-        cancelled = true;
-      };
-    }
-    void callClipsAction<Record<string, boolean>>(
-      "get-experiments",
-      {},
-      { method: "GET" },
-    )
-      .then((values) => {
+    const refreshExperiments = async () => {
+      if (authStatus !== "authed") {
+        setExperimentValues({});
+        emit("clips:experiments-updated", { values: {} }).catch(() => {});
+        return;
+      }
+
+      try {
+        const values = await callClipsAction<Record<string, boolean>>(
+          "get-experiments",
+          {},
+          { method: "GET" },
+        );
         if (!cancelled) {
           setExperimentValues(values);
           emit("clips:experiments-updated", { values }).catch(() => {});
         }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setExperimentValues({});
-          emit("clips:experiments-updated", { values: {} }).catch(() => {});
-        }
-      });
+      } catch {
+        // Keep the last known-good values. A failed read is not an opt-out.
+      }
+    };
+
+    void refreshExperiments();
+    if (authStatus !== "authed") {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const refreshInterval = window.setInterval(() => {
+      void refreshExperiments();
+    }, 30_000);
     return () => {
       cancelled = true;
+      window.clearInterval(refreshInterval);
     };
   }, [authStatus, callClipsAction]);
 
@@ -2308,6 +2317,7 @@ export function App({
 
   const startMeetingNotesAndJoin = useCallback(
     (meeting: PopoverMeeting, includeFromMeetingStart = false) => {
+      if (!meetingsExperimentEnabled) return;
       if (meeting.joinUrl) {
         openMeetingJoinUrl(meeting.joinUrl).catch((err) => {
           console.error("[clips-popover] open meeting join url failed:", err);

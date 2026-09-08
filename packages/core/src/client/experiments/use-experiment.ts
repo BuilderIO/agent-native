@@ -6,17 +6,20 @@ export function useExperimentState(key: string): {
   enabled: boolean;
   isLoading: boolean;
   isError: boolean;
+  isSuccess: boolean;
 } {
   const query = useActionQuery<ExperimentValues>("get-experiments" as never);
   return {
     enabled: query.data?.[key] === true,
     isLoading: query.isLoading,
     isError: query.isError,
+    isSuccess: query.isSuccess,
   };
 }
 
 export function useExperiment(key: string): boolean {
-  return useExperimentState(key).enabled;
+  const state = useExperimentState(key);
+  return state.isSuccess ? state.enabled : true;
 }
 
 export function useExperiments(): ExperimentValues {

@@ -902,7 +902,7 @@ export default function MeetingsIndexRoute() {
   const nothingAtAll =
     historyMeetings.length === 0 && agendaMeetings.length === 0;
 
-  if (!experiment.isLoading && !experiment.enabled) {
+  if (experiment.isSuccess && !experiment.enabled) {
     return <Navigate replace to="/library" />;
   }
 

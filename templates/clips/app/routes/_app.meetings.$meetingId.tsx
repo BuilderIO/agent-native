@@ -1032,7 +1032,7 @@ export default function MeetingDetailRoute() {
   // never retries, so collapsing any of them into the skeleton pins it forever.
   // A failed live-poll on top of an already-loaded meeting is none of them —
   // keep showing the meeting.
-  if (!experiment.isLoading && !experiment.enabled) {
+  if (experiment.isSuccess && !experiment.enabled) {
     return <Navigate replace to="/library" />;
   }
 

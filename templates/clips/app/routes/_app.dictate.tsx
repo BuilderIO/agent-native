@@ -968,7 +968,7 @@ export default function DictateRoute() {
     draftText.trim().length > 0 ||
     interimText.trim().length > 0;
 
-  if (!experiment.isLoading && !experiment.enabled) {
+  if (experiment.isSuccess && !experiment.enabled) {
     return <Navigate replace to="/library" />;
   }
 
