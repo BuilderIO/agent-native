@@ -29,6 +29,9 @@ function createFakeWindow(
     get origin() {
       return new URL(fakeLocation.href).origin;
     },
+    get hostname() {
+      return new URL(fakeLocation.href).hostname;
+    },
     assign: vi.fn((href: string) => {
       fakeLocation.href = href;
     }),
@@ -153,6 +156,7 @@ describe("route chunk recovery", () => {
     fakeWindow.console.error(
       "Error loading route module `/chat/assets/route.js`, reloading page...",
     );
+    fakeWindow.location.reload();
 
     expect(fakeWindow.location.assign).not.toHaveBeenCalled();
     expect(originalReload).not.toHaveBeenCalled();
@@ -618,7 +622,7 @@ describe("route chunk recovery", () => {
     expect(preventDefault).not.toHaveBeenCalled();
   });
 
-  it("bounds React Router's Vite dev route reload", () => {
+  it("leaves React Router's Vite dev route reload to the Vite handler", () => {
     const { fakeWindow, fakeLocation, originalReload } = createFakeWindow(
       "https://example.com/dispatch/apps",
       { viteDevRecovery: true },
@@ -635,7 +639,7 @@ describe("route chunk recovery", () => {
     );
     fakeLocation.reload();
 
-    expect(fakeLocation.assign).toHaveBeenCalledOnce();
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
     expect(originalReload).not.toHaveBeenCalled();
   });
 

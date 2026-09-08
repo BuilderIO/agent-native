@@ -140,13 +140,10 @@ function hasViteDevRecovery(win: Window): boolean | undefined {
     if (!isLocalDevOrigin) return false;
 
     // The recovery module can be loaded from a prebuilt package artifact, so
-    // Vite may not transform import.meta.env.DEV even though the consuming app
+    // Vite may not preserve import.meta.env.DEV even though the consuming app
     // is running through Vite. Local origins are the host boundary for that
     // dev-only script; never let the shared route hook replay a handoff there.
-    return (
-      (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV !==
-      false
-    );
+    return true;
   } catch (error) {
     void error;
     return undefined;
@@ -300,6 +297,11 @@ function patchReload(win: Window, state: RouteChunkRecoveryState): void {
       ) {
         return;
       }
+      // Vite's recovery script owns refreshes in local development. React
+      // Router can report a route-module failure while a durable handoff is
+      // still mounting; replaying the current URL here turns that transient
+      // state into an unbounded same-route reload loop.
+      if (hasViteDevRecovery(win) === true) return;
       if (isAgentNativeDesktop(win)) return;
       // A current-route failure has no alternate target. Refresh once using
       // the session-scoped cooldown, then leave persistent failures visible.
