@@ -38,7 +38,7 @@ const DESIGN_MUTATION_ACTIONS = new Set([
 ]);
 
 const DESIGN_MUTATION_VERBS =
-  /\b(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|polish|place|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i;
+  /\b(?:add|adding|adjust|adjusting|align|aligning|apply|applying|build|building|change|changing|clean|cleaning|create|creating|decrease|decreasing|delete|deleting|design|designing|duplicate|duplicating|edit|editing|enhance|enhancing|fix|fixing|generate|generating|improve|improving|import|importing|increase|increasing|insert|inserting|make|making|modify|modifying|move|moving|polish|polishing|place|placing|reduce|reducing|refine|refining|remove|removing|replace|replacing|resize|resizing|restyle|restyling|rework|reworking|tune|tuning|update|updating)\b/i;
 const DESIGN_MUTATION_OBJECTS =
   /\b(?:animation|animations|asset|background|behavior|behaviors|border|button|canvas|card|color|colors|component|design|file|footer|font|gap|header|height|hero|image|interaction|interactions|it|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|states|style|styles|text|this|theme|transition|transitions|typography|variant|version|visual|visuals|width|wireframe)\b/i;
 const DESIGN_ADVISORY_WORDS =
@@ -48,7 +48,7 @@ const DESIGN_TEST_REQUEST =
 const DESIGN_TEST_TARGET_PREPOSITIONS =
   /^(?:\s*(?:[,.!?;:]|[-–—])*\s*)(?:for|of|on|in|against|with|using)\b/i;
 const DESIGN_TEST_CLAUSE_BOUNDARY =
-  /[.!?,;]|\b(?:and|also|but|then|after(?:\s+that)?|afterwards?|subsequently|before|while|followed\s+by)\b/gi;
+  /[.!?,;]|[-–—]|\b(?:and|also|but|then|after(?:\s+that)?|afterwards?|subsequently|before|while|followed\s+by)\b/gi;
 const DESIGN_WORD_PATTERN = /\b[\w-]+\b/g;
 const DESIGN_ADVISORY_SKILL_VERBS = new Set(["develop", "improve", "learn"]);
 const DESIGN_ADVISORY_SKILL_PRONOUNS = new Set(["my", "your"]);
@@ -350,11 +350,30 @@ function removeDesignTestRequests(text: string): string {
       ...prefix.slice(clauseStart).matchAll(mutationVerbs),
     ];
     const precedingVerb = precedingVerbs[precedingVerbs.length - 1];
+    const precedingVerbStart = precedingVerb
+      ? clauseStart + (precedingVerb.index ?? 0)
+      : testStart;
+    const precedingVerbEnd =
+      precedingVerbStart + (precedingVerb?.[0].length ?? 0);
+    const hasDesignObjectBeforeTest = precedingVerb
+      ? DESIGN_MUTATION_OBJECTS.test(text.slice(precedingVerbEnd, testStart))
+      : false;
+    const sharedObject = text
+      .slice(testEnd)
+      .match(
+        /(?:^|\s)(?:and|or|plus|&)\s+(?:(?:a|an|the|another|new)\s+)?([\w-]+)/i,
+      )?.[1];
+    const hasSharedDesignObject =
+      sharedObject !== undefined &&
+      !/^(?:it|this)$/i.test(sharedObject) &&
+      DESIGN_MUTATION_OBJECTS.test(sharedObject);
     let removalEnd = testEnd;
     const target = targetSuffix.exec(text.slice(testEnd));
     if (target) removalEnd += target[0].length;
     removals.push([
-      precedingVerb ? clauseStart + (precedingVerb.index ?? 0) : testStart,
+      precedingVerb && !hasDesignObjectBeforeTest && !hasSharedDesignObject
+        ? precedingVerbStart
+        : testStart,
       removalEnd,
     ]);
   }

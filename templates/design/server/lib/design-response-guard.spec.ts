@@ -110,6 +110,31 @@ describe("Design final response guard", () => {
     ).toBe(true);
     expect(
       looksLikeDesignMutationRequest(
+        "fix the hero layout for visual regression tests",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a card",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "update the color palette — create a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test before improving the hero layout",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test after improving the hero layout",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
         "create visual regression and snapshot tests",
       ),
     ).toBe(false);
