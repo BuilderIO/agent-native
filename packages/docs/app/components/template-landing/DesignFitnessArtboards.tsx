@@ -22,9 +22,22 @@
 export const BOARD_SCALE = 0.4;
 
 export const DESKTOP_ARTBOARD_WIDTH = 1280;
-export const DESKTOP_ARTBOARD_HEIGHT = 1240;
 export const MOBILE_ARTBOARD_WIDTH = 390;
-export const MOBILE_ARTBOARD_HEIGHT = 1200;
+
+/**
+ * Screen height of a frame body, deliberately taller than the canvas viewport
+ * so both screens run off the bottom edge and get cut there. A design that
+ * stopped neatly inside the canvas would read as a fixed-height graphic; real
+ * pages keep going past the fold, and the editor just clips them.
+ */
+export const FRAME_BODY_HEIGHT = 700;
+
+/**
+ * Floor for the artboards, not a fixed size: height is content-driven so a
+ * short screen can never leave white space above the cut, and a long one simply
+ * extends further past it.
+ */
+export const ARTBOARD_MIN_HEIGHT = FRAME_BODY_HEIGHT / BOARD_SCALE;
 
 /** Logical size of the selected CTA, mirrored by the inspector's W/H fields. */
 export const SELECTED_CTA_WIDTH = 160;
@@ -55,6 +68,28 @@ const STATS = [
   { value: "12k", label: "Sessions logged", tone: "lime" },
   { value: "48", label: "Live classes weekly", tone: "coral" },
   { value: "94%", label: "Stick with it", tone: "cyan" },
+];
+
+const PLANS = [
+  {
+    name: "Drop in",
+    price: "$0",
+    meta: "Two classes a week",
+    cta: "Start free",
+  },
+  {
+    name: "Unlimited",
+    price: "$29",
+    meta: "Every class, every plan",
+    cta: "Go unlimited",
+    featured: true,
+  },
+  {
+    name: "Coached",
+    price: "$89",
+    meta: "Weekly 1:1 review",
+    cta: "Get matched",
+  },
 ];
 
 const CLASSES = [
@@ -192,10 +227,42 @@ export function FitnessDesktopArtboard() {
         </div>
       </section>
 
+      <section className="ft-section">
+        <div className="ft-section-head">
+          <h3 className="ft-section-title">Pick your pace</h3>
+          <span className="ft-section-link">Compare plans →</span>
+        </div>
+        <div className="ft-plan-grid">
+          {PLANS.map((plan) => (
+            <div
+              key={plan.name}
+              className={plan.featured ? "ft-plan is-featured" : "ft-plan"}
+            >
+              <span className="ft-plan-name">{plan.name}</span>
+              <span className="ft-plan-price">
+                {plan.price}
+                <span className="ft-plan-period">/mo</span>
+              </span>
+              <span className="ft-plan-meta">{plan.meta}</span>
+              <span className="ft-plan-cta">{plan.cta}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="ft-band">
         <span className="ft-band-title">Your first two weeks are on us.</span>
         <span className="ft-band-cta">Get started</span>
       </section>
+
+      <footer className="ft-footer">
+        <Wordmark />
+        <span className="ft-footer-links">
+          {NAV_LINKS.map((link) => (
+            <span key={link}>{link}</span>
+          ))}
+        </span>
+      </footer>
     </div>
   );
 }
@@ -251,6 +318,34 @@ export function FitnessMobileArtboard() {
           ))}
         </div>
       </section>
+
+      <section className="ft-section">
+        <div className="ft-section-head">
+          <h3 className="ft-section-title">Plans</h3>
+          <span className="ft-section-link">All →</span>
+        </div>
+        <div className="ft-plan-grid">
+          {PLANS.slice(0, 2).map((plan) => (
+            <div
+              key={plan.name}
+              className={plan.featured ? "ft-plan is-featured" : "ft-plan"}
+            >
+              <span className="ft-plan-name">{plan.name}</span>
+              <span className="ft-plan-price">
+                {plan.price}
+                <span className="ft-plan-period">/mo</span>
+              </span>
+              <span className="ft-plan-meta">{plan.meta}</span>
+              <span className="ft-plan-cta">{plan.cta}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="ft-band">
+        <span className="ft-band-title">Your first two weeks are on us.</span>
+        <span className="ft-band-cta">Get started</span>
+      </section>
     </div>
   );
 }
@@ -260,7 +355,7 @@ export const DESIGN_FITNESS_CSS = [
   // canvas, so it must look identical whether the editor around it is light or
   // dark — exactly like a real artboard.
   ".design-mock .ft { --ft-ink: #140c2e; --ft-ink-soft: rgba(20, 12, 46, 0.62); --ft-ink-faint: rgba(20, 12, 46, 0.38); --ft-surface: #fffdf8; --ft-card: #ffffff; --ft-line: rgba(20, 12, 46, 0.1); --ft-lime: #d8ff3e; --ft-coral: #ff5b4a; --ft-cyan: #3fe0d0; --ft-violet: #7c4dff; --ft-amber: #ffb020; }",
-  ".design-mock .ft { width: 100%; height: 100%; overflow: hidden; background: var(--ft-surface); color: var(--ft-ink); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }",
+  ".design-mock .ft { width: 100%; min-height: 100%; background: var(--ft-surface); color: var(--ft-ink); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }",
   // The docs shell colors every h1-h4 and prose paragraph directly, so an
   // artboard heading would otherwise pick up the docs foreground instead of the
   // design's own ink.
@@ -328,10 +423,27 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-class-title { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; }",
   ".design-mock .ft-class-meta { color: var(--ft-ink-soft); font-size: 15px; font-weight: 500; }",
 
+  // Plans
+  ".design-mock .ft-plan-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }",
+  ".design-mock .ft-plan { display: flex; flex-direction: column; gap: 8px; padding: 28px; border: 2px solid var(--ft-line); border-radius: 26px; background: var(--ft-card); }",
+  ".design-mock .ft-plan.is-featured { border-color: transparent; background: var(--ft-ink); color: var(--ft-surface); }",
+  ".design-mock .ft-plan-name { font-size: 17px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; }",
+  ".design-mock .ft-plan-price { font-size: 50px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.05; }",
+  ".design-mock .ft-plan-period { font-size: 18px; font-weight: 600; opacity: 0.5; }",
+  ".design-mock .ft-plan.is-featured .ft-plan-price { color: var(--ft-lime); }",
+  ".design-mock .ft-plan-meta { color: var(--ft-ink-soft); font-size: 15px; font-weight: 500; }",
+  ".design-mock .ft-plan.is-featured .ft-plan-meta { color: rgba(255, 253, 248, 0.7); }",
+  ".design-mock .ft-plan-cta { display: flex; height: 48px; align-items: center; justify-content: center; margin-top: 12px; border: 2px solid var(--ft-line); border-radius: 999px; font-size: 16px; font-weight: 700; }",
+  ".design-mock .ft-plan.is-featured .ft-plan-cta { border-color: transparent; background: var(--ft-lime); color: var(--ft-ink); }",
+
   // Closing band
   ".design-mock .ft-band { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 28px 24px 24px; padding: 30px 40px; border-radius: 32px; background: linear-gradient(100deg, var(--ft-violet), var(--ft-coral) 62%, var(--ft-amber)); color: var(--ft-surface); }",
   ".design-mock .ft-band-title { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }",
   ".design-mock .ft-band-cta { display: flex; height: 52px; align-items: center; padding: 0 26px; border-radius: 999px; background: var(--ft-surface); color: var(--ft-ink); font-size: 17px; font-weight: 700; }",
+
+  // Footer
+  ".design-mock .ft-footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 0 48px; padding: 32px 0 40px; border-top: 2px solid var(--ft-line); }",
+  ".design-mock .ft-footer-links { display: flex; align-items: center; gap: 28px; color: var(--ft-ink-soft); font-size: 16px; font-weight: 500; }",
 
   // Mobile breakpoint. Same design, stacked.
   ".design-mock .ft-mobile .ft-nav { height: 68px; gap: 0; padding: 0 20px; }",
@@ -352,4 +464,14 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-mobile .ft-class .ft-slot { height: 170px; }",
   ".design-mock .ft-mobile .ft-class-title { font-size: 17px; }",
   ".design-mock .ft-mobile .ft-class-meta { font-size: 13px; }",
+  ".design-mock .ft-mobile .ft-plan-grid { grid-template-columns: 1fr; gap: 14px; }",
+  ".design-mock .ft-mobile .ft-plan { gap: 6px; padding: 20px; border-radius: 22px; }",
+  ".design-mock .ft-mobile .ft-plan-name { font-size: 13px; }",
+  ".design-mock .ft-mobile .ft-plan-price { font-size: 34px; }",
+  ".design-mock .ft-mobile .ft-plan-period { font-size: 14px; }",
+  ".design-mock .ft-mobile .ft-plan-meta { font-size: 13px; }",
+  ".design-mock .ft-mobile .ft-plan-cta { height: 40px; margin-top: 8px; font-size: 14px; }",
+  ".design-mock .ft-mobile .ft-band { margin: 22px 16px 24px; padding: 22px; border-radius: 26px; }",
+  ".design-mock .ft-mobile .ft-band-title { font-size: 20px; }",
+  ".design-mock .ft-mobile .ft-band-cta { height: 42px; padding: 0 18px; font-size: 14px; }",
 ].join("\n");

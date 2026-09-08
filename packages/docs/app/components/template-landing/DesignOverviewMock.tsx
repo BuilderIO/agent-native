@@ -72,12 +72,12 @@ import {
 import { LogoMark } from "../website-redesign/ds/logo-mark";
 import {
   BOARD_SCALE,
+  ARTBOARD_MIN_HEIGHT,
   DESIGN_FITNESS_CSS,
-  DESKTOP_ARTBOARD_HEIGHT,
   DESKTOP_ARTBOARD_WIDTH,
   FitnessDesktopArtboard,
   FitnessMobileArtboard,
-  MOBILE_ARTBOARD_HEIGHT,
+  FRAME_BODY_HEIGHT,
   MOBILE_ARTBOARD_WIDTH,
   SELECTED_CTA_HEIGHT,
   SELECTED_CTA_WIDTH,
@@ -93,9 +93,7 @@ const FRAME_LABEL_HEIGHT = 28;
 const BREAKPOINT_FRAME_GAP = 24;
 
 const DESKTOP_FRAME_WIDTH = Math.round(DESKTOP_ARTBOARD_WIDTH * BOARD_SCALE);
-const DESKTOP_FRAME_HEIGHT = Math.round(DESKTOP_ARTBOARD_HEIGHT * BOARD_SCALE);
 const MOBILE_FRAME_WIDTH = Math.round(MOBILE_ARTBOARD_WIDTH * BOARD_SCALE);
-const MOBILE_FRAME_HEIGHT = Math.round(MOBILE_ARTBOARD_HEIGHT * BOARD_SCALE);
 const MOBILE_FRAME_X = DESKTOP_FRAME_WIDTH + BREAKPOINT_FRAME_GAP;
 
 // Only the three panels the default feature-flag state actually renders. The
@@ -202,6 +200,20 @@ const LAYER_ROWS: LayerRow[] = [
   {
     id: "classes",
     label: "Classes",
+    depth: 1,
+    glyph: "rows",
+    disclosure: "collapsed",
+  },
+  {
+    id: "plans",
+    label: "Plans",
+    depth: 1,
+    glyph: "columns",
+    disclosure: "collapsed",
+  },
+  {
+    id: "footer",
+    label: "Footer",
     depth: 1,
     glyph: "rows",
     disclosure: "collapsed",
@@ -806,11 +818,10 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-breakpoint-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 999px; background: currentColor; }",
   ".design-mock .dm-interact-btn { position: absolute; right: 4px; top: 50%; display: flex; height: 20px; align-items: center; gap: 4px; transform: translateY(-50%); padding: 0 6px; border: 1px solid var(--dm-border); border-radius: 6px; background: var(--dm-panel-bg); color: var(--dm-fg); font-size: 10px; font-weight: 500; }",
   ".design-mock .dm-frame-body { position: relative; overflow: hidden; background: #ffffff; box-shadow: inset 0 0 0 1px var(--dm-border); }",
-  `.design-mock .dm-frame-desktop .dm-frame-body { height: ${DESKTOP_FRAME_HEIGHT}px; }`,
-  `.design-mock .dm-frame-mobile .dm-frame-body { height: ${MOBILE_FRAME_HEIGHT}px; }`,
+  `.design-mock .dm-frame-body { height: ${FRAME_BODY_HEIGHT}px; }`,
   `.design-mock .dm-artboard { transform: scale(${BOARD_SCALE}); transform-origin: top left; }`,
-  `.design-mock .dm-artboard-desktop { width: ${DESKTOP_ARTBOARD_WIDTH}px; height: ${DESKTOP_ARTBOARD_HEIGHT}px; }`,
-  `.design-mock .dm-artboard-mobile { width: ${MOBILE_ARTBOARD_WIDTH}px; height: ${MOBILE_ARTBOARD_HEIGHT}px; }`,
+  `.design-mock .dm-artboard-desktop { width: ${DESKTOP_ARTBOARD_WIDTH}px; min-height: ${ARTBOARD_MIN_HEIGHT}px; }`,
+  `.design-mock .dm-artboard-mobile { width: ${MOBILE_ARTBOARD_WIDTH}px; min-height: ${ARTBOARD_MIN_HEIGHT}px; }`,
 
   // Right inspector — 240px. Overflow is hidden so the tail of the property
   // list crops mid-section, the way a real scrolled panel reads.
