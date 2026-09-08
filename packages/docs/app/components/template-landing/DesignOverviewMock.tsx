@@ -69,6 +69,7 @@ import {
   IconViewportWide,
 } from "@tabler/icons-react";
 
+import { LogoMark } from "../website-redesign/ds/logo-mark";
 import {
   BOARD_SCALE,
   DESIGN_TASKER_CSS,
@@ -270,7 +271,9 @@ const EFFECT_ROWS = [
 function WorkspaceRail() {
   return (
     <div className="dm-rail">
-      <div className="dm-rail-project" />
+      <div className="dm-rail-project">
+        <LogoMark className="dm-rail-project-mark" />
+      </div>
       <div className="dm-rail-divider" />
       {RAIL_ITEMS.map(({ label, icon: Icon, active }) => (
         <div
@@ -742,7 +745,8 @@ const DESIGN_MOCK_CSS = [
 
   // Left icon rail — 64px, 48px buttons with a label under the glyph.
   `.design-mock .dm-rail { display: flex; width: ${RAIL_WIDTH}px; flex-shrink: 0; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; border-right: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }`,
-  ".design-mock .dm-rail-project { width: 32px; height: 32px; border-radius: 8px; background: var(--dm-control-bg); }",
+  ".design-mock .dm-rail-project { display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 8px; background: var(--dm-control-bg); color: var(--dm-fg); }",
+  ".design-mock .dm-rail-project-mark { width: 18px; height: auto; }",
   ".design-mock .dm-rail-divider { width: 32px; height: 1px; background: var(--dm-border); }",
   ".design-mock .dm-rail-item { display: flex; width: 48px; height: 48px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-radius: 8px; color: var(--dm-fg-muted); }",
   ".design-mock .dm-rail-item.is-active { background: var(--dm-selection); color: var(--dm-fg); }",
