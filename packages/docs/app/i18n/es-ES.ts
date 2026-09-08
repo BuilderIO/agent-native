@@ -438,20 +438,19 @@ const esES = {
   },
   homepage: {
     hero: {
-      title: "El framework para apps agénticas.",
-      bodyLine1:
-        "Un framework de TypeScript de código abierto para apps con una UI y un agente.",
-      bodyLine2: "Define cada acción una vez y llámala desde cualquier lugar.",
+      title: "El framework de aplicaciones agentic",
+      bodyLine1: "Crea agentes autónomos con interfaces intuitivas.",
+      bodyLine2: "Usa tu propio LLM. Despliega donde quieras.",
       tryAnApp: "Probar una app",
     },
     install: {
       copyCommand: "Copiar comando de instalación",
     },
     actions: {
-      title: "Llama a una acción desde cualquier lugar.",
-      bodyLine1: "Define una capacidad con defineAction().",
+      title: "Una acción impulsa cada superficie",
+      bodyLine1: "Define una capacidad una vez con defineAction().",
       bodyLine2:
-        "Tu UI de React, tu agente, los clientes HTTP y las integraciones usan el mismo código.",
+        "Tu agente, UI de React, clientes HTTP e integraciones usan el mismo código.",
       diagramAlt:
         "Una acción impulsa la UI, MCP, el chat del agente, A2A, HTTP API y CLI",
     },
@@ -546,7 +545,7 @@ const esES = {
         "Describe en lenguaje sencillo lo que quieres crear y el agente lo hará por ti.",
       stepThreeTitle: "Publica",
       stepThreeBody:
-        "Cuando estés listo, publica tu aplicación con un clic en Builder.",
+        "Cuando estés listo, publica tu agente y su UI con un clic en Builder.",
     },
   },
   templatesPage: {

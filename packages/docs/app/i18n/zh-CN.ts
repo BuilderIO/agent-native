@@ -431,18 +431,18 @@ const zhCN = {
   },
   homepage: {
     hero: {
-      title: "面向 agentic 应用的框架。",
-      bodyLine1: "一个面向带有 UI 和 agent 的应用的开源 TypeScript 框架。",
-      bodyLine2: "只需定义一次每个 Action，即可从任何地方调用。",
+      title: "面向 agentic 应用的框架",
+      bodyLine1: "构建配备直观 UI 的自主型 agent。",
+      bodyLine2: "使用你自己的 LLM，随处部署。",
       tryAnApp: "试用应用",
     },
     install: {
       copyCommand: "复制安装命令",
     },
     actions: {
-      title: "从任何地方调用一个 Action。",
-      bodyLine1: "使用 defineAction() 定义一项能力。",
-      bodyLine2: "你的 React UI、agent、HTTP 客户端和集成都会调用同一份代码。",
+      title: "一个 Action 驱动所有能力面",
+      bodyLine1: "使用 defineAction() 一次定义一项能力。",
+      bodyLine2: "你的 agent、React UI、HTTP 客户端和集成都调用同一份代码。",
       diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
     },
     builtIn: {
@@ -534,7 +534,7 @@ const zhCN = {
       stepTwoTitle: "开始输入提示",
       stepTwoBody: "用自然语言描述你想构建的内容，智能体会为你创建。",
       stepThreeTitle: "部署",
-      stepThreeBody: "准备好后，在 Builder 中一键部署你的应用。",
+      stepThreeBody: "准备好后，在 Builder 中一键部署你的 agent 及其 UI。",
     },
   },
   templatesPage: {
