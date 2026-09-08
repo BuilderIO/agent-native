@@ -1169,6 +1169,7 @@ const frFR = {
       s058: "Partez du modèle et commencez à générer des prototypes interactifs avec un agent qui édite la source.",
       s059: "Lire la documentation",
       s060: "Afficher tous les modèles",
+      s061: "100 % gratuit, open source et personnalisable.",
     },
     dispatch: {
       faq: {

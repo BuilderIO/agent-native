@@ -1168,6 +1168,7 @@ const esES = {
       s058: "Empieza con la plantilla y comienza a generar prototipos interactivos con un agente que edita el código fuente.",
       s059: "Lea los documentos",
       s060: "Ver todas las plantillas",
+      s061: "100 % gratis, de código abierto y personalizable.",
     },
     dispatch: {
       faq: {

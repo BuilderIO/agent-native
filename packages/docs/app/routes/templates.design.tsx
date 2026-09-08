@@ -1,7 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck } from "@tabler/icons-react";
 
-import { BuilderImage } from "../components/builder-image";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
@@ -16,8 +15,43 @@ import {
   TemplateStatOrStepsGrid,
   TemplateStatOrStepsGridItem,
 } from "../components/template-landing";
+import { DesignOverviewMock } from "../components/template-landing/DesignOverviewMock";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
+
+function DesignWordmark() {
+  return (
+    <span className="flex items-center gap-2 text-[var(--fg)]">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+      >
+        <rect
+          x="2.75"
+          y="2.75"
+          width="18.5"
+          height="18.5"
+          rx="2.5"
+          stroke="#F472B6"
+          strokeWidth="1.75"
+        />
+        <path
+          d="M8.75 2.75v18.5M2.75 8.75h18.5"
+          stroke="#F472B6"
+          strokeWidth="1.75"
+        />
+        <rect x="11.5" y="11.5" width="7" height="7" rx="1" fill="#F472B6" />
+      </svg>
+      <span className="font-sans text-[20px] font-semibold tracking-tight">
+        Design
+      </span>
+    </span>
+  );
+}
 
 export const meta = () =>
   withTemplateSocialImage(
@@ -94,14 +128,18 @@ export default function DesignTemplate() {
   return (
     <TemplateLandingShell>
       <TemplateHero
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
+        eyebrow={<DesignWordmark />}
         title={t("templateLanding.design.s006")}
         customizeTemplate={template}
-        description={<p className="m-0">{t("templateLanding.design.s007")}</p>}
+        description={
+          <p className="m-0">
+            {t("templateLanding.design.s007") +
+              " " +
+              t("templateLanding.design.s061")}
+          </p>
+        }
+        descriptionPlacement="below-title"
+        mediaOverlapsHeader
         headingAction={
           <a
             href={firstPartyAppUrl("https://design.agent-native.com")}
@@ -120,13 +158,9 @@ export default function DesignTemplate() {
           </a>
         }
         media={
-          <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F91a780695c114be6b4686d04385b982e"
-            crossOrigin="anonymous"
-            alt={t("templateLanding.design.s001")}
-            loading="lazy"
-            decoding="async"
-            className="h-auto max-h-[640px] w-full object-cover object-top"
+          <DesignOverviewMock
+            label={t("templateLanding.design.s001")}
+            className="h-[420px] sm:h-[620px] lg:h-[800px]"
           />
         }
       />

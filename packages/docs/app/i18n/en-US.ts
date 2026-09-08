@@ -1155,6 +1155,7 @@ const enUS = {
       s058: "Start from the app and begin generating interactive prototypes with an agent that edits the source.",
       s059: "Read the docs",
       s060: "View all apps",
+      s061: "100% free, open-source, and customizable.",
     },
     dispatch: {
       faq: {
