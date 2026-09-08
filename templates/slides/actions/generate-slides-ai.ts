@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
 import {
-  resolveBuilderCredentials,
+  resolveHasBuilderGatewayCredential,
   resolveSecret,
 } from "@agent-native/core/server";
 import type { GeneratedSlide } from "@shared/api";
@@ -72,10 +72,7 @@ Rules:
 
 Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the JSON array.`;
 
-    const builderCreds = await resolveBuilderCredentials();
-    const builderConfigured = Boolean(
-      builderCreds.privateKey && builderCreds.publicKey,
-    );
+    const builderConfigured = await resolveHasBuilderGatewayCredential();
     let text: string | undefined;
     let builderError: Error | null = null;
 
