@@ -301,11 +301,16 @@ function patchReload(win: Window, state: RouteChunkRecoveryState): void {
       // React Router calls reload immediately after logging, so navigating a
       // second time here can turn one stale route into a reload loop.
       if (state.recovering) return;
-      // A route-module error is distinct from a Vite optimizer failure. If a
-      // handoff target is still fresh, recover to it; otherwise use the
-      // guarded current-page reload below.
-      if (recoverToIntendedNavigation(win, state)) {
-        return;
+      // A route-module error is distinct from a Vite optimizer failure. The
+      // Vite dev handler and this hook share the same document, so replaying
+      // a remembered handoff target here can bounce between the old route and
+      // the durable target while React Router is still unwinding the error.
+      // Let the guarded current-page reload repair the module graph in dev;
+      // keep cross-route recovery for production and desktop shells.
+      if (hasViteDevRecovery(win) !== true) {
+        if (recoverToIntendedNavigation(win, state)) {
+          return;
+        }
       }
       if (isAgentNativeDesktop(win)) return;
       // A current-route failure has no alternate target. Refresh once using
@@ -390,7 +395,12 @@ export function installRouteChunkRecovery(
       // turn a same-route failure into a document replacement loop.
       if (args.some(isRouteModuleReloadMessage)) {
         state.routeModuleFailureAt = Date.now();
-        recoverToIntendedNavigation(win, state);
+        // React Router calls location.reload() immediately after this log.
+        // In Vite dev, leave the route at its durable URL and let the patched
+        // reload perform one bounded refresh instead of replaying stale intent.
+        if (hasViteDevRecovery(win) !== true) {
+          recoverToIntendedNavigation(win, state);
+        }
       }
       originalError(...args);
     };

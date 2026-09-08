@@ -624,7 +624,7 @@ describe("route chunk recovery", () => {
     expect(preventDefault).not.toHaveBeenCalled();
   });
 
-  it("recovers React Router route reloads in Vite dev", () => {
+  it("reloads the current route for React Router failures in Vite dev", () => {
     const { fakeWindow, fakeLocation, originalReload } = createFakeWindow(
       "https://example.com/dispatch/apps",
       { viteDevRecovery: true },
@@ -645,6 +645,41 @@ describe("route chunk recovery", () => {
       "https://example.com/dispatch/apps",
     );
     expect(originalReload).not.toHaveBeenCalled();
+  });
+
+  it("does not replay a stale navigation target for Vite route failures", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "https://example.com/home",
+      { viteDevRecovery: true },
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const anchor = {
+      tagName: "A",
+      href: "https://example.com/chat/chat-new",
+      hasAttribute: () => false,
+      getAttribute: () => null,
+      parentElement: null,
+    };
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: anchor,
+    } as unknown as MouseEvent);
+
+    fakeWindow.console.error(
+      "Error loading route module `/chat/assets/route.js`, reloading page...",
+    );
+    fakeLocation.reload();
+
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/home",
+    );
   });
 
   it("recoverFromStaleChunkError only recovers dynamic import failures", () => {
