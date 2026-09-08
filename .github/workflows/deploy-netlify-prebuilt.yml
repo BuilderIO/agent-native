@@ -291,7 +291,7 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
-          ANALYTICS_DATABASE_URL_SECRET: ${{ secrets.ANALYTICS_DATABASE_URL }}
+          ANALYTICS_DATABASE_URL_SECRET: ${{ inputs.target == 'production' && steps.target.outputs.source_template == 'analytics' && secrets.ANALYTICS_DATABASE_URL || '' }}
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail

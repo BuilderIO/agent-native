@@ -538,6 +538,10 @@ describe("production Netlify site concurrency guard", () => {
     );
     const build = workflow.slice(buildStart, buildEnd);
 
+    assert.match(
+      workflow,
+      /ANALYTICS_DATABASE_URL_SECRET: \$\{\{ inputs\.target == 'production' && steps\.target\.outputs\.source_template == 'analytics' && secrets\.ANALYTICS_DATABASE_URL \|\| '' \}\}/,
+    );
     assert.match(build, /export ANALYTICS_DATABASE_URL_SECRET/);
     assert.match(analyticsNetlify, /ANALYTICS_DATABASE_URL_SECRET/);
     assert.match(
@@ -545,6 +549,62 @@ describe("production Netlify site concurrency guard", () => {
       /unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED/,
     );
     assert.doesNotMatch(analyticsNetlify, /NETLIFY_DATABASE_URL:-/);
+
+    const rebind = analyticsNetlify.indexOf(
+      'export ANALYTICS_DATABASE_URL=\\"$ANALYTICS_DATABASE_URL_SECRET\\"',
+    );
+    const clearMaskedUrls = analyticsNetlify.indexOf(
+      "unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED",
+    );
+    const exportDatabaseUrl = analyticsNetlify.indexOf(
+      'export DATABASE_URL=\\"${ANALYTICS_DATABASE_URL:-$DATABASE_URL}\\"',
+    );
+    assert.ok(rebind >= 0 && rebind < clearMaskedUrls);
+    assert.ok(clearMaskedUrls < exportDatabaseUrl);
+
+    const rebindScript = [
+      'if [ -n "${ANALYTICS_DATABASE_URL_SECRET:-}" ]; then export ANALYTICS_DATABASE_URL="$ANALYTICS_DATABASE_URL_SECRET"; fi',
+      "unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED",
+      'export DATABASE_URL="${ANALYTICS_DATABASE_URL:-$DATABASE_URL}"',
+      'printf "%s\\n%s\\n" "$ANALYTICS_DATABASE_URL" "$DATABASE_URL"',
+    ].join("\n");
+    const runRebind = (env: NodeJS.ProcessEnv): string[] =>
+      execFileSync("bash", ["-c", rebindScript], {
+        env,
+        encoding: "utf8",
+      })
+        .trim()
+        .split("\n");
+
+    assert.deepEqual(
+      runRebind({
+        ANALYTICS_DATABASE_URL_SECRET: "",
+        ANALYTICS_DATABASE_URL: "postgres://beta.example/analytics",
+        DATABASE_URL: "postgres://beta.example/analytics",
+        NETLIFY_DATABASE_URL: "masked",
+        NETLIFY_DATABASE_URL_UNPOOLED: "masked",
+        DATABASE_URL_UNPOOLED: "masked",
+      }),
+      [
+        "postgres://beta.example/analytics",
+        "postgres://beta.example/analytics",
+      ],
+    );
+    assert.deepEqual(
+      runRebind({
+        ANALYTICS_DATABASE_URL_SECRET:
+          "postgres://production.example/analytics",
+        ANALYTICS_DATABASE_URL: "masked",
+        DATABASE_URL: "postgres://crm.example/database",
+        NETLIFY_DATABASE_URL: "masked",
+        NETLIFY_DATABASE_URL_UNPOOLED: "masked",
+        DATABASE_URL_UNPOOLED: "masked",
+      }),
+      [
+        "postgres://production.example/analytics",
+        "postgres://production.example/analytics",
+      ],
+    );
   });
 
   it("runs Plan migrations after masked prebuilt assembly", () => {
