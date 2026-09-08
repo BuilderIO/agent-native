@@ -431,18 +431,18 @@ const zhCN = {
   },
   homepage: {
     hero: {
-      title: "面向 agentic 应用的框架。",
-      bodyLine1: "一个面向带有 UI 和 agent 的应用的开源 TypeScript 框架。",
-      bodyLine2: "只需定义一次每个 Action，即可从任何地方调用。",
+      title: "面向 agentic 应用的框架",
+      bodyLine1: "构建配备直观 UI 的自主型 agent。",
+      bodyLine2: "使用你自己的 LLM，随处部署。",
       tryAnApp: "试用应用",
     },
     install: {
       copyCommand: "复制安装命令",
     },
     actions: {
-      title: "从任何地方调用一个 Action。",
-      bodyLine1: "使用 defineAction() 定义一项能力。",
-      bodyLine2: "你的 React UI、agent、HTTP 客户端和集成都会调用同一份代码。",
+      title: "一个 Action 驱动所有能力面",
+      bodyLine1: "使用 defineAction() 一次定义一项能力。",
+      bodyLine2: "你的 agent、React UI、HTTP 客户端和集成都调用同一份代码。",
       diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
     },
     builtIn: {
@@ -534,7 +534,7 @@ const zhCN = {
       stepTwoTitle: "开始输入提示",
       stepTwoBody: "用自然语言描述你想构建的内容，智能体会为你创建。",
       stepThreeTitle: "部署",
-      stepThreeBody: "准备好后，在 Builder 中一键部署你的应用。",
+      stepThreeBody: "准备好后，在 Builder 中一键部署你的 agent 及其 UI。",
     },
   },
   templatesPage: {
@@ -1062,7 +1062,7 @@ const zhCN = {
       s004: "精炼",
       s005: "所有模板",
       s006: "开源 AI HTML 原型工作室",
-      s007: "根据提示生成交互式 Alpine/Tailwind 原型，比较变体，使用调整控件进行优化，并导出您拥有的真实文件。",
+      s007: "创建交互式设计和原型。使用熟悉的工具进行优化，或进行对话编辑。可导出到任何地方。",
       s008: "设计点什么",
       s009: "它是如何运作的",
       s010: "你需要的一切",
@@ -1116,6 +1116,7 @@ const zhCN = {
       s058: "从模板开始，并开始使用编辑源的代理生成交互式原型。",
       s059: "阅读文档",
       s060: "查看所有模板",
+      s061: "100% 免费、开源且可自定义。",
       faq: {
         question1: "AI 能生成真正的代码设计，而不只是模型图吗？",
         answer1:

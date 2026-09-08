@@ -105,14 +105,10 @@ const messages = {
     empty: "아직 관찰 항목이 없습니다.",
     risk: "위험",
     status: "상태",
-    author: "작성자",
     coverage: "범위",
     reason: "이유",
     evidence: "근거",
-    evidenceDescription: "이 항목이 온 소스 스레드 또는 보고서입니다.",
     actionsTaken: "로그",
-    actionsTakenDescription:
-      "이 항목의 섀도 결정, 거버넌스, 이미 시작된 작업입니다.",
     threadTruncated: "이 Slack 스레드가 잘렸습니다.",
     threadUnavailable: "이 Slack 스레드를 불러올 수 없습니다.",
     noEvidence: "이 항목에 저장된 소스 근거가 없습니다.",
@@ -130,8 +126,6 @@ const messages = {
     noteLabel: "피드백 메모",
     submitFeedback: "피드백 기록",
     feedbackTitle: "피드백 기록",
-    feedbackDescription:
-      "섀도 결정이 맞았는지 표시합니다. 검토용으로만 저장되며 실행을 시작하지 않습니다.",
     feedbackError: "피드백을 기록하지 못했습니다.",
     noDecisions: "아직 기록된 결정이 없습니다.",
     rulesTitle: "트리아지 규칙",
