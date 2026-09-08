@@ -33,6 +33,22 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    # One PGlite instance does not survive a ~15-minute workers:1 shard: it
+    # starts raising `stack depth limit exceeded` and never recovers, so every
+    # later query — session lookup included — fails and the shard 401s out.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: design_e2e
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d design_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -74,6 +90,8 @@ jobs:
 
       - name: Run shard
         working-directory: templates/design
+        env:
+          E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
         run: |
           mkdir -p .react-router/types
           pnpm exec playwright test --shard=${{ matrix.shard }}/12

@@ -6,8 +6,11 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { gotoEditor } from "./helpers";
+import { childNodeIds, elementInner, gotoEditor } from "./helpers";
 
+// `al-beta` must stay unpainted and unpadded: paint or pad it and it projects
+// as a frame wrapping Text, and the paste-after-a-text-object test loses the
+// only text object in the row.
 const AUTO_LAYOUT_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -18,7 +21,7 @@ const AUTO_LAYOUT_HTML = `<!doctype html>
     <main data-agent-native-node-id="al-root" data-agent-native-layer-name="Root" style="position:relative;min-height:560px;padding:48px">
       <section data-agent-native-node-id="al-row" data-agent-native-layer-name="Card Row" style="display:flex;flex-direction:row;gap:16px;padding:16px;background:#1e293b;border-radius:16px">
         <div data-agent-native-node-id="al-alpha" data-agent-native-layer-name="Alpha" style="padding:12px 16px;border-radius:10px;background:#38bdf8;color:#082f49">Alpha</div>
-        <div data-agent-native-node-id="al-beta" data-agent-native-layer-name="Beta" style="padding:12px 16px;border-radius:10px;background:#a78bfa;color:#1f1147">Beta</div>
+        <div data-agent-native-node-id="al-beta" data-agent-native-layer-name="Beta" style="color:#a78bfa;font-weight:600">Beta</div>
         <div data-agent-native-node-id="al-gamma" data-agent-native-layer-name="Gamma" style="padding:12px 16px;border-radius:10px;background:#fbbf24;color:#451a03">Gamma</div>
       </section>
       <div data-agent-native-node-id="al-free" data-agent-native-layer-name="Free Frame" style="position:relative;margin-top:32px;width:360px;height:200px;border:1px dashed #475569;border-radius:12px"></div>
@@ -130,33 +133,9 @@ test.describe("auto layout keyboard parity", () => {
   });
 });
 
-/** DOM order of the auto layout row's children, by node id. */
+/** DOM order of the auto layout row's flow children, by node id. */
 function flowOrder(html: string): string[] {
-  const inner = elementInner(html, "al-row");
-  return Array.from(
-    inner.matchAll(/data-agent-native-node-id="([^"]+)"/g),
-    (match) => match[1]!,
-  );
-}
-
-/** Inner markup of one node, matched by walking tag depth from its open tag —
- * a non-greedy regex would stop at the first `</div>` of a nested child. */
-function elementInner(html: string, nodeId: string): string {
-  const openIndex = html.indexOf(`data-agent-native-node-id="${nodeId}"`);
-  if (openIndex < 0) throw new Error(`node ${nodeId} not found`);
-  const tagStart = html.lastIndexOf("<", openIndex);
-  const tag = /^<([a-zA-Z0-9-]+)/.exec(html.slice(tagStart))?.[1];
-  if (!tag) throw new Error(`no tag for ${nodeId}`);
-  const contentStart = html.indexOf(">", openIndex) + 1;
-  const pattern = new RegExp(`</?${tag}\\b`, "g");
-  pattern.lastIndex = contentStart;
-  let depth = 1;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(html))) {
-    depth += match[0].startsWith("</") ? -1 : 1;
-    if (depth === 0) return html.slice(contentStart, match.index);
-  }
-  throw new Error(`unbalanced ${tag} for ${nodeId}`);
+  return childNodeIds(html, "al-row");
 }
 
 async function createAutoLayoutDesign(
