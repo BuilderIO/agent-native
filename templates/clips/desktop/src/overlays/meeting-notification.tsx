@@ -173,50 +173,71 @@ export function MeetingNotification() {
 
   useEffect(() => {
     let cancelled = false;
-    const applyValues = (values: unknown) => {
+    let preferenceVersion = 0;
+    let unlisten: (() => void) | null = null;
+
+    const applyValues = (values: unknown): boolean => {
       if (!values || typeof values !== "object" || Array.isArray(values)) {
-        return;
+        return false;
       }
       const enabled =
         (values as Record<string, unknown>)[CLIPS_MEETINGS.key] === true;
       meetingsExperimentEnabledRef.current = enabled;
       if (!enabled) {
         pendingNotificationRef.current = null;
+        startingRef.current = null;
         hideNotification();
-        return;
+        return true;
       }
       const pending = pendingNotificationRef.current;
       pendingNotificationRef.current = null;
       if (pending) showNotification(pending.payload, pending.options);
+      return true;
     };
     const serverUrl = loadStoredServerUrl();
     const authToken = loadDesktopAuthToken(serverUrl);
-    void fetch(`${serverUrl}/_agent-native/actions/get-experiments`, {
-      credentials: "include",
-      ...(authToken
-        ? { headers: { Authorization: `Bearer ${authToken}` } }
-        : {}),
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`experiment read failed (${response.status})`);
-        }
-        return response.json();
+
+    const startFetch = () => {
+      const requestVersion = preferenceVersion;
+      void fetch(`${serverUrl}/_agent-native/actions/get-experiments`, {
+        credentials: "include",
+        ...(authToken
+          ? { headers: { Authorization: `Bearer ${authToken}` } }
+          : {}),
       })
-      .then((payload) => {
-        if (!cancelled) applyValues(payload?.result ?? payload);
-      })
-      .catch(() => {});
-    let unlisten: (() => void) | null = null;
-    listen<{ values?: Record<string, boolean> }>(
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`experiment read failed (${response.status})`);
+          }
+          return response.json();
+        })
+        .then((payload) => {
+          if (!cancelled && requestVersion === preferenceVersion) {
+            applyValues(payload?.result ?? payload);
+          }
+        })
+        .catch(() => {});
+    };
+
+    const updateListener = listen<{ values?: Record<string, boolean> }>(
       "clips:experiments-updated",
-      (event) => applyValues(event.payload?.values),
-    )
+      (event) => {
+        if (cancelled || !applyValues(event.payload?.values)) return;
+        preferenceVersion += 1;
+      },
+    );
+    updateListener
       .then((cleanup) => {
-        if (cancelled) cleanup();
-        else unlisten = cleanup;
+        if (cancelled) {
+          cleanup();
+        } else {
+          unlisten = cleanup;
+          startFetch();
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) startFetch();
+      });
     return () => {
       cancelled = true;
       unlisten?.();

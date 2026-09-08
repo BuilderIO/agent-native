@@ -1833,6 +1833,12 @@ export function App({
     });
   }, [authStatus, meetingsExperimentEnabled]);
 
+  useEffect(() => {
+    if (meetingsExperimentEnabled) return;
+    setActiveMeetingId(null);
+    setMeetingStartMessage(null);
+  }, [meetingsExperimentEnabled]);
+
   const updateAgentHandoff = useCallback(
     async (
       requestId: string,
