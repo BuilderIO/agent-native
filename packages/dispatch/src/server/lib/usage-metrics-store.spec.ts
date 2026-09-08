@@ -722,32 +722,44 @@ describe("listDispatchUsageMetrics", () => {
         };
       }
       if (sql.includes("FROM token_usage") && sql.includes("day_bucket")) {
-        return {
-          rows: [
-            {
-              day_bucket: Math.floor(firstUsageAt / 86_400_000),
-              owner_email: "member@example.test",
-              cost_x100: 10000,
-              calls: 1,
-              chat_calls: 1,
-              input_tokens: 10,
-              output_tokens: 20,
-              cache_read_tokens: 0,
-              cache_write_tokens: 0,
-            },
-            {
-              day_bucket: Math.floor(secondUsageAt / 86_400_000),
-              owner_email: "member@example.test",
-              cost_x100: 20000,
-              calls: 1,
-              chat_calls: 0,
-              input_tokens: 30,
-              output_tokens: 40,
-              cache_read_tokens: 5,
-              cache_write_tokens: 2,
-            },
-          ],
-        };
+        const rows = [
+          {
+            day_bucket: Math.floor(firstUsageAt / 86_400_000),
+            owner_email: "member@example.test",
+            cost_x100: 10000,
+            calls: 1,
+            chat_calls: 1,
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+          },
+          {
+            day_bucket: Math.floor(secondUsageAt / 86_400_000),
+            owner_email: "member@example.test",
+            cost_x100: 20000,
+            calls: 1,
+            chat_calls: 0,
+            input_tokens: 30,
+            output_tokens: 40,
+            cache_read_tokens: 5,
+            cache_write_tokens: 2,
+          },
+        ];
+        if (!sql.includes("cost_cents_x100")) {
+          rows.push({
+            day_bucket: Math.floor(Date.UTC(2026, 6, 10, 12) / 86_400_000),
+            owner_email: "other@example.test",
+            cost_x100: 0,
+            calls: 0,
+            chat_calls: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+          });
+        }
+        return { rows };
       }
       if (sql.includes("FROM dispatch_audit_events")) {
         return {
@@ -787,6 +799,26 @@ describe("listDispatchUsageMetrics", () => {
         outputTokens: 60,
         cacheReadTokens: 5,
         cacheWriteTokens: 2,
+      },
+    ]);
+    expect(metrics.daily).toEqual([
+      {
+        date: "2026-07-01",
+        costCents: 100,
+        calls: 1,
+        chatCalls: 1,
+        activeUsers: 1,
+        dailyActiveUsers: 1,
+        weeklyActiveUsers: 1,
+      },
+      {
+        date: "2026-07-15",
+        costCents: 200,
+        calls: 1,
+        chatCalls: 0,
+        activeUsers: 1,
+        dailyActiveUsers: 1,
+        weeklyActiveUsers: 2,
       },
     ]);
     expect(metrics.workspaceAppCreationsByUserMonth).toEqual([
