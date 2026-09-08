@@ -12,6 +12,7 @@ import {
   type SetStateAction,
 } from "react";
 
+import { useLocalStorage } from "../../hooks/use-local-storage";
 import type { MentionEntry } from "./CommentComposer";
 
 export interface CommentDraft {
@@ -37,6 +38,7 @@ interface CommentDraftContextValue {
   clearIfUnchanged: (key: string, submittedDraft: CommentDraft) => void;
   discard: (key: string) => void;
   panelSession: CommentPanelSession;
+  setHistoryStatus: Dispatch<SetStateAction<CommentHistoryStatus>>;
   setPanelSession: Dispatch<SetStateAction<CommentPanelSession>>;
 }
 
@@ -57,12 +59,20 @@ function draftsMatch(left: CommentDraft, right: CommentDraft) {
   );
 }
 
-function CommentDraftStore({ children }: { children: ReactNode }) {
+function CommentDraftStore({
+  children,
+  storageKey,
+}: {
+  children: ReactNode;
+  storageKey: string;
+}) {
+  const [historyStatus, setHistoryStatus] =
+    useLocalStorage<CommentHistoryStatus>(storageKey, "open");
   const [drafts, setDrafts] = useState<ReadonlyMap<string, CommentDraft>>(
     () => new Map(),
   );
   const [panelSession, setPanelSession] = useState<CommentPanelSession>({
-    historyStatus: "all",
+    historyStatus: "open",
     historyAuthor: null,
     historyScrollTop: 0,
   });
@@ -104,10 +114,19 @@ function CommentDraftStore({ children }: { children: ReactNode }) {
       updateDraft,
       clearIfUnchanged,
       discard,
-      panelSession,
+      panelSession: { ...panelSession, historyStatus },
+      setHistoryStatus,
       setPanelSession,
     }),
-    [drafts, updateDraft, clearIfUnchanged, discard, panelSession],
+    [
+      drafts,
+      updateDraft,
+      clearIfUnchanged,
+      discard,
+      panelSession,
+      historyStatus,
+      setHistoryStatus,
+    ],
   );
 
   return (
@@ -128,7 +147,10 @@ export function CommentDraftProvider({
 }) {
   const accountKey = currentUserEmail?.trim().toLowerCase() ?? "";
   return (
-    <CommentDraftStore key={`${documentId}\u0000${accountKey}`}>
+    <CommentDraftStore
+      key={`${documentId}\u0000${accountKey}`}
+      storageKey={`content-comment-status:${JSON.stringify([documentId, accountKey])}`}
+    >
       {children}
     </CommentDraftStore>
   );
@@ -189,18 +211,8 @@ export function useCommentDraft(
 }
 
 export function useCommentPanelSession() {
-  const { panelSession, setPanelSession } = useCommentDraftContext();
-  const setHistoryStatus = useCallback<
-    Dispatch<SetStateAction<CommentHistoryStatus>>
-  >(
-    (next) =>
-      setPanelSession((current) => ({
-        ...current,
-        historyStatus:
-          typeof next === "function" ? next(current.historyStatus) : next,
-      })),
-    [setPanelSession],
-  );
+  const { panelSession, setPanelSession, setHistoryStatus } =
+    useCommentDraftContext();
   const setHistoryAuthor = useCallback<Dispatch<SetStateAction<string | null>>>(
     (next) =>
       setPanelSession((current) => ({

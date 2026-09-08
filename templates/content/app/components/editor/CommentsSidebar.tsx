@@ -818,7 +818,7 @@ export function CommentsSidebar({
             ))
           ) : historyThreads.length === 0 ? (
             <div className="px-2 py-10 text-center text-sm text-muted-foreground">
-              {historyStatus === "all" &&
+              {historyStatus !== "resolved" &&
               historyAuthor === null &&
               threads.length === 0
                 ? t(
@@ -870,7 +870,6 @@ export function CommentsSidebar({
                   onReplyMentionAdd={(mention) =>
                     setReplyMentions((previous) => [...previous, mention])
                   }
-                  onDiscardReply={replyDraft.discard}
                   onHeightChange={handleThreadCardHeightChange}
                   onSubmitReply={() => handleReply(thread.threadId)}
                   onResolve={() => handleResolve(thread)}
@@ -947,13 +946,6 @@ export function CommentsSidebar({
           />
           <div className="flex justify-end gap-1 mt-1.5">
             <button
-              onClick={handlePendingCancel}
-              disabled={createComment.isPending}
-              className="px-2.5 py-1 text-xs rounded-md text-muted-foreground hover:bg-accent"
-            >
-              {t("comments.discardDraft")}
-            </button>
-            <button
               onClick={handlePendingSubmit}
               disabled={
                 !pendingText.trim() ||
@@ -1020,7 +1012,6 @@ export function CommentsSidebar({
                 setReplyingThreadId(null);
                 onSelectedThreadChange?.(null);
               }}
-              onDiscardReply={replyDraft.discard}
               onReplyChange={setReplyText}
               onReplyMentionAdd={(mention) =>
                 setReplyMentions((prev) => [...prev, mention])
@@ -1086,7 +1077,6 @@ function ThreadView({
   thread,
   documentId,
   currentUserEmail,
-  onDiscardReply,
   marginTop,
   isActive,
   allowEmphasisMotion,
@@ -1110,7 +1100,6 @@ function ThreadView({
   thread: CommentThread;
   documentId: string;
   currentUserEmail?: string;
-  onDiscardReply: () => void;
   marginTop: number;
   isActive: boolean;
   allowEmphasisMotion: boolean;
@@ -1133,7 +1122,6 @@ function ThreadView({
 }) {
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const expandRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (isExpanded) {
@@ -1157,6 +1145,16 @@ function ThreadView({
   return (
     <div
       ref={cardRef}
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (
+          event.target === event.currentTarget &&
+          (event.key === "Enter" || event.key === " ")
+        ) {
+          event.preventDefault();
+          onExpand();
+        }
+      }}
       data-thread-card={thread.threadId}
       className={`group/thread ${allowEmphasisMotion ? "mx-2 mr-4" : ""} cursor-pointer rounded-lg bg-popover shadow-md ring-1 ring-border/50 ${
         allowEmphasisMotion
@@ -1223,18 +1221,6 @@ function ThreadView({
         </div>
 
         {/* Comments */}
-        <button
-          type="button"
-          className="mb-2 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          ref={expandRef}
-          aria-expanded={isExpanded}
-          onClick={(event) => {
-            event.stopPropagation();
-            onExpand();
-          }}
-        >
-          {t(thread.resolved ? "comments.resolvedStatus" : "comments.reply")}
-        </button>
         {thread.comments.map((comment) => (
           <CommentEntry
             key={comment.id}
@@ -1267,25 +1253,14 @@ function ThreadView({
               onSubmit={onSubmitReply}
               onEscape={() => {
                 onCollapse();
-                requestAnimationFrame(() => expandRef.current?.focus());
+                requestAnimationFrame(() => cardRef.current?.focus());
               }}
               members={members}
               placeholder={t("comments.reply")}
               rows={1}
-              className="w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none pr-16"
+              className="block w-full resize-none bg-transparent [font-family:inherit] text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none pe-8"
             />
             <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
-              {replyText && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={isSubmitting}
-                  onClick={onDiscardReply}
-                >
-                  {t("comments.discardDraft")}
-                </Button>
-              )}
               <button
                 type="button"
                 aria-label={t("comments.submit")}

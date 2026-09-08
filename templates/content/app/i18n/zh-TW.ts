@@ -635,7 +635,6 @@ const messages = {
     title: "評論",
     empty: "尚無評論。",
     selectTextToComment: "選取文字以新增留言",
-    discardDraft: "捨棄草稿",
     replyCount_other: "{{count}} 則回覆",
     commentActions: "留言操作",
     checkSaved: "檢查已儲存的留言",

@@ -24,6 +24,7 @@ describe("comment drafts", () => {
     container = null;
     currentDraft = null;
     currentPanel = null;
+    window.localStorage.clear();
   });
 
   function Probe({
@@ -114,11 +115,34 @@ describe("comment drafts", () => {
 
     render({ documentId: "document-b" });
     expect(currentDraft!.draft.text).toBe("");
-    expect(currentPanel!.historyStatus).toBe("all");
+    expect(currentPanel!.historyStatus).toBe("open");
 
     act(() => currentDraft!.setText("second private draft"));
     render({ documentId: "document-b", email: "other@example.com" });
     expect(currentDraft!.draft.text).toBe("");
+  });
+
+  it("remembers status for each page and account after remount, without saving drafts", () => {
+    render({});
+    expect(currentPanel).toMatchObject({
+      historyStatus: "open",
+      historyAuthor: null,
+    });
+    act(() => {
+      currentPanel!.setHistoryStatus("all");
+      currentDraft!.setText("temporary");
+    });
+    act(() => root!.unmount());
+    root = null;
+    render({});
+    expect(currentPanel!.historyStatus).toBe("all");
+    expect(currentDraft!.draft.text).toBe("");
+    render({ documentId: "document-b" });
+    expect(currentPanel!.historyStatus).toBe("open");
+    render({ email: "other@example.com" });
+    expect(currentPanel!.historyStatus).toBe("open");
+    render({ email: " PERSON@example.com " });
+    expect(currentPanel!.historyStatus).toBe("all");
   });
 
   it("keeps independent drafts for thread and edit keys", () => {

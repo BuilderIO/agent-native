@@ -3316,7 +3316,6 @@ const enUS = {
     title: "Comments",
     empty: "No comments yet.",
     selectTextToComment: "Select text to add a comment",
-    discardDraft: "Discard draft",
     replyCount_zero: "{{count}} replies",
     replyCount_one: "{{count}} reply",
     replyCount_two: "{{count}} replies",
@@ -9436,7 +9435,6 @@ const contentReferenceMessagesByLocale = {
 const commentMessagesByLocale = {
   "zh-CN": {
     selectTextToComment: "选择文本以添加评论",
-    discardDraft: "放弃草稿",
     replyCount_other: "{{count}} 条回复",
     commentActions: "评论操作",
     checkSaved: "检查已保存的评论",
@@ -9461,7 +9459,6 @@ const commentMessagesByLocale = {
   },
   "zh-TW": {
     selectTextToComment: "選取文字以新增留言",
-    discardDraft: "捨棄草稿",
     replyCount_other: "{{count}} 則回覆",
     commentActions: "留言操作",
     checkSaved: "檢查已儲存的留言",
@@ -9486,7 +9483,6 @@ const commentMessagesByLocale = {
   },
   "es-ES": {
     selectTextToComment: "Selecciona texto para añadir un comentario",
-    discardDraft: "Descartar borrador",
     replyCount_one: "{{count}} respuesta",
     replyCount_many: "{{count}} respuestas",
     replyCount_other: "{{count}} respuestas",
@@ -9514,7 +9510,6 @@ const commentMessagesByLocale = {
   },
   "fr-FR": {
     selectTextToComment: "Sélectionnez du texte pour ajouter un commentaire",
-    discardDraft: "Supprimer le brouillon",
     replyCount_one: "{{count}} réponse",
     replyCount_many: "{{count}} réponses",
     replyCount_other: "{{count}} réponses",
@@ -9542,7 +9537,6 @@ const commentMessagesByLocale = {
   },
   "de-DE": {
     selectTextToComment: "Text auswählen, um einen Kommentar hinzuzufügen",
-    discardDraft: "Entwurf verwerfen",
     replyCount_one: "{{count}} Antwort",
     replyCount_other: "{{count}} Antworten",
     commentActions: "Kommentaraktionen",
@@ -9569,7 +9563,6 @@ const commentMessagesByLocale = {
   },
   "ja-JP": {
     selectTextToComment: "コメントを追加するテキストを選択",
-    discardDraft: "下書きを破棄",
     replyCount_other: "{{count}} 件の返信",
     commentActions: "コメント操作",
     checkSaved: "保存したコメントを確認",
@@ -9595,7 +9588,6 @@ const commentMessagesByLocale = {
   },
   "ko-KR": {
     selectTextToComment: "댓글을 추가할 텍스트 선택",
-    discardDraft: "초안 삭제",
     replyCount_other: "답글 {{count}}개",
     commentActions: "댓글 작업",
     checkSaved: "저장된 댓글 확인",
@@ -9621,7 +9613,6 @@ const commentMessagesByLocale = {
   },
   "pt-BR": {
     selectTextToComment: "Selecione um texto para adicionar um comentário",
-    discardDraft: "Descartar rascunho",
     replyCount_one: "{{count}} resposta",
     replyCount_many: "{{count}} respostas",
     replyCount_other: "{{count}} respostas",
@@ -9649,7 +9640,6 @@ const commentMessagesByLocale = {
   },
   "hi-IN": {
     selectTextToComment: "टिप्पणी जोड़ने के लिए टेक्स्ट चुनें",
-    discardDraft: "ड्राफ़्ट हटाएँ",
     replyCount_one: "{{count}} जवाब",
     replyCount_other: "{{count}} जवाब",
     commentActions: "टिप्पणी की कार्रवाइयाँ",
@@ -9676,7 +9666,6 @@ const commentMessagesByLocale = {
   },
   "ar-SA": {
     selectTextToComment: "حدد نصًا لإضافة تعليق",
-    discardDraft: "تجاهل المسودة",
     replyCount_zero: "{{count}} ردود",
     replyCount_one: "{{count}} رد",
     replyCount_two: "{{count}} ردان",

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
-import { CommentDraftProvider } from "./comment-drafts";
+import { CommentDraftProvider, useCommentPanelSession } from "./comment-drafts";
 import { CommentsSidebar } from "./CommentsSidebar";
 
 const actions = vi.hoisted(() => ({
@@ -67,6 +67,12 @@ function thread(id: string, resolved = false): CommentThread {
   };
 }
 
+let panel: ReturnType<typeof useCommentPanelSession>;
+function PanelProbe() {
+  panel = useCommentPanelSession();
+  return null;
+}
+
 describe("comment review interactions", () => {
   let root: Root;
   let container: HTMLDivElement;
@@ -79,6 +85,7 @@ describe("comment review interactions", () => {
     act(() => root?.unmount());
     container?.remove();
     vi.clearAllMocks();
+    window.localStorage.clear();
   });
   function render(
     selected: string | null,
@@ -102,6 +109,7 @@ describe("comment review interactions", () => {
               currentUserEmail: "reviewer@example.test",
               children: null,
             },
+            createElement(PanelProbe),
             createElement(CommentsSidebar, {
               documentId: "fixture",
               threads,
@@ -170,16 +178,19 @@ describe("comment review interactions", () => {
       "Newer unsent draft",
     );
   });
-  it("discards only the current draft explicitly", () => {
+  it("lets users clear their own reply text without extra controls", () => {
     render("one");
     type("Keep me");
     render("two");
     type("Discard me");
-    act(() =>
-      [...container.querySelectorAll("button")]
-        .find((button) => button.textContent === "comments.discardDraft")!
-        .click(),
-    );
+    expect(
+      [...container.querySelectorAll("button")].some(
+        (button) =>
+          button.textContent === "comments.discardDraft" ||
+          button.textContent === "comments.reply",
+      ),
+    ).toBe(false);
+    type("");
     expect(container.querySelector("textarea")!.value).toBe("");
     render("one");
     expect(container.querySelector("textarea")!.value).toBe("Keep me");
@@ -193,6 +204,7 @@ describe("comment review interactions", () => {
       content: "Resolved reply history",
     });
     render(null, [resolved], "history");
+    act(() => panel.setHistoryStatus("all"));
     expect(container.textContent).toContain("Resolved reply history");
     const reopen = [...container.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("comments.reopen"),
