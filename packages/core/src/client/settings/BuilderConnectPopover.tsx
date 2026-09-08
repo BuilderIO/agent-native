@@ -49,8 +49,9 @@ export function BuilderConnectPopover({
   const [open, setOpen] = useState(false);
   const capabilityResolved = flow.statusResolved === true;
   const showPopover =
-    capabilityResolved && flow.agentNativeProvisioningEnabled === true;
-  const accountExists = showPopover && flow.accountExists;
+    (defaultProvisionAccount && !capabilityResolved) ||
+    (capabilityResolved && flow.agentNativeProvisioningEnabled === true);
+  const accountExists = capabilityResolved && flow.accountExists;
   const initiatedByThisTriggerRef = useRef(false);
 
   useEffect(() => {
@@ -83,7 +84,7 @@ export function BuilderConnectPopover({
         event.preventDefault();
         event.stopPropagation();
         if (defaultProvisionAccount) {
-          start(defaultProvisionAccount);
+          setOpen(true);
         } else {
           flow.retry?.();
         }

@@ -199,8 +199,10 @@ export function FirstRunOnboarding({
           trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
         }
         completionAttemptRef.current = null;
+        return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
+        return false;
       }
     },
     [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
@@ -336,8 +338,9 @@ export function FirstRunOnboarding({
     });
   };
 
-  const handleOpenSettings = () => {
-    void finishOnboarding("manual");
+  const handleOpenSettings = async () => {
+    const completed = await finishOnboarding("manual");
+    if (!completed) return;
     if (typeof window === "undefined") return;
     window.history.pushState(
       null,
@@ -793,7 +796,7 @@ export function FirstRunOnboarding({
                   type="button"
                   data-testid="first-run-open-key-settings"
                   className={primaryButtonClass}
-                  onClick={handleOpenSettings}
+                  onClick={() => void handleOpenSettings()}
                 >
                   {t("agentChat.onboarding.openAiKeySettings", {
                     defaultValue: "Open AI key settings",

@@ -1128,12 +1128,23 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(retry).not.toHaveBeenCalled();
+    expect(
+      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
+    ).not.toBeNull();
+    expect(start).not.toHaveBeenCalled();
+
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-and-activate"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
     expect(start).toHaveBeenCalledWith(
       expect.objectContaining({ provisionAccount: true }),
     );
   });
 
-  it("opens the AI key settings page without opening the agent sidebar", () => {
+  it("opens the AI key settings page without opening the agent sidebar", async () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -1151,15 +1162,64 @@ describe("FirstRunOnboarding", () => {
         .querySelector("[data-testid='first-run-use-own-keys']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    act(() => {
+    await act(async () => {
       document.body
         .querySelector("[data-testid='first-run-open-key-settings']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
     });
 
     expect(window.location.pathname).toBe("/settings/agent/llm");
     expect(mocks.completeFirstRun).toHaveBeenCalled();
     window.history.replaceState(null, "", "/");
+  });
+
+  it("keeps the manual setup step visible when completion fails", async () => {
+    mocks.completeFirstRun.mockRejectedValue(
+      new Error("first-run completion failed: 500"),
+    );
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe("/");
+    expect(document.body.textContent).toContain(
+      "first-run completion failed: 500",
+    );
   });
 
   it("shows no status error while the first Builder status read is in flight", () => {
