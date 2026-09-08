@@ -1,42 +1,67 @@
 /**
- * Static, decorative recreation of the Design editor's overview board — a set
- * of screen variants on the canvas with one frame selected and one still
- * generating — used as landing-page hero art.
+ * Static, decorative recreation of the Design editor mid-edit — one screen on
+ * the canvas with its mobile breakpoint beside it, a layer tree on the left, and
+ * a populated inspector on the right — used as landing-page hero art.
  *
  * All CSS lives here, scoped under `.design-mock`. The real stylesheet
  * (templates/design/app/global.css) is deliberately NOT imported: it declares
  * `:root`/`html`/`body` palette rules that would reskin the whole docs site.
  * The custom properties below mirror the editor's tokens by hand instead.
  *
- * The screens inside each frame are authored at a logical 1440x900 and scaled
- * by BOARD_SCALE, so type and spacing shrink in the same proportion a real
- * board zoom would produce rather than being faked with tiny font sizes.
+ * The design being edited lives in DesignTaskerArtboards.tsx, authored at its
+ * logical size and scaled by BOARD_SCALE so type and spacing shrink in the same
+ * proportion a real board zoom would produce rather than being faked with tiny
+ * font sizes.
  *
  * i18n-raw-literal-disable-file -- this is artwork, not UI copy. The wrapper is
  * a `role="img"` with a localized `aria-label` and the entire frame inside it is
  * `aria-hidden`, so no assistive tech ever reads these strings; they are the
- * pixels of a product screenshot (fake screen names, placeholder marketing copy
+ * pixels of a product screenshot (fake screen names, placeholder app content
  * inside the artboards, panel labels). Translating them across 11 catalogs would
  * add churn with nothing to show for it, since the localized alt text is what a
  * non-English reader actually gets.
  */
 import {
-  IconAssembly,
+  IconAdjustments,
+  IconAngle,
+  IconBorderCorners,
+  IconBorderRadius,
+  IconBorderStyle,
   IconChevronDown,
+  IconChevronRight,
   IconCode,
+  IconComponents,
   IconDeviceMobile,
+  IconEye,
+  IconEyeOff,
   IconFile,
   IconFileImport,
+  IconFlipHorizontal,
+  IconFlipVertical,
   IconFrame,
+  IconGridDots,
   IconHandClick,
+  IconLayersIntersect,
+  IconLayoutAlignBottom,
+  IconLayoutAlignCenter,
+  IconLayoutAlignLeft,
+  IconLayoutAlignMiddle,
+  IconLayoutAlignRight,
+  IconLayoutAlignTop,
+  IconLayoutColumns,
+  IconLayoutDistributeHorizontal,
   IconLayoutGrid,
+  IconLayoutRows,
+  IconLink,
+  IconListTree,
   IconMessage,
-  IconPhoto,
+  IconMinus,
   IconPlayerPlay,
   IconPlus,
   IconPointer,
-  IconPuzzle,
+  IconRotate3d,
   IconScribble,
+  IconSearch,
   IconSquare,
   IconTransformPoint,
   IconTypography,
@@ -44,46 +69,186 @@ import {
   IconViewportWide,
 } from "@tabler/icons-react";
 
-/** Logical artboard size the desktop mini screens are authored at. */
-const SCREEN_WIDTH = 1440;
-const SCREEN_HEIGHT = 900;
-/** Board zoom. Matches the `18%` readout in the inspector. */
-const BOARD_SCALE = 0.18;
+import {
+  BOARD_SCALE,
+  DESIGN_TASKER_CSS,
+  DESKTOP_ARTBOARD_HEIGHT,
+  DESKTOP_ARTBOARD_WIDTH,
+  MOBILE_ARTBOARD_HEIGHT,
+  MOBILE_ARTBOARD_WIDTH,
+  TaskerDesktopArtboard,
+  TaskerMobileArtboard,
+} from "./DesignTaskerArtboards";
 
-const FRAME_WIDTH = Math.round(SCREEN_WIDTH * BOARD_SCALE);
-const FRAME_HEIGHT = Math.round(SCREEN_HEIGHT * BOARD_SCALE);
+const RAIL_WIDTH = 64;
+/** The real `leftSidebarWidth` minimum. Below the 280px default to buy canvas. */
+const LEFT_PANEL_WIDTH = 220;
+const INSPECTOR_WIDTH = 240;
+
 const FRAME_LABEL_HEIGHT = 28;
-const FRAME_COLUMN_GAP = 20;
-const FRAME_ROW_GAP = 24;
+/** The real BREAKPOINT_FRAME_GAP, not the wider gap between separate screens. */
+const BREAKPOINT_FRAME_GAP = 24;
 
-// Two columns by three rows. The rail, screens panel, and inspector claim a
-// fixed 584px, so a third column would fall outside the canvas entirely.
-const COLUMN_X = [0, FRAME_WIDTH + FRAME_COLUMN_GAP];
-const ROW_HEIGHT = FRAME_LABEL_HEIGHT + FRAME_HEIGHT + FRAME_ROW_GAP;
-const ROW_Y = [0, ROW_HEIGHT, ROW_HEIGHT * 2];
+const DESKTOP_FRAME_WIDTH = Math.round(DESKTOP_ARTBOARD_WIDTH * BOARD_SCALE);
+const DESKTOP_FRAME_HEIGHT = Math.round(DESKTOP_ARTBOARD_HEIGHT * BOARD_SCALE);
+const MOBILE_FRAME_WIDTH = Math.round(MOBILE_ARTBOARD_WIDTH * BOARD_SCALE);
+const MOBILE_FRAME_HEIGHT = Math.round(MOBILE_ARTBOARD_HEIGHT * BOARD_SCALE);
+const MOBILE_FRAME_X = DESKTOP_FRAME_WIDTH + BREAKPOINT_FRAME_GAP;
 
+// Only the three panels the default feature-flag state actually renders. The
+// rest (Assets, Tools, Tokens, Code) sit behind flags that are off.
 const RAIL_ITEMS = [
   { label: "File", icon: IconFile, active: true },
   { label: "Agent", icon: IconMessage },
-  { label: "Assets", icon: IconPhoto },
   { label: "Import", icon: IconFileImport },
-  { label: "Tools", icon: IconPuzzle },
-  { label: "Tokens", icon: IconAssembly },
 ];
 
-const SCREEN_ROWS = [
-  { label: "Landing — v1" },
-  { label: "Landing — v2", active: true },
-  { label: "Pricing" },
-  { label: "Dashboard" },
-  { label: "Landing — v3", badge: "Draft" },
+type LayerGlyph = "screen" | "frame" | "rows" | "columns" | "component";
+
+const LAYER_GLYPHS = {
+  screen: IconFile,
+  frame: IconFrame,
+  rows: IconLayoutRows,
+  columns: IconLayoutColumns,
+  component: IconComponents,
+} satisfies Record<LayerGlyph, typeof IconFile>;
+
+type LayerRow = {
+  id: string;
+  label: string;
+  depth: number;
+  glyph: LayerGlyph;
+  /** Omitted for leaves, which still reserve the caret slot. */
+  disclosure?: "expanded" | "collapsed";
+  /** The active screen row, which the editor tints like a selected list item. */
+  activeScreen?: boolean;
+  /** Component instances take the purple selection family, not the blue one. */
+  component?: boolean;
+  selected?: boolean;
+  /** An ancestor of the selection, tinted with the subtree color. */
+  ancestor?: boolean;
+};
+
+const LAYER_ROWS: LayerRow[] = [
+  {
+    id: "home",
+    label: "Home",
+    depth: 0,
+    glyph: "screen",
+    disclosure: "expanded",
+    activeScreen: true,
+  },
+  {
+    id: "group-root",
+    label: "Group",
+    depth: 1,
+    glyph: "rows",
+    disclosure: "expanded",
+    ancestor: true,
+  },
+  {
+    id: "frame-a",
+    label: "Frame",
+    depth: 2,
+    glyph: "frame",
+    disclosure: "collapsed",
+  },
+  {
+    id: "frame-b",
+    label: "Frame",
+    depth: 2,
+    glyph: "frame",
+    disclosure: "expanded",
+    ancestor: true,
+  },
+  {
+    id: "inbox",
+    label: "Inbox",
+    depth: 3,
+    glyph: "rows",
+    disclosure: "expanded",
+    ancestor: true,
+  },
+  {
+    id: "group-inbox",
+    label: "Group",
+    depth: 4,
+    glyph: "rows",
+    disclosure: "expanded",
+    ancestor: true,
+  },
+  {
+    id: "footer",
+    label: "Footer",
+    depth: 5,
+    glyph: "columns",
+    disclosure: "collapsed",
+  },
+  {
+    id: "expression",
+    label: "t.group===group &&",
+    depth: 5,
+    glyph: "component",
+    component: true,
+  },
+  {
+    id: "app-enter-a",
+    label: "App Enter",
+    depth: 5,
+    glyph: "rows",
+    disclosure: "collapsed",
+  },
+  {
+    id: "app-enter-b",
+    label: "App Enter",
+    depth: 5,
+    glyph: "rows",
+    disclosure: "expanded",
+    ancestor: true,
+  },
+  {
+    id: "add-task",
+    label: "+ Add task",
+    depth: 6,
+    glyph: "component",
+    component: true,
+    selected: true,
+  },
+  {
+    id: "group-leaf",
+    label: "Group",
+    depth: 6,
+    glyph: "rows",
+    disclosure: "collapsed",
+  },
+  {
+    id: "desktop-sidebar",
+    label: "Desktop Sidebar",
+    depth: 1,
+    glyph: "columns",
+    disclosure: "collapsed",
+  },
+  {
+    id: "mobile-only",
+    label: "Mobile Only",
+    depth: 1,
+    glyph: "columns",
+    disclosure: "collapsed",
+  },
+  {
+    id: "frame-root",
+    label: "Frame",
+    depth: 0,
+    glyph: "frame",
+    disclosure: "collapsed",
+  },
 ];
 
 const TOOLBAR_TOOLS = [
-  { icon: IconPointer, active: true },
-  { icon: IconFrame },
-  { icon: IconSquare },
-  { icon: IconVectorBezier },
+  { icon: IconPointer, active: true, hasSubTools: true },
+  { icon: IconFrame, hasSubTools: true },
+  { icon: IconSquare, hasSubTools: true },
+  { icon: IconVectorBezier, hasSubTools: true },
   { icon: IconTypography },
   { icon: IconMessage },
 ];
@@ -92,6 +257,14 @@ const TOOLBAR_MODES = [
   { icon: IconScribble },
   { icon: IconTransformPoint, active: true },
   { icon: IconHandClick },
+];
+
+const EFFECT_ROWS = [
+  "Drop shadow",
+  "Drop shadow 2",
+  "Drop shadow 3",
+  "Drop shadow 4",
+  "Drop shadow 5",
 ];
 
 function WorkspaceRail() {
@@ -110,51 +283,204 @@ function WorkspaceRail() {
           <span className="dm-rail-label">{label}</span>
         </div>
       ))}
-      <div className="dm-rail-separator" />
-      <div className="dm-rail-item">
-        <span className="dm-rail-icon">
-          <IconCode size={16} />
-        </span>
-        <span className="dm-rail-label">Code</span>
-      </div>
     </div>
   );
 }
 
-function ScreensPanel() {
+function LayerTreeRow({ row }: { row: LayerRow }) {
+  const Glyph = LAYER_GLYPHS[row.glyph];
+  const classes = ["dm-layer"];
+  if (row.selected) classes.push("is-selected");
+  else if (row.activeScreen) classes.push("is-active");
+  else if (row.ancestor) classes.push("is-ancestor");
+  if (row.component) classes.push("is-component");
+
+  return (
+    <div className={classes.join(" ")}>
+      {Array.from({ length: row.depth }, (_, index) => (
+        <span key={index} className="dm-layer-indent" />
+      ))}
+      <span className="dm-layer-caret">
+        {row.disclosure === "expanded" ? (
+          <IconChevronDown size={16} />
+        ) : row.disclosure === "collapsed" ? (
+          <IconChevronRight size={16} />
+        ) : null}
+      </span>
+      <Glyph size={16} className="dm-layer-glyph" />
+      <span className="dm-layer-label">{row.label}</span>
+    </div>
+  );
+}
+
+function FilePanel() {
   return (
     <div className="dm-panel">
-      <div className="dm-panel-header">
-        <span className="dm-design-name">Acme marketing site</span>
-      </div>
-      <div className="dm-section-header">
-        <span className="dm-section-title">Screens</span>
-        <span className="dm-section-action">
-          <IconPlus size={16} />
-        </span>
-      </div>
-      <div className="dm-panel-body">
+      <div className="dm-screens">
+        <div className="dm-section-header">
+          <span className="dm-section-title">Screens</span>
+          <span className="dm-section-action">
+            <IconPlus size={16} />
+          </span>
+        </div>
         <div className="dm-row">
           <IconLayoutGrid size={16} className="dm-row-glyph" />
           <span className="dm-row-label">All screens</span>
         </div>
         <div className="dm-row-divider" />
-        <div className="dm-row-list">
-          {SCREEN_ROWS.map((row) => (
-            <div
-              key={row.label}
-              className={row.active ? "dm-row is-active" : "dm-row"}
-            >
-              <IconFile size={16} className="dm-row-glyph" />
-              <span className="dm-row-label">{row.label}</span>
-              {row.badge ? (
-                <span className="dm-row-badge">{row.badge}</span>
-              ) : null}
-            </div>
+        <div className="dm-row is-active">
+          <IconFile size={16} className="dm-row-glyph" />
+          <span className="dm-row-label">Home</span>
+        </div>
+      </div>
+
+      <div className="dm-layers">
+        <div className="dm-section-header">
+          <span className="dm-section-title">Layers</span>
+          <span className="dm-section-actions">
+            <span className="dm-section-action">
+              <IconSearch size={16} />
+            </span>
+            <span className="dm-section-action">
+              <IconListTree size={16} />
+            </span>
+          </span>
+        </div>
+        <div className="dm-layer-tree">
+          {LAYER_ROWS.map((row) => (
+            <LayerTreeRow key={row.id} row={row} />
           ))}
         </div>
       </div>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Inspector primitives. Sizes come from the editor's sidebar tokens: 24px
+ * control height, 11px/16px control text, 10px/12px labels, 8px section
+ * padding with an 8px row gap and a 4px control gap.
+ * ------------------------------------------------------------------------- */
+
+function NumField({
+  label,
+  glyph: Glyph,
+  value,
+  unit,
+}: {
+  label?: string;
+  glyph?: typeof IconAngle;
+  value: string;
+  unit?: string;
+}) {
+  return (
+    <span className="dm-num">
+      {Glyph ? <Glyph size={12} className="dm-num-glyph" /> : null}
+      {label ? <span className="dm-num-label">{label}</span> : null}
+      <span className="dm-num-value">
+        {value}
+        {unit ? <span className="dm-num-unit">{unit}</span> : null}
+      </span>
+    </span>
+  );
+}
+
+function SegmentedIcons({
+  icons,
+  activeIndex,
+}: {
+  icons: (typeof IconAngle)[];
+  activeIndex: number;
+}) {
+  return (
+    <span className="dm-seg-group">
+      {icons.map((Icon, index) => (
+        <span
+          // Icon identity is the only distinguishing value in this static list.
+          key={index}
+          className={
+            index === activeIndex ? "dm-seg-btn is-active" : "dm-seg-btn"
+          }
+        >
+          <Icon size={14} />
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function IconAction({
+  glyph: Glyph,
+  disabled,
+}: {
+  glyph: typeof IconAngle;
+  disabled?: boolean;
+}) {
+  return (
+    <span
+      className={disabled ? "dm-icon-action is-disabled" : "dm-icon-action"}
+    >
+      <Glyph size={14} />
+    </span>
+  );
+}
+
+function Section({
+  title,
+  actions,
+  first,
+  children,
+}: {
+  title: string;
+  actions?: React.ReactNode;
+  first?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={first ? "dm-section is-first" : "dm-section"}>
+      <div className="dm-section-bar">
+        <IconChevronDown size={12} className="dm-section-chevron" />
+        <span className="dm-section-label">{title}</span>
+        {actions ? (
+          <span className="dm-section-bar-actions">{actions}</span>
+        ) : null}
+      </div>
+      <div className="dm-section-content">{children}</div>
+    </div>
+  );
+}
+
+function PaintRow({
+  glyph: Glyph,
+  swatch,
+  label,
+  opacity,
+  hidden,
+}: {
+  glyph?: typeof IconAngle;
+  swatch?: string;
+  label: string;
+  opacity?: string;
+  hidden?: boolean;
+}) {
+  return (
+    <span className="dm-paint">
+      <span className="dm-paint-grip">
+        <IconGridDots size={12} />
+      </span>
+      {swatch ? (
+        <span
+          className="dm-paint-swatch"
+          style={{ background: `#${swatch}` }}
+        />
+      ) : Glyph ? (
+        <Glyph size={14} className="dm-paint-glyph" />
+      ) : null}
+      <span className="dm-paint-label">{label}</span>
+      {opacity ? <span className="dm-paint-opacity">{opacity}</span> : null}
+      <IconAction glyph={hidden ? IconEyeOff : IconEye} />
+      <IconAction glyph={IconMinus} />
+    </span>
   );
 }
 
@@ -184,44 +510,152 @@ function Inspector() {
             <span>390</span>
           </span>
         </div>
+        <span className="dm-section-action">
+          <IconPlus size={16} />
+        </span>
         <div className="dm-zoom">
-          <span>18%</span>
+          <span>40%</span>
           <IconChevronDown size={10} />
         </div>
       </div>
 
+      <div className="dm-tabs">
+        <span className="dm-tab is-active">Design</span>
+        <span className="dm-tab">Comments</span>
+        <span className="dm-tab">Tweaks</span>
+      </div>
+
       <div className="dm-inspector-context">
-        <IconFrame size={14} className="dm-context-glyph" />
-        <span className="dm-context-title">Landing — v2</span>
+        <IconComponents size={14} className="dm-context-glyph" />
+        <span className="dm-context-title">button</span>
+        <IconAction glyph={IconCode} />
       </div>
 
-      <div className="dm-inspector-section">
-        <div className="dm-inspector-section-title">Position</div>
-        <div className="dm-field-row">
-          <div className="dm-field">
-            <span className="dm-field-label">X</span>
-            <span className="dm-field-value">1520px</span>
-          </div>
-          <div className="dm-field">
-            <span className="dm-field-label">Y</span>
-            <span className="dm-field-value">0px</span>
-          </div>
-        </div>
+      <div className="dm-state">
+        <span className="dm-state-control">
+          <span className="dm-state-value">Default</span>
+          <IconChevronDown size={14} className="dm-state-chevron" />
+        </span>
       </div>
 
-      <div className="dm-inspector-section">
-        <div className="dm-inspector-section-title">Size</div>
-        <div className="dm-field-row">
-          <div className="dm-field">
-            <span className="dm-field-label">W</span>
-            <span className="dm-field-value">1440px</span>
-          </div>
-          <div className="dm-field">
-            <span className="dm-field-label">H</span>
-            <span className="dm-field-value">900px</span>
+      <Section title="Position" first>
+        <div className="dm-prop">
+          <span className="dm-prop-label">Alignment</span>
+          <div className="dm-prop-row">
+            <SegmentedIcons
+              icons={[
+                IconLayoutAlignLeft,
+                IconLayoutAlignCenter,
+                IconLayoutAlignRight,
+              ]}
+              activeIndex={0}
+            />
+            <SegmentedIcons
+              icons={[
+                IconLayoutAlignTop,
+                IconLayoutAlignMiddle,
+                IconLayoutAlignBottom,
+              ]}
+              activeIndex={1}
+            />
           </div>
         </div>
-      </div>
+        <div className="dm-prop">
+          <span className="dm-prop-label">Position</span>
+          <div className="dm-prop-row">
+            <NumField label="X" value="248" unit="px" />
+            <NumField label="Y" value="235" unit="px" />
+            <IconAction glyph={IconLayoutDistributeHorizontal} />
+          </div>
+        </div>
+        <div className="dm-prop">
+          <span className="dm-prop-label">Rotation</span>
+          <div className="dm-prop-row">
+            <NumField glyph={IconAngle} value="0" unit="deg" />
+            <IconAction glyph={IconFlipHorizontal} />
+            <IconAction glyph={IconFlipVertical} />
+            <IconAction glyph={IconRotate3d} />
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Layout">
+        <div className="dm-prop-row">
+          <NumField label="W" value="119.5" />
+          <NumField label="H" value="48" unit="px" />
+          <IconAction glyph={IconLink} />
+        </div>
+        <div className="dm-prop">
+          <span className="dm-prop-label">Child</span>
+          <div className="dm-prop-row">
+            <NumField label="Grow" value="0" />
+            <NumField label="Shrink" value="1" />
+            <NumField label="Basis" value="auto" />
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        title="Appearance"
+        actions={
+          <>
+            <IconAction glyph={IconEye} />
+            <IconAction glyph={IconLayersIntersect} />
+          </>
+        }
+      >
+        <div className="dm-prop-row">
+          <NumField label="Opacity" glyph={IconGridDots} value="100" unit="%" />
+        </div>
+        <div className="dm-prop-row">
+          <NumField label="Corner radius" glyph={IconBorderRadius} value="10" />
+          <IconAction glyph={IconBorderCorners} />
+        </div>
+      </Section>
+
+      <Section
+        title="Fill"
+        actions={
+          <>
+            <IconAction glyph={IconLayoutGrid} />
+            <IconAction glyph={IconPlus} />
+          </>
+        }
+      >
+        <PaintRow swatch="24221E" label="24221E" opacity="100%" />
+      </Section>
+
+      <Section
+        title="Stroke"
+        actions={
+          <>
+            <IconAction glyph={IconAdjustments} disabled />
+            <IconAction glyph={IconSquare} disabled />
+          </>
+        }
+      >
+        <PaintRow swatch="7D4B13" label="7D4B13" opacity="100%" hidden />
+        <div className="dm-prop-row">
+          <NumField label="Position" value="Outside" />
+          <NumField label="Weight" glyph={IconBorderStyle} value="2.9" />
+        </div>
+      </Section>
+
+      <Section
+        title="Effects"
+        actions={
+          <>
+            <IconAction glyph={IconLayoutGrid} />
+            <IconAction glyph={IconPlus} />
+          </>
+        }
+      >
+        <div className="dm-effects">
+          {EFFECT_ROWS.map((effect) => (
+            <PaintRow key={effect} glyph={IconSquare} label={effect} hidden />
+          ))}
+        </div>
+      </Section>
     </div>
   );
 }
@@ -229,13 +663,16 @@ function Inspector() {
 function BottomToolbar() {
   return (
     <div className="dm-toolbar">
-      {TOOLBAR_TOOLS.map(({ icon: Icon, active }, index) => (
+      {TOOLBAR_TOOLS.map(({ icon: Icon, active, hasSubTools }, index) => (
         <span
           // Icon identity is the only distinguishing value in this static list.
           key={index}
           className={active ? "dm-tool is-active" : "dm-tool"}
         >
           <Icon size={18} />
+          {hasSubTools ? (
+            <IconChevronDown size={12} className="dm-tool-caret" />
+          ) : null}
         </span>
       ))}
       <span className="dm-toolbar-divider" />
@@ -253,234 +690,39 @@ function BottomToolbar() {
   );
 }
 
-/* ---------------------------------------------------------------------------
- * Mini screens. Each is authored at a logical 1440x900 and scaled by the board
- * transform, so every value below is in artboard pixels, not screen pixels.
- * ------------------------------------------------------------------------- */
-
-function ScreenNav({ cta }: { cta: string }) {
+function Canvas() {
   return (
-    <div className="ms-nav">
-      <span className="ms-logo" />
-      <span className="ms-navlinks">
-        <span />
-        <span />
-        <span />
-      </span>
-      <span className="ms-nav-cta">{cta}</span>
-    </div>
-  );
-}
-
-function LandingV1() {
-  return (
-    <div className="ms ms-light">
-      <ScreenNav cta="Sign up" />
-      <div className="ms-v1-body">
-        <div className="ms-v1-copy">
-          <span className="ms-eyebrow">New · 2024</span>
-          <h2 className="ms-h1">Ship the interface you sketched.</h2>
-          <p className="ms-sub">
-            Prototype, compare, and hand off real markup — no redraw step.
-          </p>
-          <span className="ms-cta">Start designing</span>
-        </div>
-        <div className="ms-v1-art">
-          <span className="ms-v1-art-bar" />
-          <span className="ms-v1-art-bar ms-v1-art-bar-short" />
-          <span className="ms-v1-art-block" />
-        </div>
-      </div>
-      <div className="ms-v1-cards">
-        <span />
-        <span />
-        <span />
-      </div>
-    </div>
-  );
-}
-
-function LandingV2() {
-  return (
-    <div className="ms ms-dark">
-      <ScreenNav cta="Get access" />
-      <div className="ms-v2-body">
-        <span className="ms-eyebrow ms-eyebrow-accent">
-          Design, agent-native
-        </span>
-        <h2 className="ms-h1 ms-h1-xl">
-          Sketch it once.
-          <br />
-          Ship the real thing.
-        </h2>
-        <p className="ms-sub">
-          Generate interactive prototypes, compare directions side by side, and
-          export the source you already own.
-        </p>
-        <div className="ms-v2-actions">
-          <span className="ms-cta">Start designing</span>
-          <span className="ms-cta ms-cta-ghost">See an example</span>
-        </div>
-      </div>
-      <div className="ms-v2-panel">
-        <span className="ms-v2-panel-row" />
-        <span className="ms-v2-panel-row ms-v2-panel-row-mid" />
-        <span className="ms-v2-panel-row ms-v2-panel-row-short" />
-      </div>
-    </div>
-  );
-}
-
-function PricingScreen() {
-  return (
-    <div className="ms ms-light">
-      <ScreenNav cta="Sign up" />
-      <div className="ms-pricing-head">
-        <h2 className="ms-h2">Simple, honest pricing</h2>
-        <p className="ms-sub">Every plan includes the full source.</p>
-      </div>
-      <div className="ms-pricing-grid">
-        {["Free", "Team", "Scale"].map((tier, index) => (
-          <div
-            key={tier}
-            className={
-              index === 1 ? "ms-price-card is-featured" : "ms-price-card"
-            }
-          >
-            <span className="ms-price-tier">{tier}</span>
-            <span className="ms-price-amount">
-              {["$0", "$24", "$79"][index]}
+    <div className="dm-canvas">
+      <div className="dm-board">
+        <div className="dm-frame dm-frame-desktop">
+          <div className="dm-frame-label">
+            <span className="dm-frame-label-text">Home</span>
+            <span className="dm-interact-btn">
+              <IconHandClick size={12} />
+              Interact
             </span>
-            <span className="ms-price-line" />
-            <span className="ms-price-line" />
-            <span className="ms-price-line ms-price-line-short" />
-            <span className="ms-price-cta">Choose</span>
           </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+          <div className="dm-frame-body">
+            <div className="dm-artboard dm-artboard-desktop">
+              <TaskerDesktopArtboard />
+            </div>
+          </div>
+        </div>
 
-function DashboardScreen() {
-  return (
-    <div className="ms ms-app">
-      <div className="ms-app-sidebar">
-        <span className="ms-app-logo" />
-        <span className="ms-app-navitem is-active" />
-        <span className="ms-app-navitem" />
-        <span className="ms-app-navitem" />
-        <span className="ms-app-navitem" />
-      </div>
-      <div className="ms-app-main">
-        <div className="ms-app-topbar">
-          <span className="ms-app-title">Overview</span>
-          <span className="ms-app-search" />
-        </div>
-        <div className="ms-app-stats">
-          <span />
-          <span />
-          <span />
-        </div>
-        <div className="ms-app-chart">
-          {[46, 68, 34, 82, 58, 92, 71, 50].map((height, index) => (
-            <span key={index} style={{ height: `${height}%` }} />
-          ))}
+        <div className="dm-frame dm-frame-mobile">
+          <div className="dm-frame-label">
+            <span className="dm-breakpoint-dot" />
+            <span className="dm-frame-label-text">Mobile</span>
+            <span className="dm-frame-label-width">390px</span>
+          </div>
+          <div className="dm-frame-body">
+            <div className="dm-artboard dm-artboard-mobile">
+              <TaskerMobileArtboard />
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function GeneratingScreen() {
-  return (
-    <div className="ms ms-generating">
-      <div className="ms-generating-tile">
-        <span className="dm-spinner" />
-      </div>
-      <span className="ms-generating-label">Generating</span>
-    </div>
-  );
-}
-
-type BoardFrame = {
-  label: string;
-  x: number;
-  y: number;
-  screen: React.ReactNode;
-  selected?: boolean;
-  badge?: string;
-  /** Skip the scaled artboard wrapper for states drawn at frame scale. */
-  unscaled?: boolean;
-};
-
-const BOARD_FRAMES: BoardFrame[] = [
-  {
-    label: "Landing — v1",
-    x: COLUMN_X[0],
-    y: ROW_Y[0],
-    screen: <LandingV1 />,
-  },
-  {
-    label: "Landing — v2",
-    x: COLUMN_X[1],
-    y: ROW_Y[0],
-    screen: <LandingV2 />,
-    selected: true,
-    badge: "Review candidate",
-  },
-  {
-    label: "Pricing",
-    x: COLUMN_X[0],
-    y: ROW_Y[1],
-    screen: <PricingScreen />,
-  },
-  {
-    label: "Dashboard",
-    x: COLUMN_X[1],
-    y: ROW_Y[1],
-    screen: <DashboardScreen />,
-  },
-  {
-    label: "Landing — v3",
-    x: COLUMN_X[0],
-    y: ROW_Y[2],
-    screen: <GeneratingScreen />,
-    unscaled: true,
-  },
-];
-
-function BoardFrameView({ frame }: { frame: BoardFrame }) {
-  return (
-    <div
-      className={frame.selected ? "dm-frame is-selected" : "dm-frame"}
-      style={{ left: frame.x, top: frame.y }}
-    >
-      <div className="dm-frame-label">
-        <span className="dm-frame-label-text">{frame.label}</span>
-        {frame.badge ? (
-          <span className="dm-frame-badge">
-            <span className="dm-frame-badge-dot" />
-            {frame.badge}
-          </span>
-        ) : null}
-      </div>
-      <div className="dm-frame-body">
-        {frame.unscaled ? (
-          frame.screen
-        ) : (
-          <div className="dm-artboard">{frame.screen}</div>
-        )}
-        {frame.selected ? (
-          <>
-            <span className="dm-frame-outline" />
-            <span className="dm-handle dm-handle-tl" />
-            <span className="dm-handle dm-handle-tr" />
-            <span className="dm-handle dm-handle-bl" />
-            <span className="dm-handle dm-handle-br" />
-          </>
-        ) : null}
-      </div>
+      <BottomToolbar />
     </div>
   );
 }
@@ -493,13 +735,13 @@ const DESIGN_MOCK_CSS = [
 
   // Palette, mirroring templates/design/app/global.css. Dark by default; the
   // `html.light` block below swaps the whole mock when the docs shell is light.
-  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-hover: rgba(255, 255, 255, 0.08); --dm-selection: rgba(10, 154, 255, 0.24); --dm-badge-bg: hsl(0 0% 16%); --dm-accent: hsl(205 100% 53%); --dm-accent-contrast: #ffffff; --dm-avatar-border: hsl(0 0% 13%); }",
+  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-selection: rgba(10, 154, 255, 0.24); --dm-accent: hsl(205 100% 53%); --dm-accent-contrast: #ffffff; --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-component-subtree: rgba(167, 116, 250, 0.18); --dm-avatar-border: hsl(0 0% 13%); }",
 
   // Window
   ".design-mock .dm-window { position: absolute; inset: 0; display: flex; overflow: hidden; border-radius: 12px; border: 1px solid var(--dm-divider); background: var(--dm-panel-bg); color: var(--dm-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
 
   // Left icon rail — 64px, 48px buttons with a label under the glyph.
-  ".design-mock .dm-rail { display: flex; width: 64px; flex-shrink: 0; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; border-right: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }",
+  `.design-mock .dm-rail { display: flex; width: ${RAIL_WIDTH}px; flex-shrink: 0; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; border-right: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }`,
   ".design-mock .dm-rail-project { width: 32px; height: 32px; border-radius: 8px; background: var(--dm-control-bg); }",
   ".design-mock .dm-rail-divider { width: 32px; height: 1px; background: var(--dm-border); }",
   ".design-mock .dm-rail-item { display: flex; width: 48px; height: 48px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-radius: 8px; color: var(--dm-fg-muted); }",
@@ -507,55 +749,60 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-rail-item.is-active .dm-rail-icon { color: var(--dm-accent); }",
   ".design-mock .dm-rail-icon { display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; }",
   ".design-mock .dm-rail-label { max-width: 100%; overflow: hidden; padding: 0 4px; font-size: 11px; font-weight: 450; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }",
-  ".design-mock .dm-rail-separator { width: 32px; height: 1px; margin: 4px 0 8px; background: var(--dm-border); }",
 
-  // Screens panel — 280px
-  ".design-mock .dm-panel { display: flex; width: 280px; flex-shrink: 0; flex-direction: column; border-right: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }",
-  ".design-mock .dm-panel-header { display: flex; height: 40px; flex-shrink: 0; align-items: center; gap: 4px; padding: 0 8px; border-bottom: 1px solid var(--dm-border); }",
-  ".design-mock .dm-design-name { overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }",
+  // File panel — Screens above, Layers filling the rest.
+  `.design-mock .dm-panel { display: flex; width: ${LEFT_PANEL_WIDTH}px; flex-shrink: 0; flex-direction: column; border-right: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }`,
+  ".design-mock .dm-screens { flex-shrink: 0; padding-bottom: 8px; border-bottom: 1px solid var(--dm-border); }",
+  ".design-mock .dm-layers { display: flex; flex: 1; min-height: 0; flex-direction: column; }",
   ".design-mock .dm-section-header { display: flex; height: 40px; flex-shrink: 0; align-items: center; justify-content: space-between; padding: 0 12px; }",
   ".design-mock .dm-section-title { font-size: 12px; font-weight: 600; }",
-  ".design-mock .dm-section-action { display: flex; color: var(--dm-fg-muted); }",
-  ".design-mock .dm-panel-body { flex: 1; min-height: 0; overflow: hidden; padding-bottom: 8px; }",
+  ".design-mock .dm-section-actions { display: flex; align-items: center; gap: 2px; }",
+  ".design-mock .dm-section-action { display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; color: var(--dm-fg-muted); }",
   ".design-mock .dm-row { display: flex; height: 32px; align-items: center; gap: 8px; margin: 0 8px; padding: 0 8px; border-radius: 5px; font-size: 12px; font-weight: 600; color: var(--dm-fg); }",
   ".design-mock .dm-row.is-active { background: var(--dm-active-row); }",
   ".design-mock .dm-row-glyph { flex-shrink: 0; color: var(--dm-fg-muted); }",
   ".design-mock .dm-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
-  ".design-mock .dm-row-badge { flex-shrink: 0; padding: 0 4px; border-radius: 2px; background: var(--dm-badge-bg); color: var(--dm-fg-muted); font-size: 10px; font-weight: 400; }",
   ".design-mock .dm-row-divider { margin: 8px 12px; border-top: 1px solid var(--dm-border); }",
-  ".design-mock .dm-row-list { display: flex; flex-direction: column; gap: 2px; }",
+
+  // Layer tree. Indentation is real 16px slots, so the deepest rows truncate
+  // their label exactly the way the real panel does at this width.
+  ".design-mock .dm-layer-tree { flex: 1; min-height: 0; overflow: hidden; padding: 8px; }",
+  ".design-mock .dm-layer { display: flex; height: 32px; align-items: center; gap: 8px; padding-right: 4px; border-radius: 5px; color: var(--dm-fg); }",
+  ".design-mock .dm-layer.is-active { background: var(--dm-active-row); }",
+  ".design-mock .dm-layer.is-ancestor { background: var(--dm-component-subtree); }",
+  ".design-mock .dm-layer.is-selected { background: var(--dm-component-selection); }",
+  ".design-mock .dm-layer.is-component .dm-layer-glyph, .design-mock .dm-layer.is-component .dm-layer-label { color: var(--dm-component); }",
+  ".design-mock .dm-layer.is-selected .dm-layer-label { color: var(--dm-fg); }",
+  ".design-mock .dm-layer-indent { width: 16px; flex-shrink: 0; }",
+  ".design-mock .dm-layer-indent + .dm-layer-indent { margin-left: -8px; }",
+  ".design-mock .dm-layer-caret { display: flex; width: 16px; flex-shrink: 0; align-items: center; justify-content: center; color: var(--dm-fg-muted); }",
+  ".design-mock .dm-layer-glyph { flex-shrink: 0; color: var(--dm-fg-muted); }",
+  ".design-mock .dm-layer-label { min-width: 0; overflow: hidden; font-size: 12px; font-weight: 400; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }",
 
   // Canvas
   ".design-mock .dm-canvas { position: relative; flex: 1; min-width: 0; overflow: hidden; background: var(--dm-canvas-bg); }",
-  `.design-mock .dm-board { position: absolute; left: 20px; top: 24px; width: ${COLUMN_X[1] + FRAME_WIDTH}px; }`,
+  `.design-mock .dm-board { position: absolute; left: 16px; top: 24px; width: ${MOBILE_FRAME_X + MOBILE_FRAME_WIDTH}px; }`,
 
   // Screen frames. Square corners are intentional: the real editor avoids a
   // card radius because it would read as a document corner radius.
-  `.design-mock .dm-frame { position: absolute; width: ${FRAME_WIDTH}px; }`,
-  `.design-mock .dm-frame-label { display: flex; height: ${FRAME_LABEL_HEIGHT}px; align-items: center; gap: 6px; padding-left: 4px; color: var(--dm-fg-muted); }`,
-  ".design-mock .dm-frame.is-selected .dm-frame-label { color: var(--dm-fg); }",
+  ".design-mock .dm-frame { position: absolute; top: 0; }",
+  `.design-mock .dm-frame-desktop { left: 0; width: ${DESKTOP_FRAME_WIDTH}px; }`,
+  `.design-mock .dm-frame-mobile { left: ${MOBILE_FRAME_X}px; width: ${MOBILE_FRAME_WIDTH}px; }`,
+  `.design-mock .dm-frame-label { position: relative; display: flex; height: ${FRAME_LABEL_HEIGHT}px; align-items: center; gap: 6px; padding-left: 4px; color: var(--dm-fg-muted); }`,
   ".design-mock .dm-frame-label-text { min-width: 0; overflow: hidden; font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }",
-  ".design-mock .dm-frame-badge { display: flex; height: 20px; flex-shrink: 0; align-items: center; gap: 4px; padding: 0 6px; border: 1px solid var(--dm-border); border-radius: 999px; background: var(--dm-panel-bg); color: var(--dm-fg); font-size: 9px; font-weight: 500; }",
-  ".design-mock .dm-frame-badge-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--dm-fg); }",
-  `.design-mock .dm-frame-body { position: relative; height: ${FRAME_HEIGHT}px; overflow: hidden; background: #ffffff; box-shadow: inset 0 0 0 1px var(--dm-border); }`,
-  ".design-mock .dm-frame-outline { position: absolute; inset: 0; border: 1.5px solid var(--dm-accent); pointer-events: none; }",
-  ".design-mock .dm-handle { position: absolute; z-index: 2; width: 8px; height: 8px; border: 1px solid var(--dm-accent); border-radius: 2px; background: var(--dm-accent-contrast); }",
-  ".design-mock .dm-handle-tl { left: -4px; top: -4px; }",
-  ".design-mock .dm-handle-tr { right: -4px; top: -4px; }",
-  ".design-mock .dm-handle-bl { left: -4px; bottom: -4px; }",
-  ".design-mock .dm-handle-br { right: -4px; bottom: -4px; }",
-  `.design-mock .dm-artboard { width: ${SCREEN_WIDTH}px; height: ${SCREEN_HEIGHT}px; transform: scale(${BOARD_SCALE}); transform-origin: top left; }`,
+  ".design-mock .dm-frame-label-width { flex-shrink: 0; font-size: 10px; font-variant-numeric: tabular-nums; opacity: 0.5; }",
+  ".design-mock .dm-breakpoint-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 999px; background: currentColor; }",
+  ".design-mock .dm-interact-btn { position: absolute; right: 4px; top: 50%; display: flex; height: 20px; align-items: center; gap: 4px; transform: translateY(-50%); padding: 0 6px; border: 1px solid var(--dm-border); border-radius: 6px; background: var(--dm-panel-bg); color: var(--dm-fg); font-size: 10px; font-weight: 500; }",
+  ".design-mock .dm-frame-body { position: relative; overflow: hidden; background: #ffffff; box-shadow: inset 0 0 0 1px var(--dm-border); }",
+  `.design-mock .dm-frame-desktop .dm-frame-body { height: ${DESKTOP_FRAME_HEIGHT}px; }`,
+  `.design-mock .dm-frame-mobile .dm-frame-body { height: ${MOBILE_FRAME_HEIGHT}px; }`,
+  `.design-mock .dm-artboard { transform: scale(${BOARD_SCALE}); transform-origin: top left; }`,
+  `.design-mock .dm-artboard-desktop { width: ${DESKTOP_ARTBOARD_WIDTH}px; height: ${DESKTOP_ARTBOARD_HEIGHT}px; }`,
+  `.design-mock .dm-artboard-mobile { width: ${MOBILE_ARTBOARD_WIDTH}px; height: ${MOBILE_ARTBOARD_HEIGHT}px; }`,
 
-  // Generating frame, mirroring GenerationStatusCard.
-  ".design-mock .ms-generating { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; background: var(--dm-panel-bg); }",
-  ".design-mock .ms-generating-tile { display: flex; width: 48px; height: 48px; align-items: center; justify-content: center; margin-bottom: 16px; border: 1px solid var(--dm-divider); border-radius: 12px; background: var(--dm-panel-bg); box-shadow: 0 18px 50px -34px rgba(0, 0, 0, 0.8); }",
-  ".design-mock .ms-generating-label { color: var(--dm-fg-muted); font-size: 14px; }",
-  ".design-mock .dm-spinner { display: block; width: 20px; height: 20px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 999px; color: var(--dm-fg-muted); opacity: 0.5; animation: dm-spin 900ms linear infinite; }",
-  "@keyframes dm-spin { to { transform: rotate(360deg); } }",
-  "@media (prefers-reduced-motion: reduce) { .design-mock .dm-spinner { animation: none; } }",
-
-  // Right inspector — 240px
-  ".design-mock .dm-inspector { display: flex; width: 240px; flex-shrink: 0; flex-direction: column; border-left: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }",
+  // Right inspector — 240px. Overflow is hidden so the tail of the property
+  // list crops mid-section, the way a real scrolled panel reads.
+  `.design-mock .dm-inspector { display: flex; width: ${INSPECTOR_WIDTH}px; flex-shrink: 0; flex-direction: column; overflow: hidden; border-left: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }`,
   ".design-mock .dm-inspector-toprow { display: flex; height: 40px; flex-shrink: 0; align-items: center; gap: 6px; padding: 0 8px; }",
   ".design-mock .dm-collaborators { display: flex; height: 32px; align-items: center; padding-right: 4px; }",
   ".design-mock .dm-avatar { display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 2px solid var(--dm-avatar-border); border-radius: 999px; color: #ffffff; font-size: 10px; font-weight: 600; }",
@@ -569,106 +816,77 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-segment { display: flex; height: 24px; align-items: center; gap: 4px; padding: 0 6px; border-radius: 5px; color: var(--dm-fg-muted); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }",
   ".design-mock .dm-segment.is-active { background: var(--dm-panel-bg); color: var(--dm-accent); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }",
   ".design-mock .dm-zoom { display: flex; height: 24px; align-items: center; gap: 2px; margin-left: auto; padding: 0 4px; color: var(--dm-fg-muted); font-size: 10px; font-variant-numeric: tabular-nums; }",
-  ".design-mock .dm-inspector-context { display: flex; min-height: 32px; flex-shrink: 0; align-items: center; gap: 6px; padding: 0 12px; border-top: 1px solid var(--dm-border); border-bottom: 1px solid var(--dm-border); }",
-  ".design-mock .dm-context-glyph { flex-shrink: 0; color: var(--dm-fg-muted); }",
-  ".design-mock .dm-context-title { overflow: hidden; font-size: 13px; font-weight: 600; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }",
-  ".design-mock .dm-inspector-section { padding: 8px; }",
-  ".design-mock .dm-inspector-section-title { margin-bottom: 8px; font-size: 11px; font-weight: 600; color: var(--dm-fg-muted); }",
-  ".design-mock .dm-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }",
-  ".design-mock .dm-field { display: flex; height: 24px; align-items: center; gap: 6px; padding: 0 6px; border: 1px solid var(--dm-border); border-radius: 5px; background: var(--dm-control-bg); }",
-  ".design-mock .dm-field-label { color: var(--dm-fg-muted); font-size: 11px; font-weight: 500; }",
-  ".design-mock .dm-field-value { overflow: hidden; font-size: 11px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }",
+
+  // Inspector tabs. The real control is a pill row, not an underline.
+  ".design-mock .dm-tabs { display: flex; height: 32px; flex-shrink: 0; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--dm-border); }",
+  ".design-mock .dm-tab { display: flex; height: 24px; align-items: center; padding: 0 8px; border-radius: 6px; color: var(--dm-fg-muted); font-size: 11px; font-weight: 600; }",
+  ".design-mock .dm-tab.is-active { background: var(--dm-panel-raised); color: var(--dm-fg); }",
+
+  ".design-mock .dm-inspector-context { display: flex; min-height: 32px; flex-shrink: 0; align-items: center; gap: 6px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--dm-border); }",
+  ".design-mock .dm-context-glyph { flex-shrink: 0; color: var(--dm-component); }",
+  ".design-mock .dm-context-title { flex: 1; min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }",
+
+  ".design-mock .dm-state { flex-shrink: 0; padding: 4px 8px; }",
+  ".design-mock .dm-state-control { display: flex; height: 28px; align-items: center; justify-content: space-between; padding: 0 8px; border: 1px solid var(--dm-border); border-radius: 6px; background: var(--dm-control-bg); }",
+  ".design-mock .dm-state-value { font-size: 11px; font-weight: 600; }",
+  ".design-mock .dm-state-chevron { flex-shrink: 0; opacity: 0.7; }",
+
+  // Property sections. The top shadow is the divider, matching
+  // `.design-sidebar-section` in the editor stylesheet.
+  ".design-mock .dm-section { flex-shrink: 0; box-shadow: inset 0 1px var(--dm-border); }",
+  ".design-mock .dm-section.is-first { box-shadow: none; }",
+  ".design-mock .dm-section-bar { display: flex; height: 32px; align-items: center; gap: 4px; padding: 0 8px; }",
+  ".design-mock .dm-section-chevron { flex-shrink: 0; color: var(--dm-fg-muted); }",
+  ".design-mock .dm-section-label { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; }",
+  ".design-mock .dm-section-bar-actions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }",
+  ".design-mock .dm-section-content { display: flex; flex-direction: column; gap: 6px; padding: 0 8px 8px; }",
+  ".design-mock .dm-prop { display: flex; min-width: 0; flex-direction: column; gap: 4px; }",
+  ".design-mock .dm-prop-label { color: var(--dm-fg-muted); font-size: 10px; font-weight: 400; line-height: 12px; }",
+  ".design-mock .dm-prop-row { display: flex; min-width: 0; align-items: center; gap: 4px; }",
+
+  ".design-mock .dm-num { display: flex; height: 24px; min-width: 0; flex: 1; align-items: center; gap: 4px; padding: 0 6px; border: 1px solid var(--dm-border); border-radius: 6px; background: var(--dm-control-bg); }",
+  ".design-mock .dm-num-glyph { flex-shrink: 0; color: var(--dm-fg-muted); }",
+  ".design-mock .dm-num-label { flex-shrink: 0; overflow: hidden; color: var(--dm-fg-muted); font-size: 10px; line-height: 12px; text-overflow: ellipsis; white-space: nowrap; }",
+  ".design-mock .dm-num-value { min-width: 0; overflow: hidden; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }",
+  ".design-mock .dm-num-unit { color: var(--dm-fg-muted); }",
+
+  ".design-mock .dm-seg-group { display: flex; flex: 1; min-width: 0; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: var(--dm-control-bg); }",
+  ".design-mock .dm-seg-btn { display: flex; height: 24px; flex: 1; align-items: center; justify-content: center; border-radius: 5px; color: var(--dm-fg-muted); }",
+  ".design-mock .dm-seg-btn.is-active { background: var(--dm-panel-raised); color: var(--dm-fg); }",
+  ".design-mock .dm-icon-action { display: flex; width: 24px; height: 24px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 6px; color: var(--dm-fg-muted); }",
+  ".design-mock .dm-icon-action.is-disabled { opacity: 0.35; }",
+
+  ".design-mock .dm-paint { display: flex; height: 24px; align-items: center; gap: 4px; }",
+  ".design-mock .dm-paint-grip { display: flex; width: 24px; height: 24px; flex-shrink: 0; align-items: center; justify-content: center; color: var(--dm-fg-muted); opacity: 0.6; }",
+  ".design-mock .dm-paint-swatch { width: 16px; height: 16px; flex-shrink: 0; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }",
+  ".design-mock .dm-paint-glyph { flex-shrink: 0; color: var(--dm-fg-muted); }",
+  ".design-mock .dm-paint-label { flex: 1; min-width: 0; overflow: hidden; font-size: 11px; font-weight: 500; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }",
+  ".design-mock .dm-paint-opacity { flex-shrink: 0; color: var(--dm-fg-muted); font-size: 11px; font-variant-numeric: tabular-nums; }",
+  ".design-mock .dm-effects { display: flex; flex-direction: column; gap: 6px; }",
 
   // Floating bottom toolbar. Pinned to the dark palette in both themes, exactly
   // like the real toolbar.
-  ".design-mock .dm-toolbar { position: absolute; bottom: 16px; left: 50%; z-index: 3; display: flex; max-width: calc(100% - 32px); transform: translateX(-50%); align-items: center; gap: 6px; padding: 6px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; background: rgba(44, 44, 44, 0.95); color: #f5f5f5; box-shadow: 0 22px 55px -24px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }",
-  ".design-mock .dm-tool { display: flex; width: 32px; height: 32px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 6px; color: #e5e5e5; }",
+  ".design-mock .dm-toolbar { position: absolute; bottom: 16px; left: 50%; z-index: 3; display: flex; max-width: calc(100% - 32px); transform: translateX(-50%); align-items: center; gap: 4px; padding: 6px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; background: rgba(44, 44, 44, 0.95); color: #f5f5f5; box-shadow: 0 22px 55px -24px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }",
+  ".design-mock .dm-tool { display: flex; height: 32px; flex-shrink: 0; align-items: center; justify-content: center; gap: 1px; padding: 0 4px; border-radius: 6px; color: #e5e5e5; }",
   ".design-mock .dm-tool.is-active { background: var(--dm-accent); color: #ffffff; }",
-  ".design-mock .dm-toolbar-divider { width: 1px; height: 36px; flex-shrink: 0; background: rgba(255, 255, 255, 0.15); }",
+  ".design-mock .dm-tool-caret { opacity: 0.7; }",
+  ".design-mock .dm-toolbar-divider { width: 1px; height: 36px; flex-shrink: 0; margin: 0 2px; background: rgba(255, 255, 255, 0.15); }",
   ".design-mock .dm-mode-group { display: flex; flex-shrink: 0; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: rgba(255, 255, 255, 0.1); }",
   ".design-mock .dm-mode { display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 6px; color: #d4d4d4; }",
   ".design-mock .dm-mode.is-active { background: rgba(3, 3, 3, 0.7); color: #38bdf8; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 8px 18px -12px rgba(0, 0, 0, 0.95); }",
 
-  /* ----- Mini screens. Values are artboard pixels at 1440x900. ----- */
-  ".design-mock .ms { width: 100%; height: 100%; overflow: hidden; font-family: 'Inter Variable', 'Inter', sans-serif; }",
-  // The docs shell colors every h1-h4 directly, so an artboard heading would
-  // pick up the docs foreground instead of its own palette. Same for prose
-  // paragraphs. Re-inherit explicitly; `currentColor` fills depend on it.
-  ".design-mock .ms h2, .design-mock .ms p { color: inherit; }",
-  ".design-mock .ms-light { background: #fbfaf8; color: #17161a; }",
-  ".design-mock .ms-dark { background: #101014; color: #f4f4f6; }",
-  ".design-mock .ms-app { display: flex; background: #f4f4f6; color: #17161a; }",
-
-  // Shared nav
-  ".design-mock .ms-nav { display: flex; height: 88px; align-items: center; gap: 56px; padding: 0 80px; }",
-  ".design-mock .ms-logo { width: 116px; height: 22px; border-radius: 6px; background: currentColor; opacity: 0.85; }",
-  ".design-mock .ms-navlinks { display: flex; flex: 1; align-items: center; gap: 40px; }",
-  ".design-mock .ms-navlinks span { width: 78px; height: 12px; border-radius: 6px; background: currentColor; opacity: 0.28; }",
-  ".design-mock .ms-nav-cta { padding: 14px 28px; border-radius: 10px; background: currentColor; color: transparent; font-size: 20px; font-weight: 600; }",
-
-  // Shared type
-  ".design-mock .ms-eyebrow { display: inline-block; font-size: 20px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.5; }",
-  ".design-mock .ms-eyebrow-accent { color: #7dd3fc; opacity: 1; }",
-  ".design-mock .ms-h1 { margin: 24px 0 0; font-size: 72px; font-weight: 600; line-height: 1.04; letter-spacing: -0.03em; }",
-  ".design-mock .ms-h1-xl { font-size: 92px; }",
-  ".design-mock .ms-h2 { margin: 0; font-size: 56px; font-weight: 600; line-height: 1.08; letter-spacing: -0.02em; }",
-  ".design-mock .ms-sub { margin: 28px 0 0; max-width: 620px; font-size: 24px; line-height: 1.45; opacity: 0.62; }",
-  ".design-mock .ms-cta { display: inline-block; margin-top: 40px; padding: 20px 40px; border-radius: 12px; background: currentColor; color: transparent; font-size: 22px; font-weight: 600; }",
-  ".design-mock .ms-cta-ghost { background: transparent; border: 2px solid currentColor; color: currentColor; opacity: 0.45; }",
-
-  // Landing v1
-  ".design-mock .ms-v1-body { display: flex; align-items: flex-start; gap: 72px; padding: 60px 80px 0; }",
-  ".design-mock .ms-v1-copy { flex: 1; min-width: 0; }",
-  ".design-mock .ms-v1-art { display: flex; width: 480px; flex-shrink: 0; flex-direction: column; gap: 20px; padding: 32px; border-radius: 20px; background: #17161a; }",
-  ".design-mock .ms-v1-art-bar { height: 20px; border-radius: 10px; background: #fbfaf8; opacity: 0.85; }",
-  ".design-mock .ms-v1-art-bar-short { width: 58%; opacity: 0.45; }",
-  ".design-mock .ms-v1-art-block { height: 220px; border-radius: 14px; background: linear-gradient(135deg, #f472b6, #7c6ff0); }",
-  ".design-mock .ms-v1-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; padding: 72px 80px 0; }",
-  ".design-mock .ms-v1-cards span { height: 140px; border-radius: 16px; border: 2px solid rgba(23, 22, 26, 0.1); background: #ffffff; }",
-
-  // Landing v2
-  ".design-mock .ms-v2-body { padding: 72px 80px 0; }",
-  ".design-mock .ms-v2-actions { display: flex; align-items: center; gap: 24px; }",
-  ".design-mock .ms-v2-panel { display: flex; flex-direction: column; gap: 20px; margin: 80px 80px 0; padding: 40px; border: 2px solid rgba(244, 244, 246, 0.12); border-radius: 20px; background: #17171d; }",
-  ".design-mock .ms-v2-panel-row { height: 24px; border-radius: 12px; background: #f4f4f6; opacity: 0.16; }",
-  ".design-mock .ms-v2-panel-row-mid { width: 72%; }",
-  ".design-mock .ms-v2-panel-row-short { width: 44%; }",
-
-  // Pricing
-  ".design-mock .ms-pricing-head { padding: 72px 80px 0; text-align: center; }",
-  ".design-mock .ms-pricing-head .ms-sub { margin-left: auto; margin-right: auto; }",
-  ".design-mock .ms-pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; padding: 64px 80px 0; }",
-  ".design-mock .ms-price-card { display: flex; flex-direction: column; gap: 20px; padding: 40px 32px; border: 2px solid rgba(23, 22, 26, 0.1); border-radius: 20px; background: #ffffff; }",
-  ".design-mock .ms-price-card.is-featured { border-color: #f472b6; }",
-  ".design-mock .ms-price-tier { font-size: 22px; font-weight: 600; opacity: 0.55; }",
-  ".design-mock .ms-price-amount { font-size: 60px; font-weight: 600; letter-spacing: -0.02em; }",
-  ".design-mock .ms-price-line { height: 14px; border-radius: 7px; background: rgba(23, 22, 26, 0.12); }",
-  ".design-mock .ms-price-line-short { width: 60%; }",
-  ".design-mock .ms-price-cta { margin-top: 12px; padding: 18px 0; border-radius: 12px; background: #17161a; color: transparent; font-size: 20px; font-weight: 600; text-align: center; }",
-
-  // Dashboard
-  ".design-mock .ms-app-sidebar { display: flex; width: 260px; flex-shrink: 0; flex-direction: column; gap: 16px; padding: 32px 24px; background: #ffffff; border-right: 2px solid rgba(23, 22, 26, 0.08); }",
-  ".design-mock .ms-app-logo { width: 120px; height: 24px; margin-bottom: 24px; border-radius: 8px; background: #17161a; }",
-  ".design-mock .ms-app-navitem { height: 44px; border-radius: 10px; background: rgba(23, 22, 26, 0.06); }",
-  ".design-mock .ms-app-navitem.is-active { background: rgba(244, 114, 182, 0.24); }",
-  ".design-mock .ms-app-main { display: flex; flex: 1; min-width: 0; flex-direction: column; padding: 32px 40px; }",
-  ".design-mock .ms-app-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }",
-  ".design-mock .ms-app-title { font-size: 40px; font-weight: 600; letter-spacing: -0.02em; }",
-  ".design-mock .ms-app-search { width: 280px; height: 44px; border-radius: 10px; background: #ffffff; }",
-  ".design-mock .ms-app-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 32px; }",
-  ".design-mock .ms-app-stats span { height: 128px; border-radius: 16px; background: #ffffff; }",
-  ".design-mock .ms-app-chart { display: flex; flex: 1; align-items: flex-end; gap: 20px; padding: 32px; border-radius: 16px; background: #ffffff; }",
-  ".design-mock .ms-app-chart span { flex: 1; border-radius: 8px 8px 0 0; background: linear-gradient(180deg, #f472b6, rgba(244, 114, 182, 0.35)); }",
+  DESIGN_TASKER_CSS,
 
   // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
   // follows the visitor's theme instead of staying pinned to the dark art.
-  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-hover: rgba(38, 38, 38, 0.06); --dm-selection: rgba(10, 154, 255, 0.14); --dm-badge-bg: hsl(0 0% 95%); --dm-avatar-border: hsl(0 0% 100%); }",
+  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-selection: rgba(10, 154, 255, 0.14); --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-component-subtree: rgba(124, 77, 240, 0.1); --dm-avatar-border: hsl(0 0% 100%); }",
+  "html.light .design-mock .dm-paint-swatch { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }",
 
   // Narrow screens. The window is a fixed-width layout, so the whole mock
   // scales down and anchors to the left edge rather than letting the canvas
   // collapse to nothing. This block stays last: it has the same specificity as
   // the base rules above and would otherwise lose to them on source order.
-  "@media (max-width: 860px) { .design-mock { padding: 0 16px 18px; } .design-mock .dm-window { width: 1180px; height: 700px; inset: auto; transform: scale(0.52); transform-origin: top left; } }",
+  "@media (max-width: 860px) { .design-mock { padding: 0 16px 18px; } .design-mock .dm-window { width: 1180px; height: 660px; inset: auto; transform: scale(0.52); transform-origin: top left; } }",
 ].join("\n");
 
 export function DesignOverviewMock({
@@ -684,15 +902,8 @@ export function DesignOverviewMock({
       <div className="design-mock-frame" aria-hidden="true">
         <div className="dm-window">
           <WorkspaceRail />
-          <ScreensPanel />
-          <div className="dm-canvas">
-            <div className="dm-board">
-              {BOARD_FRAMES.map((frame) => (
-                <BoardFrameView key={frame.label} frame={frame} />
-              ))}
-            </div>
-            <BottomToolbar />
-          </div>
+          <FilePanel />
+          <Canvas />
           <Inspector />
         </div>
       </div>
