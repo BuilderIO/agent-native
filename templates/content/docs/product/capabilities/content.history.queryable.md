@@ -26,7 +26,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-08"
 ---
 
 # History
@@ -66,6 +66,12 @@ Given a person can read a Revision but lacks authority to edit a narrower Versio
 ## Current evidence
 
 Current document versions, restore actions, and editor history UI demonstrate snapshot-oriented substrate. They do not prove access-scoped Event/Revision queryability, typed diffs, or complete recovery semantics; this remains `approved_shape`.
+
+Page history groups title/body recovery checkpoints by an explicit human editor session, agent run, or operation. Human sessions end on navigation, reload, restore, or five minutes of inactivity; separate tabs have separate identities. Grouping organizes the list without turning each autosave into a top-level entry. Metadata pagination and selected-checkpoint reads keep older recovery states reachable without loading every body. Restore prepares against the current document revision and preserves the displaced title/body in the same transaction as replacement.
+
+This Page recovery surface is narrower than the capability above: it does not supply cross-object Event queries, typed diffs, selective field recovery, or named Page Versions. Independent acceptance of those contracts remains required before changing the capability state.
+
+Linked local files keep their file as the source of truth. Their checkpoints remain readable, but this SQL restore action rejects replacement until a revision-guarded source write and history reconciliation protocol is available; changing only the SQL mirror must never be reported as restoring the file.
 
 ## Proof plan
 

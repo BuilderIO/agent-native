@@ -12,6 +12,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
+  applyDocSurgically,
   createSharedEditorExtensions,
   useCollabReconcile,
   type UseCollabReconcileResult,
@@ -54,6 +55,7 @@ import {
   Node as TiptapNode,
   mergeAttributes,
 } from "@tiptap/react";
+import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -827,6 +829,11 @@ export interface VisualEditorHistoryState {
 export interface VisualEditorHistoryController {
   undo: () => boolean;
   redo: () => boolean;
+  replaceWithAuthoritativeContent: (snapshot: {
+    content: string;
+    contentUpdatedAt: string;
+    contentRevision: string | null;
+  }) => boolean;
 }
 
 export type { NotionPageLink };
@@ -2359,6 +2366,12 @@ export function VisualEditor({
   };
 
   const historyEditorRef = useRef<CoreEditor | null>(null);
+  const acknowledgedRestoreRef = useRef<{
+    documentId: string | null;
+    content: string;
+    contentUpdatedAt: string;
+    contentRevision: string | null;
+  } | null>(null);
   const selectionSyncTimerRef = useRef<
     ReturnType<typeof setTimeout> | undefined
   >(undefined);
@@ -2585,13 +2598,49 @@ export function VisualEditor({
     onHistoryControllerChange?.({
       undo: () => runPersistableHistoryCommand(editor, "undo"),
       redo: () => runPersistableHistoryCommand(editor, "redo"),
+      replaceWithAuthoritativeContent: (snapshot) => {
+        const parsed = parseNfmForCollabReconcile(editor, snapshot.content);
+        if (!parsed) return false;
+        applyDocSurgically(editor, parsed);
+        let applied =
+          canonicalizeNfm(docToNfm(editor.getJSON() as any)) ===
+          canonicalizeNfm(snapshot.content);
+        if (!applied) {
+          editor
+            .chain()
+            .command(({ tr }) => {
+              tr.setMeta("addToHistory", false);
+              return true;
+            })
+            .setContent(nfmToDoc(snapshot.content), { emitUpdate: false })
+            .run();
+          applied =
+            canonicalizeNfm(docToNfm(editor.getJSON() as any)) ===
+            canonicalizeNfm(snapshot.content);
+        }
+        if (applied) {
+          acknowledgedRestoreRef.current = {
+            documentId: documentId ?? null,
+            ...snapshot,
+          };
+          yUndoPluginKey.getState(editor.state)?.undoManager.clear();
+          notifyHistoryStateChange({ canUndo: false, canRedo: false });
+        }
+        return applied;
+      },
     });
     onHistoryStateChange?.({
       canUndo: editor.can().undo(),
       canRedo: editor.can().redo(),
     });
     return () => onHistoryControllerChange?.(null);
-  }, [editor, onHistoryControllerChange, onHistoryStateChange]);
+  }, [
+    editor,
+    documentId,
+    notifyHistoryStateChange,
+    onHistoryControllerChange,
+    onHistoryStateChange,
+  ]);
 
   // Clear the agent's selection context when this document closes — on
   // unmount, and on document change (the editor is reused across route
@@ -2697,14 +2746,45 @@ export function VisualEditor({
   // `<empty-block/>`-aware seed predicate). `initialAppliedUpdatedAt: null`
   // preserves Content's "first run reconciles a stale persisted Y.Doc against
   // authoritative SQL" behavior (an agent that edited the CLOSED doc).
+  let acknowledgedRestore = acknowledgedRestoreRef.current;
+  if (
+    acknowledgedRestore &&
+    acknowledgedRestore.documentId !== (documentId ?? null)
+  ) {
+    acknowledgedRestoreRef.current = null;
+    acknowledgedRestore = null;
+  } else if (
+    acknowledgedRestore &&
+    contentUpdatedAt &&
+    contentUpdatedAt >= acknowledgedRestore.contentUpdatedAt
+  ) {
+    acknowledgedRestore = {
+      documentId: documentId ?? null,
+      content,
+      contentUpdatedAt,
+      contentRevision: contentRevision ?? null,
+    };
+    acknowledgedRestoreRef.current = acknowledgedRestore;
+  }
+  const propsPredateAcknowledgedRestore = Boolean(
+    acknowledgedRestore &&
+    (!contentUpdatedAt ||
+      contentUpdatedAt < acknowledgedRestore.contentUpdatedAt),
+  );
   const collabState = useCollabReconcile({
     editor,
     ydoc,
     collabSynced,
     awareness: localAwareness,
-    value: content,
-    contentUpdatedAt,
-    contentRevision,
+    value: propsPredateAcknowledgedRestore
+      ? acknowledgedRestore!.content
+      : content,
+    contentUpdatedAt: propsPredateAcknowledgedRestore
+      ? acknowledgedRestore!.contentUpdatedAt
+      : contentUpdatedAt,
+    contentRevision: propsPredateAcknowledgedRestore
+      ? acknowledgedRestore!.contentRevision
+      : contentRevision,
     onBaseAwareReconcile,
     editable,
     isEditorFocused: isVisualEditorFocused,

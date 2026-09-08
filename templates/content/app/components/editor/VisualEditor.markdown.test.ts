@@ -58,6 +58,7 @@ import {
   shouldSeedCollaborativeContent,
   serializeEditorDraftForPersistence,
   VisualEditor,
+  type VisualEditorHistoryController,
 } from "./VisualEditor";
 
 function createMarkdownEditor(content: string) {
@@ -1156,6 +1157,219 @@ describe("VisualEditor markdown round-tripping", () => {
       warning.mockRestore();
       queryClient.clear();
       ydoc.destroy();
+      container.remove();
+    }
+  });
+
+  it("keeps exact A restored after a recent A-to-B edit with a trailing empty block", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const ydoc = new Y.Doc();
+    const nextDocumentYdoc = new Y.Doc();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const onChange = vi.fn();
+    const draftBWithTrailingEmpty = "Draft B body\n<empty-block/>";
+    let controller: VisualEditorHistoryController | null = null;
+
+    const renderEditor = (
+      documentId: string,
+      content: string,
+      contentUpdatedAt: string,
+      contentRevision: string,
+      activeYdoc = ydoc,
+    ) =>
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(VisualEditor, {
+              key: documentId,
+              documentId,
+              content,
+              contentUpdatedAt,
+              contentRevision,
+              onChange,
+              ydoc: activeYdoc,
+              collabSynced: true,
+              editable: true,
+              onHistoryControllerChange: (next) => {
+                controller = next;
+              },
+            }),
+          ),
+        ),
+      );
+
+    try {
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            "Draft A body",
+            "2026-09-08T14:00:00.000Z",
+            "revision-a",
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(controller).not.toBeNull();
+        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+          "Draft A body",
+        );
+      });
+      onChange.mockClear();
+
+      const editorElement =
+        container.querySelector<HTMLElement>(".notion-editor");
+      const mountedEditor = (editorElement as HTMLElement & { editor?: Editor })
+        .editor;
+      expect(mountedEditor).toBeDefined();
+      editorElement!.focus();
+      editorElement!.dispatchEvent(
+        new InputEvent("beforeinput", {
+          bubbles: true,
+          cancelable: true,
+          data: "Draft B body",
+          inputType: "insertText",
+        }),
+      );
+      act(() => {
+        const to = mountedEditor!.state.doc.content.size - 1;
+        mountedEditor!.view.dispatch(
+          mountedEditor!.state.tr.insertText("Draft B body", 1, to),
+        );
+        const paragraph = mountedEditor!.schema.nodes.paragraph.create();
+        mountedEditor!.view.dispatch(
+          mountedEditor!.state.tr.insert(
+            mountedEditor!.state.doc.content.size,
+            paragraph,
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(onChange).toHaveBeenLastCalledWith(draftBWithTrailingEmpty);
+      });
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            draftBWithTrailingEmpty,
+            "2026-09-08T14:00:01.000Z",
+            "revision-b",
+          ),
+        );
+      });
+      onChange.mockClear();
+
+      let applied = false;
+      act(() => {
+        applied = controller!.replaceWithAuthoritativeContent({
+          content: "Draft A body",
+          contentUpdatedAt: "2026-09-08T14:00:02.000Z",
+          contentRevision: "revision-restored-a",
+        });
+        root.render(
+          renderEditor(
+            "page-a",
+            "Draft A body",
+            "2026-09-08T14:00:02.000Z",
+            "revision-restored-a",
+          ),
+        );
+      });
+
+      expect(applied).toBe(true);
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Draft A body",
+      );
+      expect(docToNfm(mountedEditor!.getJSON() as any)).toBe("Draft A body");
+
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            draftBWithTrailingEmpty,
+            "2026-09-08T14:00:01.000Z",
+            "revision-b",
+          ),
+        );
+      });
+      await act(() => waitForDeferredCallback());
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Draft A body",
+      );
+      expect(onChange).not.toHaveBeenCalled();
+
+      editorElement!.blur();
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            "Newer C body",
+            "2026-09-08T14:00:03.000Z",
+            "revision-c",
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+          "Newer C body",
+        );
+      });
+
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            draftBWithTrailingEmpty,
+            "2026-09-08T14:00:01.000Z",
+            "revision-b",
+          ),
+        );
+      });
+      await act(() => waitForDeferredCallback());
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Newer C body",
+      );
+      expect(onChange).not.toHaveBeenCalled();
+
+      act(() => {
+        controller!.undo();
+      });
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Newer C body",
+      );
+      expect(onChange).not.toHaveBeenCalled();
+
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-b",
+            "Older Page B body",
+            "2026-09-08T13:00:00.000Z",
+            "revision-page-b",
+            nextDocumentYdoc,
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+          "Older Page B body",
+        );
+      });
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      ydoc.destroy();
+      nextDocumentYdoc.destroy();
       container.remove();
     }
   });

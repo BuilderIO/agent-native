@@ -75,13 +75,22 @@ async function replaceDocumentFromExternal(args: {
       // Keep the recovery snapshot in the same transaction as the replacement:
       // a lost CAS creates no phantom version, and a snapshot failure rolls the
       // destructive replacement back instead of leaving it unrecoverable.
+      const versionId = nanoid();
+      const checkpointAt = nowIso();
       await tx.insert(schema.documentVersions).values({
-        id: nanoid(),
+        id: versionId,
         ownerEmail: args.document.ownerEmail,
         documentId: args.document.id,
         title: args.document.title,
         content: args.document.content,
-        createdAt: nowIso(),
+        groupId: versionId,
+        groupKind: "operation",
+        actorKind: "source",
+        origin: "notion",
+        operation: "sync-notion-document",
+        checkpointKind: "before",
+        createdAt: checkpointAt,
+        updatedAt: checkpointAt,
       });
     }
 

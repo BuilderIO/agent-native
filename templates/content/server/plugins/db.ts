@@ -1081,6 +1081,22 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS document_edit_receipts_owner_document_idx
         ON document_edit_receipts (owner_email, document_id)`,
     },
+    {
+      version: 88,
+      name: "content-document-history-grouping",
+      sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS actor_email TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS actor_kind TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS origin TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS group_kind TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS group_id TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS operation TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS checkpoint_kind TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS updated_at TEXT;
+      CREATE INDEX IF NOT EXISTS document_versions_owner_document_created_idx
+        ON document_versions (owner_email, document_id, created_at, id);
+      CREATE INDEX IF NOT EXISTS document_versions_owner_document_group_idx
+        ON document_versions (owner_email, document_id, group_id, created_at, id)`,
+    },
   ],
   { table: "content_migrations" },
 );

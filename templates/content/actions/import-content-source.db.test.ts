@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { serializeContentSourceDocument } from "../shared/content-source.js";
@@ -81,6 +81,53 @@ function sourceWithFavorite(isFavorite: boolean) {
 }
 
 describe("import-content-source descriptions", () => {
+  it("preserves each changed outgoing state across rapid repeated imports", async () => {
+    const id = "doc_rapid_import_history";
+    const path = `content/rapid-import-history--${id}.mdx`;
+    const source = (content: string) =>
+      serializeContentSourceDocument({
+        id,
+        parentId: null,
+        title: "Rapid import history",
+        content,
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility: "private",
+      });
+
+    for (const content of ["state A", "state B", "state C"]) {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        importContentSourceAction.run({
+          files: { [path]: source(content) },
+          dryRun: false,
+        }),
+      );
+    }
+
+    const checkpoints = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, id))
+      .orderBy(asc(schema.documentVersions.createdAt));
+    expect(checkpoints.map((checkpoint: any) => checkpoint.content)).toEqual([
+      "state A",
+      "state B",
+    ]);
+    expect(checkpoints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          groupKind: "operation",
+          actorKind: "source",
+          origin: "content-source-import",
+          operation: "import-content-source",
+          checkpointKind: "before",
+        }),
+      ]),
+    );
+  });
+
   it("creates and updates visibility while preserving it when omitted", async () => {
     const path = "content/visibility-round-trip--doc_visibility_roundtrip.mdx";
     const source = (visibility?: "private" | "org" | "public") =>

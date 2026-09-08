@@ -9,6 +9,7 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import {
+  callAction,
   setClientAppState,
   useAvatarUrl,
   useDbSync,
@@ -107,6 +108,7 @@ import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentsSidebar } from "./CommentsSidebar";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
+import { createHistorySession } from "./document-history-session";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
@@ -327,6 +329,28 @@ export function shouldAwaitAuthoritativeDocument({
   return isFetching && !isFetchedAfterMount;
 }
 
+export function resolveAcknowledgedDocumentSnapshot<
+  T extends { id: string; updatedAt: string },
+>(args: {
+  currentDocumentId: string;
+  incoming: T;
+  acknowledged: T | null;
+}): { document: T; acknowledged: T | null } {
+  if (!args.acknowledged) {
+    return { document: args.incoming, acknowledged: null };
+  }
+  if (args.acknowledged.id !== args.currentDocumentId) {
+    return { document: args.incoming, acknowledged: null };
+  }
+  if (args.incoming.updatedAt >= args.acknowledged.updatedAt) {
+    return { document: args.incoming, acknowledged: args.incoming };
+  }
+  return {
+    document: args.acknowledged,
+    acknowledged: args.acknowledged,
+  };
+}
+
 export function updateAdditionalBlockContents(args: {
   current: Record<string, string>;
   activeDocumentId: string;
@@ -373,6 +397,7 @@ interface DocumentEditorBodyProps {
 }
 
 type PendingDocumentSave = {
+  historySessionId: string;
   title: string;
   content: string;
   save: (
@@ -386,6 +411,7 @@ type PendingDocumentSave = {
 };
 
 type DocumentSaveOptions = {
+  historySessionId?: string;
   allowQueuedSave?: boolean;
   expectedLocalSourceRevision?: string | null;
   adoptCurrentServerBase?: boolean;
@@ -650,10 +676,20 @@ export function documentEditorBreadcrumbNavigationItems(
 
 function DocumentEditorBody({
   documentId,
-  document,
+  document: incomingDocument,
   databaseId,
   databaseDocumentId,
 }: DocumentEditorBodyProps) {
+  const acknowledgedDocumentRef = useRef<Document | null>(null);
+  const resolvedDocument = resolveAcknowledgedDocumentSnapshot({
+    currentDocumentId: documentId,
+    incoming: incomingDocument,
+    acknowledged: acknowledgedDocumentRef.current,
+  });
+  acknowledgedDocumentRef.current = resolvedDocument.acknowledged;
+  const document = resolvedDocument.document;
+  const currentDocumentRef = useRef(document);
+  currentDocumentRef.current = document;
   const t = useT();
   useEffect(() => {
     void rememberContentLandingDocument(documentId).catch((error) => {
@@ -869,6 +905,7 @@ function DocumentEditorBody({
   // flush reader when its exact application-state key changes; it does not open
   // another EventSource or polling loop.
   useDbSync({ onEvent: handleFlushRequestEvent });
+  const historySessionRef = useRef(createHistorySession());
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promotedBuilderBodyRef = useRef<string | null>(null);
   const builderBodyRetryWakeRef = useRef<number | null>(null);
@@ -1095,6 +1132,7 @@ function DocumentEditorBody({
   useEffect(() => {
     if (!document) return;
     if (prevDocIdRef.current !== documentId) {
+      historySessionRef.current.reset();
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
       setNewDocumentTypeChosen(false);
@@ -1356,6 +1394,9 @@ function DocumentEditorBody({
                 )
               : undefined,
           ...updates,
+          historySessionId:
+            options.historySessionId ??
+            historySessionRef.current.activity(documentId),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
         });
       } catch (error) {
@@ -1644,12 +1685,86 @@ function DocumentEditorBody({
       void Promise.resolve(
         pending.save(pending.title, pending.content, {
           allowQueuedSave: true,
+          historySessionId: pending.historySessionId,
           expectedLocalSourceRevision: pending.expectedLocalSourceRevision,
         }),
       ).catch(handleBackgroundSaveError);
     },
     [handleBackgroundSaveError],
   );
+  const prepareHistoryRestore = useCallback(async (): Promise<string> => {
+    const title = localTitleRef.current;
+    const content = localContentRef.current;
+    const pending = pendingDocumentSaveRef.current;
+    if (pending) {
+      clearTimeout(pending.timeout);
+      pendingDocumentSaveRef.current = null;
+      saveTimeoutRef.current = null;
+    }
+    const saved = await queueDocumentSave(title, content, {
+      historySessionId: pending?.historySessionId,
+    });
+    if (
+      !saved.contentPersisted ||
+      localTitleRef.current !== title ||
+      localContentRef.current !== content ||
+      localTitleRef.current !== lastSavedTitleRef.current.title
+    ) {
+      throw new Error(t("editor.historySaveBeforeRestoreFailed"));
+    }
+    const current = await callAction(
+      "get-document",
+      { id: documentId },
+      { method: "GET" },
+    );
+    if (
+      !current?.updatedAt ||
+      current.title !== lastSavedTitleRef.current.title ||
+      current.content !== lastSavedContentRef.current.content
+    ) {
+      throw new Error(t("editor.historySaveBeforeRestoreFailed"));
+    }
+    return current.updatedAt;
+  }, [documentId, queueDocumentSave, t]);
+  const handleHistoryRestored = useCallback((restored: Document) => {
+    if (restored.id !== activeDocumentIdRef.current) {
+      return { status: "committed-editor-refresh-required" } as const;
+    }
+    acknowledgedDocumentRef.current = {
+      ...currentDocumentRef.current,
+      ...restored,
+    };
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    pendingDocumentSaveRef.current = null;
+    const editorApplied =
+      editorHistoryControllerRef.current?.replaceWithAuthoritativeContent({
+        content: restored.content,
+        contentUpdatedAt: restored.updatedAt,
+        contentRevision: restored.revision ?? null,
+      }) ?? false;
+    localTitleRef.current = restored.title;
+    localContentRef.current = restored.content;
+    documentUpdatedAtRef.current = restored.updatedAt ?? null;
+    setLocalTitle(restored.title);
+    setLocalContent(restored.content);
+    setLocalContentUpdatedAt(restored.updatedAt ?? null);
+    lastSavedTitleRef.current = {
+      title: restored.title,
+      updatedAt: restored.updatedAt ?? null,
+    };
+    lastSavedContentRef.current = {
+      content: restored.content,
+      updatedAt: restored.updatedAt ?? null,
+    };
+    historySessionRef.current.reset();
+    return editorApplied
+      ? ({ status: "applied" } as const)
+      : ({ status: "committed-editor-refresh-required" } as const);
+  }, []);
+
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (!canEditRef.current) return;
@@ -1661,6 +1776,7 @@ function DocumentEditorBody({
         : undefined;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       const pending: PendingDocumentSave = {
+        historySessionId: historySessionRef.current.activity(documentId),
         title,
         content,
         save: queueDocumentSave,
@@ -1772,6 +1888,7 @@ function DocumentEditorBody({
             : undefined;
         const body = JSON.stringify({
           id: documentId,
+          historySessionId: pending.historySessionId,
           ...updates,
           ...(loadedContentWasEmpty !== undefined
             ? { loadedContentWasEmpty }
@@ -2606,6 +2723,13 @@ function DocumentEditorBody({
               item.id === documentId ? { ...item, title: exportTitle } : item,
             )}
             documentUpdatedAt={document.updatedAt}
+            prepareHistoryRestore={prepareHistoryRestore}
+            onHistoryRestored={handleHistoryRestored}
+            restoreUnavailableReason={
+              isLinkedLocalSourceDocument
+                ? t("editor.historyLinkedLocalRestoreUnavailable")
+                : undefined
+            }
             activeUsers={activeUsers}
             agentPresent={agentPresent}
             agentActive={agentActive}

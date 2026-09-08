@@ -32,7 +32,6 @@ import {
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_DOCUMENT_BODY_BYTES = 512 * 1024;
-const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
 
 function nanoid(size = 12): string {
   const chars =
@@ -83,7 +82,10 @@ async function maybeSnapshotExistingDocument(input: {
 }) {
   const db = getDb();
   const [latestVersion] = await db
-    .select({ createdAt: schema.documentVersions.createdAt })
+    .select({
+      title: schema.documentVersions.title,
+      content: schema.documentVersions.content,
+    })
     .from(schema.documentVersions)
     .where(
       and(
@@ -94,19 +96,28 @@ async function maybeSnapshotExistingDocument(input: {
     .orderBy(desc(schema.documentVersions.createdAt))
     .limit(1);
 
-  const shouldSnapshot =
-    !latestVersion ||
-    Date.now() - new Date(latestVersion.createdAt).getTime() >
-      SNAPSHOT_INTERVAL_MS;
-  if (!shouldSnapshot) return;
+  if (
+    latestVersion?.title === input.title &&
+    latestVersion.content === input.content
+  )
+    return;
 
+  const versionId = nanoid();
+  const now = new Date().toISOString();
   await db.insert(schema.documentVersions).values({
-    id: nanoid(),
+    id: versionId,
     ownerEmail: input.ownerEmail,
     documentId: input.documentId,
     title: input.title,
     content: input.content,
-    createdAt: new Date().toISOString(),
+    groupId: versionId,
+    groupKind: "operation",
+    actorKind: "source",
+    origin: "content-source-import",
+    operation: "import-content-source",
+    checkpointKind: "before",
+    createdAt: now,
+    updatedAt: now,
   });
 }
 
