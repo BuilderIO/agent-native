@@ -1,5 +1,14 @@
 # @agent-native/scheduling
 
+## 0.1.59
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [58d9dc3]
+  - @agent-native/toolkit@0.19.5
+
 ## 0.1.58
 
 ### Patch Changes
