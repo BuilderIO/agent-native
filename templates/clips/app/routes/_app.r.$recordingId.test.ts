@@ -233,11 +233,10 @@ describe("direct recording route shell cue", () => {
     expect(layout).toContain("showAgentSidebar = true");
     expect(layout).toContain("{showAgentSidebar ? (");
     expect(route).toContain("<PageHeader>");
-    expect(route).toContain("<BreadcrumbList");
-    expect(route).toContain("<BreadcrumbLink asChild>");
-    expect(route).toContain("<BreadcrumbPage");
-    expect(route).toContain("<BreadcrumbSeparator");
-    expect(route).toContain('to="/library"');
+    expect(route).toContain("<PageBreadcrumb items={recordingBreadcrumbItems}");
+    expect(route).not.toContain('from "@/components/ui/breadcrumb"');
+    expect(route).toContain('to: "/library"');
+    expect(route).toContain('to: "/spaces"');
     expect(route).toContain("recordingFolder.spaceId");
     expect(route).toContain("{recordingActions}");
     expect(route).toContain("fallback={ownerInitial}");

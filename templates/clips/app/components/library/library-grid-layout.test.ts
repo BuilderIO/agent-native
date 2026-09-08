@@ -26,6 +26,9 @@ describe("selected library actions layout", () => {
     const spaceFolderRouteSource = readSource(
       "../../routes/_app.spaces.$spaceId.folder.$folderId.tsx",
     );
+    const recordingRouteSource = readSource(
+      "../../routes/_app.r.$recordingId.tsx",
+    );
 
     expect(gridSource).toContain("<PageBreadcrumb");
     expect(gridSource).not.toContain('<h1 className="text-base');
@@ -51,6 +54,19 @@ describe("selected library actions layout", () => {
     expect(folderRouteSource).toContain("<LibraryPrimaryActions folderId");
     expect(spaceRouteSource).toContain("<LibraryPrimaryActions spaceId");
     expect(spaceFolderRouteSource).toContain("<LibraryPrimaryActions folderId");
+    expect(folderRouteSource).toContain(
+      '{ label: t("navigation.library"), to: "/library" }',
+    );
+    expect(spaceRouteSource).toContain(
+      '{ label: t("navigation.spaces"), to: "/spaces" }',
+    );
+    expect(spaceFolderRouteSource).toContain("to: `/spaces/${spaceId}`");
+    expect(recordingRouteSource).toContain(
+      "<PageBreadcrumb items={recordingBreadcrumbItems}",
+    );
+    expect(recordingRouteSource).not.toContain(
+      'from "@/components/ui/breadcrumb"',
+    );
     expect(layoutSource).toContain(
       '"flex h-14 shrink-0 items-center border-b border-border"',
     );

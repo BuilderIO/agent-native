@@ -984,7 +984,7 @@ export default function DictateRoute() {
   return (
     <>
       <PageHeader>
-        <PageBreadcrumb label={t("navigation.dictate")} />
+        <PageBreadcrumb items={[{ label: t("navigation.dictate") }]} />
         <VocabularyManager />
       </PageHeader>
       <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6">

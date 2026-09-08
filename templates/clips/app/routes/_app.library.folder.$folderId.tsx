@@ -30,6 +30,10 @@ export default function LibraryFolderRoute() {
       folderId={folderId}
       emptyKind="folder"
       title={folder?.name ?? t("navigation.folder")}
+      breadcrumbItems={[
+        { label: t("navigation.library"), to: "/library" },
+        { label: folder?.name ?? t("navigation.folder") },
+      ]}
       extraActions={<LibraryPrimaryActions folderId={folderId} />}
     />
   );

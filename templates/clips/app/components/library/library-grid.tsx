@@ -47,7 +47,11 @@ import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
 import { EmptyState } from "./empty-state";
 import { FilterChips, type FilterChip } from "./filter-chips";
 import { FolderCard } from "./folder-card";
-import { PageBreadcrumb, PageHeader } from "./page-header";
+import {
+  PageBreadcrumb,
+  PageHeader,
+  type PageBreadcrumbItem,
+} from "./page-header";
 import { RecordingCard } from "./recording-card";
 import { SearchBar } from "./search-bar";
 import { SortMenu, type SortKey } from "./sort-menu";
@@ -59,6 +63,7 @@ interface LibraryGridProps {
   /** What empty-state illustration to render. Defaults from `view`. */
   emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
+  breadcrumbItems?: readonly PageBreadcrumbItem[];
   tagFilter?: string | null;
   onClearTag?: () => void;
   extraActions?: React.ReactNode;
@@ -152,6 +157,7 @@ export function LibraryGrid({
   spaceId = null,
   emptyKind,
   title,
+  breadcrumbItems,
   tagFilter,
   onClearTag,
   extraActions,
@@ -168,6 +174,8 @@ export function LibraryGrid({
   const [isBulkPending, setIsBulkPending] = useState(false);
   const [page, setPage] = useState(1);
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
+  const pageBreadcrumbItems =
+    breadcrumbItems ?? (title ? [{ label: title }] : []);
 
   useEffect(() => {
     if (!title) return;
@@ -461,7 +469,9 @@ export function LibraryGrid({
       <PageHeader>
         <div className="flex min-w-0 flex-1 items-center gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem_minmax(0,1fr)]">
           <div className="min-w-0 flex-1 lg:flex-none">
-            {title ? <PageBreadcrumb label={title} /> : null}
+            {pageBreadcrumbItems.length > 0 ? (
+              <PageBreadcrumb items={pageBreadcrumbItems} />
+            ) : null}
           </div>
           <SearchBar
             side="bottom"

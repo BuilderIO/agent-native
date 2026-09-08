@@ -77,6 +77,10 @@ export default function SpaceRoute() {
           folderId={null}
           emptyKind="space"
           title={(space as any)?.name ?? t("navigation.space")}
+          breadcrumbItems={[
+            { label: t("navigation.spaces"), to: "/spaces" },
+            { label: (space as any)?.name ?? t("navigation.space") },
+          ]}
           extraActions={<LibraryPrimaryActions spaceId={spaceId} />}
         />
       </div>
