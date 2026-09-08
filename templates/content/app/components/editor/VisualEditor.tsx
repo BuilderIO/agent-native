@@ -65,12 +65,12 @@ import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import type { CommentThread } from "@/hooks/use-comments";
 
 import { BubbleToolbar } from "./BubbleToolbar";
-import { buildContentSelectionPayload } from "./content-selection";
 import {
   resolveAnchor,
   resolveAnchorPoint,
   type CommentTextAnchor,
 } from "./comment-anchors";
+import { buildContentSelectionPayload } from "./content-selection";
 import { AudioNode } from "./extensions/AudioNode";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {

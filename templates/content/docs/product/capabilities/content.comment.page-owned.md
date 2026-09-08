@@ -63,6 +63,15 @@ Given a Page with a Comment thread is referenced or embedded elsewhere, when a v
 
 `document_comments` schema and editor Comment UI/actions provide anchored threaded-comment substrate. Stable multi-Block anchors, rich universal fields, historical repair, and embed authority are not fully proven; this remains `approved_shape`.
 
+The anchored editor workflow includes document-session drafts, author text editing,
+readable resolved conversations, and optimistic comment mutations with scoped
+refreshes. Behavioral coverage lives in `CommentsSidebar.interaction.test.tsx`,
+`comment-drafts.test.tsx`, `textarea-autosize.test.tsx`,
+`use-comments.mutations.test.ts`, and `update-comment.test.ts`. These cover draft
+retention, responsive sizing, failed and overlapping mutations, and existing
+commenter/editor access. They do not establish the broader multi-Block,
+historical-deletion, notification, or embed contracts above.
+
 ## Proof plan
 
 1. Create, reply, mention, resolve, reopen, edit, and delete Comments through UI and Actions.

@@ -1195,7 +1195,7 @@ export class AppSyncState {
       persist: async (transaction) => {
         if (persisted) return persisted;
         let version: number;
-        if (this.dbAssignedVersions && this.isPg()) {
+        if (this.dbAssignedVersions) {
           const result = await transaction.execute({
             sql: ALLOCATING_INSERT_SQL,
             args: [
@@ -1222,11 +1222,8 @@ export class AppSyncState {
           version = Math.max(this.version + 1, Date.now());
           const entry = { ...event, version, cursorId: id } as ChangeEvent;
           const result = await transaction.execute({
-            sql: this.isPg()
-              ? `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`
-              : `INSERT OR IGNORE INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            sql: `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
             args: [
               id,
               version,

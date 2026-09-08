@@ -1,35 +1,43 @@
-import Database from "better-sqlite3";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
-let sqlite: Database.Database;
-const rawClient = {
-  execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
-    if (typeof input === "string") {
-      sqlite.exec(input);
-      return { rows: [], rowsAffected: 0 };
-    }
-    const stmt = sqlite.prepare(input.sql);
-    const args = (input.args ?? []) as unknown[];
-    if (/^\s*select/i.test(input.sql))
-      return { rows: stmt.all(...args), rowsAffected: 0 };
-    const info = stmt.run(...args);
-    return { rows: [], rowsAffected: info.changes };
-  }),
-  transaction: async <T>(fn: (tx: typeof rawClient) => Promise<T>) => {
-    sqlite.exec("BEGIN");
+import { createTestPglite } from "../../a2a/test-pglite.js";
+import type { DbExec } from "../../db/client.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+
+async function execute(input: string | { sql: string; args?: unknown[] }) {
+  if (typeof input === "string") {
+    await pglite.exec(input);
+    return { rows: [], rowsAffected: 0 };
+  }
+  const result = await pglite.query(input.sql, input.args ?? []);
+  return {
+    rows: Array.from(result.rows ?? []),
+    rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+  };
+}
+
+type TransactionalTestClient = DbExec & {
+  transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T>;
+};
+
+const rawClient: TransactionalTestClient = {
+  execute: vi.fn(execute),
+  transaction: async <T>(fn: (tx: DbExec) => Promise<T>) => {
+    await pglite.exec("BEGIN");
     try {
       const result = await fn(rawClient);
-      sqlite.exec("COMMIT");
+      await pglite.exec("COMMIT");
       return result;
     } catch (error) {
-      sqlite.exec("ROLLBACK");
+      await pglite.exec("ROLLBACK");
       throw error;
     }
   },
 };
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 const {
   ensureSuggestionTables,
@@ -40,11 +48,15 @@ const {
 } = await import("./store.js");
 
 beforeEach(async () => {
-  sqlite = new Database(":memory:");
+  pglite = await createTestPglite();
+  rawClient.execute.mockClear();
   __resetSuggestionTablesForTests();
   await ensureSuggestionTables();
 });
-afterEach(() => sqlite.close());
+afterEach(async () => {
+  await pglite.close();
+  vi.clearAllMocks();
+});
 
 const input = {
   resourceType: "document",
