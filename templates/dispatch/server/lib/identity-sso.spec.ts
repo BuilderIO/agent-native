@@ -476,6 +476,11 @@ describe("bootstrap handle store", () => {
     await expect(
       mod.consumeIdentityBootstrapHandle(handle),
     ).not.resolves.toBeNull();
+    expect(
+      executedSql
+        .filter((sql) => sql.includes("identity_sso_bootstrap"))
+        .every((sql) => !sql.includes("?")),
+    ).toBe(true);
   });
 
   it("does not issue request-time DDL in production serverless runtime", async () => {

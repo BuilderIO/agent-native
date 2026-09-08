@@ -619,7 +619,7 @@ export async function createIdentityBootstrapHandle(
     sql:
       "INSERT INTO identity_sso_bootstrap " +
       "(handle_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, created_at, expires_at, consumed_at, org_id, auth_provider) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
     args: [
       identityCodeHash(handle),
       input.state,
@@ -639,7 +639,7 @@ export async function createIdentityBootstrapHandle(
   });
   void getDbExec()
     .execute({
-      sql: "DELETE FROM identity_sso_bootstrap WHERE expires_at < ?",
+      sql: "DELETE FROM identity_sso_bootstrap WHERE expires_at < $1",
       args: [now],
     })
     .catch(() => {});
@@ -655,7 +655,7 @@ export async function consumeIdentityBootstrapHandle(
   const { rows } = await getDbExec().execute({
     sql:
       "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at, org_id, auth_provider " +
-      "FROM identity_sso_bootstrap WHERE handle_hash = ?",
+      "FROM identity_sso_bootstrap WHERE handle_hash = $1",
     args: [handleHash],
   });
   if (rows.length !== 1) return null;
@@ -678,8 +678,8 @@ export async function consumeIdentityBootstrapHandle(
   }
   const result = await getDbExec().execute({
     sql:
-      "UPDATE identity_sso_bootstrap SET consumed_at = ? " +
-      "WHERE handle_hash = ? AND consumed_at IS NULL",
+      "UPDATE identity_sso_bootstrap SET consumed_at = $1 " +
+      "WHERE handle_hash = $2 AND consumed_at IS NULL",
     args: [Date.now(), handleHash],
   });
   if (affectedRows(result) !== 1) return null;
@@ -711,8 +711,8 @@ export async function bindIdentityBootstrapHandle(
   await ensureBootstrapTable();
   const result = await getDbExec().execute({
     sql:
-      "UPDATE identity_sso_bootstrap SET browser_binding_hash = ? " +
-      "WHERE handle_hash = ? AND consumed_at IS NOT NULL AND browser_binding_hash IS NULL",
+      "UPDATE identity_sso_bootstrap SET browser_binding_hash = $1 " +
+      "WHERE handle_hash = $2 AND consumed_at IS NOT NULL AND browser_binding_hash IS NULL",
     args: [identityCodeHash(browserBinding), identityCodeHash(handle)],
   });
   return affectedRows(result) === 1;
@@ -726,7 +726,7 @@ export async function releaseIdentityBootstrapHandle(
   await getDbExec().execute({
     sql:
       "UPDATE identity_sso_bootstrap SET consumed_at = NULL, browser_binding_hash = NULL " +
-      "WHERE handle_hash = ? AND consumed_at IS NOT NULL",
+      "WHERE handle_hash = $1 AND consumed_at IS NOT NULL",
     args: [identityCodeHash(handle)],
   });
 }
@@ -740,8 +740,8 @@ export async function createIdentityBootstrapActivation(
   const now = Date.now();
   const result = await getDbExec().execute({
     sql:
-      "UPDATE identity_sso_bootstrap SET activation_hash = ?, activation_expires_at = ?, activated_at = NULL " +
-      "WHERE handle_hash = ? AND consumed_at IS NOT NULL AND activation_hash IS NULL AND activated_at IS NULL AND browser_binding_hash IS NOT NULL",
+      "UPDATE identity_sso_bootstrap SET activation_hash = $1, activation_expires_at = $2, activated_at = NULL " +
+      "WHERE handle_hash = $3 AND consumed_at IS NOT NULL AND activation_hash IS NULL AND activated_at IS NULL AND browser_binding_hash IS NOT NULL",
     args: [
       identityCodeHash(activation),
       now + IDENTITY_SSO_BOOTSTRAP_TTL_MS,
@@ -773,7 +773,7 @@ export async function consumeIdentityBootstrapActivation(
   const { rows } = await getDbExec().execute({
     sql:
       "SELECT app_id, client_id, redirect_uri, authority, email, name, activation_expires_at, activated_at, org_id, auth_provider, browser_binding_hash " +
-      "FROM identity_sso_bootstrap WHERE activation_hash = ?",
+      "FROM identity_sso_bootstrap WHERE activation_hash = $1",
     args: [activationHash],
   });
   if (rows.length !== 1) return null;
@@ -797,8 +797,8 @@ export async function consumeIdentityBootstrapActivation(
   }
   const result = await getDbExec().execute({
     sql:
-      "UPDATE identity_sso_bootstrap SET activated_at = ? " +
-      "WHERE activation_hash = ? AND activated_at IS NULL AND browser_binding_hash = ?",
+      "UPDATE identity_sso_bootstrap SET activated_at = $1 " +
+      "WHERE activation_hash = $2 AND activated_at IS NULL AND browser_binding_hash = $3",
     args: [Date.now(), activationHash, browserBindingHash],
   });
   if (affectedRows(result) !== 1) return null;
@@ -828,7 +828,7 @@ export async function releaseIdentityBootstrapActivation(
   await getDbExec().execute({
     sql:
       "UPDATE identity_sso_bootstrap SET activated_at = NULL " +
-      "WHERE activation_hash = ? AND activated_at IS NOT NULL",
+      "WHERE activation_hash = $1 AND activated_at IS NOT NULL",
     args: [identityCodeHash(activation)],
   });
 }

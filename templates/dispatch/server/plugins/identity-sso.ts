@@ -40,6 +40,7 @@ import {
   addSession,
   createBetterAuthSessionForEmail,
   ensureIdentityUser,
+  setIdentityGoogleAuthCookie,
   setFrameworkSessionCookie,
   setBetterAuthSessionCookie,
 } from "@agent-native/core/server";
@@ -1370,6 +1371,9 @@ export const bootstrapActivationHandler = defineEventHandler(
       const sessionToken = randomBytes(32).toString("hex");
       await addSession(sessionToken, bootstrap.email);
       setFrameworkSessionCookie(event, sessionToken);
+      if (bootstrap.authProvider === "google") {
+        setIdentityGoogleAuthCookie(event, bootstrap.email);
+      }
       clearBootstrapBrowserBindingCookie(event);
       return redirectWithStagedCookies(event, returnUrl);
     } catch (error) {

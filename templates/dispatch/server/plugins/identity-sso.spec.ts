@@ -18,6 +18,7 @@ const hasGoogleAuthIdentityMock = vi.hoisted(() => vi.fn());
 const addSessionMock = vi.hoisted(() => vi.fn());
 const createBetterAuthSessionForEmailMock = vi.hoisted(() => vi.fn());
 const ensureIdentityUserMock = vi.hoisted(() => vi.fn());
+const setIdentityGoogleAuthCookieMock = vi.hoisted(() => vi.fn());
 const setFrameworkSessionCookieMock = vi.hoisted(() => vi.fn());
 const setBetterAuthSessionCookieMock = vi.hoisted(() => vi.fn());
 
@@ -103,6 +104,7 @@ vi.mock("@agent-native/core/server", () => ({
   addSession: addSessionMock,
   createBetterAuthSessionForEmail: createBetterAuthSessionForEmailMock,
   ensureIdentityUser: ensureIdentityUserMock,
+  setIdentityGoogleAuthCookie: setIdentityGoogleAuthCookieMock,
   setFrameworkSessionCookie: setFrameworkSessionCookieMock,
   setBetterAuthSessionCookie: setBetterAuthSessionCookieMock,
 }));
@@ -974,6 +976,7 @@ describe("silent browser bootstrap", () => {
       authority: AUTHORITY,
       codeChallenge: createCodeChallenge(VERIFIER)!,
       email: "user@example.test",
+      authProvider: "google",
     });
     const continuationEvent = event(
       `/_agent-native/identity/bootstrap/continue?handle=${handle}`,
@@ -1024,6 +1027,10 @@ describe("silent browser bootstrap", () => {
       "user@example.test",
     );
     expect(setBetterAuthSessionCookieMock).toHaveBeenCalled();
+    expect(setIdentityGoogleAuthCookieMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "user@example.test",
+    );
   });
 
   it("does not activate a non-Google identity into a Google-only organization", async () => {
