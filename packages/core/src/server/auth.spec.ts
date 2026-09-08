@@ -1672,6 +1672,9 @@ describe("server/auth", () => {
       expect(new URL(result.url).searchParams.get("client_id")).toBe(
         "sign-in-client",
       );
+      expect(new URL(result.url).searchParams.get("scope")).toBe(
+        "openid email profile",
+      );
       expect(
         decodeOAuthState(
           new URL(result.url).searchParams.get("state") ?? undefined,
