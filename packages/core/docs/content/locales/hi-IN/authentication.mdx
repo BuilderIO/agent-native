@@ -479,3 +479,4 @@ Dispatch का default-off `desktop.workspace-sso` flag केवल उपल�
 Canary user-agent marker केवल availability hint है, remote attestation नहीं; authentication और authorization उस पर भरोसा नहीं करते।
 हर Desktop build broker शुरू कर सकता है जब device preference `desktopSsoEnabled` true (default) हो; स्पष्ट रूप से persist किया गया `false` opt-out बना रहता है। Dispatch flag `desktop.workspace-sso` भी enabled होना चाहिए। Canary user-agent marker अब broker initialization को gate नहीं करता; यह केवल update channel बताता है।
 Canary अनाम ऐप sign-in navigation को intercept नहीं करता। उपयोगकर्ता को सक्रिय registered app के लिए Desktop Settings में workspace sign-in स्पष्ट रूप से चुनना होगा; सामान्य app sign-in default path बना रहता है।
+सामान्य browsers normal per-app sign-in पर रहते हैं। Self-hosted apps को `AGENT_NATIVE_IDENTITY_HUB_URL` केवल बचे हुए explicit Desktop या server-side federation path के लिए चाहिए।

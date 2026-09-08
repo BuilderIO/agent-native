@@ -159,8 +159,8 @@ describe("getOnboardingHtml", () => {
     ).toBe(false);
   });
 
-  describe("federated SSO button (AGENT_NATIVE_IDENTITY_HUB_URL)", () => {
-    it("env unset → login HTML is byte-for-byte identical (no SSO button, no residue)", () => {
+  describe("browser federated SSO", () => {
+    it("env unset → login HTML is byte-for-byte identical (no SSO entry, no residue)", () => {
       // Capture baseline with the env unequivocally absent.
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
       const baseline = getOnboardingHtml();
@@ -173,41 +173,43 @@ describe("getOnboardingHtml", () => {
       expect(again).toBe(baseline);
     });
 
-    it("canonical hosted login pages include the browser SSO option", () => {
+    it("canonical hosted login pages keep browser SSO out of the auth surface", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
       const html = getOnboardingHtml({
         requestHost: "calendar.agent-native.com",
-        identitySsoRequestProtocol: "https",
       });
 
-      expect(html).toContain("identity-sso-btn");
-      expect(html).toContain("Sign in with Agent-Native");
-      expect(readAuthPageData(html).identitySsoAuto).toBe(true);
+      expect(html).not.toContain("identity-sso-btn");
+      expect(html).not.toContain("Sign in with Agent-Native");
     });
 
-    it("env set → injects exactly one conditional SSO entry pointing at /identity/login", () => {
+    it("does not add a browser SSO entry when the hub is configured", () => {
       vi.stubEnv(
         "AGENT_NATIVE_IDENTITY_HUB_URL",
         "https://dispatch.agent-native.com",
       );
       const html = getOnboardingHtml();
-      expect(html).toContain('id="identity-sso-btn"');
-      expect(html).toContain('href="/_agent-native/identity/login"');
-      expect(html).toContain("Sign in with Agent-Native");
-      expect(html).toContain("data-agent-native-embedded-init");
-      expect(html).toContain(
-        'params.get("embedded") === "1" || window.self !== window.top',
-      );
-      // Exactly one rendered element — not duplicated across layout branches.
-      expect(html.split('id="identity-sso-btn"').length - 1).toBe(1);
+      expect(html).not.toContain('id="identity-sso-btn"');
+      expect(html).not.toContain('href="/_agent-native/identity/login"');
+      expect(html).not.toContain("Sign in with Agent-Native");
     });
 
-    it("malformed env value is treated as OFF (no button, no throw)", () => {
+    it("malformed hub configuration does not change the auth surface", () => {
       vi.stubEnv("AGENT_NATIVE_IDENTITY_HUB_URL", "not a url");
       const html = getOnboardingHtml();
       expect(html).not.toContain("identity-sso-btn");
+    });
+
+    it("ignores the removed browser SSO request fields", () => {
+      const html = getOnboardingHtml({
+        identitySsoRequestHost: "dispatch.agent-native.com",
+        identitySsoRequestProtocol: "https",
+      });
+
+      expect(html).not.toContain("identity-sso-btn");
+      expect(html).not.toContain("Sign in with Agent-Native");
     });
   });
 
