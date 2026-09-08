@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { serializeRegistryBlockToMdx } from "../shared/nfm-registry.js";
 
@@ -200,6 +200,68 @@ async function databaseRow(databaseId: string) {
 }
 
 describe("database-scoped document properties", () => {
+  it("preserves a newer presentation save when an older client resumes", async () => {
+    const { databaseId, databaseDocumentId } = await createDatabase({});
+    const action = (await import("./update-content-database-view.js")).default;
+    const sharing = await import("@agent-native/core/sharing");
+    const originalAssertAccess = sharing.assertAccess;
+    let releaseOlder!: () => void;
+    let olderIsWaiting!: () => void;
+    const olderReleased = new Promise<void>((resolve) => {
+      releaseOlder = resolve;
+    });
+    const olderWaiting = new Promise<void>((resolve) => {
+      olderIsWaiting = resolve;
+    });
+    let pauseNext = true;
+    const access = vi
+      .spyOn(sharing, "assertAccess")
+      .mockImplementation(async (...args) => {
+        const result = await originalAssertAccess(...args);
+        if (args[1] === databaseDocumentId && pauseNext) {
+          pauseNext = false;
+          olderIsWaiting();
+          await olderReleased;
+        }
+        return result;
+      });
+    const save = (view: Record<string, unknown>) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run(
+          action.schema.parse({
+            databaseId,
+            viewConfig: {
+              activeViewId: "table",
+              views: [{ id: "table", name: "Table", type: "table", ...view }],
+            },
+          }),
+        ),
+      );
+    const olderSave = save({ rowDensity: "comfortable" });
+
+    try {
+      await olderWaiting;
+      await save({
+        tableColumnOrderIds: ["text", "name"],
+        columnWrapOverrides: { name: true },
+        frozenThroughColumnId: "text",
+      });
+      releaseOlder();
+      await olderSave;
+      const stored = JSON.parse((await databaseRow(databaseId)).viewConfigJson);
+      expect(stored.views[0]).toMatchObject({
+        rowDensity: "comfortable",
+        tableColumnOrderIds: ["text", "name"],
+        columnWrapOverrides: { name: true },
+        frozenThroughColumnId: "text",
+      });
+    } finally {
+      releaseOlder();
+      await olderSave;
+      access.mockRestore();
+    }
+  });
+
   it("accepts legacy context-free property action inputs", async () => {
     const missingDocumentId = nextId("missing_document");
     const missingPropertyId = nextId("missing_property");

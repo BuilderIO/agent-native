@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withSavedTableColumnPresentation } from "../shared/database-table-columns.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import {
   parseDatabaseViewConfig,
@@ -121,7 +122,7 @@ export default defineAction({
   run: async ({ databaseId, viewConfig }) => {
     const db = getDb();
     const [database] = await db
-      .select()
+      .select({ documentId: schema.contentDatabases.documentId })
       .from(schema.contentDatabases)
       .where(
         and(
@@ -133,21 +134,41 @@ export default defineAction({
 
     await assertAccess("document", database.documentId, "editor");
 
-    const currentViewConfig = parseDatabaseViewConfig(database.viewConfigJson);
-    const nextViewConfig = {
-      ...viewConfig,
-      views: viewConfig.views?.map((view) =>
-        withSavedTableColumnPresentation(view, currentViewConfig.views),
-      ),
-    };
+    await db.transaction(async (tx) => {
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        databaseId,
+      );
+      const [lockedDatabase] = await tx
+        .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.id, databaseId),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        );
+      if (!lockedDatabase)
+        throw new Error(`Database "${databaseId}" not found`);
 
-    await db
-      .update(schema.contentDatabases)
-      .set({
-        viewConfigJson: serializeDatabaseViewConfig(nextViewConfig),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.contentDatabases.id, databaseId));
+      const currentViewConfig = parseDatabaseViewConfig(
+        lockedDatabase.viewConfigJson,
+      );
+      const nextViewConfig = {
+        ...viewConfig,
+        views: viewConfig.views?.map((view) =>
+          withSavedTableColumnPresentation(view, currentViewConfig.views),
+        ),
+      };
+
+      await tx
+        .update(schema.contentDatabases)
+        .set({
+          viewConfigJson: serializeDatabaseViewConfig(nextViewConfig),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.contentDatabases.id, databaseId));
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
