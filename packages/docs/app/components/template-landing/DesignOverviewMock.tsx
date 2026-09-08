@@ -766,7 +766,7 @@ const DESIGN_MOCK_CSS = [
   // because tokens.css is scoped under `.builder-brand-tokens`, which root.tsx
   // deliberately keeps off <body> — a `var(--b-*)` here would resolve to
   // nothing.
-  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-chrome-bg: hsl(0 0% 10%); --dm-dot: hsl(0 0% 30%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-accent: #01c8f1; --dm-accent-contrast: #0a0a0a; --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-avatar-border: hsl(0 0% 13%); --dm-avatar-fg: hsl(0 0% 82%); --dm-avatar-bg-1: hsl(0 0% 40%); --dm-avatar-bg-2: hsl(0 0% 32%); --dm-avatar-bg-3: hsl(0 0% 25%); }",
+  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-chrome-bg: hsl(0 0% 10%); --dm-dot: hsl(0 0% 30%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-accent: #01c8f1; --dm-accent-contrast: #0a0a0a; --dm-share-bg: hsl(0 0% 88%); --dm-share-fg: hsl(0 0% 12%); --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-avatar-border: hsl(0 0% 13%); --dm-avatar-fg: hsl(0 0% 82%); --dm-avatar-bg-1: hsl(0 0% 40%); --dm-avatar-bg-2: hsl(0 0% 32%); --dm-avatar-bg-3: hsl(0 0% 25%); }",
 
   // Window. Column, so the title bar spans the panels the way real window
   // chrome does; the body below it is the horizontal rail/panel/canvas split.
@@ -853,7 +853,11 @@ const DESIGN_MOCK_CSS = [
   // 28px to match the avatar row beside it. It reads taller than its
   // neighbours at 32 because it is the only filled control up here, so the box
   // is the whole silhouette; the ghost preview button gets away with more.
-  ".design-mock .dm-share-btn { display: flex; height: 28px; align-items: center; padding: 0 10px; border-radius: 6px; background: var(--dm-accent); color: var(--dm-accent-contrast); font-size: 12px; font-weight: 600; }",
+  //
+  // Neutral rather than the brand accent: it is the only filled control in the
+  // chrome, so an accent fill made it the loudest thing on the page and pulled
+  // focus off the canvas. The accent stays on the selection and active tool.
+  ".design-mock .dm-share-btn { display: flex; height: 28px; align-items: center; padding: 0 10px; border-radius: 6px; background: var(--dm-share-bg); color: var(--dm-share-fg); font-size: 12px; font-weight: 600; }",
   ".design-mock .dm-segmented { display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: var(--dm-control-bg); }",
   ".design-mock .dm-segment { display: flex; height: 24px; align-items: center; gap: 4px; padding: 0 6px; border-radius: 5px; color: var(--dm-fg-muted); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }",
   ".design-mock .dm-segment.is-active { background: var(--dm-panel-bg); color: var(--dm-accent); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }",
@@ -928,7 +932,7 @@ const DESIGN_MOCK_CSS = [
 
   // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
   // follows the visitor's theme instead of staying pinned to the dark art.
-  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-chrome-bg: hsl(0 0% 96%); --dm-dot: hsl(0 0% 80%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-accent: #00677f; --dm-accent-contrast: #ffffff; --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-avatar-border: hsl(0 0% 100%); --dm-avatar-fg: hsl(0 0% 32%); --dm-avatar-bg-1: hsl(0 0% 72%); --dm-avatar-bg-2: hsl(0 0% 79%); --dm-avatar-bg-3: hsl(0 0% 86%); }",
+  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-chrome-bg: hsl(0 0% 96%); --dm-dot: hsl(0 0% 80%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-accent: #00677f; --dm-accent-contrast: #ffffff; --dm-share-bg: hsl(0 0% 20%); --dm-share-fg: hsl(0 0% 98%); --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-avatar-border: hsl(0 0% 100%); --dm-avatar-fg: hsl(0 0% 32%); --dm-avatar-bg-1: hsl(0 0% 72%); --dm-avatar-bg-2: hsl(0 0% 79%); --dm-avatar-bg-3: hsl(0 0% 86%); }",
   "html.light .design-mock .dm-paint-swatch { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }",
 
   // Light-mode floating toolbar: a raised white bar rather than the editor's
