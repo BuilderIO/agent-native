@@ -7,6 +7,7 @@ import { triageItems } from "../server/db/schema.js";
 import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
 import { authorMatchesFilter } from "../server/lib/factory-automation-config.js";
 import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
+import { factoryRepositoryFromSources } from "../server/lib/factory-repository-scope.js";
 import {
   factoryIdSchema,
   orgFactoryItemFilter,
@@ -26,6 +27,9 @@ import { recordFactoryAudit } from "../server/triage/audit.js";
 import {
   createGitHubClient,
   GitHubRequestError,
+  type GitHubIssue,
+  type GitHubOpenItemPage,
+  type GitHubPullRequest,
 } from "../server/triage/github-client.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import {
@@ -34,6 +38,7 @@ import {
   metadataNumber,
   metadataString,
   parseTriageMetadata,
+  triageItemAuthorId,
   type TriageMetadata,
 } from "../server/triage/metadata.js";
 import {
@@ -61,6 +66,38 @@ type NewlyObservedSource = {
 
 export const PARKED_PR_RECHECK_EXTRA_LIMIT = 20;
 export const PARKED_PR_RECHECK_CONCURRENCY = 4;
+export const OPEN_ITEM_PAGE_SIZE = 50;
+export const MAX_OPEN_ITEM_PAGES = 5;
+
+/**
+ * Walk provider pages applying the author filter as we go, so excluded authors
+ * cannot occupy the budget and starve matching items sitting on a later page.
+ * Stops at the budget or the page cap and reports whichever it hit: a run that
+ * stopped early is not a run that saw the whole repository.
+ */
+export async function collectOpenItems<T>(
+  fetchPage: (page: number) => Promise<GitHubOpenItemPage<T>>,
+  authorIdOf: (item: T) => string,
+  accepts: (authorId: string) => boolean,
+  budget: number,
+): Promise<{ items: T[]; authorFiltered: number; hasMore: boolean }> {
+  const items: T[] = [];
+  let authorFiltered = 0;
+  let hasMore = false;
+  for (let page = 1; page <= MAX_OPEN_ITEM_PAGES; page += 1) {
+    const result = await fetchPage(page);
+    for (const item of result.items) {
+      if (!accepts(authorIdOf(item))) {
+        authorFiltered += 1;
+        continue;
+      }
+      items.push(item);
+    }
+    hasMore = result.hasMore;
+    if (!hasMore || items.length >= budget) break;
+  }
+  return { items, authorFiltered, hasMore };
+}
 
 type ParkedRecheck = {
   humanReviewCommentCount: number;
@@ -187,7 +224,7 @@ function githubPollRollupSummary(
 
 export default defineAction({
   description:
-    "Poll the configured GitHub repository for bounded open issues and pull requests and record them in the Factory queue. Items whose author the calling automation's author filter excludes are counted in authorFiltered and never added to the queue. This does not write to GitHub.",
+    "Poll the configured GitHub repository for bounded open issues and pull requests and record them in the Factory queue. Items whose author the calling automation's author filter excludes are counted in authorFiltered and never added to the queue; the poll walks further provider pages so excluded authors cannot starve matching ones. truncated is true whenever the run saw less than the repository's open set — more provider pages remain, the author filter skipped something, or the inbox limit was reached — so a truncated run is not a complete observation. This does not write to GitHub.",
   schema: z.object({
     factoryId: factoryIdSchema,
     includeIssues: z.boolean().default(true),
@@ -211,7 +248,10 @@ export default defineAction({
       userEmail,
       orgId,
     });
-    const repositoryRef = job?.config.repository || config?.repository;
+    const repositoryRef = factoryRepositoryFromSources(
+      job?.config.repository,
+      config?.repository,
+    );
     if (!repositoryRef) {
       await recordFactoryAudit(
         context,
@@ -233,14 +273,48 @@ export default defineAction({
     const repository = parseGitHubRepositoryRef(repositoryRef);
     const repositoryName = `${repository.owner}/${repository.repo}`;
     const client = createGitHubClient({ ownerEmail: userEmail, orgId });
-    const [issues, pullRequests] = await Promise.all([
+    // One author decision for the whole run: the page walk, the parked-PR
+    // recheck, and the reopen path must not disagree about who is in scope.
+    const acceptsAuthor = (authorId: string): boolean =>
+      !job ||
+      authorMatchesFilter(
+        authorId,
+        job.config.authorMode,
+        job.config.authorIds,
+      );
+    const emptyCollection = <T>() => ({
+      items: [] as T[],
+      authorFiltered: 0,
+      hasMore: false,
+    });
+    const [issueCollection, pullRequestCollection] = await Promise.all([
       includeIssues
-        ? client.listOpenIssues(repository, 50)
-        : Promise.resolve([]),
+        ? collectOpenItems(
+            (page) =>
+              client.listOpenIssues(repository, OPEN_ITEM_PAGE_SIZE, { page }),
+            (issue) => issue.userId,
+            acceptsAuthor,
+            inboxLimit,
+          )
+        : Promise.resolve(emptyCollection<GitHubIssue>()),
       includePullRequests
-        ? client.listOpenPullRequests(repository, 50)
-        : Promise.resolve([]),
+        ? collectOpenItems(
+            (page) =>
+              client.listOpenPullRequests(repository, OPEN_ITEM_PAGE_SIZE, {
+                page,
+              }),
+            (pullRequest) => String(pullRequest.userId),
+            acceptsAuthor,
+            inboxLimit,
+          )
+        : Promise.resolve(emptyCollection<GitHubPullRequest>()),
     ]);
+    const issues = issueCollection.items;
+    const pullRequests = pullRequestCollection.items;
+    const authorFiltered =
+      issueCollection.authorFiltered + pullRequestCollection.authorFiltered;
+    const providerHasMore =
+      issueCollection.hasMore || pullRequestCollection.hasMore;
     const parkedRechecks = new Map<number, ParkedRecheck>();
     const listedOpenPrNumbers = new Set(
       pullRequests.map((pullRequest) => pullRequest.number),
@@ -268,6 +342,7 @@ export default defineAction({
     const parkedRows = existingPrs.filter(
       (row) =>
         typeof row.pullRequestNumber === "number" &&
+        acceptsAuthor(triageItemAuthorId(row.metadataJson)) &&
         babysitLeavesReviewWindow(
           metadataString(
             parseTriageMetadata(row.metadataJson),
@@ -322,22 +397,11 @@ export default defineAction({
     let pullRequestCount = 0;
     let added = 0;
     let updated = 0;
-    let authorFiltered = 0;
+    let droppedByInboxLimit = 0;
     const newlyObserved: NewlyObservedSource[] = [];
 
     await db.transaction(async (tx) => {
       for (const issue of issues) {
-        if (
-          job &&
-          !authorMatchesFilter(
-            issue.userId,
-            job.config.authorMode,
-            job.config.authorIds,
-          )
-        ) {
-          authorFiltered += 1;
-          continue;
-        }
         const id = itemDedupeKey(
           {
             source: "github_issue",
@@ -353,7 +417,10 @@ export default defineAction({
             .where(and(eq(triageItems.id, id), eq(triageItems.orgId, orgId)))
             .limit(1)
         )[0];
-        if (!existing && added >= inboxLimit) continue;
+        if (!existing && added >= inboxLimit) {
+          droppedByInboxLimit += 1;
+          continue;
+        }
         const metadata = mergeTriageMetadata(existing?.metadataJson ?? "{}", {
           kind: "github_issue",
           author: issue.userLogin,
@@ -430,17 +497,6 @@ export default defineAction({
       }
 
       for (const pullRequest of pullRequests) {
-        if (
-          job &&
-          !authorMatchesFilter(
-            String(pullRequest.userId),
-            job.config.authorMode,
-            job.config.authorIds,
-          )
-        ) {
-          authorFiltered += 1;
-          continue;
-        }
         const id = itemDedupeKey(
           {
             source: "github",
@@ -458,7 +514,10 @@ export default defineAction({
             .where(and(eq(triageItems.id, id), eq(triageItems.orgId, orgId)))
             .limit(1)
         )[0];
-        if (!existing && added >= inboxLimit) continue;
+        if (!existing && added >= inboxLimit) {
+          droppedByInboxLimit += 1;
+          continue;
+        }
         const metadata = mergeTriageMetadata(existing?.metadataJson ?? "{}", {
           kind: "pull_request",
           author: pullRequest.userLogin,
@@ -634,7 +693,12 @@ export default defineAction({
       );
     });
 
-    if (issues.length === 0 && pullRequests.length === 0) {
+    // Any of these means the run saw less than the repository's open set, so
+    // none of the branches below may report a complete observation.
+    const truncated =
+      providerHasMore || authorFiltered > 0 || droppedByInboxLimit > 0;
+
+    if (issues.length === 0 && pullRequests.length === 0 && !truncated) {
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
@@ -674,7 +738,8 @@ export default defineAction({
             updated: 0,
             authorFiltered,
             newlyObserved: 0,
-            truncated: false,
+            providerHasMore,
+            truncated,
           },
         },
         factoryId,
@@ -696,10 +761,10 @@ export default defineAction({
             added,
             updated,
             authorFiltered,
+            droppedByInboxLimit,
             newlyObserved: newlyObserved.filter((item) => item.added).length,
-            truncated:
-              added + updated + authorFiltered <
-              issues.length + pullRequests.length,
+            providerHasMore,
+            truncated,
             itemIds: newlyObserved
               .filter((item) => item.added)
               .map((item) => item.itemId),
@@ -736,6 +801,9 @@ export default defineAction({
       issues: issueCount,
       pullRequests: pullRequestCount,
       authorFiltered,
+      droppedByInboxLimit,
+      providerHasMore,
+      truncated,
     };
   },
 });

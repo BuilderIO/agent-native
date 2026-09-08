@@ -256,11 +256,14 @@ describe("poll-github-sources author filter", () => {
       },
     });
     createGitHubClientMock.mockReturnValue({
-      listOpenIssues: async () => [],
-      listOpenPullRequests: async () => [
-        pullRequest(1, 138030887, "builder-io-integration[bot]"),
-        pullRequest(2, 844291, "steve8708"),
-      ],
+      listOpenIssues: async () => ({ items: [], hasMore: false }),
+      listOpenPullRequests: async () => ({
+        items: [
+          pullRequest(1, 138030887, "builder-io-integration[bot]"),
+          pullRequest(2, 844291, "steve8708"),
+        ],
+        hasMore: false,
+      }),
     });
   }
 
@@ -299,7 +302,10 @@ describe("poll-github-sources author filter", () => {
         details: expect.objectContaining({
           authorFiltered: 1,
           added: 1,
-          truncated: false,
+          // Skipping an open item means the run did not observe the whole
+          // repository, so it must not report a complete observation.
+          truncated: true,
+          providerHasMore: false,
         }),
       }),
       "testingfactory",
@@ -321,8 +327,120 @@ describe("poll-github-sources author filter", () => {
         status: "skipped",
         summary:
           "Every open item was skipped by the automation's author filter (2 skipped).",
+        details: expect.objectContaining({ truncated: true }),
       }),
       "testingfactory",
     );
+  });
+
+  it("walks past a page of excluded authors to reach a matching one", async () => {
+    const { default: action } = await import("./poll-github-sources.js");
+    requireFactoryAutomationMock.mockResolvedValue(undefined);
+    readCallingFactoryAutomationMock.mockResolvedValue({
+      name: "factories/testingfactory/factory-pr-babysit",
+      content: "",
+      config: {
+        repository: "acme/repo",
+        authorMode: "include",
+        authorIds: ["138030887"],
+        inboxLimit: 25,
+      },
+    });
+    const pages = [
+      { items: [pullRequest(1, 844291, "steve8708")], hasMore: true },
+      {
+        items: [pullRequest(2, 138030887, "builder-io-integration[bot]")],
+        hasMore: false,
+      },
+    ];
+    const seenPages: number[] = [];
+    createGitHubClientMock.mockReturnValue({
+      listOpenIssues: async () => ({ items: [], hasMore: false }),
+      listOpenPullRequests: async (
+        _repository: unknown,
+        _limit: number,
+        options: { page?: number } = {},
+      ) => {
+        const page = options.page ?? 1;
+        seenPages.push(page);
+        return pages[page - 1] ?? { items: [], hasMore: false };
+      },
+    });
+
+    const result = await action.run(input, context);
+
+    expect(seenPages).toEqual([1, 2]);
+    expect(result).toMatchObject({ pullRequests: 1, authorFiltered: 1 });
+  });
+
+  it("does not recheck or reopen a parked pull request from an excluded author", async () => {
+    const { default: action } = await import("./poll-github-sources.js");
+    runWithAuthors("include", ["138030887"]);
+    const getPullRequestSummary = vi.fn();
+    createGitHubClientMock.mockReturnValue({
+      listOpenIssues: async () => ({ items: [], hasMore: false }),
+      // Parked rows are only rechecked when they fall off the open page.
+      listOpenPullRequests: async () => ({ items: [], hasMore: false }),
+      getPullRequestSummary,
+    });
+    getDbMock.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: async () => [
+            {
+              id: "item-parked",
+              metadataJson: JSON.stringify({
+                authorId: "844291",
+                prBabysitState: "waiting",
+              }),
+              pullRequestNumber: 9,
+              headSha: "sha-9",
+              sourceUrl: "https://github.com/acme/repo/pull/9",
+              title: "PR 9",
+              repository: "acme/repo",
+              updatedAt: "2026-09-04T00:00:00.000Z",
+            },
+          ],
+        }),
+      }),
+      transaction: async (run: (tx: unknown) => Promise<void>) =>
+        run({
+          select: () => ({
+            from: () => ({ where: () => ({ limit: async () => [] }) }),
+          }),
+          insert: insertMock,
+          update: () => ({ set: () => ({ where: async () => undefined }) }),
+        }),
+    });
+
+    await action.run(input, context);
+
+    expect(getPullRequestSummary).not.toHaveBeenCalled();
+  });
+
+  it("reports a run that stopped with provider pages left as truncated", async () => {
+    const { default: action } = await import("./poll-github-sources.js");
+    requireFactoryAutomationMock.mockResolvedValue(undefined);
+    readCallingFactoryAutomationMock.mockResolvedValue({
+      name: "factories/testingfactory/factory-pr-babysit",
+      content: "",
+      config: {
+        repository: "acme/repo",
+        authorMode: "include",
+        authorIds: ["138030887"],
+        inboxLimit: 1,
+      },
+    });
+    createGitHubClientMock.mockReturnValue({
+      listOpenIssues: async () => ({ items: [], hasMore: false }),
+      listOpenPullRequests: async () => ({
+        items: [pullRequest(1, 138030887, "builder-io-integration[bot]")],
+        hasMore: true,
+      }),
+    });
+
+    const result = await action.run(input, context);
+
+    expect(result).toMatchObject({ providerHasMore: true, truncated: true });
   });
 });

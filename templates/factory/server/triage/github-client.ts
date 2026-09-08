@@ -163,6 +163,17 @@ export interface GitHubPullRequestEvidence {
   checksCoverage: TriageCoverage;
 }
 
+/**
+ * One page of an open-item listing. `hasMore` reflects the raw provider page,
+ * not the parsed items: `listOpenIssues` drops pull requests from the issues
+ * endpoint, so a full provider page can yield fewer issues and still have a
+ * next page behind it.
+ */
+export interface GitHubOpenItemPage<T> {
+  items: T[];
+  hasMore: boolean;
+}
+
 const MAX_REVIEW_PAGES = 5;
 
 interface JsonResponse {
@@ -208,6 +219,13 @@ function pageSize(limit?: number): number {
     );
   }
   return limit;
+}
+
+function requirePositivePage(page: number): number {
+  if (!Number.isInteger(page) || page < 1) {
+    throw new Error("GitHub page must be an integer of 1 or more");
+  }
+  return page;
 }
 
 function repositoryPath(repository: GitHubRepositoryRef): string {
@@ -543,25 +561,40 @@ export function createGitHubClient(options: GitHubClientOptions) {
     async listOpenPullRequests(
       repository: GitHubRepositoryRef,
       limit?: number,
-    ) {
+      options: { page?: number } = {},
+    ): Promise<GitHubOpenItemPage<GitHubPullRequest>> {
+      const perPage = pageSize(limit);
+      const page = requirePositivePage(options.page ?? 1);
       const value = await request<unknown>(
-        `${repositoryPath(repository)}/pulls?state=open&per_page=${pageSize(limit)}`,
+        `${repositoryPath(repository)}/pulls?state=open&per_page=${perPage}&page=${page}`,
       );
       if (!Array.isArray(value))
         throw new Error("GitHub pull request response was not an array");
-      return value.map(parsePullRequest);
+      return {
+        items: value.map(parsePullRequest),
+        hasMore: value.length >= perPage,
+      };
     },
 
-    async listOpenIssues(repository: GitHubRepositoryRef, limit?: number) {
+    async listOpenIssues(
+      repository: GitHubRepositoryRef,
+      limit?: number,
+      options: { page?: number } = {},
+    ): Promise<GitHubOpenItemPage<GitHubIssue>> {
+      const perPage = pageSize(limit);
+      const page = requirePositivePage(options.page ?? 1);
       const value = await request<unknown>(
-        `${repositoryPath(repository)}/issues?state=open&per_page=${pageSize(limit)}`,
+        `${repositoryPath(repository)}/issues?state=open&per_page=${perPage}&page=${page}`,
       );
       if (!Array.isArray(value))
         throw new Error("GitHub issue response was not an array");
-      return value.flatMap((item) => {
-        const issue = parseIssue(item);
-        return issue ? [issue] : [];
-      });
+      return {
+        items: value.flatMap((item) => {
+          const issue = parseIssue(item);
+          return issue ? [issue] : [];
+        }),
+        hasMore: value.length >= perPage,
+      };
     },
 
     async listPullRequestReviews(

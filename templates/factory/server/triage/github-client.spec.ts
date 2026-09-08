@@ -142,11 +142,12 @@ describe("GitHub triage client", () => {
       fetchImpl,
     }).listOpenPullRequests(repository);
 
-    expect(pullRequests[0]).toMatchObject({
+    expect(pullRequests.items[0]).toMatchObject({
       number: 7,
       headSha: "sha-7",
       userId: 17,
     });
+    expect(pullRequests.hasMore).toBe(false);
     expect(
       new URL(String(fetchImpl.mock.calls[0]?.[0])).searchParams.get(
         "per_page",
@@ -219,7 +220,9 @@ describe("GitHub triage client", () => {
       fetchImpl,
     });
 
-    await expect(client.listOpenIssues(repository)).resolves.toHaveLength(1);
+    await expect(client.listOpenIssues(repository)).resolves.toMatchObject({
+      items: [expect.anything()],
+    });
     await expect(client.checkMember(repository, "reviewer")).resolves.toEqual({
       username: "reviewer",
       isMember: true,
