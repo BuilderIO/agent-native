@@ -328,7 +328,7 @@ function removeAdvisorySkillsClauses(text: string): string {
 }
 
 function removeDesignTestRequests(text: string): string {
-  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+(?:then|after|after\\s+that|afterwards?|subsequently|before|while))?|then|after|after\\s+that|afterwards?|subsequently|before|while|followed\\s+by)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?${DESIGN_MUTATION_VERBS.source}|[.!?,;]|$`;
+  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+(?:then|after|after\\s+that|afterwards?|subsequently|before|while))?|then|after|after\\s+that|afterwards?|subsequently|before|while|followed\\s+by)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?${DESIGN_MUTATION_VERBS.source}|[-–—.!?,;]|$`;
   const mutationVerbs = new RegExp(DESIGN_MUTATION_VERBS.source, "gi");
   const testRequests = new RegExp(DESIGN_TEST_REQUEST.source, "gi");
   const targetSuffix = new RegExp(
