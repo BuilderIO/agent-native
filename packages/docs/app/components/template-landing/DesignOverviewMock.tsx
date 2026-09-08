@@ -926,7 +926,7 @@ const DESIGN_MOCK_CSS = [
   // Floating bottom toolbar. The real editor pins this dark in both themes;
   // here it follows the docs theme (see the `html.light` override below) so it
   // does not sit as a heavy dark slab on the light landing page.
-  ".design-mock .dm-toolbar { position: absolute; bottom: 16px; left: 50%; z-index: 3; display: flex; max-width: calc(100% - 32px); transform: translateX(-50%); align-items: center; gap: 6px; padding: 6px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; background: rgba(44, 44, 44, 0.95); color: #f5f5f5; box-shadow: 0 22px 55px -24px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }",
+  ".design-mock .dm-toolbar { position: absolute; bottom: 16px; left: 50%; z-index: 3; display: flex; max-width: calc(100% - 32px); transform: translateX(-50%); align-items: center; gap: 6px; overflow: hidden; padding: 6px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; background: rgba(44, 44, 44, 0.95); color: #f5f5f5; box-shadow: 0 22px 55px -24px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }",
   ".design-mock .dm-tool-group { display: flex; min-width: 0; flex-shrink: 0; align-items: center; gap: 2px; }",
   ".design-mock .dm-tool-slot { display: flex; height: 32px; flex-shrink: 0; align-items: center; }",
   ".design-mock .dm-tool { display: flex; width: 32px; height: 32px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 6px; color: #e5e5e5; }",
