@@ -496,7 +496,7 @@ export function CommentsSidebar({
       ambiguousCreate()
     )
       return;
-    const submittedDraft = pendingDraft.draft;
+    const submittedDraft = pendingDraft.markSubmitted();
     createComment.mutate(
       {
         documentId,
@@ -534,7 +534,7 @@ export function CommentsSidebar({
       ambiguousCreate(threadId)
     )
       return;
-    const submittedDraft = replyDraft.draft;
+    const submittedDraft = replyDraft.markSubmitted();
     const thread = threads?.find((t) => t.threadId === threadId);
     createComment.mutate(
       {
@@ -1373,14 +1373,14 @@ function CommentEntry({
     comment.mutation?.kind !== "create";
   const checkSaved = async () => {
     if (!comment.mutation?.ambiguous || checking) return;
-    const submitted = sourceDraft.draft;
+    const submitted = sourceDraft.submittedDraft;
     setChecking(true);
     try {
       const result = await create.reconcileAmbiguous(
         documentId,
         comment.mutation.operationId,
       );
-      if (result === "confirmed" && submitted.text.trim() === comment.content) {
+      if (result === "confirmed" && submitted) {
         sourceDraft.clearIfUnchanged(submitted);
       }
     } catch (error) {

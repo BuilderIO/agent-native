@@ -82,7 +82,7 @@ describe("comment drafts", () => {
     render({ showProbe: false });
     render({});
 
-    expect(currentDraft!.draft).toEqual({
+    expect(currentDraft!.draft).toMatchObject({
       text: "kept reply",
       mentions: [{ email: "reviewer@example.com", name: "Reviewer" }],
     });
@@ -96,14 +96,47 @@ describe("comment drafts", () => {
   it("clears only the submitted revision when a delayed request settles", () => {
     render({});
     act(() => currentDraft!.setText("submitted text"));
-    const submitted: CommentDraft = currentDraft!.draft;
+    const submitted = currentDraft!.draft;
     act(() => currentDraft!.setText("newer text"));
     act(() => currentDraft!.clearIfUnchanged(submitted));
     expect(currentDraft!.draft.text).toBe("newer text");
 
     const newer = currentDraft!.draft;
     act(() => currentDraft!.clearIfUnchanged(newer));
-    expect(currentDraft!.draft).toEqual({ text: "", mentions: [] });
+    expect(currentDraft!.draft).toMatchObject({ text: "", mentions: [] });
+  });
+
+  it("preserves a new revision that returns to the submitted text", () => {
+    render({});
+    act(() => currentDraft!.setText("A"));
+    const submitted = currentDraft!.markSubmitted();
+    act(() => currentDraft!.setText("B"));
+    act(() => currentDraft!.setText("A"));
+    expect(currentDraft!.draft.revision).toBeGreaterThan(submitted.revision);
+    act(() => currentDraft!.clearIfUnchanged(submitted));
+    expect(currentDraft!.draft.text).toBe("A");
+  });
+
+  it("retains the submitted mentions across remount and replaces them on resubmit", () => {
+    render({});
+    act(() => currentDraft!.setText("Hello @Reviewer"));
+    const submitted = currentDraft!.markSubmitted();
+    act(() =>
+      currentDraft!.setMentions([
+        { email: "reviewer@example.com", name: "Reviewer" },
+      ]),
+    );
+    render({ showProbe: false });
+    render({});
+    expect(currentDraft!.submittedDraft).toBe(submitted);
+    expect(submitted.mentions).toEqual([]);
+    act(() => currentDraft!.clearIfUnchanged(currentDraft!.submittedDraft!));
+    expect(currentDraft!.draft.mentions).toHaveLength(1);
+    const resubmitted = currentDraft!.markSubmitted();
+    render({});
+    expect(currentDraft!.submittedDraft).toBe(resubmitted);
+    act(() => currentDraft!.clearIfUnchanged(resubmitted));
+    expect(currentDraft!.draft.text).toBe("");
   });
 
   it("clears document-session state across document or account changes", () => {

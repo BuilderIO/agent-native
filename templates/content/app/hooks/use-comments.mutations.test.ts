@@ -326,6 +326,96 @@ describe("optimistic comment mutations", () => {
     });
   });
 
+  it.each([
+    [new Error("Comment mentions metadata is not valid JSON"), false],
+    [Object.assign(new Error("Forbidden"), { status: 403 }), false],
+    [new Error("Action add-comment failed: Failed to fetch"), true],
+    [
+      Object.assign(new Error("Notification failed after insert"), {
+        status: 500,
+      }),
+      true,
+    ],
+    [Object.assign(new Error("Body could not be read"), { status: 200 }), true],
+    [Object.assign(new Error("Aborted"), { name: "AbortError" }), true],
+  ])(
+    "classifies create failure %s with ambiguity %s",
+    async (error, ambiguous) => {
+      const client = queryClient();
+      useQueryClient.mockReturnValue(client);
+      const mutation = useCreateComment() as any;
+      const variables = { documentId: "doc-1", content: "New comment" };
+      const context = await mutation.onMutate(variables);
+      mutation.onError(error, variables, context);
+      const visible = selectedComments(client);
+      expect(visible).toHaveLength(ambiguous ? 2 : 1);
+      if (ambiguous) {
+        expect(visible[1].mutation).toMatchObject({
+          ambiguous: true,
+          status: "error",
+        });
+        await expect(
+          mutation.reconcileAmbiguous("doc-1", context.operationId),
+        ).resolves.toBe("unresolved");
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "rolls back a failed edit while preserving a later resolve (settled=%s)",
+    async (settled) => {
+      const client = queryClient();
+      useQueryClient.mockReturnValue(client);
+      const edit = useEditComment() as any;
+      const resolve = useResolveComment() as any;
+      const variables = {
+        id: "root-1",
+        documentId: "doc-1",
+        content: "Rejected edit",
+      };
+      const resolution = { id: "root-1", documentId: "doc-1", resolved: true };
+      const context = await edit.onMutate(variables);
+      const resolveContext = await resolve.onMutate(resolution);
+      if (settled) resolve.onSuccess({ ok: true }, resolution, resolveContext);
+      edit.onError(new Error("Edit rejected"), variables, context);
+      expect(client.read().comments[0]).toMatchObject({
+        content: "Original",
+        resolved: 1,
+      });
+      expect(selectedComments(client)[0]).toMatchObject({
+        content: "Original",
+        resolved: 1,
+      });
+      if (!settled) resolve.onSuccess({ ok: true }, resolution, resolveContext);
+      expect(selectedComments(client)[0]).toMatchObject({
+        content: "Original",
+        resolved: 1,
+        mutation: { kind: "edit", status: "error" },
+      });
+    },
+  );
+
+  it("rolls back a failed resolve without restoring content from before a successful edit", async () => {
+    const client = queryClient();
+    useQueryClient.mockReturnValue(client);
+    const edit = useEditComment() as any;
+    const resolve = useResolveComment() as any;
+    const resolution = { id: "root-1", documentId: "doc-1", resolved: true };
+    const context = await resolve.onMutate(resolution);
+    const variables = {
+      id: "root-1",
+      documentId: "doc-1",
+      content: "Saved edit",
+    };
+    const editContext = await edit.onMutate(variables);
+    edit.onSuccess({ ok: true }, variables, editContext);
+    resolve.onError(new Error("Resolve rejected"), resolution, context);
+    expect(selectedComments(client)[0]).toMatchObject({
+      content: "Saved edit",
+      resolved: 0,
+    });
+  });
+
   it("shows one guarded row when an ambiguous create appears in an authoritative refetch", async () => {
     const client = queryClient();
     useQueryClient.mockReturnValue(client);

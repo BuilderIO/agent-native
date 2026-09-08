@@ -7,16 +7,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
-import { CommentDraftProvider, useCommentPanelSession } from "./comment-drafts";
+import {
+  CommentDraftProvider,
+  useCommentDraft,
+  useCommentPanelSession,
+} from "./comment-drafts";
 import { CommentsSidebar } from "./CommentsSidebar";
 
 const actions = vi.hoisted(() => ({
   create: vi.fn(),
+  reconcile: vi.fn(),
   edit: vi.fn(),
   resolve: vi.fn(),
 }));
 vi.mock("@/hooks/use-comments", () => ({
-  useCreateComment: () => ({ mutate: actions.create, isPending: false }),
+  useCreateComment: () => ({
+    mutate: actions.create,
+    reconcileAmbiguous: actions.reconcile,
+    isPending: false,
+  }),
   useEditComment: () => ({ mutate: actions.edit, isPending: false }),
   useResolveComment: () => ({ mutate: actions.resolve, isPending: false }),
 }));
@@ -68,7 +77,9 @@ function thread(id: string, resolved = false): CommentThread {
 }
 
 let panel: ReturnType<typeof useCommentPanelSession>;
+let replyDraft: ReturnType<typeof useCommentDraft>;
 function PanelProbe() {
+  replyDraft = useCommentDraft("reply:one");
   panel = useCommentPanelSession();
   return null;
 }
@@ -178,6 +189,56 @@ describe("comment review interactions", () => {
       "Newer unsent draft",
     );
   });
+  it.each([false, true])(
+    "clears only the submitted revision after ambiguous reconciliation (new mentions: %s)",
+    async (addMentions) => {
+      render("one");
+      type("Hello @Reviewer");
+      act(() =>
+        (
+          container.querySelector(
+            '[aria-label="comments.submit"]',
+          ) as HTMLButtonElement
+        ).click(),
+      );
+      if (addMentions)
+        act(() =>
+          replyDraft.setMentions([
+            { email: "reviewer@example.test", name: "Reviewer" },
+          ]),
+        );
+      const pending = thread("one");
+      pending.comments.push({
+        ...pending.comments[0],
+        id: "optimistic-reply",
+        parent_id: pending.comments[0].id,
+        content: "Hello @Reviewer",
+        mutation: {
+          kind: "create",
+          status: "error",
+          operationId: "ambiguous-reply",
+          ambiguous: true,
+        },
+      });
+      render("one", [pending]);
+      actions.reconcile.mockResolvedValue("confirmed");
+      const check = [...container.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("comments.checkSaved"),
+      )!;
+      await act(async () => check.click());
+      expect(actions.reconcile).toHaveBeenCalledWith(
+        "fixture",
+        "ambiguous-reply",
+      );
+      expect(replyDraft.draft.text).toBe(addMentions ? "Hello @Reviewer" : "");
+      expect(replyDraft.draft.mentions).toEqual(
+        addMentions
+          ? [{ email: "reviewer@example.test", name: "Reviewer" }]
+          : [],
+      );
+    },
+  );
+
   it("lets users clear their own reply text without extra controls", () => {
     render("one");
     type("Keep me");

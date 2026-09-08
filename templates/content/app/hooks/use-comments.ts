@@ -346,10 +346,10 @@ function isAmbiguousCreateError(error: Error): boolean {
   const timedOut = (error as Error & { timedOut?: unknown }).timedOut;
   return (
     timedOut === true ||
-    typeof status !== "number" ||
-    status === 502 ||
-    status === 503 ||
-    status === 504
+    (typeof status === "number"
+      ? status < 400 || status === 408 || status >= 500
+      : error.message.startsWith("Action add-comment failed:") ||
+        error.name === "AbortError")
   );
 }
 
@@ -640,7 +640,7 @@ function useOptimisticCommentUpdate<
               : operation.targetIds.some((targetId) =>
                   affectedIds.includes(targetId),
                 );
-          if (overlaps) operations.delete(id);
+          if (overlaps && operation.kind === kind) operations.delete(id);
         }
         if (kind === "edit") {
           const editVariables = variables as EditCommentVariables;
@@ -743,21 +743,43 @@ function useOptimisticCommentUpdate<
           (response) =>
             updateComments(response, (comments) =>
               comments.map((comment) => {
-                if (comment.mutation?.operationId !== context.operationId) {
+                const prior = context.before.get(comment.id);
+                if (!prior || !operation || operation.kind === "create") {
                   return comment;
                 }
-                const prior = context.before.get(comment.id);
-                return prior
-                  ? {
-                      ...prior,
-                      mutation: {
-                        operationId: context.operationId,
-                        kind,
-                        status: "error",
-                        error,
-                      },
-                    }
-                  : comment;
+                const marker = comment.mutation;
+                const newerSameKind =
+                  marker &&
+                  marker.operationId !== context.operationId &&
+                  marker.kind === kind;
+                const stillOwnsFields =
+                  operation.kind === "edit"
+                    ? comment.content === operation.content &&
+                      (operation.mentions === undefined ||
+                        JSON.stringify(comment.mentions) ===
+                          JSON.stringify(operation.mentions))
+                    : comment.resolved === operation.resolved;
+                if (newerSameKind || !stillOwnsFields) return comment;
+                const restored =
+                  operation.kind === "edit"
+                    ? {
+                        ...comment,
+                        content: prior.content,
+                        mentions: prior.mentions,
+                      }
+                    : { ...comment, resolved: prior.resolved };
+                return {
+                  ...restored,
+                  mutation:
+                    marker && marker.operationId !== context.operationId
+                      ? marker
+                      : {
+                          operationId: context.operationId,
+                          kind,
+                          status: "error",
+                          error,
+                        },
+                };
               }),
             ),
         );
