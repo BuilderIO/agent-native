@@ -69,6 +69,7 @@ interface UpdateMutationContext extends MutationContext {
 }
 
 export interface CreateCommentVariables {
+  clientOperationId?: string;
   documentId: string;
   content: string;
   threadId?: string;
@@ -107,7 +108,6 @@ type ActiveCommentOperation =
       error?: Error;
       ambiguous?: boolean;
       comment: Comment;
-      existingIds: Set<string>;
     }
   | {
       operationId: string;
@@ -197,21 +197,9 @@ function matchesCreatedComment(
   comment: Comment,
   operation: Extract<ActiveCommentOperation, { kind: "create" }>,
 ): boolean {
-  const optimistic = operation.comment;
   return (
-    comment.id !== optimistic.id &&
-    !operation.existingIds.has(comment.id) &&
-    comment.document_id === optimistic.document_id &&
-    comment.thread_id ===
-      (optimistic.parent_id ? optimistic.thread_id : comment.id) &&
-    comment.parent_id === optimistic.parent_id &&
-    comment.author_email === optimistic.author_email &&
-    comment.content === optimistic.content &&
-    comment.quoted_text === optimistic.quoted_text &&
-    comment.anchor_prefix === optimistic.anchor_prefix &&
-    comment.anchor_suffix === optimistic.anchor_suffix &&
-    comment.anchor_start_offset === optimistic.anchor_start_offset &&
-    JSON.stringify(comment.mentions) === JSON.stringify(optimistic.mentions)
+    comment.id === operation.operationId &&
+    comment.document_id === operation.comment.document_id
   );
 }
 
@@ -279,10 +267,7 @@ function commentQueryKey(documentId: string): CommentQueryKey {
 }
 
 function mutationId(): string {
-  return (
-    globalThis.crypto?.randomUUID?.() ??
-    `comment-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  );
+  return globalThis.crypto.randomUUID();
 }
 
 function commentsFrom(response: CommentListResponse | undefined): Comment[] {
@@ -424,9 +409,8 @@ export function useCreateComment(author: CommentAuthor = {}) {
     onMutate: async (variables) => {
       const queryKey = commentQueryKey(variables.documentId);
       await queryClient.cancelQueries({ queryKey, exact: true });
-      const operationId = mutationId();
+      const operationId = (variables.clientOperationId ??= mutationId());
       const temporaryId = `optimistic-${operationId}`;
-      const current = queryClient.getQueryData<CommentListResponse>(queryKey);
       const now = new Date().toISOString();
       const optimistic: Comment = {
         id: temporaryId,
@@ -456,7 +440,6 @@ export function useCreateComment(author: CommentAuthor = {}) {
         kind: "create",
         status: "pending",
         comment: optimistic,
-        existingIds: new Set(commentsFrom(current).map(({ id }) => id)),
       });
       queryClient.setQueryData<CommentListResponse>(queryKey, (response) =>
         updateComments(response, (comments) => [...comments, optimistic]),
@@ -706,6 +689,16 @@ function useOptimisticCommentUpdate<
                     ? comment.id === operation.targetId
                     : operation.targetIds.includes(comment.id);
                 if (!targeted) return comment;
+                const newerOperation = [...operations.values()].some(
+                  (candidate) =>
+                    candidate.kind === operation.kind &&
+                    candidate.sequence > operation.sequence &&
+                    operationTargetIds(candidate).includes(comment.id),
+                );
+                const otherSameKindMarker =
+                  comment.mutation?.kind === operation.kind &&
+                  comment.mutation.operationId !== operation.operationId;
+                if (newerOperation || otherSameKindMarker) return comment;
                 const updated =
                   operation.kind === "edit"
                     ? {

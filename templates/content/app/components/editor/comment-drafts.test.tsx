@@ -114,7 +114,7 @@ describe("comment drafts", () => {
   it("preserves a new revision that returns to the submitted text", () => {
     render({});
     act(() => currentDraft!.setText("A"));
-    const submitted = currentDraft!.markSubmitted();
+    const submitted = currentDraft!.markSubmitted("operation-a");
     act(() => currentDraft!.setText("B"));
     act(() => currentDraft!.setText("A"));
     expect(currentDraft!.draft.revision).toBeGreaterThan(submitted.revision);
@@ -125,7 +125,7 @@ describe("comment drafts", () => {
   it("retains the submitted mentions across remount and replaces them on resubmit", () => {
     render({});
     act(() => currentDraft!.setText("Hello @Reviewer"));
-    const submitted = currentDraft!.markSubmitted();
+    const submitted = currentDraft!.markSubmitted("operation-a");
     act(() =>
       currentDraft!.setMentions([
         { email: "reviewer@example.com", name: "Reviewer" },
@@ -133,15 +133,34 @@ describe("comment drafts", () => {
     );
     render({ showProbe: false });
     render({});
-    expect(currentDraft!.submittedDraft).toBe(submitted);
+    expect(currentDraft!.getSubmittedDraft("operation-a")).toBe(submitted);
     expect(submitted.mentions).toEqual([]);
-    act(() => currentDraft!.clearIfUnchanged(currentDraft!.submittedDraft!));
+    act(() =>
+      currentDraft!.clearIfUnchanged(
+        currentDraft!.getSubmittedDraft("operation-a")!,
+      ),
+    );
     expect(currentDraft!.draft.mentions).toHaveLength(1);
-    const resubmitted = currentDraft!.markSubmitted();
+    const resubmitted = currentDraft!.markSubmitted("operation-b");
     render({});
-    expect(currentDraft!.submittedDraft).toBe(resubmitted);
+    expect(currentDraft!.getSubmittedDraft("operation-b")).toBe(resubmitted);
     act(() => currentDraft!.clearIfUnchanged(resubmitted));
     expect(currentDraft!.draft.text).toBe("");
+  });
+
+  it("keeps operation A associated with its own revision after operation B submits", () => {
+    render({});
+    act(() => currentDraft!.setText("operation A"));
+    const first = currentDraft!.markSubmitted("operation-a");
+    act(() => currentDraft!.setText("operation B"));
+    currentDraft!.markSubmitted("operation-b");
+    expect(currentDraft!.getSubmittedDraft("operation-a")).toBe(first);
+    act(() =>
+      currentDraft!.clearIfUnchanged(
+        currentDraft!.getSubmittedDraft("operation-a")!,
+      ),
+    );
+    expect(currentDraft!.draft.text).toBe("operation B");
   });
 
   it.each([
@@ -173,7 +192,7 @@ describe("comment drafts", () => {
         const mutation = useMutation({ mutationFn: () => request });
         submit = () =>
           draft.clearOnSuccess(
-            draft.markSubmitted(),
+            draft.markSubmitted("operation-a"),
             mutation.mutateAsync(undefined, { onSuccess: perCallSuccess }),
           );
         return null;

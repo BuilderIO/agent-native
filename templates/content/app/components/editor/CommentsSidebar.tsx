@@ -413,8 +413,15 @@ export function CommentsSidebar({
   const { text: pendingText, mentions: pendingMentions } = pendingDraft.draft;
   const setPendingText = pendingDraft.setText;
   const setPendingMentions = pendingDraft.setMentions;
-  const { historyStatus, setHistoryStatus, historyAuthor, setHistoryAuthor } =
-    useCommentPanelSession();
+  const {
+    historyStatus,
+    setHistoryStatus,
+    historyAuthor,
+    setHistoryAuthor,
+    isResolving,
+    startResolution,
+    finishResolution,
+  } = useCommentPanelSession();
   const sidebarRef = useRef<HTMLDivElement>(null);
   const pendingInputRef = useRef<HTMLTextAreaElement>(null);
   const ambiguousCreate = (threadId?: string) =>
@@ -496,12 +503,14 @@ export function CommentsSidebar({
       ambiguousCreate()
     )
       return;
-    const submittedDraft = pendingDraft.markSubmitted();
+    const clientOperationId = crypto.randomUUID();
+    const submittedDraft = pendingDraft.markSubmitted(clientOperationId);
     try {
       await pendingDraft.clearOnSuccess(
         submittedDraft,
         createComment.mutateAsync(
           {
+            clientOperationId,
             documentId,
             content: pendingText.trim(),
             quotedText: pendingComment?.quotedText,
@@ -532,15 +541,21 @@ export function CommentsSidebar({
     if (
       !replyText.trim() ||
       createComment.isPending ||
+      isResolving(threadId) ||
+      threads.some(
+        (thread) => thread.threadId === threadId && thread.resolved,
+      ) ||
       ambiguousCreate(threadId)
     )
       return;
-    const submittedDraft = replyDraft.markSubmitted();
+    const clientOperationId = crypto.randomUUID();
+    const submittedDraft = replyDraft.markSubmitted(clientOperationId);
     const thread = threads?.find((t) => t.threadId === threadId);
     try {
       await replyDraft.clearOnSuccess(
         submittedDraft,
         createComment.mutateAsync({
+          clientOperationId,
           documentId,
           content: replyText.trim(),
           threadId,
@@ -710,19 +725,26 @@ export function CommentsSidebar({
     selectedThreadId,
   );
 
-  const changeResolution = (thread: CommentThread, resolved: boolean) => {
+  const changeResolution = async (thread: CommentThread, resolved: boolean) => {
     if (
       !canResolve ||
       thread.comments.some((c) => c.mutation?.status === "pending")
     )
       return;
-    resolveComment.mutate(
-      { id: thread.comments[0].id, documentId, resolved },
-      {
-        onError: (error) =>
-          toast.error(t("empty.genericError"), { description: error.message }),
-      },
-    );
+    if (!startResolution(thread.threadId)) return;
+    try {
+      await resolveComment.mutateAsync({
+        id: thread.comments[0].id,
+        documentId,
+        resolved,
+      });
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      finishResolution(thread.threadId);
+    }
   };
   const handleResolve = (thread: CommentThread) =>
     changeResolution(thread, true);
@@ -851,6 +873,7 @@ export function CommentsSidebar({
                   allowEmphasisMotion={false}
                   isExpanded
                   isSubmitting={
+                    isResolving(thread.threadId) ||
                     (createComment.isPending &&
                       createComment.variables?.threadId === thread.threadId) ||
                     ambiguousCreate(thread.threadId)
@@ -988,6 +1011,7 @@ export function CommentsSidebar({
               documentId={documentId}
               currentUserEmail={currentUserEmail}
               isSubmitting={
+                isResolving(thread.threadId) ||
                 (createComment.isPending &&
                   createComment.variables?.threadId === thread.threadId) ||
                 ambiguousCreate(thread.threadId)
@@ -1371,7 +1395,9 @@ function CommentEntry({
     comment.mutation?.kind !== "create";
   const checkSaved = async () => {
     if (!comment.mutation?.ambiguous || checking) return;
-    const submitted = sourceDraft.submittedDraft;
+    const submitted = sourceDraft.getSubmittedDraft(
+      comment.mutation.operationId,
+    );
     setChecking(true);
     try {
       const result = await create.reconcileAmbiguous(

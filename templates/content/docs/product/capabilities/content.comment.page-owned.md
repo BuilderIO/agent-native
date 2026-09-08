@@ -66,7 +66,7 @@ Given a Page with a Comment thread is referenced or embedded elsewhere, when a v
 The anchored editor workflow includes document-session drafts, author text editing,
 readable resolved conversations, and optimistic comment mutations with scoped
 refreshes. Behavioral coverage lives in `CommentsSidebar.interaction.test.tsx`,
-`comment-drafts.test.tsx`, `textarea-autosize.test.tsx`,
+`comment-drafts.test.tsx`, `DocumentEditor.layout.test.ts`,
 `use-comments.mutations.test.ts`, and `update-comment.test.ts`. These cover draft
 retention, responsive sizing, failed and overlapping mutations, and existing
 commenter/editor access. They do not establish the broader multi-Block,

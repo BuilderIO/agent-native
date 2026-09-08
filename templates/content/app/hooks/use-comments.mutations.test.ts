@@ -259,8 +259,8 @@ describe("optimistic comment mutations", () => {
     };
     const context = await mutation.onMutate(variables);
     const persisted = comment({
-      id: "persisted-pending",
-      thread_id: "persisted-pending",
+      id: context.operationId,
+      thread_id: context.operationId,
       content: variables.content,
     });
 
@@ -436,8 +436,8 @@ describe("optimistic comment mutations", () => {
     mutation.onError(timeout, variables, context);
 
     const persisted = comment({
-      id: "persisted-comment",
-      thread_id: "persisted-comment",
+      id: context.operationId,
+      thread_id: context.operationId,
       content: variables.content,
     });
     client.replace([comment(), persisted]);
@@ -447,7 +447,7 @@ describe("optimistic comment mutations", () => {
     );
     expect(visible).toHaveLength(1);
     expect(visible[0]).toMatchObject({
-      id: "persisted-comment",
+      id: context.operationId,
       mutation: {
         operationId: context.operationId,
         status: "error",
@@ -466,6 +466,143 @@ describe("optimistic comment mutations", () => {
     );
     expect(reconciled).toHaveLength(1);
     expect(reconciled[0].mutation).toBeUndefined();
+  });
+
+  it("reconciles a lost create response when the server normalizes author identity", async () => {
+    const client = queryClient();
+    useQueryClient.mockReturnValue(client);
+    const mutation = useCreateComment({ email: " Alice@Example.COM " }) as any;
+    const variables = {
+      documentId: "doc-1",
+      content: "Identity match",
+      quotedText: "Quote",
+      anchorStartOffset: 3,
+    };
+    const context = await mutation.onMutate(variables);
+    mutation.onError(
+      Object.assign(new Error("Timeout"), { timedOut: true }),
+      variables,
+      context,
+    );
+    const persisted = comment({
+      id: context.operationId,
+      thread_id: context.operationId,
+      content: variables.content,
+      author_email: "alice@example.com",
+    });
+    client.replace([comment(), persisted]);
+    expect(selectedComments(client)).toHaveLength(2);
+    await expect(
+      mutation.reconcileAmbiguous("doc-1", context.operationId),
+    ).resolves.toBe("confirmed");
+    expect(selectedComments(client)[1].mutation).toBeUndefined();
+  });
+
+  it("correlates identical submissions by immutable ID even when saved fields change", async () => {
+    const client = queryClient();
+    useQueryClient.mockReturnValue(client);
+    const mutation = useCreateComment({ email: "alice@example.com" }) as any;
+    const clientOperationId = crypto.randomUUID();
+    const first = {
+      documentId: "doc-1",
+      content: "Same content",
+      clientOperationId,
+    };
+    const second = { documentId: "doc-1", content: "Same content" };
+    const firstContext = await mutation.onMutate(first);
+    const secondContext = await mutation.onMutate(second);
+    expect(firstContext.operationId).toBe(clientOperationId);
+    expect(second).toHaveProperty(
+      "clientOperationId",
+      secondContext.operationId,
+    );
+    const timeout = Object.assign(new Error("Response lost"), {
+      timedOut: true,
+    });
+    mutation.onError(timeout, first, firstContext);
+    mutation.onError(timeout, second, secondContext);
+    client.replace([
+      comment(),
+      comment({
+        id: clientOperationId,
+        thread_id: clientOperationId,
+        content: "Changed after persistence",
+        author_email: "ALICE@example.com",
+        anchor_start_offset: null,
+      }),
+    ]);
+    await expect(
+      mutation.reconcileAmbiguous("doc-1", firstContext.operationId),
+    ).resolves.toBe("confirmed");
+    await expect(
+      mutation.reconcileAmbiguous("doc-1", secondContext.operationId),
+    ).resolves.toBe("unresolved");
+    expect(selectedComments(client)).toHaveLength(3);
+    expect(
+      selectedComments(client).find(({ id }) => id === clientOperationId)
+        ?.mutation,
+    ).toBeUndefined();
+    expect(
+      selectedComments(client).find(
+        ({ id }) => id === secondContext.temporaryId,
+      )?.mutation,
+    ).toMatchObject({
+      operationId: secondContext.operationId,
+      ambiguous: true,
+    });
+  });
+
+  it.each(["edit", "resolve"] as const)(
+    "keeps a newer pending %s when the older operation succeeds",
+    async (kind) => {
+      const client = queryClient();
+      useQueryClient.mockReturnValue(client);
+      const mutation = (
+        kind === "edit" ? useEditComment() : useResolveComment()
+      ) as any;
+      const first =
+        kind === "edit"
+          ? { id: "root-1", documentId: "doc-1", content: "First edit" }
+          : { id: "root-1", documentId: "doc-1", resolved: true };
+      const second =
+        kind === "edit"
+          ? { ...first, content: "Later edit" }
+          : { ...first, resolved: false };
+      const firstContext = await mutation.onMutate(first);
+      const secondContext = await mutation.onMutate(second);
+      mutation.onSuccess({ ok: true }, first, firstContext);
+      const expected =
+        kind === "edit" ? { content: "Later edit" } : { resolved: 0 };
+      expect(client.read().comments[0]).toMatchObject({
+        ...expected,
+        mutation: { operationId: secondContext.operationId, status: "pending" },
+      });
+      expect(selectedComments(client)[0]).toMatchObject(expected);
+      mutation.onSuccess({ ok: true }, second, secondContext);
+      expect(client.read().comments[0]).toMatchObject(expected);
+      expect(selectedComments(client)[0].mutation).toBeUndefined();
+    },
+  );
+
+  it("preserves the newer edit even when a resolve replaced its row marker", async () => {
+    const client = queryClient();
+    useQueryClient.mockReturnValue(client);
+    const edit = useEditComment() as any;
+    const resolve = useResolveComment() as any;
+    const first = { id: "root-1", documentId: "doc-1", content: "First edit" };
+    const second = { ...first, content: "Later edit" };
+    const firstContext = await edit.onMutate(first);
+    await edit.onMutate(second);
+    await resolve.onMutate({
+      id: "root-1",
+      documentId: "doc-1",
+      resolved: true,
+    });
+    edit.onSuccess({ ok: true }, first, firstContext);
+    expect(client.read().comments[0]).toMatchObject({
+      content: "Later edit",
+      resolved: 1,
+    });
   });
 
   it("rolls back only the edit operation that still owns the row", async () => {

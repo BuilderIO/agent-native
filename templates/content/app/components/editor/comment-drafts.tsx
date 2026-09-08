@@ -41,6 +41,10 @@ interface CommentDraftContextValue {
   ) => void;
   clearIfUnchanged: (key: string, submittedDraft: CommentDraftRevision) => void;
   submittedDrafts: Map<string, CommentDraftRevision>;
+  resolutionVersion: number;
+  isResolving: (threadId: string) => boolean;
+  startResolution: (threadId: string) => boolean;
+  finishResolution: (threadId: string) => void;
   discard: (key: string) => void;
   panelSession: CommentPanelSession;
   setHistoryStatus: Dispatch<SetStateAction<CommentHistoryStatus>>;
@@ -87,6 +91,23 @@ function CommentDraftStore({
     new Map<string, CommentDraftRevision>(),
   ).current;
 
+  const resolvingThreads = useRef(new Set<string>());
+  const [resolutionVersion, setResolutionVersion] = useState(0);
+  const isResolving = useCallback(
+    (threadId: string) => resolvingThreads.current.has(threadId),
+    [],
+  );
+  const startResolution = useCallback((threadId: string) => {
+    if (resolvingThreads.current.has(threadId)) return false;
+    resolvingThreads.current.add(threadId);
+    setResolutionVersion((version) => version + 1);
+    return true;
+  }, []);
+  const finishResolution = useCallback((threadId: string) => {
+    resolvingThreads.current.delete(threadId);
+    setResolutionVersion((version) => version + 1);
+  }, []);
+
   const updateDraft = useCallback<CommentDraftContextValue["updateDraft"]>(
     (key, initial, update) => {
       const nextRevision = ++revision.current;
@@ -126,7 +147,11 @@ function CommentDraftStore({
   const value = useMemo<CommentDraftContextValue>(
     () => ({
       drafts,
+      resolutionVersion,
       submittedDrafts,
+      isResolving,
+      startResolution,
+      finishResolution,
       updateDraft,
       clearIfUnchanged,
       discard,
@@ -135,8 +160,12 @@ function CommentDraftStore({
       setPanelSession,
     }),
     [
+      resolutionVersion,
       drafts,
       submittedDrafts,
+      isResolving,
+      startResolution,
+      finishResolution,
       updateDraft,
       clearIfUnchanged,
       discard,
@@ -232,11 +261,14 @@ export function useCommentDraft(
   };
   const discard = useCallback(() => context.discard(key), [context, key]);
 
-  const markSubmitted = () => {
-    context.submittedDrafts.set(key, draft);
+  const markSubmitted = (operationId: string) => {
+    const submitted = context.submittedDrafts.get(operationId);
+    if (submitted) return submitted;
+    context.submittedDrafts.set(operationId, draft);
     return draft;
   };
-  const submittedDraft = context.submittedDrafts.get(key);
+  const getSubmittedDraft = (operationId: string) =>
+    context.submittedDrafts.get(operationId);
 
   return {
     draft,
@@ -246,13 +278,19 @@ export function useCommentDraft(
     clearOnSuccess,
     discard,
     markSubmitted,
-    submittedDraft,
+    getSubmittedDraft,
   };
 }
 
 export function useCommentPanelSession() {
-  const { panelSession, setPanelSession, setHistoryStatus } =
-    useCommentDraftContext();
+  const {
+    panelSession,
+    setPanelSession,
+    setHistoryStatus,
+    isResolving,
+    startResolution,
+    finishResolution,
+  } = useCommentDraftContext();
   const setHistoryAuthor = useCallback<Dispatch<SetStateAction<string | null>>>(
     (next) =>
       setPanelSession((current) => ({
@@ -274,6 +312,9 @@ export function useCommentPanelSession() {
 
   return {
     ...panelSession,
+    isResolving,
+    startResolution,
+    finishResolution,
     setHistoryStatus,
     setHistoryAuthor,
     setHistoryScrollTop,

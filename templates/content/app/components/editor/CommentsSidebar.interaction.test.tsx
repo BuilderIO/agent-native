@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, createElement } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,14 +25,20 @@ const actions = vi.hoisted(() => ({
 vi.mock("@/hooks/use-comments", async () => {
   const { useMutation } = await import("@tanstack/react-query");
   return {
-    useCreateComment: () => ({
-      ...(actions.realMutation
-        ? useMutation({ mutationFn: actions.create })
-        : { mutateAsync: actions.create, isPending: false }),
-      reconcileAmbiguous: actions.reconcile,
-    }),
+    useCreateComment: () => {
+      const mutation = useMutation({ mutationFn: actions.create });
+      return {
+        ...(actions.realMutation
+          ? mutation
+          : { mutateAsync: actions.create, isPending: false }),
+        reconcileAmbiguous: actions.reconcile,
+      };
+    },
     useEditComment: () => ({ mutateAsync: actions.edit, isPending: false }),
-    useResolveComment: () => ({ mutate: actions.resolve, isPending: false }),
+    useResolveComment: () => ({
+      mutateAsync: actions.resolve,
+      isPending: false,
+    }),
   };
 });
 vi.mock("@/hooks/use-mention-members", () => ({
@@ -100,6 +106,7 @@ describe("comment review interactions", () => {
     queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
+    actions.resolve.mockImplementation(() => new Promise(() => {}));
     actions.create.mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -132,43 +139,38 @@ describe("comment review interactions", () => {
       document.body.append(container);
       root = createRoot(container);
     }
-    act(() =>
+    act(() => {
       root.render(
-        createElement(
-          QueryClientProvider,
-          { client: queryClient },
-          createElement(
-            TooltipProvider,
-            null,
-            createElement(
-              CommentDraftProvider,
-              {
-                documentId: "fixture",
-                currentUserEmail: "reviewer@example.test",
-                children: null,
-              },
-              createElement(PanelProbe),
-              createElement(CommentsSidebar, {
-                key: options.key ?? "sidebar",
-                pendingComment: options.pending
-                  ? { quotedText: "selected anchor", offsetTop: 0 }
-                  : null,
-                onPendingDone: options.onPendingDone,
-                documentId: "fixture",
-                threads,
-                selectedThreadId: selected,
-                currentUserEmail: "reviewer@example.test",
-                canComment: true,
-                canResolve: true,
-                alignToAnchors: false,
-                forceVisible: true,
-                presentation,
-              }),
-            ),
-          ),
-        ),
-      ),
-    );
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <CommentDraftProvider
+              documentId="fixture"
+              currentUserEmail="reviewer@example.test"
+            >
+              <PanelProbe />
+              <CommentsSidebar
+                key={options.key ?? "sidebar"}
+                pendingComment={
+                  options.pending
+                    ? { quotedText: "selected anchor", offsetTop: 0 }
+                    : null
+                }
+                onPendingDone={options.onPendingDone}
+                documentId="fixture"
+                threads={threads}
+                selectedThreadId={selected}
+                currentUserEmail="reviewer@example.test"
+                canComment
+                canResolve
+                alignToAnchors={false}
+                forceVisible
+                presentation={presentation}
+              />
+            </CommentDraftProvider>
+          </TooltipProvider>
+        </QueryClientProvider>,
+      );
+    });
   }
   function type(text: string) {
     const input = container.querySelector("textarea")!;
@@ -183,13 +185,13 @@ describe("comment review interactions", () => {
   it("preserves a reply through dismissal, thread switches, and panel presentation remounts", () => {
     render("one");
     type("Unsent detailed feedback");
-    act(() =>
+    act(() => {
       container
         .querySelector("textarea")!
         .dispatchEvent(
           new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-        ),
-    );
+        );
+    });
     render("two");
     type("Different draft");
     render(null, undefined, "history");
@@ -249,7 +251,7 @@ describe("comment review interactions", () => {
         mutation: {
           kind: "create",
           status: "error",
-          operationId: "ambiguous-reply",
+          operationId: actions.create.mock.calls[0][0].clientOperationId,
           ambiguous: true,
         },
       });
@@ -261,7 +263,7 @@ describe("comment review interactions", () => {
       await act(async () => check.click());
       expect(actions.reconcile).toHaveBeenCalledWith(
         "fixture",
-        "ambiguous-reply",
+        actions.create.mock.calls[0][0].clientOperationId,
       );
       expect(replyDraft.draft.text).toBe(addMentions ? "Hello @Reviewer" : "");
       expect(replyDraft.draft.mentions).toEqual(
@@ -305,6 +307,84 @@ describe("comment review interactions", () => {
     },
   );
 
+  it("reconciles the original submission without clearing a second submitted draft", async () => {
+    render("one");
+    type("First draft");
+    act(() =>
+      (
+        container.querySelector(
+          '[aria-label="comments.submit"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    const firstOperationId = actions.create.mock.calls[0][0].clientOperationId;
+    type("Second draft");
+    act(() =>
+      (
+        container.querySelector(
+          '[aria-label="comments.submit"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    expect(actions.create.mock.calls[1][0].clientOperationId).not.toBe(
+      firstOperationId,
+    );
+    const ambiguous = thread("one");
+    ambiguous.comments.push({
+      ...ambiguous.comments[0],
+      id: "optimistic-first",
+      parent_id: ambiguous.comments[0].id,
+      content: "First draft",
+      mutation: {
+        kind: "create",
+        status: "error",
+        operationId: firstOperationId,
+        ambiguous: true,
+      },
+    });
+    render("one", [ambiguous]);
+    actions.reconcile.mockResolvedValue("confirmed");
+    const check = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("comments.checkSaved"),
+    )!;
+    await act(async () => check.click());
+    expect(actions.reconcile).toHaveBeenCalledWith("fixture", firstOperationId);
+    expect(container.querySelector("textarea")!.value).toBe("Second draft");
+  });
+
+  it("blocks replies immediately while resolution waits for cancellation", async () => {
+    let rejectResolution!: (error: Error) => void;
+    actions.resolve.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectResolution = reject;
+        }),
+    );
+    render("one");
+    type("unsent reply");
+    const resolve = [...container.querySelectorAll("button")].find(
+      (button) => button.getAttribute("aria-label") === "comments.resolve",
+    )!;
+    const submit = container.querySelector(
+      '[aria-label="comments.submit"]',
+    ) as HTMLButtonElement;
+    await act(async () => {
+      resolve.click();
+      submit.click();
+    });
+    expect(actions.resolve).toHaveBeenCalledOnce();
+    expect(actions.create).not.toHaveBeenCalled();
+    expect(submit.disabled).toBe(true);
+    render("one", undefined, "inline", { key: "remounted-sidebar" });
+    const remountedSubmit = container.querySelector(
+      '[aria-label="comments.submit"]',
+    ) as HTMLButtonElement;
+    expect(remountedSubmit.disabled).toBe(true);
+    await act(async () => rejectResolution(new Error("resolution rejected")));
+    expect(remountedSubmit.disabled).toBe(false);
+    expect(container.querySelector("textarea")!.value).toBe("unsent reply");
+  });
+
   it("lets users clear their own reply text without extra controls", () => {
     render("one");
     type("Keep me");
@@ -337,10 +417,11 @@ describe("comment review interactions", () => {
       button.textContent?.includes("comments.reopen"),
     )!;
     act(() => reopen.click());
-    expect(actions.resolve).toHaveBeenCalledWith(
-      { id: "one-root", documentId: "fixture", resolved: false },
-      expect.anything(),
-    );
+    expect(actions.resolve).toHaveBeenCalledWith({
+      id: "one-root",
+      documentId: "fixture",
+      resolved: false,
+    });
   });
   it("distinguishes the initial empty list from filtering", () => {
     render(null, [], "history");
