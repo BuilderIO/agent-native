@@ -337,6 +337,15 @@ function routeUrlsMatch(
   }
 }
 
+function canonicalRouteUrl(baseUrl: string, value: string): string {
+  try {
+    return routeUrl(baseUrl, { url: value });
+  } catch {
+    // coercion-ok: route resolution validates malformed URLs before placement.
+    return value;
+  }
+}
+
 function metadataMatchesRoute(
   metadata: Record<string, unknown> | undefined,
   args: {
@@ -345,6 +354,7 @@ function metadataMatchesRoute(
     path: string;
     url: string;
     content?: string;
+    connectionAmbiguous: boolean;
   },
 ): boolean {
   if (!metadata || metadata.sourceType !== "localhost") return false;
@@ -353,6 +363,9 @@ function metadataMatchesRoute(
     typeof storedConnectionId === "string" &&
     storedConnectionId !== args.connectionId
   ) {
+    return false;
+  }
+  if (typeof storedConnectionId !== "string" && args.connectionAmbiguous) {
     return false;
   }
   const storedUrlMatches = [metadata.url, metadata.previewUrl].some(
@@ -523,21 +536,27 @@ export default defineAction({
         }
         return target;
       }
-      if (!urlHint || connectionOriginMatches(urlHint, primaryDevServerUrl)) {
+      if (!urlHint) {
         return connection;
       }
-      const target = (await loadScopedConnections()).find((candidate) =>
-        connectionOriginMatches(
-          urlHint,
-          normalizeBaseUrl(candidate.devServerUrl),
-        ),
+      const matchingConnections = (await loadScopedConnections()).filter(
+        (candidate) =>
+          connectionOriginMatches(
+            urlHint,
+            normalizeBaseUrl(candidate.devServerUrl),
+          ),
       );
-      if (!target) {
+      if (matchingConnections.length === 0) {
         throw new Error(
           `No localhost connection is registered for ${new URL(urlHint).origin}. Connect that local app first, then add its URL again.`,
         );
       }
-      return target;
+      if (matchingConnections.length > 1) {
+        throw new Error(
+          `Multiple localhost connections are registered for ${new URL(urlHint).origin}. Pass the route's connectionId to choose the app with the correct root.`,
+        );
+      }
+      return matchingConnections[0]!;
     };
     const manifestForConnection = (sourceConnection: typeof connection) => {
       const devServerUrl = normalizeBaseUrl(sourceConnection.devServerUrl);
@@ -572,9 +591,11 @@ export default defineAction({
         manifest,
         byPath: new Map(manifest.routes.map((route) => [route.path, route])),
         byUrl: new Map(
-          manifest.routes
-            .filter((route) => route.url)
-            .map((route) => [route.url!, route]),
+          manifest.routes.flatMap((route) =>
+            route.url
+              ? [[canonicalRouteUrl(manifest.devServerUrl, route.url), route]]
+              : [],
+          ),
         ),
         byId: new Map(manifest.routes.map((route) => [route.id, route])),
       };
@@ -679,7 +700,14 @@ export default defineAction({
     for (let index = 0; index < requestedRoutes.length; index += 1) {
       const input = requestedRoutes[index]!;
       const primaryManifestRoute =
-        (input.url ? primaryManifest.byUrl.get(input.url) : undefined) ??
+        (input.url
+          ? primaryManifest.byUrl.get(
+              canonicalRouteUrl(
+                primaryManifest.manifest.devServerUrl,
+                input.url,
+              ),
+            )
+          : undefined) ??
         (input.routeId ? primaryManifest.byId.get(input.routeId) : undefined) ??
         (!input.url && input.path
           ? primaryManifest.byPath.get(input.path)
@@ -693,8 +721,10 @@ export default defineAction({
         primaryManifestRoute?.url ??
         input.path ??
         primaryManifestRoute?.path;
+      const hasUrlHint =
+        input.url !== undefined || primaryManifestRoute?.url !== undefined;
       const hintedUrl =
-        !routeInput.connectionId && rawUrl
+        !routeInput.connectionId && rawUrl && hasUrlHint
           ? routeUrl(primaryDevServerUrl, { url: rawUrl })
           : undefined;
       const routeConnection = await resolveRouteConnection(
@@ -704,7 +734,11 @@ export default defineAction({
       const routeDevServerUrl = normalizeBaseUrl(routeConnection.devServerUrl);
       const routeManifest = manifestIndexesForConnection(routeConnection);
       const manifestRoute =
-        (input.url ? routeManifest.byUrl.get(input.url) : undefined) ??
+        (input.url
+          ? routeManifest.byUrl.get(
+              canonicalRouteUrl(routeManifest.manifest.devServerUrl, input.url),
+            )
+          : undefined) ??
         (input.routeId ? routeManifest.byId.get(input.routeId) : undefined) ??
         (!input.url && input.path
           ? routeManifest.byPath.get(input.path)
@@ -728,13 +762,28 @@ export default defineAction({
         url,
         input.path ?? manifestRoute?.path ?? "/",
       );
+      const isSecondaryConnection = routeConnection.id !== connection.id;
+      const hasExplicitRouteConnection =
+        Boolean(input.connectionId) ||
+        primaryManifestRoute?.connectionId === routeConnection.id;
+      const primaryManifestRouteId =
+        primaryManifestRoute?.id &&
+        (primaryManifestRoute.connectionId === routeConnection.id ||
+          (!input.connectionId &&
+            primaryManifestRoute.url !== undefined &&
+            routeUrlsMatch(primaryManifestRoute.url, url)))
+          ? primaryManifestRoute.id
+          : undefined;
       const routeId =
         input.routeId ??
         manifestRoute?.id ??
+        primaryManifestRouteId ??
         makeLocalhostRouteId(
-          routeConnection.id === connection.id
-            ? path
-            : `${routeConnection.id}:${path}`,
+          isSecondaryConnection
+            ? hasExplicitRouteConnection
+              ? `${routeConnection.id}:${path}`
+              : url
+            : path,
         );
       const routeRequestKey = `${routeConnection.id}::${routeId}::${input.width ?? ""}x${input.height ?? ""}`;
       if (seenRouteRequestKeys.has(routeRequestKey)) continue;
@@ -748,17 +797,31 @@ export default defineAction({
         ...(manifestRoute?.metadata ?? {}),
         ...(input.metadata ?? {}),
       };
-      const includeOriginInFilename = !connectionOriginMatches(
-        primaryDevServerUrl,
-        url,
-      );
-      const filenameKey = includeOriginInFilename ? url : path;
+      const sameOriginSecondaryConnection =
+        isSecondaryConnection &&
+        connectionOriginMatches(primaryDevServerUrl, url);
+      const includeOriginInFilename =
+        sameOriginSecondaryConnection ||
+        !connectionOriginMatches(primaryDevServerUrl, url);
+      const filenameKey = sameOriginSecondaryConnection
+        ? `${routeConnection.id}:${path}`
+        : includeOriginInFilename
+          ? url
+          : path;
+      const sameOriginConnectionCount = (await loadScopedConnections()).filter(
+        (candidate) =>
+          connectionOriginMatches(
+            routeDevServerUrl,
+            normalizeBaseUrl(candidate.devServerUrl),
+          ),
+      ).length;
       const basePreferredFilename = `localhost-${slugForPath(filenameKey, includeOriginInFilename)}.html`;
       const routeMatchArgs = {
         connectionId: routeConnection.id,
         routeId,
         path,
         url,
+        connectionAmbiguous: sameOriginConnectionCount > 1,
       };
       const routeCandidates = existingFiles.filter((file) =>
         metadataMatchesRoute(

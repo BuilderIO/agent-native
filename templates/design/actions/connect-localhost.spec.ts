@@ -114,6 +114,25 @@ describe("connect-localhost", () => {
     expect(result.routes[0]?.id).not.toBe(makeLocalhostRouteId("/settings"));
   });
 
+  it("keeps fallback ids connection-scoped for same-origin secondary routes", async () => {
+    const result = await action.run({
+      id: "conn_primary",
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      routes: [
+        {
+          connectionId: "conn_secondary",
+          path: "/settings",
+          url: "http://localhost:5173/settings",
+        },
+      ],
+    });
+
+    expect(result.routes[0]?.id).toBe(
+      makeLocalhostRouteId("conn_secondary:/settings"),
+    );
+  });
+
   it("derives the stable per-user connection id when id is omitted", async () => {
     await action.run({
       devServerUrl: "http://localhost:5173/",

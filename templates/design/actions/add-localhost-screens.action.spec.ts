@@ -536,6 +536,120 @@ describe("add-localhost-screens refresh behavior", () => {
     );
   });
 
+  it("rejects an ambiguous same-origin URL without route connection identity", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://localhost:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        routes: [],
+      }),
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
+        routes: [{ url: "http://localhost:5173/settings" }],
+        startX: 0,
+        startY: 0,
+        gap: 160,
+      }),
+    ).rejects.toThrow(/Multiple localhost connections/);
+  });
+
+  it("does not reuse a connectionless legacy screen across same-origin roots", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://localhost:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        routes: [],
+      }),
+    });
+    mocks.state.files = [
+      {
+        id: "legacy_file",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings?old=1",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        legacy_file: { sourceType: "localhost", path: "/settings" },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ connectionId: "conn_2", path: "/settings" }],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).not.toBe("legacy_file");
+    expect(mocks.state.insertedFile).toMatchObject({
+      filename: "localhost-conn-2-settings.html",
+    });
+  });
+
+  it("normalizes loopback URL aliases before matching manifest routes", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://127.0.0.1:4173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://127.0.0.1:4173",
+        routes: [
+          {
+            id: "secondary-settings",
+            path: "/settings",
+            url: "http://127.0.0.1:4173/settings",
+          },
+        ],
+      }),
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ url: "http://localhost:4173/settings" }],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]).toMatchObject({
+      connectionId: "conn_2",
+      routeId: "secondary-settings",
+      url: "http://127.0.0.1:4173/settings",
+    });
+  });
+
   it("does not reuse a legacy path-only screen from another connection", async () => {
     mocks.state.scopedConnections.push({
       id: "conn_2",
