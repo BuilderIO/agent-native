@@ -1271,15 +1271,16 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
   const identitySsoRequestHost =
     opts.identitySsoRequestHost ?? opts.requestHost;
+  const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
   const identitySsoEnabled = isIdentitySsoAvailableForRequest({
     requestHost: identitySsoRequestHost,
-    requestProtocol: opts.identitySsoRequestProtocol,
+    requestProtocol: identitySsoRequestProtocol,
   });
   const identitySsoAuto =
     identitySsoEnabled &&
     isCanonicalIdentitySsoClientRequest(
       identitySsoRequestHost,
-      opts.identitySsoRequestProtocol,
+      identitySsoRequestProtocol,
     );
   const marketingStyles = hasMarketing
     ? `

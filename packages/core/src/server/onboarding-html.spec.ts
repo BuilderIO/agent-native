@@ -179,7 +179,6 @@ describe("getOnboardingHtml", () => {
 
       const html = getOnboardingHtml({
         requestHost: "calendar.agent-native.com",
-        identitySsoRequestProtocol: "https",
       });
 
       expect(html).not.toContain("identity-sso-btn");
