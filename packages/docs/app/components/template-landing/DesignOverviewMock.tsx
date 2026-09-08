@@ -850,7 +850,10 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-avatar-2 { background: var(--dm-avatar-bg-2); }",
   ".design-mock .dm-avatar-3 { background: var(--dm-avatar-bg-3); }",
   ".design-mock .dm-preview-btn { display: flex; height: 32px; align-items: center; gap: 2px; margin-left: auto; padding: 0 8px; border-radius: 6px; color: var(--dm-fg); }",
-  ".design-mock .dm-share-btn { display: flex; height: 32px; align-items: center; padding: 0 12px; border-radius: 6px; background: var(--dm-accent); color: var(--dm-accent-contrast); font-size: 12px; font-weight: 500; }",
+  // 28px to match the avatar row beside it. It reads taller than its
+  // neighbours at 32 because it is the only filled control up here, so the box
+  // is the whole silhouette; the ghost preview button gets away with more.
+  ".design-mock .dm-share-btn { display: flex; height: 28px; align-items: center; padding: 0 10px; border-radius: 6px; background: var(--dm-accent); color: var(--dm-accent-contrast); font-size: 12px; font-weight: 600; }",
   ".design-mock .dm-segmented { display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: var(--dm-control-bg); }",
   ".design-mock .dm-segment { display: flex; height: 24px; align-items: center; gap: 4px; padding: 0 6px; border-radius: 5px; color: var(--dm-fg-muted); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }",
   ".design-mock .dm-segment.is-active { background: var(--dm-panel-bg); color: var(--dm-accent); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }",
