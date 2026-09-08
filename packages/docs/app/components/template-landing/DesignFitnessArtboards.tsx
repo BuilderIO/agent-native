@@ -10,10 +10,8 @@
  * like a large-type marketing page on purpose — at 0.4 a normal 16px body line
  * lands at 6.4px and turns to mush, so the design itself is authored chunky.
  *
- * `ImageSlot` renders either a resolved asset or, without a `src`, a labelled
- * placeholder box the way a real in-progress file does. Most slots are still
- * awaiting artwork; pass `src` plus an `objectPosition` to fill one, since these
- * photos are rarely centred on their subject.
+ * `ImageSlot` crops a photo to the box the design gives it. Each one takes an
+ * `objectPosition`, since these stock shots are rarely centred on their subject.
  *
  * i18n-raw-literal-disable-file -- artwork, not UI copy. See the header comment
  * in DesignOverviewMock.tsx; the whole tree renders inside an `aria-hidden`
@@ -26,7 +24,7 @@ export const BOARD_SCALE = 0.4;
 export const DESKTOP_ARTBOARD_WIDTH = 1280;
 export const DESKTOP_ARTBOARD_HEIGHT = 1240;
 export const MOBILE_ARTBOARD_WIDTH = 390;
-export const MOBILE_ARTBOARD_HEIGHT = 1100;
+export const MOBILE_ARTBOARD_HEIGHT = 1200;
 
 /** Logical size of the selected CTA, mirrored by the inspector's W/H fields. */
 export const SELECTED_CTA_WIDTH = 160;
@@ -59,74 +57,44 @@ const STATS = [
   { value: "94%", label: "Stick with it", tone: "cyan" },
 ];
 
-const CLASSES: {
-  title: string;
-  meta: string;
-  tone: string;
-  /** Absent until the cover art for that class has been picked. */
-  src?: string;
-}[] = [
+const CLASSES = [
   {
     title: "Sprint Intervals",
     meta: "28 min · HIIT",
-    tone: "coral",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F756dda96e9774315951d2635dcbbb4c4?format=webp&width=660",
   },
   {
     title: "Deep Mobility",
     meta: "35 min · Recovery",
-    tone: "cyan",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F153d1f4a1b4b4915bed9ee5114d6c93f?format=webp&width=660",
   },
-  { title: "Heavy Compound", meta: "45 min · Strength", tone: "violet" },
+  {
+    title: "Heavy Compound",
+    meta: "45 min · Strength",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F576a17db99384c2da0b1976ea2d215a0?format=webp&width=660",
+  },
 ];
 
-/**
- * A labelled placeholder standing in for artwork that has not been dropped in
- * yet, matching how an unresolved image reads on a real canvas.
- */
 function ImageSlot({
-  label,
-  size,
   className = "",
-  round,
   src,
   objectPosition,
 }: {
-  label: string;
-  size: string;
   className?: string;
-  round?: boolean;
-  /** When set, the slot renders the asset instead of the placeholder. */
-  src?: string;
+  src: string;
   /** Crop focus, since these photos are rarely centred on their subject. */
   objectPosition?: string;
 }) {
-  const classes = ["ft-slot"];
-  if (round) classes.push("is-round");
-  if (src) classes.push("is-filled");
-  if (className) classes.push(className);
-
   return (
-    <div className={classes.join(" ")}>
-      {src ? (
-        <img
-          className="ft-slot-img"
-          src={src}
-          alt=""
-          crossOrigin="anonymous"
-          decoding="async"
-          style={{ objectPosition }}
-        />
-      ) : (
-        <>
-          <span className="ft-slot-cross" />
-          <span className="ft-slot-text">
-            <span className="ft-slot-label">{label}</span>
-            <span className="ft-slot-size">{size}</span>
-          </span>
-        </>
-      )}
+    <div className={["ft-slot", className].join(" ").trim()}>
+      <img
+        className="ft-slot-img"
+        src={src}
+        alt=""
+        crossOrigin="anonymous"
+        decoding="async"
+        style={{ objectPosition }}
+      />
     </div>
   );
 }
@@ -193,8 +161,6 @@ export function FitnessDesktopArtboard() {
           </div>
         </div>
         <ImageSlot
-          label="Hero athlete"
-          size="460 × 420"
           className="ft-hero-art"
           src={HERO_ATHLETE_SRC}
           objectPosition={HERO_ATHLETE_POSITION}
@@ -217,8 +183,8 @@ export function FitnessDesktopArtboard() {
         </div>
         <div className="ft-class-grid">
           {CLASSES.map((item) => (
-            <div key={item.title} className={`ft-class is-${item.tone}`}>
-              <ImageSlot label="Class cover" size="330 × 130" src={item.src} />
+            <div key={item.title} className="ft-class">
+              <ImageSlot src={item.src} />
               <span className="ft-class-title">{item.title}</span>
               <span className="ft-class-meta">{item.meta}</span>
             </div>
@@ -255,8 +221,6 @@ export function FitnessMobileArtboard() {
           <SelectedCta full />
         </div>
         <ImageSlot
-          label="Hero athlete"
-          size="294 × 200"
           className="ft-hero-art"
           src={HERO_ATHLETE_SRC}
           objectPosition={HERO_ATHLETE_POSITION}
@@ -279,8 +243,8 @@ export function FitnessMobileArtboard() {
         </div>
         <div className="ft-class-grid">
           {CLASSES.slice(0, 2).map((item) => (
-            <div key={item.title} className={`ft-class is-${item.tone}`}>
-              <ImageSlot label="Class cover" size="294 × 120" src={item.src} />
+            <div key={item.title} className="ft-class">
+              <ImageSlot src={item.src} />
               <span className="ft-class-title">{item.title}</span>
               <span className="ft-class-meta">{item.meta}</span>
             </div>
@@ -303,19 +267,9 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft h2, .design-mock .ft h3, .design-mock .ft p { color: inherit; }",
   ".design-mock .ft-desktop, .design-mock .ft-mobile { display: flex; flex-direction: column; }",
 
-  // Image placeholders
-  ".design-mock .ft-slot { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 2px dashed rgba(20, 12, 46, 0.28); border-radius: 16px; background: rgba(124, 77, 255, 0.08); }",
-  ".design-mock .ft-slot.is-round { border-radius: 999px; }",
-  // A resolved asset drops the dashed placeholder treatment entirely.
-  ".design-mock .ft-slot.is-filled { border: none; background: none; }",
-  ".design-mock .ft-slot-img { width: 100%; height: 100%; display: block; object-fit: cover; }",
-  ".design-mock .ft-slot-cross { position: absolute; inset: 0; background: linear-gradient(to top right, transparent calc(50% - 1px), rgba(20, 12, 46, 0.18) 50%, transparent calc(50% + 1px)), linear-gradient(to bottom right, transparent calc(50% - 1px), rgba(20, 12, 46, 0.18) 50%, transparent calc(50% + 1px)); }",
-  ".design-mock .ft-slot-text { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 10px; border-radius: 8px; background: rgba(255, 253, 248, 0.86); text-align: center; }",
-  ".design-mock .ft-slot-label { color: var(--ft-ink-soft); font-size: 15px; font-weight: 600; letter-spacing: 0.02em; }",
-  ".design-mock .ft-slot-size { color: var(--ft-ink-faint); font-size: 12px; font-variant-numeric: tabular-nums; }",
-  ".design-mock .ft-slot.is-round .ft-slot-text { padding: 2px 4px; background: none; }",
-  ".design-mock .ft-slot.is-round .ft-slot-label { font-size: 11px; }",
-  ".design-mock .ft-slot.is-round .ft-slot-size { display: none; }",
+  // Photo slots
+  ".design-mock .ft-slot { position: relative; overflow: hidden; border-radius: 16px; }",
+  ".design-mock .ft-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }",
 
   // Nav
   ".design-mock .ft-nav { display: flex; height: 88px; flex-shrink: 0; align-items: center; gap: 48px; padding: 0 48px; }",
@@ -338,7 +292,7 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-subhead { margin: 20px 0 0; max-width: 440px; color: rgba(255, 253, 248, 0.72); font-size: 19px; line-height: 1.5; }",
   ".design-mock .ft-hero-actions { display: flex; align-items: center; gap: 16px; margin-top: 32px; }",
   ".design-mock .ft-cta-ghost { display: flex; height: 52px; align-items: center; padding: 0 24px; border: 2px solid rgba(255, 253, 248, 0.32); border-radius: 999px; color: var(--ft-surface); font-size: 17px; font-weight: 600; }",
-  ".design-mock .ft-hero-art { width: 460px; height: 420px; flex-shrink: 0; border-radius: 28px; }",
+  ".design-mock .ft-hero-art { width: 460px; height: 380px; flex-shrink: 0; border-radius: 28px; }",
 
   // The selected `Start free trial` CTA and its editor chrome.
   ".design-mock .ft-selected { position: relative; width: 160px; }",
@@ -362,21 +316,20 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-stat-label { font-size: 15px; font-weight: 600; opacity: 0.72; }",
 
   // Sections
-  ".design-mock .ft-section { flex-shrink: 0; padding: 36px 48px 0; }",
-  ".design-mock .ft-section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }",
+  ".design-mock .ft-section { flex-shrink: 0; padding: 30px 48px 0; }",
+  ".design-mock .ft-section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }",
   ".design-mock .ft-section-title { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -0.03em; }",
   ".design-mock .ft-section-link { color: var(--ft-violet); font-size: 16px; font-weight: 600; }",
   ".design-mock .ft-class-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }",
   ".design-mock .ft-class { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 2px solid var(--ft-line); border-radius: 26px; background: var(--ft-card); }",
-  ".design-mock .ft-class .ft-slot { height: 130px; border-radius: 18px; }",
-  ".design-mock .ft-class.is-coral .ft-slot { background: rgba(255, 91, 74, 0.14); }",
-  ".design-mock .ft-class.is-cyan .ft-slot { background: rgba(63, 224, 208, 0.16); }",
-  ".design-mock .ft-class.is-violet .ft-slot { background: rgba(124, 77, 255, 0.14); }",
+  // Covers are ~345px wide, so 190 keeps the roughly 4:3 photos from being
+  // sliced into letterbox strips without pushing the frame into the toolbar.
+  ".design-mock .ft-class .ft-slot { height: 190px; border-radius: 18px; }",
   ".design-mock .ft-class-title { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; }",
   ".design-mock .ft-class-meta { color: var(--ft-ink-soft); font-size: 15px; font-weight: 500; }",
 
   // Closing band
-  ".design-mock .ft-band { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 36px 24px 24px; padding: 30px 40px; border-radius: 32px; background: linear-gradient(100deg, var(--ft-violet), var(--ft-coral) 62%, var(--ft-amber)); color: var(--ft-surface); }",
+  ".design-mock .ft-band { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 28px 24px 24px; padding: 30px 40px; border-radius: 32px; background: linear-gradient(100deg, var(--ft-violet), var(--ft-coral) 62%, var(--ft-amber)); color: var(--ft-surface); }",
   ".design-mock .ft-band-title { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }",
   ".design-mock .ft-band-cta { display: flex; height: 52px; align-items: center; padding: 0 26px; border-radius: 999px; background: var(--ft-surface); color: var(--ft-ink); font-size: 17px; font-weight: 700; }",
 
@@ -396,7 +349,7 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-mobile .ft-section-title { font-size: 24px; }",
   ".design-mock .ft-mobile .ft-section-link { font-size: 13px; }",
   ".design-mock .ft-mobile .ft-class-grid { grid-template-columns: 1fr; gap: 14px; }",
-  ".design-mock .ft-mobile .ft-class .ft-slot { height: 120px; }",
+  ".design-mock .ft-mobile .ft-class .ft-slot { height: 170px; }",
   ".design-mock .ft-mobile .ft-class-title { font-size: 17px; }",
   ".design-mock .ft-mobile .ft-class-meta { font-size: 13px; }",
 ].join("\n");
