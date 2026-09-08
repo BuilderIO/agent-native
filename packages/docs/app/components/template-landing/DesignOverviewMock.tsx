@@ -32,6 +32,7 @@ import {
   IconCode,
   IconComponents,
   IconDeviceMobile,
+  IconDroplet,
   IconEye,
   IconEyeOff,
   IconFile,
@@ -41,7 +42,6 @@ import {
   IconFrame,
   IconGridDots,
   IconHandClick,
-  IconLayersIntersect,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -63,9 +63,8 @@ import {
   IconScribble,
   IconSearch,
   IconSquare,
+  IconTextSize,
   IconTransformPoint,
-  IconTypography,
-  IconVectorBezier,
   IconViewportWide,
 } from "@tabler/icons-react";
 
@@ -121,13 +120,9 @@ type LayerRow = {
   glyph: LayerGlyph;
   /** Omitted for leaves, which still reserve the caret slot. */
   disclosure?: "expanded" | "collapsed";
-  /** The active screen row, which the editor tints like a selected list item. */
-  activeScreen?: boolean;
   /** Component instances take the purple selection family, not the blue one. */
   component?: boolean;
   selected?: boolean;
-  /** An ancestor of the selection, tinted with the subtree color. */
-  ancestor?: boolean;
 };
 
 const LAYER_ROWS: LayerRow[] = [
@@ -137,7 +132,6 @@ const LAYER_ROWS: LayerRow[] = [
     depth: 0,
     glyph: "screen",
     disclosure: "expanded",
-    activeScreen: true,
   },
   {
     id: "group-root",
@@ -145,7 +139,6 @@ const LAYER_ROWS: LayerRow[] = [
     depth: 1,
     glyph: "rows",
     disclosure: "expanded",
-    ancestor: true,
   },
   {
     id: "frame-a",
@@ -160,7 +153,6 @@ const LAYER_ROWS: LayerRow[] = [
     depth: 2,
     glyph: "frame",
     disclosure: "expanded",
-    ancestor: true,
   },
   {
     id: "inbox",
@@ -168,7 +160,6 @@ const LAYER_ROWS: LayerRow[] = [
     depth: 3,
     glyph: "rows",
     disclosure: "expanded",
-    ancestor: true,
   },
   {
     id: "group-inbox",
@@ -176,7 +167,6 @@ const LAYER_ROWS: LayerRow[] = [
     depth: 4,
     glyph: "rows",
     disclosure: "expanded",
-    ancestor: true,
   },
   {
     id: "footer",
@@ -205,7 +195,6 @@ const LAYER_ROWS: LayerRow[] = [
     depth: 5,
     glyph: "rows",
     disclosure: "expanded",
-    ancestor: true,
   },
   {
     id: "add-task",
@@ -245,12 +234,40 @@ const LAYER_ROWS: LayerRow[] = [
   },
 ];
 
+/**
+ * The pen tool has no Tabler equivalent, so the editor ships its own glyph.
+ * Copied from templates/design's `DesignPenToolIcon` rather than approximated
+ * with a bezier icon.
+ */
+function PenToolIcon({ size }: { size: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z" />
+      <path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18" />
+      <path d="m2.3 2.3 7.286 7.286" />
+      <circle cx="11" cy="11" r="2" />
+    </svg>
+  );
+}
+
+// Mirrors the real toolbar: only the four tools with more than one sub-tool
+// get a chevron, and text is IconTextSize (the editor's `IconText` alias).
 const TOOLBAR_TOOLS = [
   { icon: IconPointer, active: true, hasSubTools: true },
   { icon: IconFrame, hasSubTools: true },
   { icon: IconSquare, hasSubTools: true },
-  { icon: IconVectorBezier, hasSubTools: true },
-  { icon: IconTypography },
+  { icon: PenToolIcon, hasSubTools: true },
+  { icon: IconTextSize },
   { icon: IconMessage },
 ];
 
@@ -294,8 +311,6 @@ function LayerTreeRow({ row }: { row: LayerRow }) {
   const Glyph = LAYER_GLYPHS[row.glyph];
   const classes = ["dm-layer"];
   if (row.selected) classes.push("is-selected");
-  else if (row.activeScreen) classes.push("is-active");
-  else if (row.ancestor) classes.push("is-ancestor");
   if (row.component) classes.push("is-component");
 
   return (
@@ -603,15 +618,16 @@ function Inspector() {
         actions={
           <>
             <IconAction glyph={IconEye} />
-            <IconAction glyph={IconLayersIntersect} />
+            <IconAction glyph={IconDroplet} />
           </>
         }
       >
-        <div className="dm-prop-row">
-          <NumField label="Opacity" glyph={IconGridDots} value="100" unit="%" />
-        </div>
-        <div className="dm-prop-row">
-          <NumField label="Corner radius" glyph={IconBorderRadius} value="10" />
+        <div className="dm-appearance-grid">
+          <span className="dm-prop-label">Opacity</span>
+          <span className="dm-prop-label">Corner radius</span>
+          <span />
+          <NumField glyph={IconGridDots} value="100" unit="%" />
+          <NumField glyph={IconBorderRadius} value="10" />
           <IconAction glyph={IconBorderCorners} />
         </div>
       </Section>
@@ -666,18 +682,24 @@ function Inspector() {
 function BottomToolbar() {
   return (
     <div className="dm-toolbar">
-      {TOOLBAR_TOOLS.map(({ icon: Icon, active, hasSubTools }, index) => (
-        <span
-          // Icon identity is the only distinguishing value in this static list.
-          key={index}
-          className={active ? "dm-tool is-active" : "dm-tool"}
-        >
-          <Icon size={18} />
-          {hasSubTools ? (
-            <IconChevronDown size={12} className="dm-tool-caret" />
-          ) : null}
-        </span>
-      ))}
+      <span className="dm-tool-group">
+        {TOOLBAR_TOOLS.map(({ icon: Icon, active, hasSubTools }, index) => (
+          <span
+            // Icon identity is the only distinguishing value in this static list.
+            key={index}
+            className="dm-tool-slot"
+          >
+            <span className={active ? "dm-tool is-active" : "dm-tool"}>
+              <Icon size={18} />
+            </span>
+            {hasSubTools ? (
+              <span className="dm-tool-caret">
+                <IconChevronDown size={12} />
+              </span>
+            ) : null}
+          </span>
+        ))}
+      </span>
       <span className="dm-toolbar-divider" />
       <span className="dm-mode-group">
         {TOOLBAR_MODES.map(({ icon: Icon, active }, index) => (
@@ -738,7 +760,7 @@ const DESIGN_MOCK_CSS = [
 
   // Palette, mirroring templates/design/app/global.css. Dark by default; the
   // `html.light` block below swaps the whole mock when the docs shell is light.
-  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-selection: rgba(10, 154, 255, 0.24); --dm-accent: hsl(205 100% 53%); --dm-accent-contrast: #ffffff; --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-component-subtree: rgba(167, 116, 250, 0.18); --dm-avatar-border: hsl(0 0% 13%); }",
+  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-selection: rgba(10, 154, 255, 0.24); --dm-accent: hsl(205 100% 53%); --dm-accent-contrast: #ffffff; --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-avatar-border: hsl(0 0% 13%); }",
 
   // Window
   ".design-mock .dm-window { position: absolute; inset: 0; display: flex; overflow: hidden; border-radius: 12px; border: 1px solid var(--dm-divider); background: var(--dm-panel-bg); color: var(--dm-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
@@ -772,8 +794,6 @@ const DESIGN_MOCK_CSS = [
   // their label exactly the way the real panel does at this width.
   ".design-mock .dm-layer-tree { flex: 1; min-height: 0; overflow: hidden; padding: 8px; }",
   ".design-mock .dm-layer { display: flex; height: 32px; align-items: center; gap: 8px; padding-right: 4px; border-radius: 5px; color: var(--dm-fg); }",
-  ".design-mock .dm-layer.is-active { background: var(--dm-active-row); }",
-  ".design-mock .dm-layer.is-ancestor { background: var(--dm-component-subtree); }",
   ".design-mock .dm-layer.is-selected { background: var(--dm-component-selection); }",
   ".design-mock .dm-layer.is-component .dm-layer-glyph, .design-mock .dm-layer.is-component .dm-layer-label { color: var(--dm-component); }",
   ".design-mock .dm-layer.is-selected .dm-layer-label { color: var(--dm-fg); }",
@@ -847,6 +867,11 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-prop { display: flex; min-width: 0; flex-direction: column; gap: 4px; }",
   ".design-mock .dm-prop-label { color: var(--dm-fg-muted); font-size: 10px; font-weight: 400; line-height: 12px; }",
   ".design-mock .dm-prop-row { display: flex; min-width: 0; align-items: center; gap: 4px; }",
+  // The editor's `label-action-rows` layout: two equal field columns and a
+  // fixed 32px action rail. At the 240px panel width that resolves to the
+  // authored 88/8/88/8/32 spans of its 28-column, 8px grid.
+  ".design-mock .dm-appearance-grid { display: grid; min-width: 0; grid-template-columns: 1fr 1fr 32px; align-items: center; column-gap: 8px; row-gap: 4px; }",
+  ".design-mock .dm-appearance-grid .dm-icon-action { margin-left: auto; }",
 
   ".design-mock .dm-num { display: flex; height: 24px; min-width: 0; flex: 1; align-items: center; gap: 4px; padding: 0 6px; border: 1px solid var(--dm-border); border-radius: 6px; background: var(--dm-control-bg); }",
   ".design-mock .dm-num-glyph { flex-shrink: 0; color: var(--dm-fg-muted); }",
@@ -870,10 +895,12 @@ const DESIGN_MOCK_CSS = [
 
   // Floating bottom toolbar. Pinned to the dark palette in both themes, exactly
   // like the real toolbar.
-  ".design-mock .dm-toolbar { position: absolute; bottom: 16px; left: 50%; z-index: 3; display: flex; max-width: calc(100% - 32px); transform: translateX(-50%); align-items: center; gap: 4px; padding: 6px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; background: rgba(44, 44, 44, 0.95); color: #f5f5f5; box-shadow: 0 22px 55px -24px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }",
-  ".design-mock .dm-tool { display: flex; height: 32px; flex-shrink: 0; align-items: center; justify-content: center; gap: 1px; padding: 0 4px; border-radius: 6px; color: #e5e5e5; }",
+  ".design-mock .dm-toolbar { position: absolute; bottom: 16px; left: 50%; z-index: 3; display: flex; max-width: calc(100% - 32px); transform: translateX(-50%); align-items: center; gap: 6px; padding: 6px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; background: rgba(44, 44, 44, 0.95); color: #f5f5f5; box-shadow: 0 22px 55px -24px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }",
+  ".design-mock .dm-tool-group { display: flex; min-width: 0; flex-shrink: 0; align-items: center; gap: 2px; }",
+  ".design-mock .dm-tool-slot { display: flex; height: 32px; flex-shrink: 0; align-items: center; }",
+  ".design-mock .dm-tool { display: flex; width: 32px; height: 32px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 6px; color: #e5e5e5; }",
   ".design-mock .dm-tool.is-active { background: var(--dm-accent); color: #ffffff; }",
-  ".design-mock .dm-tool-caret { opacity: 0.7; }",
+  ".design-mock .dm-tool-caret { display: flex; width: 16px; height: 32px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 6px; color: #e5e5e5; }",
   ".design-mock .dm-toolbar-divider { width: 1px; height: 36px; flex-shrink: 0; margin: 0 2px; background: rgba(255, 255, 255, 0.15); }",
   ".design-mock .dm-mode-group { display: flex; flex-shrink: 0; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: rgba(255, 255, 255, 0.1); }",
   ".design-mock .dm-mode { display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 6px; color: #d4d4d4; }",
@@ -883,7 +910,7 @@ const DESIGN_MOCK_CSS = [
 
   // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
   // follows the visitor's theme instead of staying pinned to the dark art.
-  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-selection: rgba(10, 154, 255, 0.14); --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-component-subtree: rgba(124, 77, 240, 0.1); --dm-avatar-border: hsl(0 0% 100%); }",
+  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-selection: rgba(10, 154, 255, 0.14); --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-avatar-border: hsl(0 0% 100%); }",
   "html.light .design-mock .dm-paint-swatch { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }",
 
   // Narrow screens. The window is a fixed-width layout, so the whole mock
