@@ -167,10 +167,13 @@ export interface GitHubPullRequestEvidence {
  * One page of an open-item listing. `hasMore` reflects the raw provider page,
  * not the parsed items: `listOpenIssues` drops pull requests from the issues
  * endpoint, so a full provider page can yield fewer issues and still have a
- * next page behind it.
+ * next page behind it. `unparsed` counts those dropped entries so a caller can
+ * tell "the repository has no issues" from "this page held only pull
+ * requests"; without it an empty `items` reads the same either way.
  */
 export interface GitHubOpenItemPage<T> {
   items: T[];
+  unparsed: number;
   hasMore: boolean;
 }
 
@@ -572,6 +575,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
         throw new Error("GitHub pull request response was not an array");
       return {
         items: value.map(parsePullRequest),
+        unparsed: 0,
         hasMore: value.length >= perPage,
       };
     },
@@ -588,11 +592,13 @@ export function createGitHubClient(options: GitHubClientOptions) {
       );
       if (!Array.isArray(value))
         throw new Error("GitHub issue response was not an array");
+      const items = value.flatMap((item) => {
+        const issue = parseIssue(item);
+        return issue ? [issue] : [];
+      });
       return {
-        items: value.flatMap((item) => {
-          const issue = parseIssue(item);
-          return issue ? [issue] : [];
-        }),
+        items,
+        unparsed: value.length - items.length,
         hasMore: value.length >= perPage,
       };
     },

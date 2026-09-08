@@ -223,6 +223,19 @@ describe("poll-github-sources action", () => {
 });
 
 describe("poll-github-sources author filter", () => {
+  // Mirrors GitHubOpenItemPage. Built through a helper so a page mock cannot
+  // omit a required count and feed NaN into the audit totals.
+  function page<T>(
+    items: T[],
+    extra: { hasMore?: boolean; unparsed?: number } = {},
+  ) {
+    return {
+      items,
+      unparsed: extra.unparsed ?? 0,
+      hasMore: extra.hasMore ?? false,
+    };
+  }
+
   function pullRequest(number: number, userId: number, userLogin: string) {
     return {
       number,
@@ -256,14 +269,12 @@ describe("poll-github-sources author filter", () => {
       },
     });
     createGitHubClientMock.mockReturnValue({
-      listOpenIssues: async () => ({ items: [], hasMore: false }),
-      listOpenPullRequests: async () => ({
-        items: [
+      listOpenIssues: async () => page([]),
+      listOpenPullRequests: async () =>
+        page([
           pullRequest(1, 138030887, "builder-io-integration[bot]"),
           pullRequest(2, 844291, "steve8708"),
-        ],
-        hasMore: false,
-      }),
+        ]),
     });
   }
 
@@ -326,7 +337,7 @@ describe("poll-github-sources author filter", () => {
       expect.objectContaining({
         status: "skipped",
         summary:
-          "Every open item was skipped by the automation's author filter (2 skipped).",
+          "No open GitHub items reached the queue: 2 skipped by the automation's author filter.",
         details: expect.objectContaining({ truncated: true }),
       }),
       "testingfactory",
@@ -347,23 +358,20 @@ describe("poll-github-sources author filter", () => {
       },
     });
     const pages = [
-      { items: [pullRequest(1, 844291, "steve8708")], hasMore: true },
-      {
-        items: [pullRequest(2, 138030887, "builder-io-integration[bot]")],
-        hasMore: false,
-      },
+      page([pullRequest(1, 844291, "steve8708")], { hasMore: true }),
+      page([pullRequest(2, 138030887, "builder-io-integration[bot]")]),
     ];
     const seenPages: number[] = [];
     createGitHubClientMock.mockReturnValue({
-      listOpenIssues: async () => ({ items: [], hasMore: false }),
+      listOpenIssues: async () => page([]),
       listOpenPullRequests: async (
         _repository: unknown,
         _limit: number,
         options: { page?: number } = {},
       ) => {
-        const page = options.page ?? 1;
-        seenPages.push(page);
-        return pages[page - 1] ?? { items: [], hasMore: false };
+        const requested = options.page ?? 1;
+        seenPages.push(requested);
+        return pages[requested - 1] ?? page([]);
       },
     });
 
@@ -378,9 +386,9 @@ describe("poll-github-sources author filter", () => {
     runWithAuthors("include", ["138030887"]);
     const getPullRequestSummary = vi.fn();
     createGitHubClientMock.mockReturnValue({
-      listOpenIssues: async () => ({ items: [], hasMore: false }),
+      listOpenIssues: async () => page([]),
       // Parked rows are only rechecked when they fall off the open page.
-      listOpenPullRequests: async () => ({ items: [], hasMore: false }),
+      listOpenPullRequests: async () => page([]),
       getPullRequestSummary,
     });
     getDbMock.mockReturnValue({
@@ -432,15 +440,171 @@ describe("poll-github-sources author filter", () => {
       },
     });
     createGitHubClientMock.mockReturnValue({
-      listOpenIssues: async () => ({ items: [], hasMore: false }),
-      listOpenPullRequests: async () => ({
-        items: [pullRequest(1, 138030887, "builder-io-integration[bot]")],
-        hasMore: true,
-      }),
+      listOpenIssues: async () => page([]),
+      listOpenPullRequests: async () =>
+        page([pullRequest(1, 138030887, "builder-io-integration[bot]")], {
+          hasMore: true,
+        }),
     });
 
     const result = await action.run(input, context);
 
     expect(result).toMatchObject({ providerHasMore: true, truncated: true });
+  });
+
+  it("walks past a page of already-queued items to reach a new one", async () => {
+    const { default: action } = await import("./poll-github-sources.js");
+    const { itemDedupeKey } = await import("../server/triage/ids.js");
+    requireFactoryAutomationMock.mockResolvedValue(undefined);
+    readCallingFactoryAutomationMock.mockResolvedValue({
+      name: "factories/testingfactory/factory-pr-babysit",
+      content: "",
+      config: {
+        repository: "acme/repo",
+        authorMode: "include",
+        authorIds: ["138030887"],
+        inboxLimit: 1,
+      },
+    });
+    const queuedId = itemDedupeKey(
+      {
+        source: "github",
+        externalId: "acme/repo#1",
+        repository: "acme/repo",
+        pullRequestNumber: 1,
+      },
+      "org-1",
+      "testingfactory",
+    );
+    getDbMock.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: async () => [
+            {
+              id: queuedId,
+              metadataJson: JSON.stringify({ authorId: "138030887" }),
+              pullRequestNumber: 1,
+              headSha: "sha-1",
+              sourceUrl: "https://github.com/acme/repo/pull/1",
+              title: "PR 1",
+              repository: "acme/repo",
+              updatedAt: "2026-09-04T00:00:00.000Z",
+            },
+          ],
+        }),
+      }),
+      transaction: async (run: (tx: unknown) => Promise<void>) =>
+        run({
+          select: () => ({
+            from: () => ({ where: () => ({ limit: async () => [] }) }),
+          }),
+          insert: insertMock,
+          update: () => ({ set: () => ({ where: async () => undefined }) }),
+        }),
+    });
+    const pages = [
+      page([pullRequest(1, 138030887, "builder-io-integration[bot]")], {
+        hasMore: true,
+      }),
+      page([pullRequest(2, 138030887, "builder-io-integration[bot]")]),
+    ];
+    const seenPages: number[] = [];
+    createGitHubClientMock.mockReturnValue({
+      listOpenIssues: async () => page([]),
+      listOpenPullRequests: async (
+        _repository: unknown,
+        _limit: number,
+        options: { page?: number } = {},
+      ) => {
+        const requested = options.page ?? 1;
+        seenPages.push(requested);
+        return pages[requested - 1] ?? page([]);
+      },
+    });
+
+    await action.run(input, context);
+
+    // PR 1 fills the inbox limit of 1 in count only: it is already queued, so
+    // it consumes no capacity and must not end the walk before PR 2.
+    expect(seenPages).toEqual([1, 2]);
+  });
+
+  it("names the inbox limit, not the author filter, when the cap dropped everything", async () => {
+    const { default: action } = await import("./poll-github-sources.js");
+    requireFactoryAutomationMock.mockResolvedValue(undefined);
+    readCallingFactoryAutomationMock.mockResolvedValue({
+      name: "factories/testingfactory/factory-pr-babysit",
+      content: "",
+      config: {
+        repository: "acme/repo",
+        authorMode: "include",
+        authorIds: ["138030887"],
+        inboxLimit: 0,
+      },
+    });
+    createGitHubClientMock.mockReturnValue({
+      listOpenIssues: async () => page([]),
+      listOpenPullRequests: async () =>
+        page([pullRequest(1, 138030887, "builder-io-integration[bot]")]),
+    });
+
+    await action.run(input, context);
+
+    expect(recordFactoryAuditMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      expect.objectContaining({
+        status: "skipped",
+        summary:
+          "No open GitHub items reached the queue: 1 dropped at the inbox limit.",
+        details: expect.objectContaining({
+          authorFiltered: 0,
+          droppedByInboxLimit: 1,
+          truncated: true,
+        }),
+      }),
+      "testingfactory",
+    );
+  });
+
+  it("explains an empty issue count that came from pull requests on the issues endpoint", async () => {
+    const { default: action } = await import("./poll-github-sources.js");
+    requireFactoryAutomationMock.mockResolvedValue(undefined);
+    readCallingFactoryAutomationMock.mockResolvedValue({
+      name: "factories/testingfactory/factory-pr-babysit",
+      content: "",
+      config: {
+        repository: "acme/repo",
+        authorMode: "include",
+        authorIds: ["138030887"],
+        inboxLimit: 25,
+      },
+    });
+    createGitHubClientMock.mockReturnValue({
+      listOpenIssues: async () => page([], { unparsed: 3 }),
+      listOpenPullRequests: async () => page([]),
+    });
+
+    const result = await action.run(
+      {
+        factoryId: "testingfactory",
+        includeIssues: true,
+        includePullRequests: false,
+      },
+      context,
+    );
+
+    // Those three are fetched as pull requests instead, so the run is not
+    // truncated — but the zero issue count still needs an explanation.
+    expect(result).toMatchObject({ unparsed: 3, truncated: false });
+    expect(recordFactoryAuditMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      expect.objectContaining({
+        summary:
+          "No open GitHub items reached the queue: 3 pull requests returned by the issues endpoint.",
+      }),
+      "testingfactory",
+    );
   });
 });
