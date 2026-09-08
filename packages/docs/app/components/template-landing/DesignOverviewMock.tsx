@@ -893,8 +893,9 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-paint-opacity { flex-shrink: 0; color: var(--dm-fg-muted); font-size: 11px; font-variant-numeric: tabular-nums; }",
   ".design-mock .dm-effects { display: flex; flex-direction: column; gap: 6px; }",
 
-  // Floating bottom toolbar. Pinned to the dark palette in both themes, exactly
-  // like the real toolbar.
+  // Floating bottom toolbar. The real editor pins this dark in both themes;
+  // here it follows the docs theme (see the `html.light` override below) so it
+  // does not sit as a heavy dark slab on the light landing page.
   ".design-mock .dm-toolbar { position: absolute; bottom: 16px; left: 50%; z-index: 3; display: flex; max-width: calc(100% - 32px); transform: translateX(-50%); align-items: center; gap: 6px; padding: 6px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; background: rgba(44, 44, 44, 0.95); color: #f5f5f5; box-shadow: 0 22px 55px -24px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }",
   ".design-mock .dm-tool-group { display: flex; min-width: 0; flex-shrink: 0; align-items: center; gap: 2px; }",
   ".design-mock .dm-tool-slot { display: flex; height: 32px; flex-shrink: 0; align-items: center; }",
@@ -912,6 +913,18 @@ const DESIGN_MOCK_CSS = [
   // follows the visitor's theme instead of staying pinned to the dark art.
   "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-avatar-border: hsl(0 0% 100%); --dm-avatar-fg: hsl(0 0% 32%); --dm-avatar-bg-1: hsl(0 0% 72%); --dm-avatar-bg-2: hsl(0 0% 79%); --dm-avatar-bg-3: hsl(0 0% 86%); }",
   "html.light .design-mock .dm-paint-swatch { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }",
+
+  // Light-mode floating toolbar: a raised white bar rather than the editor's
+  // fixed dark slab. The active mode pill needs a darker sky than the dark
+  // theme's #38bdf8, which has too little contrast against white.
+  "html.light .design-mock .dm-toolbar { border-color: rgba(0, 0, 0, 0.08); background: rgba(255, 255, 255, 0.95); color: hsl(0 0% 20%); box-shadow: 0 22px 55px -24px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(0, 0, 0, 0.05); }",
+  "html.light .design-mock .dm-tool { color: hsl(0 0% 28%); }",
+  "html.light .design-mock .dm-tool.is-active { color: #ffffff; }",
+  "html.light .design-mock .dm-tool-caret { color: hsl(0 0% 45%); }",
+  "html.light .design-mock .dm-toolbar-divider { background: rgba(0, 0, 0, 0.12); }",
+  "html.light .design-mock .dm-mode-group { background: rgba(0, 0, 0, 0.06); }",
+  "html.light .design-mock .dm-mode { color: hsl(0 0% 35%); }",
+  "html.light .design-mock .dm-mode.is-active { background: #ffffff; color: hsl(205 90% 42%); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06), 0 6px 14px -8px rgba(0, 0, 0, 0.45); }",
 
   // Narrow screens. The window is a fixed-width layout, so the whole mock
   // scales down and anchors to the left edge rather than letting the canvas
