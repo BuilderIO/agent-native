@@ -27,6 +27,7 @@ import {
   type DocumentQueryContext,
 } from "../lib/document-query";
 import {
+  contentDatabaseConstrainedQueryFilter,
   contentDatabaseItemsContainingDocumentFilter,
   removeOptimisticItemFromContentDatabase,
   useRestoreContentDatabase,
@@ -719,7 +720,7 @@ export function useUpdateDocument() {
             queryKey: ["action", "list-documents"],
           });
           void queryClient.invalidateQueries(
-            contentDatabaseItemsContainingDocumentFilter(variables.id),
+            contentDatabaseConstrainedQueryFilter(),
           );
           return;
         }
@@ -731,7 +732,7 @@ export function useUpdateDocument() {
         );
         if (variables.title !== undefined) {
           void queryClient.invalidateQueries(
-            contentDatabaseItemsContainingDocumentFilter(variables.id),
+            contentDatabaseConstrainedQueryFilter(),
           );
         }
         if (renamedContentSpace) {

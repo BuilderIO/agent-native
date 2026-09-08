@@ -180,22 +180,6 @@ function isContentDatabaseQueryForDocument(
   return params.documentId === documentId;
 }
 
-function isContentDatabaseItemsPageQueryForDocument(
-  queryKey: readonly unknown[],
-  documentId: string,
-) {
-  if (
-    queryKey[0] !== "action" ||
-    queryKey[1] !== "query-content-database-items" ||
-    !queryKey[2] ||
-    typeof queryKey[2] !== "object"
-  ) {
-    return false;
-  }
-  const params = queryKey[2] as { documentId?: unknown };
-  return params.documentId === documentId;
-}
-
 export function contentDatabaseQueryFilter(documentId: string) {
   return {
     queryKey: ["action", "get-content-database"],
@@ -204,20 +188,21 @@ export function contentDatabaseQueryFilter(documentId: string) {
   };
 }
 
-export function contentDatabaseConstrainedQueryFilter(documentId: string) {
+export function contentDatabaseConstrainedQueryFilter(documentId?: string) {
   return {
     queryKey: ["action"],
     predicate: (query: Query) => {
-      if (
-        isContentDatabaseItemsPageQueryForDocument(query.queryKey, documentId)
-      ) {
-        return true;
-      }
-      if (!isContentDatabaseQueryForDocument(query.queryKey, documentId)) {
+      const params = query.queryKey[2] as
+        | { documentId?: unknown; tableQuery?: unknown }
+        | undefined;
+      if (documentId !== undefined && params?.documentId !== documentId) {
         return false;
       }
-      const params = query.queryKey[2] as { tableQuery?: unknown };
-      return params.tableQuery !== undefined;
+      return (
+        query.queryKey[1] === "query-content-database-items" ||
+        (query.queryKey[1] === "get-content-database" &&
+          params?.tableQuery !== undefined)
+      );
     },
   };
 }
