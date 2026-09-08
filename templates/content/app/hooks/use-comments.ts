@@ -30,6 +30,7 @@ export interface Comment {
   mentions: CommentMention[];
   author_email: string;
   author_name: string | null;
+  actorKind?: "human" | "agent" | null;
   resolved: number;
   created_at: string;
   updated_at: string;
@@ -369,7 +370,15 @@ function groupCommentThreads(data: unknown): CommentThread[] {
     data && typeof data === "object" && "comments" in data
       ? (data as { comments?: unknown }).comments
       : data;
-  const comments: Comment[] = Array.isArray(raw) ? raw : [];
+  const comments: Comment[] = Array.isArray(raw)
+    ? raw.map((value) => {
+        const comment = value as Comment & { actor_kind?: unknown };
+        const actorKind = comment.actorKind ?? comment.actor_kind;
+        return actorKind === "human" || actorKind === "agent"
+          ? { ...comment, actorKind }
+          : comment;
+      })
+    : [];
   const threadMap = new Map<string, CommentThread>();
   for (const comment of comments) {
     if (!threadMap.has(comment.thread_id)) {
@@ -444,6 +453,7 @@ export function useCreateComment(author: CommentAuthor = {}) {
             : parsedMentions(variables.mentions),
         author_email: author.email?.trim() ?? "",
         author_name: authorName(author),
+        actorKind: "human",
         resolved: 0,
         created_at: now,
         updated_at: now,

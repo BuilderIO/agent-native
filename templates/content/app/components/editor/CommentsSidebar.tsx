@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -10,9 +9,9 @@ import type {
   ResourceSuggestion,
   SuggestionDecision,
 } from "@agent-native/core/review";
+import type { CommentAiIntent, CommentAiRequest } from "@shared/comment-ai";
 import {
   IconCheck,
-  IconSparkles,
   IconArrowUp,
   IconArrowBackUp,
   IconFilter,
@@ -28,6 +27,7 @@ import {
   useCallback,
   type RefObject,
 } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -65,6 +65,11 @@ import {
 } from "@/hooks/use-mention-members";
 import { cn } from "@/lib/utils";
 
+import {
+  CommentAiThreadActions,
+  latestCommentAiRequest,
+  type CommentAiController,
+} from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import { useCommentDraft, useCommentPanelSession } from "./comment-drafts";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
@@ -148,6 +153,19 @@ function CommentAvatar({
       </UserAvatarFallback>
     </UserAvatar>
   );
+}
+
+function CommentActorBadge({
+  actorKind,
+}: {
+  actorKind?: "human" | "agent" | null;
+}) {
+  const t = useT();
+  return actorKind === "agent" ? (
+    <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
+      {t("comments.aiBadge")}
+    </span>
+  ) : null;
 }
 
 function formatDate(dateStr: string) {
@@ -387,6 +405,8 @@ interface CommentsSidebarProps {
   suggestions?: ResourceSuggestion[];
   canDecideSuggestions?: boolean;
   decidingSuggestion?: boolean;
+  canSuggest?: boolean;
+  commentAi?: CommentAiController;
   onDecideSuggestion?: (
     suggestion: ResourceSuggestion,
     decision: SuggestionDecision,
@@ -420,6 +440,8 @@ export function CommentsSidebar({
   suggestions = [],
   canDecideSuggestions = false,
   decidingSuggestion = false,
+  canSuggest = false,
+  commentAi,
   onDecideSuggestion,
   visibleThreadId,
   presentation = "inline",
@@ -651,17 +673,24 @@ export function CommentsSidebar({
     );
   };
 
-  const handleSendToAI = (thread: CommentThread) => {
-    const commentTexts = thread.comments
-      .map((c) => `${c.author_name ?? c.author_email}: ${c.content}`)
-      .join("\n");
-    const context = thread.quotedText
-      ? `${t("comments.agentRegardingText", { text: thread.quotedText })}\n\n`
-      : "";
-    sendToAgentChat({
-      message: t("comments.agentHelp"),
-      context: `${context}${t("comments.agentThreadHeader")}\n${commentTexts}`,
-    });
+  const handleStartCommentAi = async (
+    thread: CommentThread,
+    intent: CommentAiIntent,
+    requestId?: string,
+  ) => {
+    if (!commentAi) return;
+    try {
+      await commentAi.start({
+        threadId: thread.threadId,
+        rootCommentId: thread.comments[0].id,
+        intent,
+        requestId,
+      });
+    } catch (error) {
+      toast.error(t("comments.aiFailed"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
   };
 
   const [threadPositions, setThreadPositions] = useState<
@@ -856,6 +885,10 @@ export function CommentsSidebar({
             const after = operation?.after as
               | { changedText?: string }
               | undefined;
+            const sourceUrl =
+              typeof suggestion.metadata?.sourceUrl === "string"
+                ? suggestion.metadata.sourceUrl
+                : null;
             return (
               <article
                 key={suggestion.id}
@@ -896,6 +929,15 @@ export function CommentsSidebar({
                     <ins>{renderSuggestionText(after.changedText)}</ins>
                   ) : null}
                 </p>
+                {sourceUrl ? (
+                  <Link
+                    className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground hover:underline"
+                    to={sourceUrl}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {t("comments.sourceComment")}
+                  </Link>
+                ) : null}
                 {canDecideSuggestions && suggestion.status === "pending" ? (
                   <div className="mt-3 flex justify-end gap-1">
                     <button
@@ -1129,6 +1171,14 @@ export function CommentsSidebar({
                   members={members}
                   canComment={canComment}
                   canResolve={canResolve}
+                  canSuggest={canSuggest}
+                  commentAiRequest={latestCommentAiRequest(
+                    commentAi?.requests ?? [],
+                    thread.threadId,
+                  )}
+                  commentAiStarting={
+                    commentAi?.startingThreadIds.has(thread.threadId) ?? false
+                  }
                   onHoverChange={(hovered) =>
                     onHoveredThreadChange?.(hovered ? thread.threadId : null)
                   }
@@ -1141,7 +1191,9 @@ export function CommentsSidebar({
                   onHeightChange={handleThreadCardHeightChange}
                   onSubmitReply={() => handleReply(thread.threadId)}
                   onResolve={() => handleResolve(thread)}
-                  onSendToAI={() => handleSendToAI(thread)}
+                  onStartCommentAi={(intent, requestId) =>
+                    handleStartCommentAi(thread, intent, requestId)
+                  }
                   t={t}
                 />
               ) : (
@@ -1289,11 +1341,21 @@ export function CommentsSidebar({
               members={members}
               canComment={canComment}
               canResolve={canResolve}
+              canSuggest={canSuggest}
+              commentAiRequest={latestCommentAiRequest(
+                commentAi?.requests ?? [],
+                thread.threadId,
+              )}
+              commentAiStarting={
+                commentAi?.startingThreadIds.has(thread.threadId) ?? false
+              }
               onSubmitReply={() => handleReply(thread.threadId)}
               onResolve={() =>
                 thread.resolved ? handleReopen(thread) : handleResolve(thread)
               }
-              onSendToAI={() => handleSendToAI(thread)}
+              onStartCommentAi={(intent, requestId) =>
+                handleStartCommentAi(thread, intent, requestId)
+              }
               t={t}
             />
           </Fragment>
@@ -1329,6 +1391,7 @@ function HistoryThreadView({
           name={first.author_name ?? first.author_email}
           className="size-5 shrink-0"
         />
+        <CommentActorBadge actorKind={first.actorKind} />
         <span className="min-w-0 flex-1 break-words text-[13px] text-foreground/90">
           {renderCommentBody(first.content, first.mentions)}
         </span>
@@ -1363,7 +1426,10 @@ function ThreadView({
   onResolve,
   canComment,
   canResolve,
-  onSendToAI,
+  canSuggest,
+  commentAiRequest,
+  commentAiStarting,
+  onStartCommentAi,
   t,
 }: {
   thread: CommentThread;
@@ -1386,7 +1452,13 @@ function ThreadView({
   onResolve: () => void;
   canComment: boolean;
   canResolve: boolean;
-  onSendToAI: () => void;
+  canSuggest: boolean;
+  commentAiRequest?: CommentAiRequest;
+  commentAiStarting: boolean;
+  onStartCommentAi: (
+    intent: CommentAiIntent,
+    requestId?: string,
+  ) => Promise<void>;
   t: ReturnType<typeof useT>;
 }) {
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
@@ -1442,22 +1514,15 @@ function ThreadView({
       <div className="relative p-3 pb-2">
         {/* Hover actions — top right, Notion style pill */}
         <div className="mb-2 flex items-center justify-end gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={t("comments.askAi")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSendToAI();
-                }}
-                className="p-1.5 text-muted-foreground hover:text-foreground rounded-l-md hover:bg-accent"
-              >
-                <IconSparkles size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("comments.askAi")}</TooltipContent>
-          </Tooltip>
+          <CommentAiThreadActions
+            aria-label={t("comments.askAi")}
+            request={commentAiRequest}
+            starting={commentAiStarting}
+            canSuggest={canSuggest}
+            canReply={canComment}
+            canApply={canResolve}
+            onStart={onStartCommentAi}
+          />
           {canResolve ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1708,6 +1773,7 @@ function CommentEntry({
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
           {comment.author_name ?? comment.author_email.split("@")[0]}
         </span>
+        <CommentActorBadge actorKind={comment.actorKind} />
         <span className="text-xs text-muted-foreground">
           {formatDate(comment.created_at)}
         </span>

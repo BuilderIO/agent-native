@@ -8,6 +8,7 @@ import { and, desc, eq, notInArray } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import * as schema from "../db/schema.js";
+import { resolveCommentAiActionSurface } from "../lib/comment-ai.js";
 import {
   documentVersionChatContextFromRun,
   serializeDocumentVersionChatContext,
@@ -176,6 +177,8 @@ async function autosaveDocumentAfterAgentTurn(
 
 export default createAgentChatPlugin({
   appId: "content",
+  nativeActionsInDev: true,
+  resolveActionSurface: resolveCommentAiActionSurface,
   onAgentTurnComplete: autosaveDocumentAfterAgentTurn,
   durableBackgroundRuns: true,
   selectedA2AReceiverOwnsObjective: true,

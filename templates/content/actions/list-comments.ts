@@ -71,11 +71,15 @@ export default defineAction({
         row.anchorStartOffset == null ? null : Number(row.anchorStartOffset),
       mentions: parseMentions(row.mentionsJson),
       author_email: row.authorEmail,
-      author_name: resolveUserProfileName(
-        row.authorEmail,
-        row.authorName,
-        profiles.get(row.authorEmail.toLowerCase())?.name,
-      ),
+      actor_kind: row.actorKind,
+      author_name:
+        row.actorKind === "agent"
+          ? "AI Agent"
+          : resolveUserProfileName(
+              row.authorEmail,
+              row.authorName,
+              profiles.get(row.authorEmail.toLowerCase())?.name,
+            ),
       resolved: row.resolved,
       created_at: row.createdAt,
       updated_at: row.updatedAt,

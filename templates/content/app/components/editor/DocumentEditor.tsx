@@ -112,6 +112,7 @@ import {
   newDocumentPageChoiceIsDisabled,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
+import { useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   CommentDraftProvider,
@@ -897,6 +898,7 @@ function DocumentEditorBody({
     ) &&
     !document.database &&
     !document.source?.mode;
+  const commentAi = useCommentAiRequests(documentId, { enabled: canComment });
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -2593,6 +2595,8 @@ function DocumentEditorBody({
     });
   }, []);
 
+  const handledCommentDeepLinkRef = useRef<string | null>(null);
+
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
       setUtilityPanel(nextPanel);
@@ -2614,6 +2618,23 @@ function DocumentEditorBody({
     clearCommentFocus();
     setSelectedSuggestionId(null);
   }, [clearCommentFocus, documentId]);
+
+  useEffect(() => {
+    const threadId = new URLSearchParams(location.search).get("comment");
+    if (!threadId) {
+      handledCommentDeepLinkRef.current = null;
+      return;
+    }
+    const deepLinkKey = `${documentId}:${threadId}`;
+    if (
+      handledCommentDeepLinkRef.current === deepLinkKey ||
+      !threads?.some((thread) => thread.threadId === threadId)
+    ) {
+      return;
+    }
+    handledCommentDeepLinkRef.current = deepLinkKey;
+    activateCommentThread(threadId, true);
+  }, [activateCommentThread, documentId, location.search, threads]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2865,6 +2886,8 @@ function DocumentEditorBody({
       suggestions={suggestionsQuery.data?.suggestions ?? []}
       canDecideSuggestions={canEdit}
       decidingSuggestion={decideSuggestion.isPending}
+      canSuggest={canSuggest}
+      commentAi={commentAi}
       onDecideSuggestion={(suggestion, decision) =>
         decideSuggestion.mutate({
           id: suggestion.id,

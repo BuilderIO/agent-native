@@ -44,6 +44,119 @@ export interface AgentMessage {
   content: string;
 }
 
+export type AgentActionScopeJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | AgentActionScopeJsonValue[]
+  | { [key: string]: AgentActionScopeJsonValue };
+
+/** Opaque, request-specific data interpreted by an app's scoped actions. */
+export type AgentActionScope = Record<string, AgentActionScopeJsonValue>;
+
+export const AGENT_ACTION_SCOPE_MAX_BYTES = 8 * 1024;
+const AGENT_ACTION_SCOPE_MAX_DEPTH = 8;
+const AGENT_ACTION_SCOPE_MAX_NODES = 256;
+
+function cloneAgentActionScopeValue(
+  value: unknown,
+  depth: number,
+  state: { nodes: number },
+): AgentActionScopeJsonValue {
+  state.nodes += 1;
+  if (
+    depth > AGENT_ACTION_SCOPE_MAX_DEPTH ||
+    state.nodes > AGENT_ACTION_SCOPE_MAX_NODES
+  ) {
+    throw new TypeError("actionScope exceeds its structural limits");
+  }
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError("actionScope must contain only JSON values");
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const keys = Reflect.ownKeys(value);
+    if (
+      keys.some(
+        (key) =>
+          typeof key !== "string" ||
+          (key !== "length" &&
+            (String(Number(key)) !== key || Number(key) >= value.length)),
+      ) ||
+      Object.keys(value).length !== value.length
+    ) {
+      throw new TypeError("actionScope must contain only JSON arrays");
+    }
+    return Array.from(value, (item) =>
+      cloneAgentActionScopeValue(item, depth + 1, state),
+    );
+  }
+  if (typeof value !== "object") {
+    throw new TypeError("actionScope must contain only JSON values");
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError("actionScope must contain only JSON objects");
+  }
+  const object = value as Record<string, unknown>;
+  const keys = Reflect.ownKeys(object);
+  if (
+    keys.some((key) => {
+      if (typeof key !== "string") return true;
+      const descriptor = Object.getOwnPropertyDescriptor(object, key);
+      return !descriptor?.enumerable || !("value" in descriptor);
+    })
+  ) {
+    throw new TypeError("actionScope must contain only JSON values");
+  }
+  return Object.fromEntries(
+    Object.entries(object).map(([key, item]) => [
+      key,
+      cloneAgentActionScopeValue(item, depth + 1, state),
+    ]),
+  );
+}
+
+/** Validate and clone an untrusted action scope into bounded JSON data. */
+export function normalizeAgentActionScope(value: unknown): AgentActionScope {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("actionScope must be a JSON object");
+  }
+  const cloned = cloneAgentActionScopeValue(value, 0, {
+    nodes: 0,
+  }) as AgentActionScope;
+  if (
+    new TextEncoder().encode(JSON.stringify(cloned)).byteLength >
+    AGENT_ACTION_SCOPE_MAX_BYTES
+  ) {
+    throw new TypeError(
+      `actionScope must be at most ${AGENT_ACTION_SCOPE_MAX_BYTES} bytes`,
+    );
+  }
+  return cloned;
+}
+
+export function tryNormalizeAgentActionScope(
+  value: unknown,
+): AgentActionScope | undefined {
+  try {
+    return normalizeAgentActionScope(value);
+  } catch (error) {
+    if (error instanceof TypeError) return undefined;
+    throw error;
+  }
+}
+
 export type AgentChatStructuredContentPart =
   | { type: "text"; text: string }
   | {
@@ -178,6 +291,8 @@ export interface AgentChatHarnessRequest {
 
 export interface AgentChatRequest {
   message: string;
+  /** Requested app-defined action scope. Authorization is resolved server-side. */
+  actionScope?: AgentActionScope;
   /** Stable identity of a durable queued message, used to reject replayed delivery. */
   queuedMessageId?: string;
   /**
@@ -261,6 +376,7 @@ export interface AgentChatRequest {
     | {
         orgId: string | null;
         allowedActionNames: string[];
+        actionScope?: AgentActionScope;
       }
     | {
         orgId: string | null;

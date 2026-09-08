@@ -43,6 +43,8 @@ const {
   ensureSuggestionTables,
   insertSuggestion,
   getSuggestion,
+  getSuggestionByCreationKey,
+  recordSuggestionCreation,
   recordDecision,
   __resetSuggestionTablesForTests,
 } = await import("./store.js");
@@ -137,5 +139,26 @@ describe("suggestion store", () => {
         detail: null,
       }),
     ).rejects.toThrow("different decision");
+  });
+
+  it("retains the pre-validation request for keyed creation replay", async () => {
+    const suggestion = await insertSuggestion(input);
+    await recordSuggestionCreation(
+      rawClient,
+      "creation-key-1",
+      suggestion.id,
+      '{"operations":[{"kind":"replace_text"}]}',
+    );
+    const creation = await getSuggestionByCreationKey(
+      rawClient,
+      "creation-key-1",
+    );
+    expect(creation?.suggestion.id).toBe(suggestion.id);
+    expect(creation?.suggestion.operations[0]).toMatchObject(
+      suggestion.operations[0],
+    );
+    expect(creation?.requestJson).toBe(
+      '{"operations":[{"kind":"replace_text"}]}',
+    );
   });
 });

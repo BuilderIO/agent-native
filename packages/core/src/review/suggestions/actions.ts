@@ -23,6 +23,7 @@ import {
   updateSuggestionStatus,
 } from "./store.js";
 import type { ResourceSuggestion } from "./types.js";
+import type { SuggestionOperation } from "./types.js";
 
 const base = { resourceType: z.string().min(1), resourceId: z.string().min(1) };
 const operation = z.object({
@@ -35,6 +36,87 @@ const operation = z.object({
   dependencies: z.unknown().optional(),
   schemaVersion: z.number().int().positive(),
 });
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(",")}]`;
+  }
+  const object = value as Record<string, unknown>;
+  return `{${Object.keys(object)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`)
+    .join(",")}}`;
+}
+
+function canonicalJson(value: unknown): string {
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) {
+    throw new TypeError("Suggestion payload must contain only JSON values");
+  }
+  return stableJson(JSON.parse(encoded));
+}
+
+function normalizeOperations(
+  operations: readonly SuggestionOperation[],
+): SuggestionOperation[] {
+  return operations.map((item) => ({
+    ordinal: item.ordinal,
+    kind: item.kind,
+    targetId: item.targetId ?? null,
+    before: item.before ?? null,
+    after: item.after ?? null,
+    anchor: item.anchor ?? null,
+    dependencies: item.dependencies ?? null,
+    schemaVersion: item.schemaVersion,
+  }));
+}
+
+function isMatchingCreationReplay(
+  prior: ResourceSuggestion,
+  input: {
+    resourceType: string;
+    resourceId: string;
+    adapterKind: string;
+    baseRevision: string;
+    summary: string;
+    metadata?: Record<string, unknown>;
+    operations: SuggestionOperation[];
+  },
+  authorEmail: string | null,
+  actorKind: ResourceSuggestion["actorKind"],
+): boolean {
+  return (
+    prior.resourceType === input.resourceType &&
+    prior.resourceId === input.resourceId &&
+    prior.adapterKind === input.adapterKind &&
+    prior.baseRevision === input.baseRevision &&
+    prior.summary === input.summary &&
+    prior.authorEmail === authorEmail &&
+    prior.actorKind === actorKind &&
+    canonicalJson(prior.metadata) === canonicalJson(input.metadata ?? null) &&
+    canonicalJson(normalizeOperations(prior.operations)) ===
+      canonicalJson(normalizeOperations(input.operations))
+  );
+}
+
+function creationRequestJson(
+  input: Parameters<typeof isMatchingCreationReplay>[1],
+  authorEmail: string | null,
+  actorKind: ResourceSuggestion["actorKind"],
+): string {
+  return canonicalJson({
+    resourceType: input.resourceType,
+    resourceId: input.resourceId,
+    adapterKind: input.adapterKind,
+    baseRevision: input.baseRevision,
+    summary: input.summary,
+    metadata: input.metadata ?? null,
+    authorEmail,
+    actorKind,
+    operations: normalizeOperations(input.operations),
+  });
+}
 
 export const createResourceSuggestion = defineAction({
   description:
@@ -63,18 +145,14 @@ export const createResourceSuggestion = defineAction({
       ctx as any,
       "commenter",
     );
-    const adapter = getSuggestionAdapter(args.adapterKind);
-    if (!adapter) throw new Error("Suggestion adapter not registered");
-    const adapterContext = { ...(ctx as any), suggestionAccess: access };
-    const operations =
-      (await adapter.validateProposal({ ...args, ctx: adapterContext })) ??
-      args.operations;
     const actorKind =
       (ctx as any)?.caller === "agent" || (ctx as any)?.caller === "tool"
         ? "agent"
         : (ctx as any)?.userEmail
           ? "human"
           : "system";
+    const authorEmail = (ctx as any)?.userEmail ?? null;
+    const requestJson = creationRequestJson(args, authorEmail, actorKind);
     const db = getDbExec();
     await ensureSuggestionTables();
     await ensureReviewTables();
@@ -83,20 +161,33 @@ export const createResourceSuggestion = defineAction({
         "Suggestion creation requires an atomic database transaction",
       );
     const result = await db.transaction(async (tx) => {
-      const prior = await getSuggestionByCreationKey(tx, args.idempotencyKey);
-      if (prior) {
+      const creation = await getSuggestionByCreationKey(
+        tx,
+        args.idempotencyKey,
+      );
+      if (creation) {
         if (
-          prior.resourceType !== args.resourceType ||
-          prior.resourceId !== args.resourceId ||
-          prior.adapterKind !== args.adapterKind ||
-          prior.baseRevision !== args.baseRevision
+          creation.requestJson !== null
+            ? creation.requestJson !== requestJson
+            : !isMatchingCreationReplay(
+                creation.suggestion,
+                args,
+                authorEmail,
+                actorKind,
+              )
         ) {
           throw new Error(
             "Idempotency key was already used for a different suggestion",
           );
         }
-        return { suggestion: prior, threadComment: null };
+        return { suggestion: creation.suggestion, threadComment: null };
       }
+      const adapter = getSuggestionAdapter(args.adapterKind);
+      if (!adapter) throw new Error("Suggestion adapter not registered");
+      const adapterContext = { ...(ctx as any), suggestionAccess: access };
+      const operations =
+        (await adapter.validateProposal({ ...args, ctx: adapterContext })) ??
+        args.operations;
       const created = await insertSuggestion(
         {
           resourceType: args.resourceType,
@@ -104,7 +195,7 @@ export const createResourceSuggestion = defineAction({
           adapterKind: adapter.kind,
           adapterVersion: adapter.version,
           threadId: `suggestion-thread-${globalThis.crypto.randomUUID()}`,
-          authorEmail: (ctx as any)?.userEmail ?? null,
+          authorEmail,
           actorKind,
           baseRevision: args.baseRevision,
           status: "pending",
@@ -117,7 +208,12 @@ export const createResourceSuggestion = defineAction({
         },
         tx,
       );
-      await recordSuggestionCreation(tx, args.idempotencyKey, created.id);
+      await recordSuggestionCreation(
+        tx,
+        args.idempotencyKey,
+        created.id,
+        requestJson,
+      );
       const threadComment = await insertReviewCommentWithClient(
         {
           resourceType: created.resourceType,
