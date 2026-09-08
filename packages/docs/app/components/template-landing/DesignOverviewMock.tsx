@@ -766,10 +766,14 @@ const DESIGN_MOCK_CSS = [
   // because tokens.css is scoped under `.builder-brand-tokens`, which root.tsx
   // deliberately keeps off <body> — a `var(--b-*)` here would resolve to
   // nothing.
-  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-accent: #01c8f1; --dm-accent-contrast: #0a0a0a; --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-avatar-border: hsl(0 0% 13%); --dm-avatar-fg: hsl(0 0% 82%); --dm-avatar-bg-1: hsl(0 0% 40%); --dm-avatar-bg-2: hsl(0 0% 32%); --dm-avatar-bg-3: hsl(0 0% 25%); }",
+  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-chrome-bg: hsl(0 0% 10%); --dm-dot: hsl(0 0% 30%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-accent: #01c8f1; --dm-accent-contrast: #0a0a0a; --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-avatar-border: hsl(0 0% 13%); --dm-avatar-fg: hsl(0 0% 82%); --dm-avatar-bg-1: hsl(0 0% 40%); --dm-avatar-bg-2: hsl(0 0% 32%); --dm-avatar-bg-3: hsl(0 0% 25%); }",
 
-  // Window
-  ".design-mock .dm-window { position: absolute; inset: 0; display: flex; overflow: hidden; border-radius: 12px; border: 1px solid var(--dm-divider); background: var(--dm-panel-bg); color: var(--dm-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
+  // Window. Column, so the title bar spans the panels the way real window
+  // chrome does; the body below it is the horizontal rail/panel/canvas split.
+  ".design-mock .dm-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; border: 1px solid var(--dm-divider); background: var(--dm-panel-bg); color: var(--dm-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
+  ".design-mock .dm-window-topbar { display: flex; flex-shrink: 0; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--dm-divider); background: var(--dm-chrome-bg); }",
+  ".design-mock .dm-window-topbar span { width: 11px; height: 11px; border-radius: 999px; background: var(--dm-dot); }",
+  ".design-mock .dm-window-body { display: flex; flex: 1; min-height: 0; }",
 
   // Left icon rail — 64px, 48px buttons with a label under the glyph.
   `.design-mock .dm-rail { display: flex; width: ${RAIL_WIDTH}px; flex-shrink: 0; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; border-right: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }`,
@@ -921,7 +925,7 @@ const DESIGN_MOCK_CSS = [
 
   // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
   // follows the visitor's theme instead of staying pinned to the dark art.
-  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-accent: #00677f; --dm-accent-contrast: #ffffff; --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-avatar-border: hsl(0 0% 100%); --dm-avatar-fg: hsl(0 0% 32%); --dm-avatar-bg-1: hsl(0 0% 72%); --dm-avatar-bg-2: hsl(0 0% 79%); --dm-avatar-bg-3: hsl(0 0% 86%); }",
+  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-chrome-bg: hsl(0 0% 96%); --dm-dot: hsl(0 0% 80%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-accent: #00677f; --dm-accent-contrast: #ffffff; --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-avatar-border: hsl(0 0% 100%); --dm-avatar-fg: hsl(0 0% 32%); --dm-avatar-bg-1: hsl(0 0% 72%); --dm-avatar-bg-2: hsl(0 0% 79%); --dm-avatar-bg-3: hsl(0 0% 86%); }",
   "html.light .design-mock .dm-paint-swatch { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }",
 
   // Light-mode floating toolbar: a raised white bar rather than the editor's
@@ -963,10 +967,17 @@ export function DesignOverviewMock({
       <style>{DESIGN_MOCK_CSS}</style>
       <div className="design-mock-frame" aria-hidden="true">
         <div className="dm-window">
-          <WorkspaceRail />
-          <FilePanel />
-          <Canvas />
-          <Inspector />
+          <div className="dm-window-topbar">
+            <span />
+            <span />
+            <span />
+          </div>
+          <div className="dm-window-body">
+            <WorkspaceRail />
+            <FilePanel />
+            <Canvas />
+            <Inspector />
+          </div>
         </div>
       </div>
     </div>
