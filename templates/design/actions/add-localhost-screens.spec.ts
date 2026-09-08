@@ -36,6 +36,14 @@ describe("add-localhost-screens URL handling", () => {
     ).toBe("http://127.0.0.1:1234/onboarding/3?plan=team");
   });
 
+  it("keeps distinct loopback hostnames distinct when their ports match", () => {
+    expect(
+      routeUrl("http://127.0.0.1:1234", {
+        url: "http://127.0.0.2:1234/onboarding/3",
+      }),
+    ).toBe("http://127.0.0.2:1234/onboarding/3");
+  });
+
   it("rejects absolute screen URLs outside loopback origins", () => {
     expect(() =>
       routeUrl("http://localhost:1234", {

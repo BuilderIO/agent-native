@@ -33,7 +33,9 @@ import navigateAction from "./navigate.js";
 
 const connectionRouteSchema = z.object({
   id: z.string().optional(),
+  connectionId: z.string().optional(),
   path: z.string().min(1),
+  url: z.string().optional(),
   title: z.string().optional(),
   sourceFile: z.string().optional(),
   sourceKind: z.enum(["react-router", "html", "manual"]).optional(),
@@ -251,9 +253,13 @@ function routeManifestFromScreens(args: {
       url: input.url,
     });
     const path = pathFromUrl(args.devServerUrl, url, input.path ?? "/");
+    const isPrimaryOrigin =
+      new URL(url).origin === new URL(args.devServerUrl).origin;
     return {
-      id: input.routeId ?? makeLocalhostRouteId(path),
+      id: input.routeId ?? makeLocalhostRouteId(isPrimaryOrigin ? path : url),
+      connectionId: input.connectionId,
       path,
+      url: input.url,
       title: input.title ?? titleFromRoutePath(path),
       sourceFile: input.sourceFile,
       sourceKind: input.sourceKind ?? ("manual" as const),

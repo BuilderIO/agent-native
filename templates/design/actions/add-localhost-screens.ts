@@ -154,6 +154,13 @@ function isLoopbackHostname(hostname: string): boolean {
   return /^127(?:\.\d{1,3}){3}$/.test(normalized);
 }
 
+function canonicalLoopbackHostname(hostname: string): string {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(normalized)
+    ? "default-loopback"
+    : normalized;
+}
+
 function loopbackOriginsMatch(left: string, right: string): boolean {
   const leftUrl = new URL(left);
   const rightUrl = new URL(right);
@@ -161,7 +168,9 @@ function loopbackOriginsMatch(left: string, right: string): boolean {
     leftUrl.protocol === rightUrl.protocol &&
     leftUrl.port === rightUrl.port &&
     isLoopbackHostname(leftUrl.hostname) &&
-    isLoopbackHostname(rightUrl.hostname)
+    isLoopbackHostname(rightUrl.hostname) &&
+    canonicalLoopbackHostname(leftUrl.hostname) ===
+      canonicalLoopbackHostname(rightUrl.hostname)
   );
 }
 
@@ -196,11 +205,10 @@ export function routeUrl(
   }
   const base = new URL(baseUrl);
   if (parsed.origin !== base.origin) {
-    const equivalentLoopbackOrigin =
-      parsed.protocol === base.protocol &&
-      parsed.port === base.port &&
-      isLoopbackHostname(parsed.hostname) &&
-      isLoopbackHostname(base.hostname);
+    const equivalentLoopbackOrigin = loopbackOriginsMatch(
+      parsed.origin,
+      base.origin,
+    );
     const separateLoopbackOrigin =
       isLoopbackHostname(parsed.hostname) && isLoopbackHostname(base.hostname);
     if (!separateLoopbackOrigin) {
@@ -306,22 +314,45 @@ function metadataForFile(
   return isRecord(legacy) ? legacy : undefined;
 }
 
+function routeUrlsMatch(left: string, right: string): boolean {
+  try {
+    const leftUrl = new URL(left);
+    const rightUrl = new URL(right);
+    const sameOrigin =
+      leftUrl.origin === rightUrl.origin ||
+      loopbackOriginsMatch(leftUrl.origin, rightUrl.origin);
+    return (
+      sameOrigin &&
+      leftUrl.pathname === rightUrl.pathname &&
+      leftUrl.search === rightUrl.search
+    );
+  } catch {
+    // coercion-ok: malformed persisted screen URLs are not route matches.
+    return false;
+  }
+}
+
 function metadataMatchesRoute(
   metadata: Record<string, unknown> | undefined,
   args: { connectionId: string; routeId: string; path: string; url: string },
 ): boolean {
   if (!metadata || metadata.sourceType !== "localhost") return false;
+  const storedConnectionId = metadata.connectionId;
   if (
-    typeof metadata.connectionId === "string" &&
-    metadata.connectionId !== args.connectionId
+    typeof storedConnectionId === "string" &&
+    storedConnectionId !== args.connectionId
   ) {
     return false;
   }
+  const storedUrlMatches = [metadata.url, metadata.previewUrl].some(
+    (value) => typeof value === "string" && routeUrlsMatch(value, args.url),
+  );
+  const hasRouteIdentity =
+    storedConnectionId === args.connectionId || storedUrlMatches;
   return (
-    metadata.routeId === args.routeId ||
-    metadata.url === args.url ||
-    metadata.previewUrl === args.url ||
-    metadata.path === args.path
+    storedUrlMatches ||
+    (hasRouteIdentity &&
+      (metadata.routeId === args.routeId || metadata.path === args.path))
   );
 }
 
@@ -512,7 +543,9 @@ export default defineAction({
         ? paths.map((path) => ({ path }))
         : primaryManifest.routes.map((route) => ({
             routeId: route.id,
+            connectionId: route.connectionId,
             path: route.path,
+            url: route.url,
             title: route.title,
             sourceFile: route.sourceFile,
             sourceKind: route.sourceKind,
@@ -611,12 +644,18 @@ export default defineAction({
       const routeManifestByPath = new Map(
         routeManifest.routes.map((route) => [route.path, route]),
       );
+      const routeManifestByUrl = new Map(
+        routeManifest.routes
+          .filter((route) => route.url)
+          .map((route) => [route.url!, route]),
+      );
       const routeManifestById = new Map(
         routeManifest.routes.map((route) => [route.id, route]),
       );
       const manifestRoute =
         (input.routeId ? routeManifestById.get(input.routeId) : undefined) ??
-        (input.path ? routeManifestByPath.get(input.path) : undefined);
+        (input.path ? routeManifestByPath.get(input.path) : undefined) ??
+        (input.url ? routeManifestByUrl.get(input.url) : undefined);
       const url = routeUrl(routeDevServerUrl, {
         path: input.path ?? manifestRoute?.path,
         url: input.url,

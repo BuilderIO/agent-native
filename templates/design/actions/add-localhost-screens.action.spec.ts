@@ -422,6 +422,52 @@ describe("add-localhost-screens refresh behavior", () => {
     });
   });
 
+  it("does not reuse a legacy path-only screen from another connection", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://127.0.0.2:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://127.0.0.2:5173",
+        routes: [],
+      }),
+    });
+    mocks.state.files = [
+      {
+        id: "legacy_file",
+        designId: "design_1",
+        filename: "localhost-127-0-0-2-5173-settings.html",
+        fileType: "html",
+        content: "http://127.0.0.2:5173/settings?old=1",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        legacy_file: { sourceType: "localhost", path: "/settings" },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ url: "http://127.0.0.2:5173/settings" }],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).not.toBe("legacy_file");
+    expect(mocks.state.insertedFile).toMatchObject({
+      filename: "localhost-127-0-0-2-5173-settings-2.html",
+    });
+  });
+
   it("recovers when a concurrent request wins the insert race for the same route/filename", async () => {
     // Cross-request race: this request's `existingFiles` snapshot (taken once,
     // up front) found no match for /settings, but by the time its insert

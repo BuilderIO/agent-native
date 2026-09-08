@@ -196,6 +196,35 @@ describe("open-visual-edit", () => {
     );
   });
 
+  it("preserves secondary localhost route identity in the connection manifest", async () => {
+    await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173",
+      routes: [
+        {
+          connectionId: "localhost_secondary",
+          path: "/settings",
+          url: "http://127.0.0.2:5173/settings",
+        },
+      ],
+      navigate: false,
+    });
+
+    expect(mocks.connectLocalhostRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        routeManifest: expect.objectContaining({
+          routes: [
+            expect.objectContaining({
+              connectionId: "localhost_secondary",
+              path: "/settings",
+              url: "http://127.0.0.2:5173/settings",
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
   it("expands each path across viewports as a row-per-route, column-per-viewport grid", async () => {
     await action.run({
       designId: "design_1",

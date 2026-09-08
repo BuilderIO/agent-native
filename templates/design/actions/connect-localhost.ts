@@ -14,7 +14,9 @@ import {
 
 const routeSchema = z.object({
   id: z.string().optional(),
+  connectionId: z.string().optional(),
   path: z.string().min(1),
+  url: z.string().optional(),
   title: z.string().optional(),
   sourceFile: z.string().optional(),
   sourceKind: z.enum(["react-router", "html", "manual"]).optional(),
@@ -164,7 +166,9 @@ export default defineAction({
     const rawRoutes = args.routeManifest?.routes ?? args.routes ?? [];
     const routes = rawRoutes.map((route) => ({
       id: route.id ?? makeLocalhostRouteId(route.path),
+      connectionId: route.connectionId,
       path: route.path,
+      url: route.url,
       title: route.title ?? titleFromRoutePath(route.path),
       sourceFile: route.sourceFile,
       sourceKind: route.sourceKind ?? "manual",
