@@ -19,6 +19,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  type MouseEvent,
 } from "react";
 import {
   Links,
@@ -260,6 +261,44 @@ export const meta = () => [
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
   const { starCount } = useRootLocaleData();
+  const navigate = useNavigate();
+
+  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const link = target.closest<HTMLAnchorElement>("a[href]");
+    if (
+      !link ||
+      link.dataset.discover ||
+      (link.target && link.target !== "_self") ||
+      link.hasAttribute("download")
+    ) {
+      return;
+    }
+
+    const url = new URL(link.href, window.location.href);
+    if (
+      url.origin !== window.location.origin ||
+      (url.pathname === window.location.pathname &&
+        url.search === window.location.search)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    void navigate(`${url.pathname}${url.search}${url.hash}`);
+  };
 
   return (
     // core's `.agent-sidebar-shell` sits between <body> and this chrome and
@@ -267,7 +306,10 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
     // the background on <body> never shows and every route inherited a color
     // from a token system the brand palette knows nothing about. Painting --bg
     // here is what actually decides the page color, on every route.
-    <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]">
+    <div
+      className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]"
+      onClick={handleClick}
+    >
       <ScrollManager />
       <SnackbarProvider>
         <SiteHeader starCount={starCount} />

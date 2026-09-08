@@ -59,7 +59,14 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     children,
 }));
 vi.mock("react-router", () => ({
-  Outlet: () => <ShellSettledProbe />,
+  Outlet: () => (
+    <>
+      <ShellSettledProbe />
+      <a data-testid="content-link" href="/docs/actions-overview/">
+        Shared actions
+      </a>
+    </>
+  ),
   useLocation: () => ({ pathname: "/", hash: "", search: "" }),
   useNavigate: () => navigateMock,
   useNavigation: () => ({ state: "idle" }),
@@ -130,5 +137,14 @@ describe("RootShell tree stability", () => {
     expect(() => docsWebMcpActions[0]!.run({ path: 42 })).toThrow(
       "string path",
     );
+  });
+
+  it("navigates rendered content links through the router", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+
+    screen.getByTestId("content-link").click();
+
+    expect(navigateMock).toHaveBeenCalledWith("/docs/actions-overview/");
   });
 });
