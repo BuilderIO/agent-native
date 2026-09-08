@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -71,11 +71,16 @@ describe("GettingStartedPathsBlock", () => {
         "Build the same apps without installing anything. You describe what you want; the agent writes and runs the code in a workspace Builder hosts for you.",
       ),
     ).toBeTruthy();
-    const launchBuilder = screen.getByRole("link", { name: "Launch Builder" });
-    expect(launchBuilder).toBeTruthy();
-    expect(launchBuilder.getAttribute("href")).toBe(
-      "https://builder.io/signup",
-    );
+    const launchBuilder = screen.getByRole("button", {
+      name: "Join waitlist",
+    });
+    fireEvent.click(launchBuilder);
+    const popover = screen
+      .getByText("Build in the browser")
+      .closest("[role=dialog]");
+    expect(popover).not.toBeNull();
+    expect(screen.getByRole("textbox", { name: "Email" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Launch Builder" })).toBeNull();
     expect(screen.getByText("Create a Builder account")).toBeTruthy();
     expect(
       screen.getByText(
@@ -94,7 +99,6 @@ describe("GettingStartedPathsBlock", () => {
         "When you're ready, deploy your app with one click in Builder.",
       ),
     ).toBeTruthy();
-    expect(launchBuilder.querySelector("svg")).not.toBeNull();
     expect(
       screen.queryByText(
         "It's the same open-source framework underneath. Your app exports to a normal repository anytime.",
