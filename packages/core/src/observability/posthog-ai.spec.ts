@@ -125,6 +125,24 @@ describe("emitAiFeedbackSurveyEvent", () => {
     });
   });
 
+  it("suppresses direct PostHog survey events for +autoz identities", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_ID", "survey-abc");
+    vi.stubEnv("POSTHOG_API_KEY", "phc_test");
+    const mod = await freshModules();
+
+    expect(
+      mod.emitAiFeedbackSurveyEvent({
+        ...base,
+        userId: "signup+autoz-run-1@example.com",
+      }),
+    ).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("answers the rating question with PostHog's choice index, not a label", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);

@@ -2,6 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { isQaTestEmail } from "@agent-native/core/shared";
 import { resolveNativeAuthCopy } from "@agent-native/core/shared/auth-copy";
 import {
   useCallback,
@@ -37,6 +38,15 @@ export type AccountGateIntent = "comment" | "react" | "agent" | "continue";
 export type AccountGateDialogProps = CreateAccountDialogProps;
 
 type AuthMode = "magic-link" | "password";
+
+function trackAccountAuthEvent(
+  name: string,
+  properties: Record<string, unknown>,
+  email?: string,
+): void {
+  if (isQaTestEmail(email)) return;
+  trackEvent(name, properties);
+}
 
 function responseError(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
@@ -184,7 +194,7 @@ export function AccountGateDialog({
     oauthRunRef.current = runId;
     setGoogleBusy(true);
     setErrorMessage(null);
-    trackEvent("auth.signup_clicked", {
+    trackAccountAuthEvent("auth.signup_clicked", {
       surface: "public_share_modal",
       method: "google",
       intent,
@@ -246,7 +256,7 @@ export function AccountGateDialog({
           popup.close();
           if (oauthPopupRef.current === popup) oauthPopupRef.current = null;
           setGoogleBusy(false);
-          trackEvent("auth.signup_completed", {
+          trackAccountAuthEvent("auth.signup_completed", {
             surface: "public_share_modal",
             method: "google",
             intent,
@@ -283,11 +293,15 @@ export function AccountGateDialog({
 
     setSubmitting(true);
     setErrorMessage(null);
-    trackEvent("auth.signup_clicked", {
-      surface: "public_share_modal",
-      method: "magic_link",
-      intent,
-    });
+    trackAccountAuthEvent(
+      "auth.signup_clicked",
+      {
+        surface: "public_share_modal",
+        method: "magic_link",
+        intent,
+      },
+      normalizedEmail,
+    );
     try {
       const response = await fetch(appPath("/_agent-native/auth/magic-link"), {
         method: "POST",
@@ -320,11 +334,15 @@ export function AccountGateDialog({
 
     setSubmitting(true);
     setErrorMessage(null);
-    trackEvent("auth.signup_clicked", {
-      surface: "public_share_modal",
-      method: "password",
-      intent,
-    });
+    trackAccountAuthEvent(
+      "auth.signup_clicked",
+      {
+        surface: "public_share_modal",
+        method: "password",
+        intent,
+      },
+      normalizedEmail,
+    );
     try {
       const registerResponse = await fetch(
         appPath("/_agent-native/auth/register"),
@@ -352,11 +370,15 @@ export function AccountGateDialog({
         body: JSON.stringify({ email: normalizedEmail, password }),
       });
       if (loginResponse.ok) {
-        trackEvent("auth.signup_completed", {
-          surface: "public_share_modal",
-          method: "password",
-          intent,
-        });
+        trackAccountAuthEvent(
+          "auth.signup_completed",
+          {
+            surface: "public_share_modal",
+            method: "password",
+            intent,
+          },
+          normalizedEmail,
+        );
         onAuthenticated();
         return;
       }

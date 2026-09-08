@@ -4,6 +4,7 @@ import { MarketingHome, Starfield } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
+import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
   signInJourney,
   type SignInJourney,
@@ -280,7 +281,9 @@ function trackAuth(
   app: string,
   name: string,
   properties: Record<string, unknown> = {},
+  email?: string,
 ): void {
+  if (isQaTestEmail(email)) return;
   if (
     isSyntheticTrafficValue(
       (
@@ -1694,11 +1697,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setSubmitting("signup");
       setNotice("signup", null);
-      trackAuth(trackingApp, "auth.signup_clicked", {
-        surface: "signup",
-        method: "password",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.signup_clicked",
+        {
+          surface: "signup",
+          method: "password",
+          auth_view: view,
+        },
+        email,
+      );
       try {
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/register"),
@@ -1783,11 +1791,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setSubmitting("login");
       setNotice("login", null);
-      trackAuth(trackingApp, "auth.login_clicked", {
-        surface: "login",
-        method: "password",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.login_clicked",
+        {
+          surface: "login",
+          method: "password",
+          auth_view: view,
+        },
+        email,
+      );
       try {
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/login"),
@@ -1875,11 +1888,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setMagicLinkBusy(true);
       setNotice("magic-link", null);
-      trackAuth(trackingApp, "auth.signup_clicked", {
-        surface: "signup",
-        method: "magic_link",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.signup_clicked",
+        {
+          surface: "signup",
+          method: "magic_link",
+          auth_view: view,
+        },
+        email,
+      );
       const desktop = isAgentNativeDesktop();
       try {
         const { response, data } = await requestJson(

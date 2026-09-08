@@ -14,6 +14,8 @@
  */
 
 import { getAppConfig } from "../app-config/index.js";
+import { getRequestContext } from "../server/request-context.js";
+import { isQaTestEmail } from "../shared/qa-test-email.js";
 import { reshapeTrackedExceptionProperties } from "./posthog-exception.js";
 import { registerTrackingProvider } from "./registry.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
@@ -306,6 +308,15 @@ export function sendPostHogEvent(
   properties: Record<string, unknown>,
   distinctId: string,
 ): boolean {
+  if (
+    isQaTestEmail(distinctId) ||
+    isQaTestEmail(getRequestContext()?.userEmail) ||
+    isQaTestEmail(properties.email) ||
+    isQaTestEmail(properties.userEmail) ||
+    isQaTestEmail(properties.user_email)
+  ) {
+    return false;
+  }
   const apiKey = process.env.POSTHOG_API_KEY;
   if (!apiKey) return false;
   const host = (process.env.POSTHOG_HOST || POSTHOG_DEFAULT_HOST).replace(

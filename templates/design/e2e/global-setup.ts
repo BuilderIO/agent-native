@@ -14,7 +14,7 @@ import { e2eBaseURL } from "./base-url";
  *   e2e/.auth/seed.json   - { designId } of the seeded design
  */
 
-export const E2E_EMAIL = "e2e@local.test";
+export const E2E_EMAIL = "e2e+autoz@local.test";
 export const E2E_PASSWORD = "password-e2e-1234";
 export const SEED_TITLE = "E2E Seed Design";
 
