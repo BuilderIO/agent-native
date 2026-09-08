@@ -136,7 +136,11 @@ export function MeetingNotification() {
    *  Held only until that start reports success or failure. */
   const startingRef = useRef<NotificationData | null>(null);
   const dismissedKeysRef = useRef(new Map<string, number>());
-  const meetingsExperimentEnabledRef = useRef(false);
+  const meetingsExperimentEnabledRef = useRef<boolean | null>(null);
+  const pendingNotificationRef = useRef<{
+    payload: NotificationData;
+    options?: { hydrated?: boolean };
+  } | null>(null);
   // Real DOM hover only fires while this overlay window is key, which macOS
   // won't grant it without a click (`show_without_activation` never
   // activates). `polledHovered` mirrors the Rust-side global cursor poll
@@ -170,12 +174,20 @@ export function MeetingNotification() {
   useEffect(() => {
     let cancelled = false;
     const applyValues = (values: unknown) => {
+      if (!values || typeof values !== "object" || Array.isArray(values)) {
+        return;
+      }
       const enabled =
-        Boolean(values) &&
-        typeof values === "object" &&
         (values as Record<string, unknown>)[CLIPS_MEETINGS.key] === true;
       meetingsExperimentEnabledRef.current = enabled;
-      if (!enabled) hideNotification();
+      if (!enabled) {
+        pendingNotificationRef.current = null;
+        hideNotification();
+        return;
+      }
+      const pending = pendingNotificationRef.current;
+      pendingNotificationRef.current = null;
+      if (pending) showNotification(pending.payload, pending.options);
     };
     const serverUrl = loadStoredServerUrl();
     const authToken = loadDesktopAuthToken(serverUrl);
@@ -185,7 +197,12 @@ export function MeetingNotification() {
         ? { headers: { Authorization: `Bearer ${authToken}` } }
         : {}),
     })
-      .then((response) => response.json())
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`experiment read failed (${response.status})`);
+        }
+        return response.json();
+      })
       .then((payload) => {
         if (!cancelled) applyValues(payload?.result ?? payload);
       })
@@ -251,7 +268,15 @@ export function MeetingNotification() {
     payload: NotificationData,
     options?: { hydrated?: boolean },
   ) {
-    if (!meetingsExperimentEnabledRef.current) return;
+    const experimentState = meetingsExperimentEnabledRef.current;
+    if (experimentState === false) return;
+    if (experimentState === null) {
+      pendingNotificationRef.current = {
+        payload,
+        ...(options ? { options } : {}),
+      };
+      return;
+    }
     if (isDismissed(payload)) return;
     // A newer reminder owns this card now. Whatever start was holding it open
     // for a possible failure has lost its claim, so it cannot reappear over

@@ -1825,6 +1825,14 @@ export function App({
     };
   }, [authStatus, callClipsAction]);
 
+  useEffect(() => {
+    invoke("meetings_watcher_set_experiment_enabled", {
+      enabled: authStatus === "authed" && meetingsExperimentEnabled,
+    }).catch((error) => {
+      console.warn("[clips-tray] meetings experiment sync failed:", error);
+    });
+  }, [authStatus, meetingsExperimentEnabled]);
+
   const updateAgentHandoff = useCallback(
     async (
       requestId: string,
