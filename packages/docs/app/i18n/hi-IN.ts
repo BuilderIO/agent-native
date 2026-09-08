@@ -629,6 +629,8 @@ const hiIN = {
     joined: "आप waitlist में हैं. build-online access खुलने पर हम आपको ईमेल करेंगे.",
     invalidEmail: "एक मान्य ईमेल पता दर्ज करें.",
     submitError: "Waitlist में शामिल नहीं हो सके. कृपया फिर से कोशिश करें.",
+    waitlistUnavailable:
+      "इस environment में अभी waitlist signups उपलब्ध नहीं हैं. इसके बजाय hosted docs site आज़माएँ.",
     launchBuilder: "Builder लॉन्च करें",
   },
   templateCard: {

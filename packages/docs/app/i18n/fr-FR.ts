@@ -642,6 +642,8 @@ const frFR = {
       "Vous êtes sur la liste d'attente. Nous vous enverrons un e-mail quand l'accès à la création en ligne ouvrira.",
     invalidEmail: "Saisissez une adresse e-mail valide.",
     submitError: "Impossible de rejoindre la liste d'attente. Réessayez.",
+    waitlistUnavailable:
+      "Les inscriptions à la liste d'attente ne sont pas encore disponibles dans cet environnement. Essayez plutôt le site de documentation hébergé.",
     launchBuilder: "Lancer Builder",
   },
   templateCard: {

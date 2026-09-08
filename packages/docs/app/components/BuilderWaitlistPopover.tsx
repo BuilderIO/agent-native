@@ -80,10 +80,12 @@ export function BuilderWaitlistContent({
   const [email, setEmail] = useState("");
   const [joining, setJoining] = useState(false);
   const [joined, setJoined] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleJoinWaitlist = useCallback(async () => {
     const trimmed = email.trim();
+    setUnavailable(false);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
       setError(t("buildFromScratch.invalidEmail"));
       return;
@@ -119,9 +121,13 @@ export function BuilderWaitlistContent({
         typeof data !== "object" ||
         data === null ||
         !("formSubmitted" in data) ||
-        data.formSubmitted !== true
+        typeof data.formSubmitted !== "boolean"
       ) {
         throw new Error(t("buildFromScratch.submitError"));
+      }
+      if (!data.formSubmitted) {
+        setUnavailable(true);
+        return;
       }
       trackEvent("builder branch waitlist joined", {
         location,
@@ -195,6 +201,15 @@ export function BuilderWaitlistContent({
                 className="m-0 text-xs text-red-600 dark:text-red-400"
               >
                 {error}
+              </p>
+            ) : null}
+            {unavailable ? (
+              <p
+                role="status"
+                aria-live="polite"
+                className="m-0 text-xs text-[var(--fg-secondary)]"
+              >
+                {t("buildFromScratch.waitlistUnavailable")}
               </p>
             ) : null}
           </div>

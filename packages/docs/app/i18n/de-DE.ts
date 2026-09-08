@@ -641,6 +641,8 @@ const deDE = {
     invalidEmail: "Gib eine gültige E-Mail-Adresse ein.",
     submitError:
       "Beitritt zur Warteliste fehlgeschlagen. Bitte versuche es erneut.",
+    waitlistUnavailable:
+      "Wartelisten-Anmeldungen sind in dieser Umgebung noch nicht verfügbar. Bitte nutze stattdessen die gehostete Dokumentationsseite.",
     launchBuilder: "Builder starten",
   },
   templateCard: {

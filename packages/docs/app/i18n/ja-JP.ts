@@ -638,6 +638,8 @@ const jaJP = {
       "待機リストに登録されました。オンライン構築アクセスが開いたらメールでお知らせします。",
     invalidEmail: "有効なメールアドレスを入力してください。",
     submitError: "待機リストに参加できませんでした。もう一度お試しください。",
+    waitlistUnavailable:
+      "この環境ではまだ待機リストに登録できません。代わりにホストされたドキュメントサイトをお試しください。",
     launchBuilder: "Builderを起動",
   },
   templateCard: {

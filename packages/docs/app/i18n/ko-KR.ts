@@ -636,6 +636,8 @@ const koKR = {
       "대기자 명단에 등록되었습니다. 온라인 빌드 액세스가 열리면 이메일로 알려드릴게요.",
     invalidEmail: "유효한 이메일 주소를 입력하세요.",
     submitError: "대기자 명단에 참여하지 못했습니다. 다시 시도하세요.",
+    waitlistUnavailable:
+      "이 환경에서는 아직 대기자 명단에 등록할 수 없습니다. 대신 호스팅된 문서 사이트에서 시도해 보세요.",
     launchBuilder: "Builder 실행",
   },
   templateCard: {

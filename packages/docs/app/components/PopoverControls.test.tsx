@@ -147,7 +147,7 @@ describe("docs popover controls", () => {
     });
   });
 
-  it("does not show success when the waitlist route declines submission", async () => {
+  it("shows an unavailable state when the waitlist route declines submission", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ formSubmitted: false }),
@@ -160,7 +160,12 @@ describe("docs popover controls", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Join waitlist" }));
 
-    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    await waitFor(() => {
+      const unavailable = screen.getByRole("status");
+      expect(unavailable.textContent).toBe(
+        "Waitlist signups aren't available in this environment yet. Please try the hosted docs site instead.",
+      );
+    });
     expect(
       screen.queryByText(
         "You're on the waitlist. We'll email you when build-online access opens.",

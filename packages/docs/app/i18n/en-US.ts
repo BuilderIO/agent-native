@@ -636,6 +636,8 @@ const enUS = {
       "You're on the waitlist. We'll email you when build-online access opens.",
     invalidEmail: "Enter a valid email address.",
     submitError: "Couldn't join the waitlist. Please try again.",
+    waitlistUnavailable:
+      "Waitlist signups aren't available in this environment yet. Please try the hosted docs site instead.",
     launchBuilder: "Launch Builder",
   },
   templateCard: {

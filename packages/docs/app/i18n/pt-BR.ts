@@ -637,6 +637,8 @@ const ptBR = {
       "Você está na lista de espera. Enviaremos um email quando o acesso para criar online abrir.",
     invalidEmail: "Insira um endereço de email válido.",
     submitError: "Não foi possível entrar na lista de espera. Tente novamente.",
+    waitlistUnavailable:
+      "As inscrições na lista de espera ainda não estão disponíveis neste ambiente. Tente o site de documentação hospedado.",
     launchBuilder: "Abrir o Builder",
   },
   templateCard: {

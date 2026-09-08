@@ -619,6 +619,7 @@ const messages = {
     joined: "你已在等候名單中。線上建置存取開放時，我們會寄信通知你。",
     invalidEmail: "請輸入有效的電子郵件地址。",
     submitError: "無法加入等候名單。請再試一次。",
+    waitlistUnavailable: "此環境目前無法加入等候名單。請改用託管的文件網站。",
     launchBuilder: "啟動 Builder",
   },
   templateCard: {

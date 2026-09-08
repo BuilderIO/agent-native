@@ -642,6 +642,8 @@ const esES = {
       "Ya estás en la lista de espera. Te enviaremos un correo cuando se abra el acceso para crear en línea.",
     invalidEmail: "Introduce un correo electrónico válido.",
     submitError: "No se pudo unir a la lista de espera. Inténtalo de nuevo.",
+    waitlistUnavailable:
+      "Las inscripciones en la lista de espera aún no están disponibles en este entorno. Prueba en su lugar el sitio de documentación alojado.",
     launchBuilder: "Abrir Builder",
   },
   templateCard: {

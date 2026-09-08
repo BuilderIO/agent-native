@@ -618,6 +618,7 @@ const zhCN = {
     joined: "你已加入候补名单。在线构建访问开放后我们会发送邮件通知你。",
     invalidEmail: "请输入有效的邮箱地址。",
     submitError: "无法加入候补名单。请重试。",
+    waitlistUnavailable: "此环境暂不支持加入候补名单。请改用托管的文档网站。",
     launchBuilder: "启动 Builder",
   },
   templateCard: {
