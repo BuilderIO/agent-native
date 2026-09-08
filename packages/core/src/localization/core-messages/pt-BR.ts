@@ -73,6 +73,32 @@ const messages: AgentChatTranslation = {
     "Criando ou reutilizando sua conta do Builder.io. Isso geralmente leva alguns segundos.",
   "onboarding.builderConnectionDescription":
     "Conclua a conexão com um clique na nova janela.",
+  "onboarding.capability.llm.keySummary":
+    "Conecte um provedor de IA ou modelo local",
+  "onboarding.capability.fileStorage.keySummary":
+    "Armazenamento Builder ou bucket compatível com S3",
+  "onboarding.capability.voiceInput.label": "Entrada de voz",
+  "onboarding.capability.voiceInput.keySummary":
+    "Reconhecimento de voz do navegador ou conversão de fala em texto",
+  "onboarding.capability.voiceInput.why":
+    "A entrada de voz transforma solicitações faladas em texto; digitar sempre funciona.",
+  "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Créditos Builder ou chave de provedor de imagens",
+  "onboarding.capability.assetsImageGeneration.why":
+    "A geração de imagens é o fluxo principal para criar assets alinhados à marca.",
+  "onboarding.capability.assetsVideoGeneration.label": "Geração de vídeo",
+  "onboarding.capability.assetsVideoGeneration.keySummary":
+    "Chave de API do Gemini",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "A geração de vídeo é opcional; o fluxo principal do Assets é a geração de imagens.",
+  "onboarding.capability.clipsObjectStorage.label": "Armazenamento de objetos",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Armazenamento Builder ou bucket compatível com S3",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Vídeos gravados precisam de armazenamento de objetos durável antes de serem reproduzidos ou compartilhados.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Chave de provedor de conversão de fala em texto",
   "aboutAgentNative.title": "Sobre o Agent-Native",
   "aboutAgentNative.version": "Versão",
   "aboutAgentNative.environment": "Ambiente",

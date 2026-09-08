@@ -68,6 +68,31 @@ const messages = {
     "Creating or reusing your Builder.io account. This usually takes a few seconds.",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
+  "onboarding.capability.llm.keySummary":
+    "Connect an AI provider or local model",
+  "onboarding.capability.fileStorage.keySummary":
+    "Builder storage or an S3-compatible bucket",
+  "onboarding.capability.voiceInput.label": "Voice input",
+  "onboarding.capability.voiceInput.keySummary":
+    "Browser speech recognition or speech-to-text",
+  "onboarding.capability.voiceInput.why":
+    "Voice input turns spoken requests into text; typing always works without it.",
+  "onboarding.capability.assetsImageGeneration.label": "Image generation",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder credits or an image provider key",
+  "onboarding.capability.assetsImageGeneration.why":
+    "Image generation is the core workflow for creating on-brand assets.",
+  "onboarding.capability.assetsVideoGeneration.label": "Video generation",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API key",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "Video generation is optional; the core Assets workflow is image generation.",
+  "onboarding.capability.clipsObjectStorage.label": "Object storage",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder storage or an S3-compatible bucket",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Recorded videos need durable object storage before they can be played back or shared.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Speech-to-text provider key",
   "aboutAgentNative.title": "About Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Environment",

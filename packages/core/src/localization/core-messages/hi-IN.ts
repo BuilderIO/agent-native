@@ -68,6 +68,29 @@ const messages: AgentChatTranslation = {
     "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
+  "onboarding.capability.llm.keySummary": "AI प्रदाता या स्थानीय मॉडल कनेक्ट करें",
+  "onboarding.capability.fileStorage.keySummary": "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.capability.voiceInput.label": "वॉइस इनपुट",
+  "onboarding.capability.voiceInput.keySummary":
+    "ब्राउज़र स्पीच रिकग्निशन या स्पीच-टू-टेक्स्ट",
+  "onboarding.capability.voiceInput.why":
+    "वॉइस इनपुट बोले गए अनुरोधों को टेक्स्ट में बदलता है; टाइप करना हमेशा उपलब्ध है।",
+  "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder क्रेडिट या इमेज प्रदाता की कुंजी",
+  "onboarding.capability.assetsImageGeneration.why":
+    "इमेज जनरेशन ब्रांडेड एसेट बनाने का मुख्य वर्कफ़्लो है।",
+  "onboarding.capability.assetsVideoGeneration.label": "वीडियो जनरेशन",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API कुंजी",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "वीडियो जनरेशन वैकल्पिक है; Assets का मुख्य वर्कफ़्लो इमेज जनरेशन है।",
+  "onboarding.capability.clipsObjectStorage.label": "ऑब्जेक्ट स्टोरेज",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.capability.clipsObjectStorage.why":
+    "रिकॉर्ड किए गए वीडियो को चलाने या साझा करने से पहले टिकाऊ ऑब्जेक्ट स्टोरेज की आवश्यकता होती है।",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "स्पीच-टू-टेक्स्ट प्रदाता की कुंजी",
   "aboutAgentNative.title": "Agent-Native के बारे में",
   "aboutAgentNative.version": "संस्करण",
   "aboutAgentNative.environment": "पर्यावरण",

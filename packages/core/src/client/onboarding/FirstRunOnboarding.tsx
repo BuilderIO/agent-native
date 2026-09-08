@@ -585,27 +585,30 @@ export function FirstRunOnboarding({
                     : t("agentChat.onboarding.builderCredits")}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
-                  {builderCapabilities.map((capability, index) => (
-                    <React.Fragment key={capability.id}>
-                      {index > 0 && (
-                        <span
-                          aria-hidden="true"
-                          className="text-muted-foreground"
-                        >
-                          ·
-                        </span>
-                      )}
-                      <span className="inline-flex items-center gap-0.5">
-                        <span>{capability.label}</span>
-                        {capability.id === "design-system-intelligence" && (
-                          <CapabilityInfoButton
-                            capability={capability}
-                            ariaLabel={`About ${capability.label}`}
-                          />
+                  {builderCapabilities.map((capability, index) => {
+                    const copy = getCapabilityCopy(t, capability);
+                    return (
+                      <React.Fragment key={capability.id}>
+                        {index > 0 && (
+                          <span
+                            aria-hidden="true"
+                            className="text-muted-foreground"
+                          >
+                            ·
+                          </span>
                         )}
-                      </span>
-                    </React.Fragment>
-                  ))}
+                        <span className="inline-flex items-center gap-0.5">
+                          <span>{copy.label}</span>
+                          {capability.id === "design-system-intelligence" && (
+                            <CapabilityInfoButton
+                              why={copy.why}
+                              ariaLabel={`About ${copy.label}`}
+                            />
+                          )}
+                        </span>
+                      </React.Fragment>
+                    );
+                  })}
                   <span aria-hidden="true" className="text-muted-foreground">
                     ·
                   </span>
@@ -1256,6 +1259,36 @@ function OnboardingSkeleton() {
   );
 }
 
+type CapabilityTranslator = (
+  key: string,
+  options?: Record<string, unknown>,
+) => string;
+
+type CapabilityCopy = Pick<OnboardingCapability, "required" | "suggested"> & {
+  label: string;
+  keySummary: string;
+  why: string;
+};
+
+function getCapabilityCopy(
+  t: CapabilityTranslator,
+  capability: OnboardingCapability,
+): CapabilityCopy {
+  return {
+    required: capability.required,
+    suggested: capability.suggested,
+    label: capability.labelKey
+      ? t(capability.labelKey, { defaultValue: capability.label })
+      : capability.label,
+    keySummary: capability.keySummaryKey
+      ? t(capability.keySummaryKey, { defaultValue: capability.keySummary })
+      : capability.keySummary,
+    why: capability.whyKey
+      ? t(capability.whyKey, { defaultValue: capability.why })
+      : capability.why,
+  };
+}
+
 function CapabilityList({
   capabilities,
   compact = false,
@@ -1265,8 +1298,8 @@ function CapabilityList({
   compact?: boolean;
   className?: string;
 }) {
+  const t = useT();
   const visibleCapabilities = useMemo(() => {
-    if (!compact) return capabilities;
     const required = capabilities.filter((capability) => capability.required);
     const suggested = capabilities.filter(
       (capability) => !capability.required && capability.suggested,
@@ -1274,7 +1307,8 @@ function CapabilityList({
     const optional = capabilities.filter(
       (capability) => !capability.required && !capability.suggested,
     );
-    return [...required, ...suggested, ...optional].slice(0, 4);
+    const ordered = [...required, ...suggested, ...optional];
+    return compact ? ordered.slice(0, 4) : ordered;
   }, [capabilities, compact]);
 
   return (
@@ -1288,7 +1322,7 @@ function CapabilityList({
         {visibleCapabilities.map((capability) => (
           <CapabilityRow
             key={capability.id}
-            capability={capability}
+            copy={getCapabilityCopy(t, capability)}
             compact={compact}
           />
         ))}
@@ -1298,10 +1332,10 @@ function CapabilityList({
 }
 
 function CapabilityRow({
-  capability,
+  copy,
   compact,
 }: {
-  capability: OnboardingCapability;
+  copy: CapabilityCopy;
   compact: boolean;
 }) {
   return (
@@ -1316,40 +1350,36 @@ function CapabilityRow({
           <span
             className={cn("font-medium", compact ? "text-[11px]" : "text-sm")}
           >
-            {capability.label}
+            {copy.label}
           </span>
           <CapabilityInfoButton
-            capability={capability}
-            ariaLabel={`Why ${capability.label} is needed`}
+            why={copy.why}
+            ariaLabel={`Why ${copy.label} is needed`}
           />
         </div>
         <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-          {capability.keySummary}
+          {copy.keySummary}
         </p>
       </div>
       <span
         className={cn(
           "shrink-0 text-[10px] uppercase tracking-[0.08em]",
-          capability.required || capability.suggested
+          copy.required || copy.suggested
             ? "text-primary"
             : "text-muted-foreground",
         )}
       >
-        {capability.required
-          ? "Required"
-          : capability.suggested
-            ? "Suggested"
-            : "Optional"}
+        {copy.required ? "Required" : copy.suggested ? "Suggested" : "Optional"}
       </span>
     </div>
   );
 }
 
 function CapabilityInfoButton({
-  capability,
+  why,
   ariaLabel,
 }: {
-  capability: OnboardingCapability;
+  why: string;
   ariaLabel: string;
 }) {
   return (
@@ -1366,7 +1396,7 @@ function CapabilityInfoButton({
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs text-xs">
-        {capability.why}
+        {why}
       </TooltipContent>
     </Tooltip>
   );

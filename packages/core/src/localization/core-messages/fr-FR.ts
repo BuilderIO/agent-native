@@ -76,6 +76,31 @@ const messages: AgentChatTranslation = {
     "Création ou réutilisation de votre compte Builder.io. Cela prend généralement quelques secondes.",
   "onboarding.builderConnectionDescription":
     "Terminez la connexion en un clic dans la nouvelle fenêtre.",
+  "onboarding.capability.llm.keySummary":
+    "Connectez un fournisseur d’IA ou un modèle local",
+  "onboarding.capability.fileStorage.keySummary":
+    "Stockage Builder ou bucket compatible S3",
+  "onboarding.capability.voiceInput.label": "Entrée vocale",
+  "onboarding.capability.voiceInput.keySummary":
+    "Reconnaissance vocale du navigateur ou conversion parole-texte",
+  "onboarding.capability.voiceInput.why":
+    "L’entrée vocale transforme les demandes parlées en texte ; la saisie reste toujours disponible.",
+  "onboarding.capability.assetsImageGeneration.label": "Génération d’images",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Crédits Builder ou clé d’un fournisseur d’images",
+  "onboarding.capability.assetsImageGeneration.why":
+    "La génération d’images est le flux principal pour créer des ressources à votre marque.",
+  "onboarding.capability.assetsVideoGeneration.label": "Génération vidéo",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Clé API Gemini",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "La génération vidéo est facultative ; le flux principal d’Assets est la génération d’images.",
+  "onboarding.capability.clipsObjectStorage.label": "Stockage objet",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Stockage Builder ou bucket compatible S3",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Les vidéos enregistrées ont besoin d’un stockage objet durable avant de pouvoir être lues ou partagées.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Clé d’un fournisseur de conversion parole-texte",
   "aboutAgentNative.title": "À propos d’Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Environnement",

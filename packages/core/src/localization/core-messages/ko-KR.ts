@@ -69,6 +69,30 @@ const messages: AgentChatTranslation = {
     "Builder.io 계정을 생성하거나 재사용하는 중입니다. 보통 몇 초 정도 걸립니다.",
   "onboarding.builderConnectionDescription":
     "새 창에서 한 번의 클릭으로 연결을 완료하세요.",
+  "onboarding.capability.llm.keySummary": "AI 제공업체 또는 로컬 모델 연결",
+  "onboarding.capability.fileStorage.keySummary":
+    "Builder 스토리지 또는 S3 호환 버킷",
+  "onboarding.capability.voiceInput.label": "음성 입력",
+  "onboarding.capability.voiceInput.keySummary":
+    "브라우저 음성 인식 또는 음성 텍스트 변환",
+  "onboarding.capability.voiceInput.why":
+    "음성 입력은 말한 요청을 텍스트로 바꿉니다. 입력은 언제나 사용할 수 있습니다.",
+  "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder 크레딧 또는 이미지 제공업체 키",
+  "onboarding.capability.assetsImageGeneration.why":
+    "이미지 생성은 브랜드에 맞는 에셋을 만드는 핵심 작업입니다.",
+  "onboarding.capability.assetsVideoGeneration.label": "동영상 생성",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API 키",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "동영상 생성은 선택 사항이며 Assets의 핵심 작업은 이미지 생성입니다.",
+  "onboarding.capability.clipsObjectStorage.label": "오브젝트 스토리지",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder 스토리지 또는 S3 호환 버킷",
+  "onboarding.capability.clipsObjectStorage.why":
+    "녹화한 동영상은 재생하거나 공유하기 전에 영구 오브젝트 스토리지가 필요합니다.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "음성 텍스트 변환 제공업체 키",
   "aboutAgentNative.title": "Agent-Native 정보",
   "aboutAgentNative.version": "버전",
   "aboutAgentNative.environment": "환경",

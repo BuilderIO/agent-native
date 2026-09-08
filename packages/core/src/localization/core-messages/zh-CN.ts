@@ -66,6 +66,28 @@ const messages: AgentChatTranslation = {
   "onboarding.builderProvisioningDescription":
     "正在创建或重新使用您的 Builder.io 账户，通常需要几秒钟。",
   "onboarding.builderConnectionDescription": "在新窗口中一键完成连接。",
+  "onboarding.capability.llm.keySummary": "连接 AI 提供商或本地模型",
+  "onboarding.capability.fileStorage.keySummary":
+    "Builder 存储或兼容 S3 的存储桶",
+  "onboarding.capability.voiceInput.label": "语音输入",
+  "onboarding.capability.voiceInput.keySummary": "浏览器语音识别或语音转文字",
+  "onboarding.capability.voiceInput.why":
+    "语音输入会将口述请求转换为文字；始终可以使用键盘输入。",
+  "onboarding.capability.assetsImageGeneration.label": "图像生成",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder 积分或图像提供商密钥",
+  "onboarding.capability.assetsImageGeneration.why":
+    "图像生成是创建品牌素材的核心流程。",
+  "onboarding.capability.assetsVideoGeneration.label": "视频生成",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API 密钥",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "视频生成为可选功能；Assets 的核心流程是图像生成。",
+  "onboarding.capability.clipsObjectStorage.label": "对象存储",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder 存储或兼容 S3 的存储桶",
+  "onboarding.capability.clipsObjectStorage.why":
+    "录制的视频需要持久对象存储后才能播放或分享。",
+  "onboarding.capability.clipsTranscription.keySummary": "语音转文字提供商密钥",
   "aboutAgentNative.title": "关于 Agent-Native",
   "aboutAgentNative.version": "版本",
   "aboutAgentNative.environment": "环境",
