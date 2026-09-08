@@ -290,7 +290,10 @@ export function viewportFilename(
   includeOrigin = false,
 ) {
   const viewport = `${Math.round(width)}x${Math.round(height)}`;
-  return `localhost-${slugForPath(pathOrUrl, includeOrigin)}-${viewport}.html`;
+  const discriminator = includeOrigin
+    ? `-${makeLocalhostRouteId(pathOrUrl).split("-").pop()}`
+    : "";
+  return `localhost-${slugForPath(pathOrUrl, includeOrigin)}${discriminator}-${viewport}.html`;
 }
 
 function metadataNumber(
@@ -748,9 +751,24 @@ export default defineAction({
           primaryManifestRoute.connectionId === routeConnection.id)
           ? primaryManifestRoute
           : undefined);
+      const primaryRouteForSelectedConnection =
+        primaryManifestRoute &&
+        (primaryManifestRoute.connectionId === routeConnection.id ||
+          (!input.connectionId &&
+            primaryManifestRoute.url !== undefined &&
+            rawUrl !== undefined &&
+            routeUrlsMatch(primaryManifestRoute.url, rawUrl)))
+          ? primaryManifestRoute
+          : undefined;
       const url = routeUrl(routeDevServerUrl, {
-        path: input.path ?? manifestRoute?.path,
-        url: input.url ?? manifestRoute?.url,
+        path:
+          input.path ??
+          manifestRoute?.path ??
+          primaryRouteForSelectedConnection?.path,
+        url:
+          input.url ??
+          manifestRoute?.url ??
+          primaryRouteForSelectedConnection?.url,
       });
       if (!connectionOriginMatches(routeDevServerUrl, url)) {
         throw new Error(
@@ -760,40 +778,44 @@ export default defineAction({
       const path = pathFromUrl(
         routeDevServerUrl,
         url,
-        input.path ?? manifestRoute?.path ?? "/",
+        input.path ??
+          manifestRoute?.path ??
+          primaryRouteForSelectedConnection?.path ??
+          "/",
       );
       const isSecondaryConnection = routeConnection.id !== connection.id;
-      const hasExplicitRouteConnection =
-        Boolean(input.connectionId) ||
-        primaryManifestRoute?.connectionId === routeConnection.id;
-      const primaryManifestRouteId =
-        primaryManifestRoute?.id &&
-        (primaryManifestRoute.connectionId === routeConnection.id ||
-          (!input.connectionId &&
-            primaryManifestRoute.url !== undefined &&
-            routeUrlsMatch(primaryManifestRoute.url, url)))
-          ? primaryManifestRoute.id
-          : undefined;
       const routeId =
         input.routeId ??
         manifestRoute?.id ??
-        primaryManifestRouteId ??
+        primaryRouteForSelectedConnection?.id ??
         makeLocalhostRouteId(
-          isSecondaryConnection
-            ? hasExplicitRouteConnection
-              ? `${routeConnection.id}:${path}`
-              : url
-            : path,
+          isSecondaryConnection &&
+            (Boolean(input.connectionId) ||
+              primaryManifestRoute?.connectionId === routeConnection.id)
+            ? `${routeConnection.id}:${path}`
+            : isSecondaryConnection
+              ? url
+              : path,
         );
-      const routeRequestKey = `${routeConnection.id}::${routeId}::${input.width ?? ""}x${input.height ?? ""}`;
-      if (seenRouteRequestKeys.has(routeRequestKey)) continue;
-      seenRouteRequestKeys.add(routeRequestKey);
       const title =
-        input.title ?? manifestRoute?.title ?? titleFromRoutePath(path);
-      const sourceFile = input.sourceFile ?? manifestRoute?.sourceFile;
-      const sourceKind = input.sourceKind ?? manifestRoute?.sourceKind;
-      const screenshotUrl = input.screenshotUrl ?? manifestRoute?.screenshotUrl;
+        input.title ??
+        manifestRoute?.title ??
+        primaryRouteForSelectedConnection?.title ??
+        titleFromRoutePath(path);
+      const sourceFile =
+        input.sourceFile ??
+        manifestRoute?.sourceFile ??
+        primaryRouteForSelectedConnection?.sourceFile;
+      const sourceKind =
+        input.sourceKind ??
+        manifestRoute?.sourceKind ??
+        primaryRouteForSelectedConnection?.sourceKind;
+      const screenshotUrl =
+        input.screenshotUrl ??
+        manifestRoute?.screenshotUrl ??
+        primaryRouteForSelectedConnection?.screenshotUrl;
       const routeMetadata = {
+        ...(primaryRouteForSelectedConnection?.metadata ?? {}),
         ...(manifestRoute?.metadata ?? {}),
         ...(input.metadata ?? {}),
       };
@@ -815,7 +837,10 @@ export default defineAction({
             normalizeBaseUrl(candidate.devServerUrl),
           ),
       ).length;
-      const basePreferredFilename = `localhost-${slugForPath(filenameKey, includeOriginInFilename)}.html`;
+      const filenameDiscriminator = includeOriginInFilename
+        ? `-${makeLocalhostRouteId(filenameKey).split("-").pop()}`
+        : "";
+      const basePreferredFilename = `localhost-${slugForPath(filenameKey, includeOriginInFilename)}${filenameDiscriminator}.html`;
       const routeMatchArgs = {
         connectionId: routeConnection.id,
         routeId,
@@ -958,6 +983,9 @@ export default defineAction({
         metadataNumber(existingScreenMetadata, "height") ??
         metadataNumber(routeMetadata, "height") ??
         900;
+      const routeRequestKey = `${routeConnection.id}::${routeId}::${width}x${height}`;
+      if (seenRouteRequestKeys.has(routeRequestKey)) continue;
+      seenRouteRequestKeys.add(routeRequestKey);
 
       if (existing) {
         await db

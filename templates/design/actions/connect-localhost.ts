@@ -113,6 +113,7 @@ function fallbackRouteIdentity(
     try {
       const routeUrl = new URL(route.url, devServerUrl);
       if (routeUrl.origin !== new URL(devServerUrl).origin) {
+        routeUrl.hash = "";
         return routeUrl.toString();
       }
     } catch {

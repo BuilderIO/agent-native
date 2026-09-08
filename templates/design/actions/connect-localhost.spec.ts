@@ -103,7 +103,7 @@ describe("connect-localhost", () => {
       routes: [
         {
           path: "/settings",
-          url: "http://127.0.0.2:5173/settings",
+          url: "http://127.0.0.2:5173/settings#tab",
         },
       ],
     });

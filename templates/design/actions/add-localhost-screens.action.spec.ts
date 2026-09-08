@@ -406,6 +406,25 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(result.screens).toHaveLength(2);
   });
 
+  it("deduplicates routes using their effective default viewport", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      defaultWidth: 1280,
+      defaultHeight: 900,
+      routes: [
+        { path: "/settings" },
+        { path: "/settings", width: 1280, height: 900 },
+      ],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(mocks.state.insertedFiles).toHaveLength(1);
+    expect(result.screens).toHaveLength(1);
+  });
+
   it("routes an absolute URL to its registered loopback connection", async () => {
     mocks.state.scopedConnections.push({
       id: "conn_2",
@@ -440,7 +459,9 @@ describe("add-localhost-screens refresh behavior", () => {
       url: "http://localhost:4173/settings",
     });
     expect(mocks.state.insertedFile).toMatchObject({
-      filename: "localhost-localhost-4173-settings.html",
+      filename: expect.stringMatching(
+        /^localhost-localhost-4173-settings-[a-z0-9]+\.html$/,
+      ),
     });
     expect(mocks.state.updatedDesignData).toMatchObject({
       screenMetadata: {
@@ -607,7 +628,9 @@ describe("add-localhost-screens refresh behavior", () => {
 
     expect(result.screens[0]?.id).not.toBe("legacy_file");
     expect(mocks.state.insertedFile).toMatchObject({
-      filename: "localhost-conn-2-settings.html",
+      filename: expect.stringMatching(
+        /^localhost-conn-2-settings-[a-z0-9]+\.html$/,
+      ),
     });
   });
 
@@ -692,7 +715,9 @@ describe("add-localhost-screens refresh behavior", () => {
 
     expect(result.screens[0]?.id).not.toBe("legacy_file");
     expect(mocks.state.insertedFile).toMatchObject({
-      filename: "localhost-127-0-0-2-5173-settings-2.html",
+      filename: expect.stringMatching(
+        /^localhost-127-0-0-2-5173-settings-[a-z0-9]+\.html$/,
+      ),
     });
   });
 
@@ -732,7 +757,7 @@ describe("add-localhost-screens refresh behavior", () => {
     const result = await action.run({
       designId: "design_1",
       connectionId: "conn_1",
-      paths: ["/settings"],
+      routes: [{ routeId: "route-secondary" }],
       startX: 0,
       startY: 0,
       gap: 160,
