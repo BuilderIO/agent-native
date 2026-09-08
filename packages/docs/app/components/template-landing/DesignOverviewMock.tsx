@@ -8,7 +8,7 @@
  * `:root`/`html`/`body` palette rules that would reskin the whole docs site.
  * The custom properties below mirror the editor's tokens by hand instead.
  *
- * The design being edited lives in DesignTaskerArtboards.tsx, authored at its
+ * The design being edited lives in DesignFitnessArtboards.tsx, authored at its
  * logical size and scaled by BOARD_SCALE so type and spacing shrink in the same
  * proportion a real board zoom would produce rather than being faked with tiny
  * font sizes.
@@ -56,6 +56,7 @@ import {
   IconListTree,
   IconMessage,
   IconMinus,
+  IconPhoto,
   IconPlayerPlay,
   IconPlus,
   IconPointer,
@@ -71,14 +72,16 @@ import {
 import { LogoMark } from "../website-redesign/ds/logo-mark";
 import {
   BOARD_SCALE,
-  DESIGN_TASKER_CSS,
+  DESIGN_FITNESS_CSS,
   DESKTOP_ARTBOARD_HEIGHT,
   DESKTOP_ARTBOARD_WIDTH,
+  FitnessDesktopArtboard,
+  FitnessMobileArtboard,
   MOBILE_ARTBOARD_HEIGHT,
   MOBILE_ARTBOARD_WIDTH,
-  TaskerDesktopArtboard,
-  TaskerMobileArtboard,
-} from "./DesignTaskerArtboards";
+  SELECTED_CTA_HEIGHT,
+  SELECTED_CTA_WIDTH,
+} from "./DesignFitnessArtboards";
 
 const RAIL_WIDTH = 64;
 /** The real `leftSidebarWidth` minimum. Below the 280px default to buy canvas. */
@@ -103,7 +106,14 @@ const RAIL_ITEMS = [
   { label: "Import", icon: IconFileImport },
 ];
 
-type LayerGlyph = "screen" | "frame" | "rows" | "columns" | "component";
+type LayerGlyph =
+  | "screen"
+  | "frame"
+  | "rows"
+  | "columns"
+  | "component"
+  | "text"
+  | "image";
 
 const LAYER_GLYPHS = {
   screen: IconFile,
@@ -111,6 +121,8 @@ const LAYER_GLYPHS = {
   rows: IconLayoutRows,
   columns: IconLayoutColumns,
   component: IconComponents,
+  text: IconTextSize,
+  image: IconPhoto,
 } satisfies Record<LayerGlyph, typeof IconFile>;
 
 type LayerRow = {
@@ -134,95 +146,71 @@ const LAYER_ROWS: LayerRow[] = [
     disclosure: "expanded",
   },
   {
-    id: "group-root",
-    label: "Group",
+    id: "nav",
+    label: "Nav",
+    depth: 1,
+    glyph: "columns",
+    disclosure: "collapsed",
+  },
+  {
+    id: "hero",
+    label: "Hero",
     depth: 1,
     glyph: "rows",
     disclosure: "expanded",
   },
   {
-    id: "frame-a",
-    label: "Frame",
+    id: "hero-copy",
+    label: "Copy",
     depth: 2,
-    glyph: "frame",
-    disclosure: "collapsed",
-  },
-  {
-    id: "frame-b",
-    label: "Frame",
-    depth: 2,
-    glyph: "frame",
+    glyph: "rows",
     disclosure: "expanded",
   },
+  { id: "eyebrow", label: "Eyebrow", depth: 3, glyph: "text" },
+  { id: "headline", label: "Headline", depth: 3, glyph: "text" },
+  { id: "subhead", label: "Subhead", depth: 3, glyph: "text" },
   {
-    id: "inbox",
-    label: "Inbox",
+    id: "actions",
+    label: "Actions",
     depth: 3,
-    glyph: "rows",
-    disclosure: "expanded",
-  },
-  {
-    id: "group-inbox",
-    label: "Group",
-    depth: 4,
-    glyph: "rows",
-    disclosure: "expanded",
-  },
-  {
-    id: "footer",
-    label: "Footer",
-    depth: 5,
     glyph: "columns",
-    disclosure: "collapsed",
-  },
-  {
-    id: "expression",
-    label: "t.group===group &&",
-    depth: 5,
-    glyph: "component",
-    component: true,
-  },
-  {
-    id: "app-enter-a",
-    label: "App Enter",
-    depth: 5,
-    glyph: "rows",
-    disclosure: "collapsed",
-  },
-  {
-    id: "app-enter-b",
-    label: "App Enter",
-    depth: 5,
-    glyph: "rows",
     disclosure: "expanded",
   },
   {
-    id: "add-task",
-    label: "+ Add task",
-    depth: 6,
+    id: "cta-primary",
+    label: "Start free trial",
+    depth: 4,
     glyph: "component",
     component: true,
     selected: true,
   },
   {
-    id: "group-leaf",
-    label: "Group",
-    depth: 6,
+    id: "cta-ghost",
+    label: "Watch demo",
+    depth: 4,
+    glyph: "component",
+    component: true,
+  },
+  { id: "hero-art", label: "Hero athlete", depth: 2, glyph: "image" },
+  {
+    id: "stats",
+    label: "Stats",
+    depth: 1,
+    glyph: "columns",
+    disclosure: "collapsed",
+  },
+  {
+    id: "classes",
+    label: "Classes",
+    depth: 1,
     glyph: "rows",
     disclosure: "collapsed",
   },
   {
-    id: "desktop-sidebar",
-    label: "Desktop Sidebar",
+    id: "coaches",
+    label: "Coaches",
     depth: 1,
-    glyph: "columns",
-    disclosure: "collapsed",
-  },
-  {
-    id: "mobile-only",
-    label: "Mobile Only",
-    depth: 1,
-    glyph: "columns",
+    glyph: "rows",
     disclosure: "collapsed",
   },
   {
@@ -543,7 +531,7 @@ function Inspector() {
 
       <div className="dm-inspector-context">
         <IconComponents size={14} className="dm-context-glyph" />
-        <span className="dm-context-title">button</span>
+        <span className="dm-context-title">cta-primary</span>
         <IconAction glyph={IconCode} />
       </div>
 
@@ -579,8 +567,8 @@ function Inspector() {
         <div className="dm-prop">
           <span className="dm-prop-label">Position</span>
           <div className="dm-prop-row">
-            <NumField label="X" value="248" unit="px" />
-            <NumField label="Y" value="235" unit="px" />
+            <NumField label="X" value="72" unit="px" />
+            <NumField label="Y" value="442" unit="px" />
             <IconAction glyph={IconLayoutDistributeHorizontal} />
           </div>
         </div>
@@ -597,8 +585,8 @@ function Inspector() {
 
       <Section title="Layout">
         <div className="dm-prop-row">
-          <NumField label="W" value="119.5" />
-          <NumField label="H" value="48" unit="px" />
+          <NumField label="W" value={String(SELECTED_CTA_WIDTH)} />
+          <NumField label="H" value={String(SELECTED_CTA_HEIGHT)} unit="px" />
           <IconAction glyph={IconLink} />
         </div>
         <div className="dm-prop">
@@ -625,7 +613,7 @@ function Inspector() {
           <span className="dm-prop-label">Corner radius</span>
           <span />
           <NumField glyph={IconGridDots} value="100" unit="%" />
-          <NumField glyph={IconBorderRadius} value="10" />
+          <NumField glyph={IconBorderRadius} value="999" />
           <IconAction glyph={IconBorderCorners} />
         </div>
       </Section>
@@ -639,7 +627,7 @@ function Inspector() {
           </>
         }
       >
-        <PaintRow swatch="24221E" label="24221E" opacity="100%" />
+        <PaintRow swatch="D8FF3E" label="D8FF3E" opacity="100%" />
       </Section>
 
       <Section
@@ -651,7 +639,7 @@ function Inspector() {
           </>
         }
       >
-        <PaintRow swatch="7D4B13" label="7D4B13" opacity="100%" hidden />
+        <PaintRow swatch="7C4DFF" label="7C4DFF" opacity="100%" hidden />
         <div className="dm-prop-row">
           <NumField label="Position" value="Outside" />
           <NumField label="Weight" glyph={IconBorderStyle} value="2.9" />
@@ -727,7 +715,7 @@ function Canvas() {
           </div>
           <div className="dm-frame-body">
             <div className="dm-artboard dm-artboard-desktop">
-              <TaskerDesktopArtboard />
+              <FitnessDesktopArtboard />
             </div>
           </div>
         </div>
@@ -740,7 +728,7 @@ function Canvas() {
           </div>
           <div className="dm-frame-body">
             <div className="dm-artboard dm-artboard-mobile">
-              <TaskerMobileArtboard />
+              <FitnessMobileArtboard />
             </div>
           </div>
         </div>
@@ -915,7 +903,7 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-mode { display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 6px; color: #d4d4d4; }",
   ".design-mock .dm-mode.is-active { background: rgba(3, 3, 3, 0.7); color: var(--dm-accent); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 8px 18px -12px rgba(0, 0, 0, 0.95); }",
 
-  DESIGN_TASKER_CSS,
+  DESIGN_FITNESS_CSS,
 
   // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
   // follows the visitor's theme instead of staying pinned to the dark art.
