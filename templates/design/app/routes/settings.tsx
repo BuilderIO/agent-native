@@ -13,6 +13,7 @@ import {
   CreativeContextSettingsLink,
   createCreativeContextAgentTab,
 } from "@agent-native/creative-context/client";
+import { DESIGN_EXPERIMENTS } from "@shared/experiments";
 import { useMemo } from "react";
 
 import { messagesByLocale } from "@/i18n-data";
@@ -28,6 +29,15 @@ export default function SettingsRoute() {
     agentAdditionalTabFactories: [createCreativeContextAgentTab],
   });
   const t = useT();
+  const experiments = useMemo(
+    () =>
+      DESIGN_EXPERIMENTS.map((experiment) => ({
+        ...experiment,
+        displayName: t("settings.experimentTweaks"),
+        description: t("settings.experimentTweaksDescription"),
+      })),
+    [t],
+  );
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
@@ -46,6 +56,9 @@ export default function SettingsRoute() {
       <SettingsTabsPage
         account={<AccountSettingsCard />}
         extraTabs={agentSettingsTabs}
+        experiments={experiments}
+        experimentsIntro={t("settings.experimentsIntro")}
+        experimentsLabel={t("settings.experiments")}
         generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">

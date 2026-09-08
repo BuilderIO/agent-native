@@ -446,7 +446,7 @@ describe("transactional email worker", () => {
       {
         id: "qa",
         recordingId: "recording-4",
-        recipient: "runner+qa-lane@subdomain.test",
+        recipient: "runner+autoz-lane@subdomain.test",
         createdBy: "sender@example.com",
         createdAt: "2026-08-01T00:00:00.000Z",
       },

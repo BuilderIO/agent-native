@@ -11,6 +11,8 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 
+import { CLIPS_MEETINGS } from "../../../shared/experiments";
+import { loadDesktopAuthToken } from "../app";
 import { dismissMeetingNotification } from "../lib/meeting-notification-dismissal";
 import {
   detectMeetingJoinProvider,
@@ -19,6 +21,7 @@ import {
   type MeetingJoinProvider,
 } from "../lib/meeting-notification-timing";
 import { openMeetingJoinUrl } from "../lib/open-meeting-join-url";
+import { loadStoredServerUrl } from "../lib/url";
 
 interface NotificationData {
   type: "calendar" | "adhoc";
@@ -133,6 +136,11 @@ export function MeetingNotification() {
    *  Held only until that start reports success or failure. */
   const startingRef = useRef<NotificationData | null>(null);
   const dismissedKeysRef = useRef(new Map<string, number>());
+  const meetingsExperimentEnabledRef = useRef<boolean | null>(null);
+  const pendingNotificationRef = useRef<{
+    payload: NotificationData;
+    options?: { hydrated?: boolean };
+  } | null>(null);
   // Real DOM hover only fires while this overlay window is key, which macOS
   // won't grant it without a click (`show_without_activation` never
   // activates). `polledHovered` mirrors the Rust-side global cursor poll
@@ -162,6 +170,79 @@ export function MeetingNotification() {
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let preferenceVersion = 0;
+    let unlisten: (() => void) | null = null;
+
+    const applyValues = (values: unknown): boolean => {
+      if (!values || typeof values !== "object" || Array.isArray(values)) {
+        return false;
+      }
+      const enabled =
+        (values as Record<string, unknown>)[CLIPS_MEETINGS.key] === true;
+      meetingsExperimentEnabledRef.current = enabled;
+      if (!enabled) {
+        pendingNotificationRef.current = null;
+        startingRef.current = null;
+        hideNotification();
+        return true;
+      }
+      const pending = pendingNotificationRef.current;
+      pendingNotificationRef.current = null;
+      if (pending) showNotification(pending.payload, pending.options);
+      return true;
+    };
+    const serverUrl = loadStoredServerUrl();
+    const authToken = loadDesktopAuthToken(serverUrl);
+
+    const startFetch = () => {
+      const requestVersion = preferenceVersion;
+      void fetch(`${serverUrl}/_agent-native/actions/get-experiments`, {
+        credentials: "include",
+        ...(authToken
+          ? { headers: { Authorization: `Bearer ${authToken}` } }
+          : {}),
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`experiment read failed (${response.status})`);
+          }
+          return response.json();
+        })
+        .then((payload) => {
+          if (!cancelled && requestVersion === preferenceVersion) {
+            applyValues(payload?.result ?? payload);
+          }
+        })
+        .catch(() => {});
+    };
+
+    const updateListener = listen<{ values?: Record<string, boolean> }>(
+      "clips:experiments-updated",
+      (event) => {
+        if (cancelled || !applyValues(event.payload?.values)) return;
+        preferenceVersion += 1;
+      },
+    );
+    updateListener
+      .then((cleanup) => {
+        if (cancelled) {
+          cleanup();
+        } else {
+          unlisten = cleanup;
+          startFetch();
+        }
+      })
+      .catch(() => {
+        if (!cancelled) startFetch();
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     resizeNotificationWindow(Boolean(data && menuOpen));
@@ -208,6 +289,15 @@ export function MeetingNotification() {
     payload: NotificationData,
     options?: { hydrated?: boolean },
   ) {
+    const experimentState = meetingsExperimentEnabledRef.current;
+    if (experimentState === false) return;
+    if (experimentState === null) {
+      pendingNotificationRef.current = {
+        payload,
+        ...(options ? { options } : {}),
+      };
+      return;
+    }
     if (isDismissed(payload)) return;
     // A newer reminder owns this card now. Whatever start was holding it open
     // for a possible failure has lost its claim, so it cannot reappear over

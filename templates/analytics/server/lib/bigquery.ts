@@ -157,6 +157,11 @@ function getCacheKey(
     .digest("hex");
 }
 
+function addUtcDateCacheKey(sql: string): string {
+  if (!/\bCURRENT_DATE\s*(?:\(\s*\))?/i.test(sql)) return sql;
+  return `${sql}\n/* agent-native-utc-date:${new Date().toISOString().slice(0, 10)} */`;
+}
+
 function getL1(key: string): QueryResult | null {
   const entry = l1Cache.get(key);
   if (!entry) return null;
@@ -470,8 +475,9 @@ export async function runQuery(
     projectId,
     appEventsTable,
   );
+  const cacheableSql = addUtcDateCacheKey(resolvedSql);
 
-  const cacheKey = getCacheKey(resolvedSql, projectId, cacheScope);
+  const cacheKey = getCacheKey(cacheableSql, projectId, cacheScope);
   const l1Hit = getL1(cacheKey);
   if (l1Hit) {
     return { ...l1Hit, cached: true };
@@ -494,7 +500,7 @@ export async function runQuery(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      query: resolvedSql,
+      query: cacheableSql,
       useLegacySql: false,
       maximumBytesBilled: "750000000000", // 750GB cap
     }),
@@ -569,7 +575,7 @@ export async function runQuery(
   };
 
   setL1(cacheKey, result);
-  await setL2(cacheKey, resolvedSql, result);
+  await setL2(cacheKey, cacheableSql, result);
 
   return result;
 }

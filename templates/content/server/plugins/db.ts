@@ -1081,6 +1081,12 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS document_edit_receipts_owner_document_idx
         ON document_edit_receipts (owner_email, document_id)`,
     },
+    {
+      version: 88,
+      name: "content-comment-submission-attribution",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS submission_source TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS submission_run_id TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

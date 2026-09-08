@@ -254,6 +254,9 @@ Run the legacy job.`,
     expect(updatedContent).toContain("enabled: false");
     expect(updatedContent).toContain('model: "claude-sonnet-4-5"');
     expect(updatedContent).not.toContain("triggerType:");
+    expect(
+      updatedContent.indexOf('model: "claude-sonnet-4-5"'),
+    ).toBeGreaterThan(updatedContent.indexOf("enabled: false"));
   });
 
   it("rejects shared automation updates from non-creators who are not org admins", async () => {

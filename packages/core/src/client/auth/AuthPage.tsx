@@ -4,6 +4,7 @@ import { MarketingHome, Starfield } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
+import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
   signInJourney,
   type SignInJourney,
@@ -280,7 +281,9 @@ function trackAuth(
   app: string,
   name: string,
   properties: Record<string, unknown> = {},
+  email: string,
 ): void {
+  if (!isValidEmail(email) || isQaTestEmail(email)) return;
   if (
     isSyntheticTrafficValue(
       (
@@ -680,6 +683,13 @@ export function AuthPage(props: AuthPageProps) {
   const [verificationEmail, setVerificationEmail] = React.useState("");
   const [verificationResendUntil, setVerificationResendUntil] =
     React.useState(0);
+  const [verificationResendNow, setVerificationResendNow] = React.useState(0);
+  const clearVerificationResendCooldown = React.useCallback(() => {
+    setVerificationResendUntil(0);
+    setVerificationResendNow((current) =>
+      current === 0 ? current : Date.now(),
+    );
+  }, []);
   const [googleBusy, setGoogleBusy] = React.useState(false);
   const [magicLinkBusy, setMagicLinkBusy] = React.useState(false);
   const [environmentVisible, setEnvironmentVisible] = React.useState(false);
@@ -687,6 +697,7 @@ export function AuthPage(props: AuthPageProps) {
   const [environmentProductionUrl, setEnvironmentProductionUrl] =
     React.useState("");
   const [copiedLocalMode, setCopiedLocalMode] = React.useState(false);
+  const signupViewTrackedRef = React.useRef(false);
   const pendingSignupPassword = React.useRef("");
   const oauthPollTimer = React.useRef<number | null>(null);
   const oauthPollInFlight = React.useRef(false);
@@ -1003,12 +1014,26 @@ export function AuthPage(props: AuthPageProps) {
     } catch {
       // coercion-ok: attribution is best effort and never blocks authentication.
     }
-    trackAuth(trackingApp, "auth.signup_viewed", {
-      surface: "signup",
-      auth_mode: authMode,
-      auth_view: view,
-    });
-  }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
+    const identity = normalizeEmail(signupEmail);
+    if (
+      view !== "signup" ||
+      signupViewTrackedRef.current ||
+      !isValidEmail(identity)
+    ) {
+      return;
+    }
+    signupViewTrackedRef.current = true;
+    trackAuth(
+      trackingApp,
+      "auth.signup_viewed",
+      {
+        surface: "signup",
+        auth_mode: authMode,
+        auth_view: view,
+      },
+      identity,
+    );
+  }, [authMode, homePath, runtimeAppBasePath, signupEmail, trackingApp, view]);
 
   const localDevAllowed = React.useMemo(
     () =>
@@ -1222,6 +1247,7 @@ export function AuthPage(props: AuthPageProps) {
       verifier: string,
       kind: "google" | "magic-link",
       popup?: Window | null,
+      onAuthenticated?: (email?: string) => void,
     ) => {
       const startedAt = Date.now();
       const check = async () => {
@@ -1241,6 +1267,9 @@ export function AuthPage(props: AuthPageProps) {
             typeof data.email === "string" ||
             typeof data.token === "string"
           ) {
+            onAuthenticated?.(
+              typeof data.email === "string" ? data.email : undefined,
+            );
             finishOAuthExchange(
               target,
               typeof data.token === "string" ? data.token : undefined,
@@ -1312,6 +1341,7 @@ export function AuthPage(props: AuthPageProps) {
                   typeof data.email === "string" &&
                   !data.error
                 ) {
+                  onAuthenticated?.(data.email);
                   finishOAuthExchange(target);
                   return;
                 }
@@ -1379,15 +1409,6 @@ export function AuthPage(props: AuthPageProps) {
     } catch {
       // coercion-ok: analytics session storage is optional.
     }
-    trackAuth(
-      trackingApp,
-      view === "login" ? "auth.login_clicked" : "auth.signup_clicked",
-      {
-        surface: view === "login" ? "login" : "signup",
-        method: "google",
-        auth_view: view,
-      },
-    );
     const target = resumeHref();
     const oauthTarget = oauthReturnTarget(target, workspaceGatewayReturnOrigin);
     const flowId = createFlowId();
@@ -1480,7 +1501,19 @@ export function AuthPage(props: AuthPageProps) {
         throw new Error(authErrorText(data, t("failedToConnect")));
       }
       if (nativeDesktop) nativeOAuthRequestPending.current = false;
-      startOAuthExchange(flowId, target, verifier, "google", popup);
+      startOAuthExchange(flowId, target, verifier, "google", popup, (email) => {
+        if (!email) return;
+        trackAuth(
+          trackingApp,
+          view === "login" ? "auth.login_clicked" : "auth.signup_clicked",
+          {
+            surface: view === "login" ? "login" : "signup",
+            method: "google",
+            auth_view: view,
+          },
+          email,
+        );
+      });
       if (popup) {
         popup.location.href = data.url;
       } else {
@@ -1540,6 +1573,7 @@ export function AuthPage(props: AuthPageProps) {
     (email: string, password: string) => {
       const normalized = normalizeEmail(email);
       pendingSignupPassword.current = password;
+      clearVerificationResendCooldown();
       setVerificationEmail(normalized);
       rememberPendingSignupEmail(normalized);
       setNotice("verification", null);
@@ -1548,7 +1582,7 @@ export function AuthPage(props: AuthPageProps) {
       setView("verification");
       writeStorage(TAB_STORAGE_KEY, "signup");
     },
-    [rememberPendingSignupEmail, setNotice],
+    [clearVerificationResendCooldown, rememberPendingSignupEmail, setNotice],
   );
 
   const tryPendingSignupLogin = React.useCallback(async () => {
@@ -1673,12 +1707,31 @@ export function AuthPage(props: AuthPageProps) {
   }, [checkVerification, view]);
 
   React.useEffect(() => {
+    if (view !== "verification") {
+      clearVerificationResendCooldown();
+    }
+  }, [clearVerificationResendCooldown, view]);
+
+  React.useEffect(() => {
     if (!verificationResendUntil) return;
-    const timer = window.setInterval(() => {
-      if (Date.now() >= verificationResendUntil) setVerificationResendUntil(0);
-    }, 1000);
-    return () => window.clearInterval(timer);
+    const refreshCooldown = () => {
+      const now = Date.now();
+      setVerificationResendNow(now);
+      if (now >= verificationResendUntil) setVerificationResendUntil(0);
+    };
+    refreshCooldown();
+    const timer = window.setInterval(refreshCooldown, 1000);
+    window.addEventListener("focus", refreshCooldown);
+    document.addEventListener("visibilitychange", refreshCooldown);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshCooldown);
+      document.removeEventListener("visibilitychange", refreshCooldown);
+    };
   }, [verificationResendUntil]);
+
+  const verificationResendActive =
+    verificationResendUntil > verificationResendNow;
 
   const handleSignup = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -1694,11 +1747,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setSubmitting("signup");
       setNotice("signup", null);
-      trackAuth(trackingApp, "auth.signup_clicked", {
-        surface: "signup",
-        method: "password",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.signup_clicked",
+        {
+          surface: "signup",
+          method: "password",
+          auth_view: view,
+        },
+        email,
+      );
       try {
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/register"),
@@ -1783,11 +1841,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setSubmitting("login");
       setNotice("login", null);
-      trackAuth(trackingApp, "auth.login_clicked", {
-        surface: "login",
-        method: "password",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.login_clicked",
+        {
+          surface: "login",
+          method: "password",
+          auth_view: view,
+        },
+        email,
+      );
       try {
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/login"),
@@ -1875,11 +1938,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setMagicLinkBusy(true);
       setNotice("magic-link", null);
-      trackAuth(trackingApp, "auth.signup_clicked", {
-        surface: "signup",
-        method: "magic_link",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.signup_clicked",
+        {
+          surface: "signup",
+          method: "magic_link",
+          auth_view: view,
+        },
+        email,
+      );
       const desktop = isAgentNativeDesktop();
       try {
         const { response, data } = await requestJson(
@@ -1952,7 +2020,9 @@ export function AuthPage(props: AuthPageProps) {
         },
       );
       if (response.ok) {
-        setVerificationResendUntil(Date.now() + 60_000);
+        const resendUntil = Date.now() + 60_000;
+        setVerificationResendNow(Date.now());
+        setVerificationResendUntil(resendUntil);
         setNotice("verification", {
           kind: "success",
           text: t("sentVerification"),
@@ -2415,12 +2485,12 @@ export function AuthPage(props: AuthPageProps) {
               type="button"
               className="link-button"
               id="resend-verification"
-              disabled={verificationResendUntil > Date.now()}
+              disabled={verificationResendActive}
               data-i18n="resendEmail"
               onClick={() => void resendVerification()}
             >
               {t("resendEmail")}
-              {verificationResendUntil > Date.now()
+              {verificationResendActive
                 ? ` (${Math.ceil((verificationResendUntil - Date.now()) / 1000)}s)`
                 : ""}
             </button>
@@ -2430,6 +2500,7 @@ export function AuthPage(props: AuthPageProps) {
               id="back-to-signup"
               data-i18n="back"
               onClick={() => {
+                clearVerificationResendCooldown();
                 removeStorage(pendingEmailStorageKey());
                 setView("signup");
               }}

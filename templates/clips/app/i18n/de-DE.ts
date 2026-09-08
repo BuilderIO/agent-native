@@ -729,6 +729,16 @@ const messages = {
     agentTitle: "Agent verwalten",
     title: "Einstellungen",
     pageTitle: "Einstellungen · Clips",
+    experiments: "Experimente",
+    experimentsIntro:
+      "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
+    experimentVideoEditing: "Videobearbeitung",
+    experimentVideoEditingDescription: "Teste den neuen Videoeditor.",
+    experimentMeetings: "Meetings und Transkription",
+    experimentMeetingsDescription:
+      "Teste die automatische Erfassung und Transkription von Meetings.",
+    experimentWisprFlow: "Sprachdiktat",
+    experimentWisprFlowDescription: "Teste die neue Sprachdiktierfunktion.",
     intro:
       "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
     preferencesTitle: "Voreinstellungen",
@@ -1827,7 +1837,7 @@ const messages = {
     refreshing: "Refreshing… (Lokalisiert)",
     howToTriggerTitle: "How to trigger meeting notes (Lokalisiert)",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (Lokalisiert)",
+      "Meeting notes in Clips bring calendar events, desktop audio capture, and transcripts plus AI notes together in one history. (Lokalisiert)",
     guideCalendarTitle: "Connect Google Calendar (Lokalisiert)",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you. (Lokalisiert)",
