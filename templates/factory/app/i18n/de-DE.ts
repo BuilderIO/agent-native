@@ -105,15 +105,10 @@ const messages = {
     empty: "Noch keine Beobachtungen.",
     risk: "Risiko",
     status: "Status",
-    author: "Autor",
     coverage: "Abdeckung",
     reason: "Grund",
     evidence: "Nachweis",
-    evidenceDescription:
-      "Der Quellthread oder Bericht, aus dem dieses Element stammt.",
     actionsTaken: "Protokoll",
-    actionsTakenDescription:
-      "Shadow-Entscheidungen, Governance und bereits gestartete Arbeit für dieses Element.",
     threadTruncated: "Dieser Slack-Thread ist unvollständig.",
     threadUnavailable: "Dieser Slack-Thread konnte nicht geladen werden.",
     noEvidence: "Für dieses Element ist kein Quellnachweis gespeichert.",
@@ -131,8 +126,6 @@ const messages = {
     noteLabel: "Feedback-Notiz",
     submitFeedback: "Feedback speichern",
     feedbackTitle: "Feedback speichern",
-    feedbackDescription:
-      "Markiere, ob die Shadow-Entscheidung richtig war. Das wird zur Überprüfung gespeichert und startet keinen Lauf.",
     feedbackError: "Feedback konnte nicht gespeichert werden.",
     noDecisions: "Noch keine Entscheidungen aufgezeichnet.",
     rulesTitle: "Triage-Regeln",

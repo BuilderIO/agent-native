@@ -438,20 +438,19 @@ const esES = {
   },
   homepage: {
     hero: {
-      title: "El framework para apps agénticas.",
-      bodyLine1:
-        "Un framework de TypeScript de código abierto para apps con una UI y un agente.",
-      bodyLine2: "Define cada acción una vez y llámala desde cualquier lugar.",
+      title: "El framework de aplicaciones agentic",
+      bodyLine1: "Crea agentes autónomos con interfaces intuitivas.",
+      bodyLine2: "Usa tu propio LLM. Despliega donde quieras.",
       tryAnApp: "Probar una app",
     },
     install: {
       copyCommand: "Copiar comando de instalación",
     },
     actions: {
-      title: "Llama a una acción desde cualquier lugar.",
-      bodyLine1: "Define una capacidad con defineAction().",
+      title: "Una acción impulsa cada superficie",
+      bodyLine1: "Define una capacidad una vez con defineAction().",
       bodyLine2:
-        "Tu UI de React, tu agente, los clientes HTTP y las integraciones usan el mismo código.",
+        "Tu agente, UI de React, clientes HTTP e integraciones usan el mismo código.",
       diagramAlt:
         "Una acción impulsa la UI, MCP, el chat del agente, A2A, HTTP API y CLI",
     },
@@ -546,7 +545,7 @@ const esES = {
         "Describe en lenguaje sencillo lo que quieres crear y el agente lo hará por ti.",
       stepThreeTitle: "Publica",
       stepThreeBody:
-        "Cuando estés listo, publica tu aplicación con un clic en Builder.",
+        "Cuando estés listo, publica tu agente y su UI con un clic en Builder.",
     },
   },
   templatesPage: {
@@ -572,6 +571,7 @@ const esES = {
     tryCommunityDemo: "Probar demo",
     customizeDescription: "Usa esta app como punto de partida.",
     customizeOnline: "En línea",
+    customizeOnlineBadge: "Unirse a la lista de espera",
     customizeLocally: "Local",
     communityNew: "Nueva",
     communityComingSoon: "Próximamente",
@@ -631,6 +631,18 @@ const esES = {
     popoverTitle: "Crear en el navegador",
     popoverBody:
       "Genera rápidamente apps agent-native en la nube con Builder.io.",
+    waitlistBody:
+      "Builder.io puede crear y personalizar una app agent-native en la nube: acciones, autenticación, estado SQL y chat del agente incluidos. Únete a la lista de espera para acceso anticipado.",
+    emailLabel: "Correo electrónico",
+    emailPlaceholder: "tu@empresa.com",
+    joinWaitlist: "Unirse a la lista de espera",
+    joining: "Uniéndose…",
+    joined:
+      "Ya estás en la lista de espera. Te enviaremos un correo cuando se abra el acceso para crear en línea.",
+    invalidEmail: "Introduce un correo electrónico válido.",
+    submitError: "No se pudo unir a la lista de espera. Inténtalo de nuevo.",
+    waitlistUnavailable:
+      "Las inscripciones en la lista de espera aún no están disponibles en este entorno. Prueba en su lugar el sitio de documentación alojado.",
     launchBuilder: "Abrir Builder",
   },
   templateCard: {
@@ -1114,7 +1126,7 @@ const esES = {
       s004: "Refinar",
       s005: "Todas las plantillas",
       s006: "El estudio de creación de prototipos de código abierto AI HTML",
-      s007: "Genere prototipos Alpine/Tailwind interactivos desde un mensaje, compare variantes, refine con controles de ajuste y exporte archivos reales de su propiedad.",
+      s007: "Cree diseños y prototipos interactivos. Refine con herramientas familiares o realice ediciones conversacionales. Exporte a donde quiera.",
       s008: "Diseña algo",
       s009: "como funciona",
       s010: "Todo lo que necesitas",
@@ -1168,6 +1180,7 @@ const esES = {
       s058: "Empieza con la plantilla y comienza a generar prototipos interactivos con un agente que edita el código fuente.",
       s059: "Lea los documentos",
       s060: "Ver todas las plantillas",
+      s061: "100 % gratis, de código abierto y personalizable.",
     },
     dispatch: {
       faq: {

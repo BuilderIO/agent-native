@@ -73,6 +73,10 @@ export function createBabysitPullRequestAction(
     }),
     http: false,
     readOnly: true,
+    // No configured-repository gate, unlike the babysit twin that writes. That
+    // gate exists to keep a comment from landing on an unconfigured repository;
+    // this action only reads, takes no factoryId to resolve one against, and is
+    // already bounded by workspace membership and the prBabysit grant.
     run: async (input, context): Promise<BabysitProposal> => {
       const { userEmail, orgId } = await requireWorkspaceMember(
         workspaceMemberIdentityFromContext(context),

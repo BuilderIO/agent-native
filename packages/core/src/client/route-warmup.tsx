@@ -116,7 +116,9 @@ function isFrameworkOrApiPath(pathname: string): boolean {
     appPath === "/_agent-native" ||
     appPath.startsWith("/_agent-native/") ||
     appPath === "/api" ||
-    appPath.startsWith("/api/")
+    appPath.startsWith("/api/") ||
+    appPath === "/cdn-cgi" ||
+    appPath.startsWith("/cdn-cgi/")
   );
 }
 
@@ -218,6 +220,20 @@ function getManifestRouteTree(
   cachedManifestRoutesSignature = routesSignature;
   cachedManifestRouteTree = tree;
   return tree;
+}
+
+export function isClientRouteUrl(url: URL): boolean {
+  if (!isWarmableRouteUrl(url)) return false;
+  const manifest = window.__reactRouterManifest;
+  if (!manifest?.routes) return false;
+
+  return Boolean(
+    matchRoutes(
+      getManifestRouteTree(manifest) as unknown as RouteObject[],
+      url.pathname,
+      normalizeBasename(window.__reactRouterContext?.basename),
+    )?.length,
+  );
 }
 
 function assetUrlForManifestPath(assetPath: string): string | null {
@@ -385,6 +401,11 @@ export function AgentNativeRouteWarmup({
     if (resolved.strategy === "off") {
       return;
     }
+    const connection = (
+      navigator as Navigator & { connection?: { saveData?: boolean } }
+    ).connection;
+    if (connection?.saveData) return;
+
     // Legacy SPA builds still mount AppProviders but do not expose React
     // Router framework `.data` endpoints or a route asset manifest. Only warm
     // route data/modules when that manifest is present; otherwise this would
@@ -399,11 +420,6 @@ export function AgentNativeRouteWarmup({
     const warmData = resolved.data && hasRouteAssets;
     const warmModules = resolved.modules && hasRouteAssets;
     if (!warmData && !warmModules) return;
-
-    const connection = (
-      navigator as Navigator & { connection?: { saveData?: boolean } }
-    ).connection;
-    if (connection?.saveData) return;
 
     if (warmModules) seedExistingModulepreloads();
 
@@ -587,6 +603,7 @@ export const __routeWarmupInternalsForTests = {
   getManifestRouteTree,
   hasReactRouterManifestRoutes,
   hasWarmableRouteAssets,
+  isClientRouteUrl,
   parseBuildTimeRouteWarmupConfig,
   dataRouteUrlForHref,
   renderWarmupLinksForSelector,

@@ -8,6 +8,7 @@ const {
   getManifestRouteTree,
   hasReactRouterManifestRoutes,
   hasWarmableRouteAssets,
+  isClientRouteUrl,
   parseBuildTimeRouteWarmupConfig,
   dataRouteUrlForHref,
   renderWarmupLinksForSelector,
@@ -114,6 +115,17 @@ describe("route warmup runtime helpers", () => {
       "/assets/docs._index-DNb8kxCk.js",
       "/assets/MarkdownRenderer-ri6QZniN.js",
     ]);
+    expect(isClientRouteUrl(new URL("/docs", window.location.origin))).toBe(
+      true,
+    );
+    expect(
+      isClientRouteUrl(new URL("/not-a-route", window.location.origin)),
+    ).toBe(false);
+    expect(
+      isClientRouteUrl(
+        new URL("/cdn-cgi/l/email-protection", window.location.origin),
+      ),
+    ).toBe(false);
   });
 
   it("does not warm dev source module ids from the route manifest", () => {

@@ -477,3 +477,4 @@ Dispatch 的 `desktop.workspace-sso` 标志默认关闭且只控制可用性；�
 User-Agent 中的 Canary 标记仅是可用性提示，不是远程证明；身份验证和授权均不信任该标记。
 每个 Desktop 版本都可以在设备偏好 `desktopSsoEnabled` 为 true（默认值）时初始化代理；显式持久化的 `false` 仍表示用户选择退出。Dispatch 的 `desktop.workspace-sso` 标志也必须启用。Canary 用户代理标记不再控制代理初始化，只用于标识更新渠道。
 Canary 不会拦截匿名用户进入应用登录页的导航。用户必须在 Desktop 设置中为当前活动的已注册应用明确选择工作区登录；普通应用登录仍是默认路径。
+普通浏览器继续使用逐应用登录。自托管应用仅在使用剩余的显式 Desktop 或服务端联邦路径时需要 `AGENT_NATIVE_IDENTITY_HUB_URL`。
