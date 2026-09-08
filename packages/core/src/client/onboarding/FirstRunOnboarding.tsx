@@ -632,9 +632,11 @@ export function FirstRunOnboarding({
                       >
                         Also included with Builder.io free credits
                       </p>
-                      <p className="mt-1 leading-5">
-                        {BUILDER_MORE_SERVICES.join(" · ")}
-                      </p>
+                      <ul className="mt-2 list-disc space-y-1 ps-4 leading-5">
+                        {BUILDER_MORE_SERVICES.map((service) => (
+                          <li key={service}>{service}</li>
+                        ))}
+                      </ul>
                     </PopoverContent>
                   </Popover>
                 </div>
@@ -754,7 +756,7 @@ export function FirstRunOnboarding({
           </div>
           <div className="rounded-xl bg-muted/35 p-4">
             <CapabilityList capabilities={profile.capabilities} />
-            <div className="mt-5 flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-between">
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 pt-4">
               <button
                 type="button"
                 className={secondaryButtonClass}
@@ -762,24 +764,27 @@ export function FirstRunOnboarding({
               >
                 Back
               </button>
-              <button
-                type="button"
-                className={primaryButtonClass}
-                onClick={handleOpenSettings}
-              >
-                Open key settings
-                <IconArrowRight size={15} />
-              </button>
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                onClick={() => {
-                  trackFirstRunStepCompleted("manual");
-                  setScreen(skipIntegrations ? "role" : "tools");
-                }}
-              >
-                {skipIntegrations ? "Continue" : "Continue to tools"}
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className={primaryButtonClass}
+                  onClick={handleOpenSettings}
+                >
+                  Open key settings
+                  <IconArrowRight size={15} />
+                </button>
+                <button
+                  type="button"
+                  data-testid="first-run-skip-keys"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => {
+                    trackFirstRunStepCompleted("manual");
+                    showTools();
+                  }}
+                >
+                  {t("agentChat.onboarding.skipForNow")}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1262,12 +1267,14 @@ function CapabilityList({
 }) {
   const visibleCapabilities = useMemo(() => {
     if (!compact) return capabilities;
-    const suggested = capabilities.filter((capability) => capability.suggested);
-    const leading = capabilities.filter((capability) => !capability.suggested);
-    return [
-      ...leading.slice(0, Math.max(0, 4 - suggested.length)),
-      ...suggested,
-    ].slice(0, 4);
+    const required = capabilities.filter((capability) => capability.required);
+    const suggested = capabilities.filter(
+      (capability) => !capability.required && capability.suggested,
+    );
+    const optional = capabilities.filter(
+      (capability) => !capability.required && !capability.suggested,
+    );
+    return [...required, ...suggested, ...optional].slice(0, 4);
   }, [capabilities, compact]);
 
   return (
@@ -1316,7 +1323,7 @@ function CapabilityRow({
             ariaLabel={`Why ${capability.label} is needed`}
           />
         </div>
-        <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+        <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
           {capability.keySummary}
         </p>
       </div>

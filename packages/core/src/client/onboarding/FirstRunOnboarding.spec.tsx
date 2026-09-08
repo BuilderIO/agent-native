@@ -370,6 +370,21 @@ describe("FirstRunOnboarding", () => {
     expect(document.getElementById(titleId ?? "")?.textContent).toContain(
       "Also included with Builder.io free credits",
     );
+    expect(moreServicesPopover?.querySelector("ul")).toBeTruthy();
+    expect(
+      [...(moreServicesPopover?.querySelectorAll("li") ?? [])].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual([
+      "Voice input",
+      "Background agents",
+      "Image generation",
+      "Video generation",
+      "Connected agents",
+      "Hosting and deployment",
+      "Browser automation",
+      "Embeddings",
+    ]);
   });
 
   it("uses the existing-account connection flow from the consent popover", () => {
@@ -541,7 +556,7 @@ describe("FirstRunOnboarding", () => {
 
     act(() => {
       [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
+        .find((button) => button.textContent === "Skip for now")
         ?.click();
     });
 
@@ -616,9 +631,9 @@ describe("FirstRunOnboarding", () => {
     });
 
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(
@@ -651,9 +666,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     act(() => {
@@ -693,9 +708,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(completedSteps()).toEqual(["intro", "choice", "manual"]);
@@ -732,9 +747,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
       document.body
@@ -802,9 +817,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(
@@ -847,9 +862,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     const search = document.body.querySelector(
@@ -901,9 +916,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     const search = document.body.querySelector(
@@ -984,9 +999,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
       [...document.body.querySelectorAll("button")]
@@ -1055,9 +1070,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(document.body.textContent).toContain("Personalicemos esto para ti.");

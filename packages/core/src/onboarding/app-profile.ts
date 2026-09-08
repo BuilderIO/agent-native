@@ -6,8 +6,7 @@ const LLM_CAPABILITY: OnboardingCapability = {
   label: "AI model",
   required: true,
   builderIncluded: true,
-  keySummary:
-    "One model key or local connection: Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere, or Ollama",
+  keySummary: "Connect an AI provider or local model",
   why: "The agent uses a language model to understand requests and produce answers.",
 };
 
@@ -26,9 +25,18 @@ const FILE_UPLOAD_STORAGE_CAPABILITY: OnboardingCapability = {
   required: false,
   suggested: true,
   builderIncluded: true,
-  keySummary:
-    "Builder file storage or an S3-compatible bucket, credentials, and public base URL",
+  keySummary: "Builder storage or an S3-compatible bucket",
   why: "Uploaded images and files need durable object storage so the agent can reuse them throughout a thread.",
+};
+
+const VOICE_INPUT_CAPABILITY: OnboardingCapability = {
+  id: "voice-input",
+  label: "Voice input",
+  required: false,
+  suggested: true,
+  builderIncluded: true,
+  keySummary: "Browser speech recognition or speech-to-text",
+  why: "Voice input turns spoken requests into text; typing always works without it.",
 };
 
 const PROFILES: Record<string, OnboardingAppProfile> = {
@@ -42,7 +50,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Data sources",
         required: false,
         builderIncluded: false,
-        keySummary: "Connectors are added individually in Settings",
+        keySummary: "Add data connectors in Settings",
         why: "Only needed for the services you want to query, such as GA4, Stripe, or HubSpot.",
       },
       {
@@ -50,7 +58,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Replay storage",
         required: false,
         builderIncluded: true,
-        keySummary: "S3-compatible bucket, access key, and secret",
+        keySummary: "S3-compatible bucket credentials",
         why: "Only needed when session replay is enabled so recordings can be stored.",
       },
     ],
@@ -60,12 +68,20 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     appName: "Assets",
     capabilities: [
       {
-        id: "media-generation",
-        label: "Image and video generation",
+        id: "image-generation",
+        label: "Image generation",
         required: true,
         builderIncluded: true,
-        keySummary: "Gemini for video, or OpenAI / Gemini for images",
-        why: "These providers create the images and videos requested in the app.",
+        keySummary: "Builder credits or an image provider key",
+        why: "Image generation is the core workflow for creating on-brand assets.",
+      },
+      {
+        id: "video-generation",
+        label: "Video generation",
+        required: false,
+        builderIncluded: false,
+        keySummary: "Gemini API key",
+        why: "Video generation is optional; the core Assets workflow is image generation.",
       },
       DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY,
       {
@@ -73,7 +89,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Media storage",
         required: true,
         builderIncluded: true,
-        keySummary: "S3-compatible endpoint, bucket, access key, and secret",
+        keySummary: "S3-compatible storage credentials",
         why: "Generated files need a durable place to live before they can be shared.",
       },
     ],
@@ -88,7 +104,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Embeddings",
         required: false,
         builderIncluded: true,
-        keySummary: "Gemini, Cohere, or Voyage key",
+        keySummary: "Embeddings provider key",
         why: "Embeddings improve semantic search. Keyword search still works without them.",
       },
       {
@@ -96,7 +112,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Source connections",
         required: false,
         builderIncluded: false,
-        keySummary: "Slack, Granola, or GitHub connection",
+        keySummary: "Connect a source in Settings",
         why: "Only needed for the sources you want to ingest into your knowledge base.",
       },
     ],
@@ -111,7 +127,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Google Calendar",
         required: false,
         builderIncluded: false,
-        keySummary: "Connect Google Calendar with OAuth",
+        keySummary: "Connect Google Calendar",
         why: "Calendar access is an OAuth connection, not an API key to paste.",
       },
       {
@@ -119,7 +135,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Other calendar connections",
         required: false,
         builderIncluded: false,
-        keySummary: "Zoom, CRM, or enrichment connection",
+        keySummary: "Connect optional calendar services",
         why: "Only needed for the provider features you turn on.",
       },
     ],
@@ -135,19 +151,11 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     capabilities: [
       LLM_CAPABILITY,
       {
-        id: "video-storage",
-        label: "Video storage",
-        required: true,
-        builderIncluded: true,
-        keySummary: "S3 endpoint, bucket, access key, and secret",
-        why: "Recorded videos need durable storage before they can be played back or shared.",
-      },
-      {
         id: "transcription",
         label: "Transcription",
         required: false,
         builderIncluded: true,
-        keySummary: "Groq or Google Speech key",
+        keySummary: "Speech-to-text provider key",
         why: "Transcription powers captions, titles, summaries, and searchable chapters. Native capture still works without it.",
       },
     ],
@@ -162,7 +170,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Media storage",
         required: false,
         builderIncluded: true,
-        keySummary: "Builder file storage or S3-compatible storage",
+        keySummary: "Builder or S3-compatible storage",
         why: "Only needed for documents that contain uploaded images, video, or audio.",
       },
       {
@@ -170,7 +178,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Notion",
         required: false,
         builderIncluded: false,
-        keySummary: "Connect Notion with OAuth",
+        keySummary: "Connect Notion",
         why: "Only needed if you want to import or sync workspace content from Notion.",
       },
     ],
@@ -201,7 +209,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Assets library",
         required: false,
         builderIncluded: true,
-        keySummary: "Connect the Assets app",
+        keySummary: "Connect Assets",
         why: "Only needed when designs use managed images or other media assets.",
       },
       {
@@ -209,7 +217,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Figma",
         required: false,
         builderIncluded: false,
-        keySummary: "Figma personal access token",
+        keySummary: "Figma access token",
         why: "Only needed to read or update files in Figma.",
       },
       {
@@ -217,7 +225,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "GitHub",
         required: false,
         builderIncluded: false,
-        keySummary: "GitHub token",
+        keySummary: "GitHub access token",
         why: "Only needed when designs are connected to a repository.",
       },
     ],
@@ -232,7 +240,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Workspace connections",
         required: false,
         builderIncluded: false,
-        keySummary: "Connect providers from the workspace registry",
+        keySummary: "Connect providers from Settings",
         why: "Dispatch uses shared connections so provider tokens never need to be pasted into this app.",
       },
     ],
@@ -241,13 +249,13 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     appId: "factory",
     appName: "Factory",
     capabilities: [
+      LLM_CAPABILITY,
       {
         id: "builder-executor",
         label: "Builder executor",
         required: true,
         builderIncluded: true,
-        keySummary:
-          "Connect Builder for managed agent runs (free tier available)",
+        keySummary: "Builder-managed agent runs",
         why: "The executor runs approved code and review workflows for Factory items.",
       },
       {
@@ -255,7 +263,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Triage connections",
         required: false,
         builderIncluded: false,
-        keySummary: "GitHub, Slack, or Sentry connection",
+        keySummary: "Connect GitHub, Slack, or Sentry",
         why: "Only needed for the feedback source you want Factory to monitor.",
       },
     ],
@@ -270,7 +278,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "File storage",
         required: false,
         builderIncluded: true,
-        keySummary: "Builder file storage or S3-compatible storage",
+        keySummary: "Builder or S3-compatible storage",
         why: "Text-only forms work without storage. Add it when a form accepts file uploads.",
       },
     ],
@@ -278,17 +286,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
   macros: {
     appId: "macros",
     appName: "Macros",
-    capabilities: [
-      LLM_CAPABILITY,
-      {
-        id: "transcription",
-        label: "Transcription",
-        required: false,
-        builderIncluded: true,
-        keySummary: "Groq or Google Speech key",
-        why: "Voice input uses transcription. Text entry always works without it.",
-      },
-    ],
+    capabilities: [LLM_CAPABILITY, VOICE_INPUT_CAPABILITY],
   },
   mail: {
     appId: "mail",
@@ -300,7 +298,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Gmail",
         required: true,
         builderIncluded: false,
-        keySummary: "Connect Gmail with OAuth",
+        keySummary: "Connect Gmail",
         why: "Mail uses the workspace's managed Google connection; no key is pasted here.",
       },
       {
@@ -308,7 +306,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Attachment storage",
         required: false,
         builderIncluded: true,
-        keySummary: "Builder file storage or S3-compatible storage",
+        keySummary: "Builder or S3-compatible storage",
         why: "Only needed when attachments need to be retained outside Gmail.",
       },
     ],
@@ -323,7 +321,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Plan asset storage",
         required: false,
         builderIncluded: true,
-        keySummary: "Builder file storage or S3-compatible storage",
+        keySummary: "Builder or S3-compatible storage",
         why: "Only needed for screenshots and other visual plan assets.",
       },
       {
@@ -331,7 +329,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Google sign-in",
         required: false,
         builderIncluded: false,
-        keySummary: "Google OAuth client ID and secret",
+        keySummary: "Google OAuth client",
         why: "Only needed when Google sign-in is enabled for the deployment.",
       },
     ],
@@ -355,7 +353,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Reference file storage",
         required: false,
         builderIncluded: true,
-        keySummary: "Builder file storage or S3-compatible storage",
+        keySummary: "Builder or S3-compatible storage",
         why: "Only needed for uploaded reference files and presentation assets.",
       },
       {
@@ -363,7 +361,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Google Docs",
         required: false,
         builderIncluded: false,
-        keySummary: "Connect Google Docs with OAuth",
+        keySummary: "Connect Google Docs",
         why: "Only needed to import source material from Google Drive or Docs.",
       },
     ],
@@ -403,25 +401,41 @@ export function resolveOnboardingAppId(explicit?: string): string {
 export function getOnboardingAppProfile(appId?: string): OnboardingAppProfile {
   const resolvedId = resolveOnboardingAppId(appId);
   const profile = PROFILES[resolvedId] ?? FALLBACK_PROFILE;
-  const capabilities = profile.capabilities.some(
+  const appCapabilities = profile.capabilities.filter(
+    (capability) =>
+      capability.id !== "llm" &&
+      capability.id !== FILE_UPLOAD_STORAGE_CAPABILITY.id &&
+      capability.id !== VOICE_INPUT_CAPABILITY.id,
+  );
+  const configuredLlm = profile.capabilities.find(
+    (capability) => capability.id === "llm",
+  );
+  const configuredStorage = profile.capabilities.find(
     (capability) => capability.id === FILE_UPLOAD_STORAGE_CAPABILITY.id,
-  )
-    ? profile.capabilities.map((capability) =>
-        capability.id === FILE_UPLOAD_STORAGE_CAPABILITY.id
-          ? {
-              ...FILE_UPLOAD_STORAGE_CAPABILITY,
-              // Assets and other domain-specific profiles can still make
-              // storage required while sharing the framework-wide contract.
-              required: capability.required,
-              builderIncluded: capability.builderIncluded,
-            }
-          : { ...capability },
-      )
-    : profile.capabilities.flatMap((capability, index) =>
-        index === 0
-          ? [{ ...capability }, { ...FILE_UPLOAD_STORAGE_CAPABILITY }]
-          : [{ ...capability }],
-      );
+  );
+  const configuredVoiceInput = profile.capabilities.find(
+    (capability) => capability.id === VOICE_INPUT_CAPABILITY.id,
+  );
+  const storageRequired =
+    resolvedId === "clips" || Boolean(configuredStorage?.required);
+  const capabilities = [
+    {
+      ...(configuredLlm ?? LLM_CAPABILITY),
+      required: true,
+      suggested: false,
+    },
+    {
+      ...(configuredStorage ?? FILE_UPLOAD_STORAGE_CAPABILITY),
+      required: storageRequired,
+      suggested: !storageRequired,
+    },
+    {
+      ...(configuredVoiceInput ?? VOICE_INPUT_CAPABILITY),
+      required: false,
+      suggested: true,
+    },
+    ...appCapabilities.map((capability) => ({ ...capability })),
+  ];
   return {
     ...profile,
     capabilities,
