@@ -56,6 +56,7 @@ réutilisable.
 Le flag <code>organization.cross-app-federation</code> est désactivé par défaut.
 Une fois activé, l'application source enregistre son organisation locale auprès de
 Dispatch et conserve le mappage exact
+
 <code>(identity_authority, identity_id)</code>. L'application cible n'accepte
 l'ID canonique, le nom et le rôle vérifié que depuis l'assertion vérifiée par le
 serveur.
@@ -70,12 +71,14 @@ La fédération utilise une identifiant distinct pour chaque application source:
 - Définissez <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> dans
   l'application source.
 - Définissez la valeur correspondante
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> dans Dispatch.
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>
+  dans Dispatch.
 - Ne réutilisez pas <code>A2A_SECRET</code> pour cette limite d'autorité.
 
 Le suffixe de l'ID d'application remplace chaque suite de caractères non
 alphanumériques par un trait de soulignement et convertit le résultat en
 majuscules. Par exemple, l'ID <code>workspace-reports</code> utilise
+
 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
 
 Les écritures d'identité et d'organisation sont additives. Les utilisateurs
@@ -93,6 +96,7 @@ transfert automatique.
 Pour un déploiement Dispatch auto-hébergé, enregistrez chaque application
 personnalisée avec son ID, son client ID, son origine HTTPS, son chemin de callback
 et sa capacité <code>identity-sso</code> exacts via
+
 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code>.
 
 Les enregistrements de production doivent utiliser HTTPS et un chemin de callback
@@ -114,6 +118,7 @@ Après le déploiement:
    l'organisation et le rôle d'appartenance dans l'application cible.
 
 Pour revenir en arrière, désactivez le flag concerné et supprimez
+
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> du déploiement auto-hébergé, puis
 redéployez. Les enregistrements additifs restent disponibles pour
 l'authentification locale normale.
