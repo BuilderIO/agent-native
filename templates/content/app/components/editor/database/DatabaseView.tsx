@@ -120,6 +120,7 @@ import {
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { SidebarTriggerContext } from "@/components/layout/sidebar-trigger";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   contentSpaceForCatalogItem,
@@ -4847,16 +4848,18 @@ function DatabaseItemPreview({
         className="flex min-h-0 flex-1"
         inert={transitionPending || undefined}
       >
-        <PageEditorSurface
-          documentId={item.document.id}
-          databaseId={item.databaseId}
-          databaseDocumentId={databaseDocumentId}
-          host="preview"
-          focusTitle={focusTitle}
-          onTitleFocused={onTitleFocused}
-          onSessionChange={handleSessionChange}
-          onDelete={() => deletePreviewPage()}
-        />
+        <SidebarTriggerContext.Provider value={null}>
+          <PageEditorSurface
+            documentId={item.document.id}
+            databaseId={item.databaseId}
+            databaseDocumentId={databaseDocumentId}
+            host="preview"
+            focusTitle={focusTitle}
+            onTitleFocused={onTitleFocused}
+            onSessionChange={handleSessionChange}
+            onDelete={() => deletePreviewPage()}
+          />
+        </SidebarTriggerContext.Provider>
       </div>
     </div>
   );

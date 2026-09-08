@@ -43,6 +43,7 @@ import {
   contentBlockRegistry,
   createContentBlockRenderContext,
 } from "@/blocks/contentBlockRegistry";
+import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   createContentSpaceSelectionQueue,
@@ -270,24 +271,32 @@ function adoptConfirmedSaveWatermarks({
 
 function DocumentUnavailable({ onOpenHome }: { onOpenHome?: () => void }) {
   const t = useT();
+  const sidebarTrigger = useSidebarTrigger();
 
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center bg-background px-6">
-      <div className="flex max-w-sm flex-col items-center text-center">
-        <div className="mb-5 flex size-12 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground">
-          <IconLock size={22} />
+    <div className="flex min-h-0 flex-1 flex-col">
+      {sidebarTrigger ? (
+        <div className="flex h-12 shrink-0 items-center px-4">
+          {sidebarTrigger}
         </div>
-        <h1 className="text-2xl font-semibold tracking-normal">
-          {t("empty.documentUnavailable")}
-        </h1>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          {t("empty.documentUnavailableDescription")}
-        </p>
-        {onOpenHome ? (
-          <Button className="mt-6" variant="outline" onClick={onOpenHome}>
-            {t("empty.goToDocuments")}
-          </Button>
-        ) : null}
+      ) : null}
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-background px-6">
+        <div className="flex max-w-sm flex-col items-center text-center">
+          <div className="mb-5 flex size-12 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground">
+            <IconLock size={22} />
+          </div>
+          <h1 className="text-2xl font-semibold tracking-normal">
+            {t("empty.documentUnavailable")}
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            {t("empty.documentUnavailableDescription")}
+          </p>
+          {onOpenHome ? (
+            <Button className="mt-6" variant="outline" onClick={onOpenHome}>
+              {t("empty.goToDocuments")}
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
