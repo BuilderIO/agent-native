@@ -369,17 +369,17 @@ export const DESIGN_FITNESS_CSS = [
   // `--ft-accent` is rationed to the emphasis word, the wordmark dot, and the
   // two real calls to action.
   //
-  // `--ft-fg` is capped below #e0e0e0 and is the brightest text in the design:
-  // pure white pulled focus out of the editor even on a dark ground. Every
-  // other neutral is that same value at reduced alpha so nothing can drift
-  // above the cap.
+  // The accent has no hue at all — it is simply the brightest neutral, and the
+  // body text sits a step below it so emphasis still reads. Anything saturated
+  // here, lime included, kept stealing the eye from the editor chrome.
   //
-  // The accent flips too: lime carries a dark page, but on a light one it has
-  // no contrast either as a fill or as text, so light mode uses a deep olive.
-  // `--ft-accent-on` is whatever text sits on an accent fill, which therefore
-  // has to invert with it — dark on lime, light on olive.
-  `.design-mock .ft { --ft-bg: ${ARTBOARD_BG}; --ft-elevated: #16161a; --ft-hero-bg: #131317; --ft-fg: #cdcdd1; --ft-fg-soft: rgba(205, 205, 209, 0.62); --ft-line: rgba(205, 205, 209, 0.1); --ft-line-strong: rgba(205, 205, 209, 0.24); --ft-accent: #d8ff3e; --ft-accent-on: #0c0c0e; }`,
-  `html.light .design-mock .ft { --ft-bg: ${ARTBOARD_BG_LIGHT}; --ft-elevated: #ffffff; --ft-hero-bg: #e8e8ea; --ft-fg: #26262b; --ft-fg-soft: rgba(38, 38, 43, 0.62); --ft-line: rgba(38, 38, 43, 0.12); --ft-line-strong: rgba(38, 38, 43, 0.26); --ft-accent: #55730a; --ft-accent-on: #f4f4f5; }`,
+  // `--ft-accent` is the brightest value in the design and stays under #e0e0e0;
+  // pure white pulled focus even on a dark ground. Every other neutral is one
+  // base at reduced alpha, so nothing can drift above the accent.
+  // `--ft-accent-on` is whatever text sits on an accent fill and therefore has
+  // to invert with it: dark on the light accent, light on the dark one.
+  `.design-mock .ft { --ft-bg: ${ARTBOARD_BG}; --ft-elevated: #16161a; --ft-hero-bg: #131317; --ft-fg: #a9a9af; --ft-fg-soft: rgba(169, 169, 175, 0.62); --ft-line: rgba(169, 169, 175, 0.1); --ft-line-strong: rgba(169, 169, 175, 0.24); --ft-accent: #cdcdd1; --ft-accent-on: #0c0c0e; }`,
+  `html.light .design-mock .ft { --ft-bg: ${ARTBOARD_BG_LIGHT}; --ft-elevated: #ffffff; --ft-hero-bg: #e8e8ea; --ft-fg: #55555e; --ft-fg-soft: rgba(85, 85, 94, 0.62); --ft-line: rgba(85, 85, 94, 0.12); --ft-line-strong: rgba(85, 85, 94, 0.26); --ft-accent: #26262b; --ft-accent-on: #f4f4f5; }`,
   ".design-mock .ft { width: 100%; min-height: 100%; background: var(--ft-bg); color: var(--ft-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }",
   // The docs shell colors every h1-h4 and prose paragraph directly, so an
   // artboard heading would otherwise pick up the docs foreground instead of the
@@ -407,7 +407,7 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-hero-blob-a { width: 420px; height: 420px; right: -120px; top: -180px; background: radial-gradient(circle, var(--ft-accent), transparent 68%); }",
   ".design-mock .ft-hero-blob-b { width: 360px; height: 360px; left: -140px; bottom: -200px; background: radial-gradient(circle, var(--ft-fg), transparent 68%); }",
   ".design-mock .ft-hero-copy { position: relative; flex: 1; min-width: 0; }",
-  ".design-mock .ft-eyebrow { display: inline-flex; align-items: center; height: 30px; padding: 0 14px; border-radius: 999px; background: rgba(205, 205, 209, 0.08); color: var(--ft-fg-soft); font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }",
+  ".design-mock .ft-eyebrow { display: inline-flex; align-items: center; height: 30px; padding: 0 14px; border-radius: 999px; background: rgba(169, 169, 175, 0.08); color: var(--ft-fg-soft); font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }",
   ".design-mock .ft-headline { margin: 20px 0 0; font-size: 68px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.02; }",
   ".design-mock .ft-headline em { color: var(--ft-accent); font-style: italic; }",
   ".design-mock .ft-subhead { margin: 20px 0 0; max-width: 440px; color: var(--ft-fg-soft); font-size: 19px; line-height: 1.5; }",

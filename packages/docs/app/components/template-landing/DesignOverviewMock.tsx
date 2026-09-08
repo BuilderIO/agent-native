@@ -641,7 +641,7 @@ function Inspector() {
           </>
         }
       >
-        <PaintRow swatch="D8FF3E" label="D8FF3E" opacity="100%" />
+        <PaintRow swatch="CDCDD1" label="CDCDD1" opacity="100%" />
       </Section>
 
       <Section
@@ -653,7 +653,7 @@ function Inspector() {
           </>
         }
       >
-        <PaintRow swatch="7C4DFF" label="7C4DFF" opacity="100%" hidden />
+        <PaintRow swatch="3A3A41" label="3A3A41" opacity="100%" hidden />
         <div className="dm-prop-row">
           <NumField label="Position" value="Outside" />
           <NumField label="Weight" glyph={IconBorderStyle} value="2.9" />
