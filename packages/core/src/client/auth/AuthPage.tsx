@@ -4,6 +4,7 @@ import { MarketingHome, Starfield } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
+import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
   signInJourney,
   type SignInJourney,
@@ -280,7 +281,9 @@ function trackAuth(
   app: string,
   name: string,
   properties: Record<string, unknown> = {},
+  email: string,
 ): void {
+  if (!isValidEmail(email) || isQaTestEmail(email)) return;
   if (
     isSyntheticTrafficValue(
       (
@@ -694,6 +697,7 @@ export function AuthPage(props: AuthPageProps) {
   const [environmentProductionUrl, setEnvironmentProductionUrl] =
     React.useState("");
   const [copiedLocalMode, setCopiedLocalMode] = React.useState(false);
+  const signupViewTrackedRef = React.useRef(false);
   const pendingSignupPassword = React.useRef("");
   const oauthPollTimer = React.useRef<number | null>(null);
   const oauthPollInFlight = React.useRef(false);
@@ -1010,12 +1014,26 @@ export function AuthPage(props: AuthPageProps) {
     } catch {
       // coercion-ok: attribution is best effort and never blocks authentication.
     }
-    trackAuth(trackingApp, "auth.signup_viewed", {
-      surface: "signup",
-      auth_mode: authMode,
-      auth_view: view,
-    });
-  }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
+    const identity = normalizeEmail(signupEmail);
+    if (
+      view !== "signup" ||
+      signupViewTrackedRef.current ||
+      !isValidEmail(identity)
+    ) {
+      return;
+    }
+    signupViewTrackedRef.current = true;
+    trackAuth(
+      trackingApp,
+      "auth.signup_viewed",
+      {
+        surface: "signup",
+        auth_mode: authMode,
+        auth_view: view,
+      },
+      identity,
+    );
+  }, [authMode, homePath, runtimeAppBasePath, signupEmail, trackingApp, view]);
 
   const localDevAllowed = React.useMemo(
     () =>
@@ -1229,6 +1247,7 @@ export function AuthPage(props: AuthPageProps) {
       verifier: string,
       kind: "google" | "magic-link",
       popup?: Window | null,
+      onAuthenticated?: (email?: string) => void,
     ) => {
       const startedAt = Date.now();
       const check = async () => {
@@ -1248,6 +1267,9 @@ export function AuthPage(props: AuthPageProps) {
             typeof data.email === "string" ||
             typeof data.token === "string"
           ) {
+            onAuthenticated?.(
+              typeof data.email === "string" ? data.email : undefined,
+            );
             finishOAuthExchange(
               target,
               typeof data.token === "string" ? data.token : undefined,
@@ -1319,6 +1341,7 @@ export function AuthPage(props: AuthPageProps) {
                   typeof data.email === "string" &&
                   !data.error
                 ) {
+                  onAuthenticated?.(data.email);
                   finishOAuthExchange(target);
                   return;
                 }
@@ -1386,15 +1409,6 @@ export function AuthPage(props: AuthPageProps) {
     } catch {
       // coercion-ok: analytics session storage is optional.
     }
-    trackAuth(
-      trackingApp,
-      view === "login" ? "auth.login_clicked" : "auth.signup_clicked",
-      {
-        surface: view === "login" ? "login" : "signup",
-        method: "google",
-        auth_view: view,
-      },
-    );
     const target = resumeHref();
     const oauthTarget = oauthReturnTarget(target, workspaceGatewayReturnOrigin);
     const flowId = createFlowId();
@@ -1487,7 +1501,19 @@ export function AuthPage(props: AuthPageProps) {
         throw new Error(authErrorText(data, t("failedToConnect")));
       }
       if (nativeDesktop) nativeOAuthRequestPending.current = false;
-      startOAuthExchange(flowId, target, verifier, "google", popup);
+      startOAuthExchange(flowId, target, verifier, "google", popup, (email) => {
+        if (!email) return;
+        trackAuth(
+          trackingApp,
+          view === "login" ? "auth.login_clicked" : "auth.signup_clicked",
+          {
+            surface: view === "login" ? "login" : "signup",
+            method: "google",
+            auth_view: view,
+          },
+          email,
+        );
+      });
       if (popup) {
         popup.location.href = data.url;
       } else {
@@ -1721,11 +1747,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setSubmitting("signup");
       setNotice("signup", null);
-      trackAuth(trackingApp, "auth.signup_clicked", {
-        surface: "signup",
-        method: "password",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.signup_clicked",
+        {
+          surface: "signup",
+          method: "password",
+          auth_view: view,
+        },
+        email,
+      );
       try {
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/register"),
@@ -1810,11 +1841,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setSubmitting("login");
       setNotice("login", null);
-      trackAuth(trackingApp, "auth.login_clicked", {
-        surface: "login",
-        method: "password",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.login_clicked",
+        {
+          surface: "login",
+          method: "password",
+          auth_view: view,
+        },
+        email,
+      );
       try {
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/login"),
@@ -1902,11 +1938,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setMagicLinkBusy(true);
       setNotice("magic-link", null);
-      trackAuth(trackingApp, "auth.signup_clicked", {
-        surface: "signup",
-        method: "magic_link",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.signup_clicked",
+        {
+          surface: "signup",
+          method: "magic_link",
+          auth_view: view,
+        },
+        email,
+      );
       const desktop = isAgentNativeDesktop();
       try {
         const { response, data } = await requestJson(

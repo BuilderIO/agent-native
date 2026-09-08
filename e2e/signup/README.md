@@ -27,7 +27,7 @@ Add these repository secrets before enabling the scheduled workflow:
 
 Create one Mailosaur server for the lane. Mailosaur accepts arbitrary local
 parts on the server domain, so each run uses an address like
-`signup+qa-test-bot-123-beta-clips-abc123@SERVER_ID.mailosaur.net`.
+`signup+autoz-123-beta-clips-abc123@SERVER_ID.mailosaur.net`.
 Mailosaur rate limits are reported as `INCONCLUSIVE` and do not page; HTTP and
 session failures from the app remain failing assertions.
 
@@ -47,10 +47,10 @@ SIGNUP_E2E_ENVIRONMENTS=beta \
 pnpm e2e:signup
 ```
 
-The reserved `+qa-test-bot-` address marker is suppressed by the shared
-tracking registry, including `track()` and `identify()` calls. The marker is
-stable enough to filter canary accounts from signup data by local-part pattern,
-while the full address remains unique for every run.
+The reserved `+autoz-` address marker is suppressed by the shared tracking
+registry, including `track()` and `identify()` calls. The marker is stable
+enough to filter canary accounts from signup data by local-part pattern, while
+the full address remains unique for every run.
 `SIGNUP_E2E_APPS=all` intentionally excludes Google-only apps and Macros,
 which do not expose the Better Auth email magic-link flow.
 
