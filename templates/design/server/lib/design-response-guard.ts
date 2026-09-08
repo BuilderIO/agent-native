@@ -42,7 +42,9 @@ const DESIGN_MUTATION_VERBS =
 const DESIGN_MUTATION_OBJECTS =
   /\b(?:animation|animations|asset|background|behavior|behaviors|border|button|canvas|card|color|colors|component|design|file|footer|font|gap|header|height|hero|image|interaction|interactions|it|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|states|style|styles|text|this|theme|transition|transitions|typography|variant|version|visual|visuals|width|wireframe)\b/i;
 const DESIGN_ADVISORY_WORDS =
-  /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|tip|tips|thoughts?)\b/i;
+  /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|teach(?:ing)?|tip|tips|thoughts?|tutorials?)\b/i;
+const DESIGN_TEST_REQUEST =
+  /\bvisual(?:\s+(?:regression|snapshot))?(?:\s+(?:test|tests|testing|suite|suites)|\s+snapshot)\b/i;
 const DESIGN_WORD_PATTERN = /\b[\w-]+\b/g;
 const DESIGN_ADVISORY_SKILL_VERBS = new Set(["develop", "improve", "learn"]);
 const DESIGN_ADVISORY_SKILL_PRONOUNS = new Set(["my", "your"]);
@@ -333,7 +335,7 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
   if (/\bhow\s+to\b/i.test(normalized)) return false;
 
   const mutationText = removeAdvisorySkillsClauses(normalized);
-  if (/\bvisual\s+regression\b/i.test(mutationText)) return false;
+  if (DESIGN_TEST_REQUEST.test(mutationText)) return false;
 
   const advisoryMatch = DESIGN_ADVISORY_WORDS.exec(mutationText);
   if (advisoryMatch) {
