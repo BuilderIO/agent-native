@@ -33,6 +33,7 @@ import {
   getRequiredAuthProviderForOrg,
   invalidateMemberOrgCaches,
   isGoogleSignInRequiredForEmail,
+  setActiveOrgId,
 } from "@agent-native/core/org";
 import {
   getH3App,
@@ -1341,6 +1342,13 @@ export const bootstrapActivationHandler = defineEventHandler(
         bootstrap.email,
         bootstrap.name,
       );
+      if (bootstrap.orgId) {
+        await setActiveOrgId(
+          bootstrap.email,
+          bootstrap.orgId,
+          "cross-app bootstrap organization context",
+        );
+      }
       const betterAuthSession = await createBetterAuthSessionForEmail(
         bootstrap.email,
       );

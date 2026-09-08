@@ -929,7 +929,7 @@ export async function handleIdentitySso(
     try {
       await createOAuthSession(event, identity.email, {
         hasProductionSession: false,
-        authProvider: null,
+        authProvider: identity.authProvider ?? null,
       });
     } catch {
       return errorPage(

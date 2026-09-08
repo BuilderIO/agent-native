@@ -15,6 +15,7 @@ const getOrgContextMock = vi.hoisted(() => vi.fn());
 const getRequiredAuthProviderForOrgMock = vi.hoisted(() => vi.fn());
 const invalidateMemberOrgCachesMock = vi.hoisted(() => vi.fn());
 const isGoogleSignInRequiredForEmailMock = vi.hoisted(() => vi.fn());
+const setActiveOrgIdMock = vi.hoisted(() => vi.fn());
 const hasGoogleAuthIdentityMock = vi.hoisted(() => vi.fn());
 const addSessionMock = vi.hoisted(() => vi.fn());
 const createBetterAuthSessionForEmailMock = vi.hoisted(() => vi.fn());
@@ -106,6 +107,7 @@ vi.mock("@agent-native/core/org", () => ({
   getRequiredAuthProviderForOrg: getRequiredAuthProviderForOrgMock,
   invalidateMemberOrgCaches: invalidateMemberOrgCachesMock,
   isGoogleSignInRequiredForEmail: isGoogleSignInRequiredForEmailMock,
+  setActiveOrgId: setActiveOrgIdMock,
 }));
 vi.mock("@agent-native/core/server", () => ({
   getH3App: vi.fn(() => ({ use: vi.fn() })),
@@ -453,6 +455,7 @@ beforeEach(() => {
   getOrgDomainMock.mockResolvedValue("example.test");
   getRequiredAuthProviderForOrgMock.mockResolvedValue(null);
   isGoogleSignInRequiredForEmailMock.mockResolvedValue(false);
+  setActiveOrgIdMock.mockResolvedValue(undefined);
   hasGoogleAuthIdentityMock.mockResolvedValue(false);
   createBetterAuthSessionForEmailMock.mockResolvedValue({
     email: "user@example.test",
@@ -989,6 +992,7 @@ describe("silent browser bootstrap", () => {
       authority: AUTHORITY,
       codeChallenge: createCodeChallenge(VERIFIER)!,
       email: "user@example.test",
+      orgId: "org-1",
       authProvider: "google",
       browserBindingHash: BROWSER_BINDING_HASH,
     });
@@ -1046,6 +1050,11 @@ describe("silent browser bootstrap", () => {
       expect.anything(),
       "user@example.test",
     );
+    expect(setActiveOrgIdMock).toHaveBeenCalledWith(
+      "user@example.test",
+      "org-1",
+      "cross-app bootstrap organization context",
+    );
   });
 
   it("does not activate a non-Google identity into a Google-only organization", async () => {
@@ -1100,6 +1109,7 @@ describe("silent browser bootstrap", () => {
     expect(ensureIdentityUserMock).not.toHaveBeenCalled();
     expect(createBetterAuthSessionForEmailMock).not.toHaveBeenCalled();
     expect(addSessionMock).not.toHaveBeenCalled();
+    expect(setActiveOrgIdMock).not.toHaveBeenCalled();
     expect(bootstrapRows[0]?.activated_at).toBeNull();
   });
 });

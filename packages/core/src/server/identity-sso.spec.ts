@@ -507,7 +507,10 @@ describe("identity SSO browser contract", () => {
     expect(createOAuthSessionMock).toHaveBeenCalledWith(
       expect.anything(),
       "alice@example.test",
-      expect.objectContaining({ hasProductionSession: false }),
+      expect.objectContaining({
+        authProvider: "google",
+        hasProductionSession: false,
+      }),
     );
   });
 });
