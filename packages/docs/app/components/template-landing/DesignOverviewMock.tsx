@@ -768,7 +768,7 @@ const DESIGN_MOCK_CSS = [
   // Left icon rail — 64px, 48px buttons with a label under the glyph.
   `.design-mock .dm-rail { display: flex; width: ${RAIL_WIDTH}px; flex-shrink: 0; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; border-right: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }`,
   ".design-mock .dm-rail-project { display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; color: var(--dm-fg); }",
-  ".design-mock .dm-rail-project-mark { width: 100%; height: auto; }",
+  ".design-mock .dm-rail-project-mark { width: 24px; height: auto; }",
   ".design-mock .dm-rail-divider { width: 32px; height: 1px; background: var(--dm-border); }",
   ".design-mock .dm-rail-item { display: flex; width: 48px; height: 48px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-radius: 8px; color: var(--dm-fg-muted); }",
   ".design-mock .dm-rail-item.is-active { background: var(--dm-selection); color: var(--dm-fg); }",
