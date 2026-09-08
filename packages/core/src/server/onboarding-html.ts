@@ -2274,47 +2274,40 @@ ${marketingStyles}
     justify-content: center;
     align-items: flex-start;
   }
-  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap,
-  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    max-height: calc(100vh - 5rem);
-  }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
     width: 100%;
-    max-width: 927px;
-    margin-inline: 0;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    filter: blur(3px);
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    filter: blur(18px);
     opacity: 0.8;
   }
-  .auth-marketing-home.has-product-screenshot .form-panel .card {
-    position: relative;
-    z-index: 1;
-  }
   .auth-marketing-home.has-product-screenshot .form-panel {
-    flex: 0 0 28rem;
-    min-width: 28rem;
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
     max-width: none;
+    padding: 1rem;
+    overflow-y: auto;
   }
-  @media (min-width: 901px) and (max-width: 1500px) {
-    .auth-marketing-home.has-product-screenshot .form-panel .card {
-      left: -140px;
-    }
-  }
-  @media (min-width: 1501px) {
-    .auth-marketing-home.has-product-screenshot .split {
-      display: grid;
-      grid-template-columns: minmax(0, 927px) minmax(0, 1fr);
-      gap: 0;
-    }
-    .auth-marketing-home.has-product-screenshot .marketing-panel {
-      flex: none;
-      width: 927px;
-    }
-    .auth-marketing-home.has-product-screenshot .form-panel {
-      flex: none;
-      width: 100%;
-    }
+  .auth-marketing-home.has-product-screenshot .form-panel > .card {
+    margin-block: auto;
   }
   .auth-marketing-home .form-panel { min-width: 0; }
   .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
@@ -2333,13 +2326,9 @@ ${marketingStyles}
     .auth-marketing-home .auth-marketing-layout { min-height: auto; }
     .auth-marketing-home .auth-marketing-shell { display: block; }
     .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
-    .auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }
     .auth-marketing-home.has-product-screenshot .form-panel {
       min-width: 0;
-      padding: 3.75rem 0.8125rem 1.5rem;
-    }
-    .auth-marketing-home.has-product-screenshot .form-panel .card {
-      left: auto;
+      padding: 1rem;
     }
   }
 `;
