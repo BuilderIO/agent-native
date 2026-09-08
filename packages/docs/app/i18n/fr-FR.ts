@@ -571,6 +571,7 @@ const frFR = {
     tryCommunityDemo: "Essayer la démo",
     customizeDescription: "Utilisez cette app comme point de départ.",
     customizeOnline: "En ligne",
+    customizeOnlineBadge: "Rejoindre la liste d'attente",
     customizeLocally: "Local",
     communityNew: "Nouveau",
     communityComingSoon: "Bientôt disponible",
@@ -629,6 +630,18 @@ const frFR = {
     popoverTitle: "Créer dans le navigateur",
     popoverBody:
       "Générez rapidement des apps agent-native dans le cloud avec Builder.io.",
+    waitlistBody:
+      "Builder.io peut lancer et personnaliser une app agent-native dans le cloud — actions, auth, état SQL et chat agent inclus. Rejoignez la liste d'attente pour un accès anticipé.",
+    emailLabel: "E-mail",
+    emailPlaceholder: "vous@entreprise.com",
+    joinWaitlist: "Rejoindre la liste d'attente",
+    joining: "Inscription…",
+    joined:
+      "Vous êtes sur la liste d'attente. Nous vous enverrons un e-mail quand l'accès à la création en ligne ouvrira.",
+    invalidEmail: "Saisissez une adresse e-mail valide.",
+    submitError: "Impossible de rejoindre la liste d'attente. Réessayez.",
+    waitlistUnavailable:
+      "Les inscriptions à la liste d'attente ne sont pas encore disponibles dans cet environnement. Essayez plutôt le site de documentation hébergé.",
     launchBuilder: "Lancer Builder",
   },
   templateCard: {
