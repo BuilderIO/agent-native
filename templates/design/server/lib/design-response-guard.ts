@@ -48,7 +48,11 @@ const DESIGN_TEST_REQUEST =
 const DESIGN_TEST_TARGET_PREPOSITIONS =
   /^(?:\s*(?:[,.!?;:]|[-–—])*\s*)(?:for|of|on|in|against|with|using)\b/i;
 const DESIGN_TEST_CLAUSE_BOUNDARY =
-  /[.!?,;]|[-–—]|\b(?:and|also|but|then|after(?:\s+that)?|afterwards?|subsequently|before|while|followed\s+by)\b/gi;
+  /[.!?,;]|(?<!\w)[-–—](?!\w)|\b(?:and|also|but|then|after(?:\s+that)?|afterwards?|subsequently|before|while|followed\s+by)\b/gi;
+const DESIGN_TEST_TARGET_DESCRIPTOR = new RegExp(
+  `^\\s*(?:(?:a|an|the|another|new)\\s+)?(?:[\\w-]+\\s+)*${DESIGN_MUTATION_OBJECTS.source}\\s*$`,
+  "i",
+);
 const DESIGN_WORD_PATTERN = /\b[\w-]+\b/g;
 const DESIGN_ADVISORY_SKILL_VERBS = new Set(["develop", "improve", "learn"]);
 const DESIGN_ADVISORY_SKILL_PRONOUNS = new Set(["my", "your"]);
@@ -328,13 +332,15 @@ function removeAdvisorySkillsClauses(text: string): string {
 }
 
 function removeDesignTestRequests(text: string): string {
-  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+(?:then|after|after\\s+that|afterwards?|subsequently|before|while))?|then|after|after\\s+that|afterwards?|subsequently|before|while|followed\\s+by)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?${DESIGN_MUTATION_VERBS.source}|[-–—.!?,;]|$`;
+  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+(?:then|after|after\\s+that|afterwards?|subsequently|before|while))?|then|after|after\\s+that|afterwards?|subsequently|before|while|followed\\s+by)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?${DESIGN_MUTATION_VERBS.source}|(?<!\\w)[-–—](?!\\w)|[.!?,;]|$`;
   const mutationVerbs = new RegExp(DESIGN_MUTATION_VERBS.source, "gi");
   const testRequests = new RegExp(DESIGN_TEST_REQUEST.source, "gi");
   const targetSuffix = new RegExp(
-    `${DESIGN_TEST_TARGET_PREPOSITIONS.source}[^.!?,;]*?(?=${mutationClauseBoundary})`,
+    `${DESIGN_TEST_TARGET_PREPOSITIONS.source}[^.!?]*?(?=${mutationClauseBoundary})`,
     "i",
   );
+  const sharedObjectPattern =
+    /(?:^|\s)(?:and|or|plus|&)\s+(?:(?:a|an|the|another|new)\s+)([\w-]+)/gi;
   const removals: Array<[number, number]> = [];
 
   for (const match of text.matchAll(testRequests)) {
@@ -355,21 +361,27 @@ function removeDesignTestRequests(text: string): string {
       : testStart;
     const precedingVerbEnd =
       precedingVerbStart + (precedingVerb?.[0].length ?? 0);
+    const precedingText = text.slice(precedingVerbEnd, testStart);
     const hasDesignObjectBeforeTest = precedingVerb
-      ? DESIGN_MUTATION_OBJECTS.test(text.slice(precedingVerbEnd, testStart))
+      ? DESIGN_MUTATION_OBJECTS.test(precedingText) &&
+        !DESIGN_TEST_TARGET_DESCRIPTOR.test(precedingText)
       : false;
-    const sharedObject = text
-      .slice(testEnd)
-      .match(
-        /(?:^|\s)(?:and|or|plus|&)\s+(?:(?:a|an|the|another|new)\s+)?([\w-]+)/i,
-      )?.[1];
-    const hasSharedDesignObject =
-      sharedObject !== undefined &&
-      !/^(?:it|this)$/i.test(sharedObject) &&
-      DESIGN_MUTATION_OBJECTS.test(sharedObject);
+    const afterTest = text.slice(testEnd);
+    const sharedObject = [...afterTest.matchAll(sharedObjectPattern)].find(
+      (match) => {
+        const matchStart = match.index ?? 0;
+        return (
+          !/[,;]/.test(afterTest.slice(0, matchStart)) &&
+          DESIGN_MUTATION_OBJECTS.test(match[1] ?? "")
+        );
+      },
+    );
+    const hasSharedDesignObject = sharedObject !== undefined;
     let removalEnd = testEnd;
-    const target = targetSuffix.exec(text.slice(testEnd));
-    if (target) removalEnd += target[0].length;
+    if (!hasSharedDesignObject) {
+      const target = targetSuffix.exec(afterTest);
+      if (target) removalEnd += target[0].length;
+    }
     removals.push([
       precedingVerb && !hasDesignObjectBeforeTest && !hasSharedDesignObject
         ? precedingVerbStart
