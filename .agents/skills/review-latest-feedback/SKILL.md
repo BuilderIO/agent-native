@@ -54,9 +54,9 @@ stale: do not release, duplicate, or reply over it. Record **Owned elsewhere**
 and leave it for handoff; preserve it as a blocker when needed.
 
 Enumerate `slack_read_channel` newest backward through `next_cursor` until a
-parent already has your `👀` or is older than 5 days. Use its oldest timestamp
-as the recap cursor. Classify from parent text, attachments, and reactions; do
-not open threads yet.
+parent has your open `👀` without `✅`, or is older than 5 days. Use its oldest
+timestamp as the recap cursor. Classify from parent text, attachments, and
+reactions; do not open threads yet.
 
 **`slack_search` is not a scan.** It ranks and truncates. Use channel reads for
 enumeration and put their count in the recap; use search for known things such
@@ -125,14 +125,12 @@ Also search for the invoking identity's eye-marked parents before applying the
 disclosure filter:
 
 ```
-slack_search: hasmy::eyes: -hasmy::white_check_mark: in:<#CHANNEL>
+slack_search: hasmy:eyes -hasmy:white_check_mark in:<#CHANNEL>
 ```
 
-The doubled colons are required. `hasmy:eyes` is not a reaction filter - Slack
-drops the unknown prefix and free-text searches "eyes", so it silently returns
-any message containing that word and none of your actual claims. Verified
-2026-09-08: the single-colon form returned three text matches and zero eyed
-parents. Do not normalize these to single colons.
+The single-colon modifiers are required. They scope the search to messages
+with the connected identity's eye and without its release marker. Do not
+replace them with emoji text searches.
 
 The test for "answered" is mechanical: **did a person speak after your
 question?** Someone counts when their message carries no disclosure marker —
@@ -263,7 +261,7 @@ is how this rule becomes a no-op.
 Find them alongside the newest-message scan:
 
 ```
-slack_search: hasmy::upvote: in:<#CHANNEL>
+slack_search: hasmy:upvote in:<#CHANNEL>
 ```
 
 `hasmy:` is already scoped to the connected identity you verified, so every
@@ -302,8 +300,8 @@ slack_search: has:reaction in:<#CHANNEL>
 
 Read each matching parent and its reaction metadata. Use other valid workflow
 identities' eyes only to detect **Owned elsewhere**; leave those items out of
-your worklist. The `hasmy::eyes: -hasmy::white_check_mark:` cursor optimizes
-the current identity's scan but is never the only cursor. Keep your active claims in the worklist until a verified fix,
+your worklist. The `hasmy:eyes -hasmy:white_check_mark` cursor optimizes the
+current identity's scan but is never the only cursor. Keep your active claims in the worklist until a verified fix,
 targeted clarification, or Phase 0 release.
 
 Group repeat symptoms into one cluster with one owning investigation; the
