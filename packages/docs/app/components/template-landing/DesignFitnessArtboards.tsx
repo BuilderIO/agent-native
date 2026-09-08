@@ -44,7 +44,7 @@ export const ARTBOARD_MIN_HEIGHT = FRAME_BODY_HEIGHT / BOARD_SCALE;
  * matches it — the frame is taller than the content, and a white backing would
  * flash below the fold.
  */
-export const ARTBOARD_BG = "#0b0616";
+export const ARTBOARD_BG = "#0c0c0e";
 
 /** Logical size of the selected CTA, mirrored by the inspector's W/H fields. */
 export const SELECTED_CTA_WIDTH = 160;
@@ -72,9 +72,9 @@ const HERO_ATHLETE_POSITION = "75% center";
 const NAV_LINKS = ["Programs", "Classes", "Coaches", "Pricing"];
 
 const STATS = [
-  { value: "12k", label: "Sessions logged", tone: "lime" },
-  { value: "48", label: "Live classes weekly", tone: "coral" },
-  { value: "94%", label: "Stick with it", tone: "cyan" },
+  { value: "12k", label: "Sessions logged" },
+  { value: "48", label: "Live classes weekly" },
+  { value: "94%", label: "Stick with it" },
 ];
 
 const PLANS = [
@@ -211,7 +211,7 @@ export function FitnessDesktopArtboard() {
 
       <section className="ft-stats">
         {STATS.map((stat) => (
-          <div key={stat.label} className={`ft-stat is-${stat.tone}`}>
+          <div key={stat.label} className="ft-stat">
             <span className="ft-stat-value">{stat.value}</span>
             <span className="ft-stat-label">{stat.label}</span>
           </div>
@@ -303,7 +303,7 @@ export function FitnessMobileArtboard() {
 
       <section className="ft-stats">
         {STATS.slice(0, 2).map((stat) => (
-          <div key={stat.label} className={`ft-stat is-${stat.tone}`}>
+          <div key={stat.label} className="ft-stat">
             <span className="ft-stat-value">{stat.value}</span>
             <span className="ft-stat-label">{stat.label}</span>
           </div>
@@ -362,12 +362,16 @@ export const DESIGN_FITNESS_CSS = [
   // canvas, so it must look identical whether the editor around it is light or
   // dark — exactly like a real artboard.
   //
-  // The design is dark. A near-white page filled most of the canvas and became
-  // the brightest thing in the hero, pulling attention off the editor chrome;
-  // the deep violet lets the lime/coral/cyan accents do the work instead.
-  // `--ft-ink` stays dark on purpose: it is the text colour for those bright
-  // fills, not a surface.
-  `.design-mock .ft { --ft-ink: #140c2e; --ft-bg: ${ARTBOARD_BG}; --ft-elevated: #16102b; --ft-hero-bg: #1c1342; --ft-fg: #f6f3ff; --ft-fg-soft: rgba(246, 243, 255, 0.66); --ft-line: rgba(246, 243, 255, 0.12); --ft-line-strong: rgba(246, 243, 255, 0.3); --ft-lime: #d8ff3e; --ft-coral: #ff5b4a; --ft-cyan: #3fe0d0; --ft-violet: #7c4dff; --ft-violet-text: #a78bfa; --ft-amber: #ffb020; }`,
+  // Dark and monochrome with a single accent. The earlier five-hue palette
+  // turned the artboard into the loudest thing on the page and competed with
+  // the editor for attention — the mock is meant to read as a design being
+  // worked on, not as the hero image. Structure now comes from surface steps
+  // and hairlines; `--ft-accent` is rationed to the emphasis word, the
+  // wordmark dot, and the two real calls to action.
+  //
+  // `--ft-ink` stays dark on purpose: it is the text colour for accent fills,
+  // not a surface.
+  `.design-mock .ft { --ft-ink: #0c0c0e; --ft-bg: ${ARTBOARD_BG}; --ft-elevated: #16161a; --ft-hero-bg: #131317; --ft-fg: #f2f2f4; --ft-fg-soft: rgba(242, 242, 244, 0.6); --ft-line: rgba(242, 242, 244, 0.1); --ft-line-strong: rgba(242, 242, 244, 0.24); --ft-accent: #d8ff3e; }`,
   ".design-mock .ft { width: 100%; min-height: 100%; background: var(--ft-bg); color: var(--ft-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }",
   // The docs shell colors every h1-h4 and prose paragraph directly, so an
   // artboard heading would otherwise pick up the docs foreground instead of the
@@ -382,20 +386,22 @@ export const DESIGN_FITNESS_CSS = [
   // Nav
   ".design-mock .ft-nav { display: flex; height: 88px; flex-shrink: 0; align-items: center; gap: 48px; padding: 0 48px; }",
   ".design-mock .ft-wordmark { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; }",
-  ".design-mock .ft-wordmark-dot { color: var(--ft-coral); }",
+  ".design-mock .ft-wordmark-dot { color: var(--ft-accent); }",
   ".design-mock .ft-nav-links { display: flex; flex: 1; align-items: center; gap: 32px; color: var(--ft-fg-soft); font-size: 17px; font-weight: 500; }",
-  ".design-mock .ft-nav-cta { display: flex; height: 48px; flex-shrink: 0; align-items: center; padding: 0 26px; border-radius: 999px; background: var(--ft-fg); color: var(--ft-ink); font-size: 17px; font-weight: 600; }",
+  ".design-mock .ft-nav-cta { display: flex; height: 48px; flex-shrink: 0; align-items: center; padding: 0 26px; border: 2px solid var(--ft-line-strong); border-radius: 999px; color: var(--ft-fg); font-size: 17px; font-weight: 600; }",
   ".design-mock .ft-nav-menu { margin-left: auto; color: var(--ft-fg-soft); font-size: 16px; font-weight: 600; }",
 
   // Hero
   ".design-mock .ft-hero { position: relative; display: flex; flex-shrink: 0; align-items: center; gap: 48px; overflow: hidden; margin: 0 24px; padding: 44px 48px; border-radius: 36px; background: var(--ft-hero-bg); color: var(--ft-fg); }",
-  ".design-mock .ft-hero-blob { position: absolute; border-radius: 999px; filter: blur(4px); opacity: 0.7; }",
-  ".design-mock .ft-hero-blob-a { width: 420px; height: 420px; right: -120px; top: -180px; background: radial-gradient(circle, var(--ft-violet), transparent 68%); }",
-  ".design-mock .ft-hero-blob-b { width: 360px; height: 360px; left: -140px; bottom: -200px; background: radial-gradient(circle, var(--ft-cyan), transparent 68%); }",
+  // Barely-there glows. At the old 0.7 these were two saturated colour fields;
+  // now they only lift the corners of the hero panel off the page.
+  ".design-mock .ft-hero-blob { position: absolute; border-radius: 999px; filter: blur(4px); opacity: 0.12; }",
+  ".design-mock .ft-hero-blob-a { width: 420px; height: 420px; right: -120px; top: -180px; background: radial-gradient(circle, var(--ft-accent), transparent 68%); }",
+  ".design-mock .ft-hero-blob-b { width: 360px; height: 360px; left: -140px; bottom: -200px; background: radial-gradient(circle, #ffffff, transparent 68%); }",
   ".design-mock .ft-hero-copy { position: relative; flex: 1; min-width: 0; }",
-  ".design-mock .ft-eyebrow { display: inline-flex; align-items: center; height: 30px; padding: 0 14px; border-radius: 999px; background: rgba(216, 255, 62, 0.16); color: var(--ft-lime); font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }",
+  ".design-mock .ft-eyebrow { display: inline-flex; align-items: center; height: 30px; padding: 0 14px; border-radius: 999px; background: rgba(242, 242, 244, 0.08); color: var(--ft-fg-soft); font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }",
   ".design-mock .ft-headline { margin: 20px 0 0; font-size: 68px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.02; }",
-  ".design-mock .ft-headline em { color: var(--ft-lime); font-style: italic; }",
+  ".design-mock .ft-headline em { color: var(--ft-accent); font-style: italic; }",
   ".design-mock .ft-subhead { margin: 20px 0 0; max-width: 440px; color: var(--ft-fg-soft); font-size: 19px; line-height: 1.5; }",
   ".design-mock .ft-hero-actions { display: flex; align-items: center; gap: 16px; margin-top: 32px; }",
   ".design-mock .ft-cta-ghost { display: flex; height: 52px; align-items: center; padding: 0 24px; border: 2px solid var(--ft-line-strong); border-radius: 999px; color: var(--ft-fg); font-size: 17px; font-weight: 600; }",
@@ -404,7 +410,7 @@ export const DESIGN_FITNESS_CSS = [
   // The selected `Start free trial` CTA and its editor chrome.
   ".design-mock .ft-selected { position: relative; width: 160px; }",
   ".design-mock .ft-selected.is-full { width: 100%; }",
-  ".design-mock .ft-cta { display: flex; height: 52px; align-items: center; justify-content: center; border-radius: 999px; background: var(--ft-lime); color: var(--ft-ink); font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }",
+  ".design-mock .ft-cta { display: flex; height: 52px; align-items: center; justify-content: center; border-radius: 999px; background: var(--ft-accent); color: var(--ft-ink); font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }",
   `.design-mock .ft-sel-outline { position: absolute; inset: 0; border: ${inverse(1.5)} solid var(--dm-selection); border-radius: 999px; pointer-events: none; }`,
   `.design-mock .ft-sel-handle { position: absolute; z-index: 2; width: ${inverse(7)}; height: ${inverse(7)}; border: ${inverse(1)} solid var(--dm-selection); border-radius: ${inverse(1)}; background: #ffffff; }`,
   `.design-mock .ft-sel-handle-tl { left: ${inverse(-4)}; top: ${inverse(-4)}; }`,
@@ -415,21 +421,15 @@ export const DESIGN_FITNESS_CSS = [
 
   // Stat strip
   ".design-mock .ft-stats { display: grid; flex-shrink: 0; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 24px 0; }",
-  // Ink text, not the page foreground: all three fills are bright, so the
-  // near-white body colour would land near 2:1 on them and the label's 0.72
-  // opacity would drop it further.
-  ".design-mock .ft-stat { display: flex; flex-direction: column; gap: 6px; padding: 24px 26px; border-radius: 24px; color: var(--ft-ink); }",
-  ".design-mock .ft-stat.is-lime { background: var(--ft-lime); }",
-  ".design-mock .ft-stat.is-coral { background: var(--ft-coral); }",
-  ".design-mock .ft-stat.is-cyan { background: var(--ft-cyan); }",
+  ".design-mock .ft-stat { display: flex; flex-direction: column; gap: 6px; padding: 24px 26px; border: 2px solid var(--ft-line); border-radius: 24px; background: var(--ft-elevated); }",
   ".design-mock .ft-stat-value { font-size: 44px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }",
-  ".design-mock .ft-stat-label { font-size: 15px; font-weight: 600; opacity: 0.72; }",
+  ".design-mock .ft-stat-label { color: var(--ft-fg-soft); font-size: 15px; font-weight: 600; }",
 
   // Sections
   ".design-mock .ft-section { flex-shrink: 0; padding: 30px 48px 0; }",
   ".design-mock .ft-section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }",
   ".design-mock .ft-section-title { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -0.03em; }",
-  ".design-mock .ft-section-link { color: var(--ft-violet-text); font-size: 16px; font-weight: 600; }",
+  ".design-mock .ft-section-link { color: var(--ft-fg-soft); font-size: 16px; font-weight: 600; }",
   ".design-mock .ft-class-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }",
   ".design-mock .ft-class { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 2px solid var(--ft-line); border-radius: 26px; background: var(--ft-elevated); }",
   // Covers are ~345px wide, so 190 keeps the roughly 4:3 photos from being
@@ -441,22 +441,21 @@ export const DESIGN_FITNESS_CSS = [
   // Plans
   ".design-mock .ft-plan-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }",
   ".design-mock .ft-plan { display: flex; flex-direction: column; gap: 8px; padding: 28px; border: 2px solid var(--ft-line); border-radius: 26px; background: var(--ft-elevated); }",
-  // Violet fill rather than the old dark panel, which would now be the same
-  // value as the page it sits on.
-  ".design-mock .ft-plan.is-featured { border-color: transparent; background: var(--ft-violet); color: var(--ft-fg); }",
+  // The featured plan is marked with the accent hairline and its price, not a
+  // filled panel — a block of accent this large was most of the old glare.
+  ".design-mock .ft-plan.is-featured { border-color: var(--ft-accent); }",
   ".design-mock .ft-plan-name { font-size: 17px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; }",
   ".design-mock .ft-plan-price { font-size: 50px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.05; }",
   ".design-mock .ft-plan-period { font-size: 18px; font-weight: 600; opacity: 0.5; }",
-  ".design-mock .ft-plan.is-featured .ft-plan-price { color: var(--ft-lime); }",
+  ".design-mock .ft-plan.is-featured .ft-plan-price { color: var(--ft-accent); }",
   ".design-mock .ft-plan-meta { color: var(--ft-fg-soft); font-size: 15px; font-weight: 500; }",
-  ".design-mock .ft-plan.is-featured .ft-plan-meta { color: rgba(255, 255, 255, 0.78); }",
   ".design-mock .ft-plan-cta { display: flex; height: 48px; align-items: center; justify-content: center; margin-top: 12px; border: 2px solid var(--ft-line); border-radius: 999px; font-size: 16px; font-weight: 700; }",
-  ".design-mock .ft-plan.is-featured .ft-plan-cta { border-color: transparent; background: var(--ft-lime); color: var(--ft-ink); }",
+  ".design-mock .ft-plan.is-featured .ft-plan-cta { border-color: transparent; background: var(--ft-accent); color: var(--ft-ink); }",
 
   // Closing band
-  ".design-mock .ft-band { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 28px 24px 24px; padding: 30px 40px; border-radius: 32px; background: linear-gradient(100deg, var(--ft-violet), var(--ft-coral) 62%, var(--ft-amber)); color: var(--ft-fg); }",
+  ".design-mock .ft-band { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 28px 24px 24px; padding: 30px 40px; border: 2px solid var(--ft-line); border-radius: 32px; background: var(--ft-elevated); color: var(--ft-fg); }",
   ".design-mock .ft-band-title { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }",
-  ".design-mock .ft-band-cta { display: flex; height: 52px; align-items: center; padding: 0 26px; border-radius: 999px; background: var(--ft-fg); color: var(--ft-ink); font-size: 17px; font-weight: 700; }",
+  ".design-mock .ft-band-cta { display: flex; height: 52px; align-items: center; padding: 0 26px; border-radius: 999px; background: var(--ft-accent); color: var(--ft-ink); font-size: 17px; font-weight: 700; }",
 
   // Footer
   ".design-mock .ft-footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 0 48px; padding: 32px 0 40px; border-top: 2px solid var(--ft-line); }",
