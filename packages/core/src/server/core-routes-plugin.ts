@@ -2758,15 +2758,11 @@ export function createCoreRoutesPlugin(
             // looks successful even though the user's credentials were not saved.
             try {
               if (userEmail) {
-                let errKey = getBuilderConnectErrorKey(
+                const errKey = getBuilderConnectErrorKey(
                   userEmail,
                   connectAttemptId,
                 );
-                let errRow = await getSetting(errKey);
-                if (!errRow && connectAttemptId) {
-                  errKey = getBuilderConnectErrorKey(userEmail);
-                  errRow = await getSetting(errKey);
-                }
+                const errRow = await getSetting(errKey);
                 const errorDisposition = getBuilderConnectErrorDisposition(
                   errRow,
                   connectAttemptId,
