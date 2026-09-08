@@ -520,6 +520,33 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("keeps Analytics migrations on its app-scoped database URL", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const analyticsNetlify = readFileSync(
+      "templates/analytics/netlify.toml",
+      "utf8",
+    );
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+
+    assert.match(build, /export ANALYTICS_DATABASE_URL_SECRET/);
+    assert.match(analyticsNetlify, /ANALYTICS_DATABASE_URL_SECRET/);
+    assert.match(
+      analyticsNetlify,
+      /unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED/,
+    );
+    assert.doesNotMatch(analyticsNetlify, /NETLIFY_DATABASE_URL:-/);
+  });
+
   it("runs Plan migrations after masked prebuilt assembly", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",
