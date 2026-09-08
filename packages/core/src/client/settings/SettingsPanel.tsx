@@ -827,10 +827,15 @@ function LLMSectionInner({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [engines, setEngines] = useState<EngineInfo[]>([]);
-  const [currentEngine, setCurrentEngine] = useState("anthropic");
-  const [currentModel, setCurrentModel] = useState("");
-  const [selectedEngine, setSelectedEngine] = useState("anthropic");
-  const [selectedModel, setSelectedModel] = useState("");
+  const [
+    { currentEngine, currentModel, selectedEngine, selectedModel },
+    setSelectionState,
+  ] = useState({
+    currentEngine: "anthropic",
+    currentModel: "",
+    selectedEngine: "anthropic",
+    selectedModel: "",
+  });
   const [baseUrl, setBaseUrl] = useState("");
   const [baseUrlConfigured, setBaseUrlConfigured] = useState(false);
   const [clearBaseUrl, setClearBaseUrl] = useState(false);
@@ -849,7 +854,6 @@ function LLMSectionInner({
   const [envProbeAvailable, setEnvProbeAvailable] = useState(false);
   const [enginesLoaded, setEnginesLoaded] = useState(false);
   const [engineCatalogAvailable, setEngineCatalogAvailable] = useState(false);
-  const selectionEditedRef = useRef(false);
   const [statusProbeAvailable, setStatusProbeAvailable] = useState(false);
   const probeGenerationRef = useRef({ env: 0, status: 0 });
 
@@ -934,7 +938,6 @@ function LLMSectionInner({
 
   useEffect(() => {
     let generation = 0;
-    let initialized = false;
     const refresh = () => {
       const request = ++generation;
       setEngineCatalogAvailable(false);
@@ -948,16 +951,20 @@ function LLMSectionInner({
           if (!Array.isArray(engineData.engines)) return;
           setEngines(engineData.engines);
           setEngineCatalogAvailable(true);
-          if (!initialized) {
-            initialized = true;
-            const cur = engineData.current ?? {};
-            setCurrentEngine(cur.engine ?? "anthropic");
-            setCurrentModel(cur.model ?? "");
-            if (!selectionEditedRef.current) {
-              setSelectedEngine(cur.engine ?? "anthropic");
-              setSelectedModel(cur.model ?? "");
-            }
-          }
+          const cur = engineData.current ?? {};
+          setSelectionState((previous) => {
+            const dirty =
+              previous.selectedEngine !== previous.currentEngine ||
+              previous.selectedModel !== previous.currentModel;
+            const engine = cur.engine ?? "anthropic";
+            const model = cur.model ?? "";
+            return {
+              currentEngine: engine,
+              currentModel: model,
+              selectedEngine: dirty ? previous.selectedEngine : engine,
+              selectedModel: dirty ? previous.selectedModel : model,
+            };
+          });
         })
         .catch(() => {})
         .finally(() => {
@@ -1162,10 +1169,12 @@ function LLMSectionInner({
         provider: selectedProvider,
         model: selectedModel,
       });
-      setCurrentEngine(selection.engine);
-      setCurrentModel(selection.model);
-      setSelectedEngine(selection.engine);
-      setSelectedModel(selection.model);
+      setSelectionState({
+        currentEngine: selection.engine,
+        currentModel: selection.model,
+        selectedEngine: selection.engine,
+        selectedModel: selection.model,
+      });
       setApplyNote(true);
       setTimeout(() => setApplyNote(false), 4000);
     } catch (err) {
@@ -1274,10 +1283,12 @@ function LLMSectionInner({
                   }
                   layout={isPage ? "page" : "compact"}
                   onChange={(provider) => {
-                    selectionEditedRef.current = true;
                     const option = getAgentProviderOption(provider);
-                    setSelectedEngine(option.engine);
-                    setSelectedModel(option.defaultModel);
+                    setSelectionState((previous) => ({
+                      ...previous,
+                      selectedEngine: option.engine,
+                      selectedModel: option.defaultModel,
+                    }));
                     setApiKey("");
                     setBaseUrl("");
                     setClearBaseUrl(false);
@@ -1297,8 +1308,11 @@ function LLMSectionInner({
                     list={`model-suggestions-${selectedEngine}`}
                     value={selectedModel}
                     onChange={(e) => {
-                      selectionEditedRef.current = true;
-                      setSelectedModel(e.target.value);
+                      const model = e.target.value;
+                      setSelectionState((previous) => ({
+                        ...previous,
+                        selectedModel: model,
+                      }));
                       setApplyError(null);
                       setApplyNote(false);
                       setTestResult(null);

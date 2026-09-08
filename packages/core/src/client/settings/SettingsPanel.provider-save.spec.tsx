@@ -65,6 +65,7 @@ function createFetchFixture({
   },
   listResponse,
   setResponse,
+  disconnectResponse,
 }: {
   engines?: EngineFixture[] | (() => EngineFixture[]);
   current?: { engine: string; model: string };
@@ -72,6 +73,7 @@ function createFetchFixture({
   status?: Record<string, unknown>;
   listResponse?: (request: number) => Promise<Response> | Response;
   setResponse: () => Promise<Response> | Response;
+  disconnectResponse?: () => Promise<Response> | Response;
 }) {
   const setRequests: Array<Record<string, unknown>> = [];
   let listRequests = 0;
@@ -96,6 +98,10 @@ function createFetchFixture({
       if (url.endsWith("/_agent-native/env-status")) return json(envKeys);
       if (url.endsWith("/_agent-native/agent-engine/status")) {
         return json(status);
+      }
+      if (url.endsWith("/_agent-native/agent-engine/disconnect")) {
+        if (!disconnectResponse) throw new Error("Unexpected disconnect");
+        return disconnectResponse();
       }
       if (url.endsWith("/_agent-native/actions/manage-agent-engine")) {
         const body = JSON.parse(String(init?.body ?? "{}")) as Record<
@@ -246,6 +252,14 @@ describe("AgentSettingsContent provider save", () => {
 
   it("renders the authoritative server-normalized model after Apply", async () => {
     const fixture = createFetchFixture({
+      listResponse: (request) =>
+        json({
+          engines: [anthropic, openai],
+          current:
+            request === 1
+              ? { engine: "anthropic", model: "claude-sonnet-5" }
+              : { engine: "ai-sdk:openai", model: "gpt-5.4-mini" },
+        }),
       setResponse: () =>
         json({
           ok: true,
@@ -271,6 +285,105 @@ describe("AgentSettingsContent provider save", () => {
         (candidate) => candidate.textContent?.trim() === "Apply",
       ),
     ).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("reconciles a clean selection on focus after another surface changes it", async () => {
+    let current = { engine: "ai-sdk:openai", model: "gpt-5.4" };
+    const fixture = createFetchFixture({
+      current,
+      listResponse: () => json({ engines: [anthropic, openai], current }),
+      setResponse: () => json({ ok: true }),
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await click(buttonNamed("Manage"));
+
+    current = { engine: "anthropic", model: "claude-sonnet-5" };
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    const model = document.querySelector<HTMLInputElement>(
+      'input[list="model-suggestions-anthropic"]',
+    );
+    expect(model?.value).toBe("claude-sonnet-5");
+    expect(document.body.textContent).not.toContain("Apply");
+    expect(fixture.setRequests).toHaveLength(0);
+    act(() => root.unmount());
+  });
+
+  it("updates the saved baseline while preserving a dirty draft on refresh", async () => {
+    let current = { engine: "ai-sdk:openai", model: "gpt-5.4" };
+    const fixture = createFetchFixture({
+      current,
+      listResponse: () => json({ engines: [anthropic, openai], current }),
+      setResponse: () => json({ ok: true }),
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await click(buttonNamed("Manage"));
+    const model = document.querySelector<HTMLInputElement>(
+      'input[list="model-suggestions-ai-sdk:openai"]',
+    );
+    if (!model) throw new Error("Missing model input");
+    await changeInput(model, "dirty/custom-model");
+
+    current = { engine: "ai-sdk:openai", model: "gpt-5.4-mini" };
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(model.value).toBe("dirty/custom-model");
+    expect(buttonNamed("Apply")).toBeTruthy();
+
+    await changeInput(model, current.model);
+    expect(document.body.textContent).not.toContain("Apply");
+
+    current = { engine: "anthropic", model: "claude-sonnet-5" };
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'input[list="model-suggestions-anthropic"]',
+      )?.value,
+    ).toBe("claude-sonnet-5");
+    expect(document.body.textContent).not.toContain("Apply");
+    act(() => root.unmount());
+  });
+
+  it("shows the server fallback after disconnecting a successfully saved provider", async () => {
+    let current = { engine: "anthropic", model: "claude-sonnet-5" };
+    const fixture = createFetchFixture({
+      listResponse: () => json({ engines: [anthropic, openai], current }),
+      setResponse: () => {
+        current = { engine: "ai-sdk:openai", model: "gpt-5.4-mini" };
+        return json({ ok: true, ...current });
+      },
+      disconnectResponse: () => {
+        current = { engine: "anthropic", model: "claude-sonnet-5" };
+        return json({ ok: true });
+      },
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await chooseOpenAi();
+    await click(buttonNamed("Apply"));
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'input[list="model-suggestions-ai-sdk:openai"]',
+      )?.value,
+    ).toBe("gpt-5.4-mini");
+
+    await click(buttonNamed("Disconnect"));
+
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'input[list="model-suggestions-anthropic"]',
+      )?.value,
+    ).toBe("claude-sonnet-5");
+    expect(document.body.textContent).not.toContain("Apply");
+    expect(document.body.textContent).not.toContain(
+      "Changes take effect on next conversation",
+    );
+    expect(fixture.setRequests).toHaveLength(1);
     act(() => root.unmount());
   });
 
