@@ -1162,6 +1162,7 @@ async function verifyIdentityBootstrapRequest(event: H3Event): Promise<{
     const resolved = resolveIdentitySsoApp(appId, clientId, redirectUri);
     if (
       !verified.email ||
+      claims?.email_verified !== true ||
       claims?.scope !== IDENTITY_SSO_BOOTSTRAP_SCOPE ||
       appId !== registration.appId ||
       clientId !== registration.clientId ||

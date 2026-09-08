@@ -903,6 +903,7 @@ describe("silent browser bootstrap", () => {
         state: STATE,
         code_challenge: createCodeChallenge(VERIFIER),
         browser_binding_hash: BROWSER_BINDING_HASH,
+        email_verified: true,
         org_id: "org-1",
         scope: "identity-bootstrap",
       },
@@ -940,6 +941,42 @@ describe("silent browser bootstrap", () => {
       },
     );
   });
+
+  it.each([undefined, false])(
+    "rejects bootstrap assertions without verified email (%s)",
+    async (emailVerified) => {
+      featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+      featureFlagMocks.isEnabled.mockResolvedValue(true);
+      verifyA2ATokenMock.mockResolvedValue({
+        email: "user@example.test",
+        orgDomain: null,
+        orgId: null,
+        claims: {
+          iss: "https://mail.agent-native.com",
+          app_id: "mail",
+          client_id: "mail",
+          redirect_uri: CALLBACK,
+          state: STATE,
+          code_challenge: createCodeChallenge(VERIFIER),
+          browser_binding_hash: BROWSER_BINDING_HASH,
+          ...(emailVerified === undefined
+            ? {}
+            : { email_verified: emailVerified }),
+          scope: "identity-bootstrap",
+        },
+      });
+
+      const response = await bootstrapHandler(
+        event("/_agent-native/identity/bootstrap", {
+          method: "POST",
+          headers: { authorization: "Bearer bootstrap-assertion" },
+        }),
+      );
+
+      expect(response.status).toBe(401);
+      expect(bootstrapRows).toHaveLength(0);
+    },
+  );
 
   it("releases a claimed handle when continuation work fails", async () => {
     const handle = await createIdentityBootstrapHandle({

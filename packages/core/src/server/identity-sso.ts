@@ -700,6 +700,7 @@ async function startIdentityBootstrap(
           state,
           code_challenge: challenge,
           browser_binding_hash: browserBindingHash,
+          email_verified: current.emailVerified === true,
           scope: IDENTITY_SSO_BOOTSTRAP_SCOPE,
           ...(current.orgId && ORG_ID_PATTERN.test(current.orgId)
             ? { org_id: current.orgId }
