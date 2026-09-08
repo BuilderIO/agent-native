@@ -45,6 +45,8 @@ const DESIGN_ADVISORY_WORDS =
   /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|teach(?:ing)?|tip|tips|thoughts?|tutorials?)\b/i;
 const DESIGN_TEST_REQUEST =
   /\bvisual(?:[\s-]+(?:regression|snapshot))?(?:[\s-]+(?:test|tests|testing|suite|suites)|[\s-]+snapshots?)\b/i;
+const DESIGN_TEST_TARGET_PREPOSITIONS =
+  /^(?:\s*(?:[,.!?;:]|[-–—])?\s*)(?:for|of|on|in|against|with|using)\b/i;
 const DESIGN_WORD_PATTERN = /\b[\w-]+\b/g;
 const DESIGN_ADVISORY_SKILL_VERBS = new Set(["develop", "improve", "learn"]);
 const DESIGN_ADVISORY_SKILL_PRONOUNS = new Set(["my", "your"]);
@@ -324,14 +326,38 @@ function removeAdvisorySkillsClauses(text: string): string {
 }
 
 function removeDesignTestRequests(text: string): string {
-  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+then)?|then)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?${DESIGN_MUTATION_VERBS.source}|[.!?,;]|$`;
-  return text.replace(
-    new RegExp(
-      `${DESIGN_TEST_REQUEST.source}(?:\\s+(?:for|of|on|in|against|with|using)\\b[^.!?,;]*?(?=${mutationClauseBoundary}))?`,
-      "gi",
-    ),
-    " ",
+  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+(?:then|after\\s+that|afterwards|afterward))?|then|after\\s+that|afterwards|afterward|subsequently)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?${DESIGN_MUTATION_VERBS.source}|[.!?,;]|$`;
+  const mutationVerbs = new RegExp(DESIGN_MUTATION_VERBS.source, "gi");
+  const testRequests = new RegExp(DESIGN_TEST_REQUEST.source, "gi");
+  const targetSuffix = new RegExp(
+    `${DESIGN_TEST_TARGET_PREPOSITIONS.source}[^.!?,;]*?(?=${mutationClauseBoundary})`,
+    "i",
   );
+  const removals: Array<[number, number]> = [];
+
+  for (const match of text.matchAll(testRequests)) {
+    const testStart = match.index ?? 0;
+    const testEnd = testStart + match[0].length;
+    const precedingVerbs = [
+      ...text.slice(0, testStart).matchAll(mutationVerbs),
+    ];
+    const precedingVerb = precedingVerbs[precedingVerbs.length - 1];
+    let removalEnd = testEnd;
+    const target = targetSuffix.exec(text.slice(testEnd));
+    if (target) removalEnd += target[0].length;
+    removals.push([precedingVerb?.index ?? testStart, removalEnd]);
+  }
+
+  if (removals.length === 0) return text;
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const [start, end] of removals) {
+    parts.push(text.slice(cursor, start), " ");
+    cursor = end;
+  }
+  parts.push(text.slice(cursor));
+  return parts.join("");
 }
 
 export function looksLikeDesignMutationRequest(text: string): boolean {
