@@ -89,6 +89,7 @@ describe("pivotRows", () => {
 
     const result = pivotRows(
       [
+        { date: "2026-06-15", template: "content", count: 99 },
         { date: "2026-06-18", template: "content", count: 1 },
         { date: "2026-06-19", template: "content", count: 4 },
       ],

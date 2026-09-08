@@ -693,13 +693,18 @@ describe("renderReportEmail", () => {
 
   it("pivots table panels the way the dashboard does", async () => {
     const rendered = await renderReportEmail({
-      snapshot: snapshotOf([
-        panel({
-          id: "pivoted",
-          chartType: "table",
-          config: { pivot: { xKey: "day", seriesKey: "team", valueKey: "n" } },
-        }),
-      ]),
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "pivoted",
+            chartType: "table",
+            config: {
+              pivot: { xKey: "day", seriesKey: "team", valueKey: "n" },
+            },
+          }),
+        ]),
+        filters: { f_timeRange: "all" },
+      },
       panelData: new Map([
         [
           "pivoted",

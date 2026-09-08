@@ -28,7 +28,7 @@ export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
       NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''),
       'unknown'
     ) AS template
-  FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw\`
+  FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw_query\`
   WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'
     AND event_name = 'session status'
     AND signed_in = 'true'
@@ -52,11 +52,11 @@ export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
   SELECT date
   FROM UNNEST(GENERATE_DATE_ARRAY(
     CASE
-      WHEN '{{timeRange}}' = '7d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
-      WHEN '{{timeRange}}' = '30d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
-      WHEN '{{timeRange}}' = '90d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
-      WHEN '{{timeRange}}' = '180d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 180 DAY)
-      WHEN '{{timeRange}}' = '365d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)
+      WHEN '{{timeRange}}' = '7d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+      WHEN '{{timeRange}}' = '30d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 29 DAY)
+      WHEN '{{timeRange}}' = '90d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 89 DAY)
+      WHEN '{{timeRange}}' = '180d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 179 DAY)
+      WHEN '{{timeRange}}' = '365d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 364 DAY)
       WHEN '{{timeRange}}' IN ('', 'all') THEN COALESCE((SELECT MIN(event_date) FROM base), CURRENT_DATE())
       ELSE DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
     END,

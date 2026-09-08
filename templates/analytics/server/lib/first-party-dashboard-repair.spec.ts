@@ -451,13 +451,14 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(panels[0].sql).toBe(FIRST_PARTY_BIGQUERY_WAU_SQL);
     expect(panels[0].source).toBe("bigquery");
     expect(panels[0].sql).toContain(
-      "FROM `builder-3b0a2.analytics.first_party_analytics_events_raw`",
+      "FROM `builder-3b0a2.analytics.first_party_analytics_events_raw_query`",
     );
     expect(panels[0].sql).toContain("org_id = 'PlRt3bfcpJNnOyF_Wfgsh'");
     expect(panels[0].sql).toContain(
       "LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')",
     );
     expect(panels[0].sql).toContain("INTERVAL 13 DAY");
+    expect(panels[0].sql).toContain("INTERVAL 6 DAY");
     expect(panels[0].sql).toContain("INTERVAL 96 DAY");
     expect(panels[0].sql).toContain("GENERATE_DATE_ARRAY");
     expect(panels[0].sql).toContain("CURRENT_DATE()");

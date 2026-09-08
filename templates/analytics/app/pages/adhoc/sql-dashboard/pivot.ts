@@ -84,8 +84,8 @@ function fillMissingDailyRows(
     if (todayMs != null) {
       const rangeStartMs = todayMs - (Math.floor(timeRange) - 1) * DAY_MS;
       if (rangeStartMs <= todayMs) {
-        startMs = Math.min(startMs, rangeStartMs);
-        endMs = Math.max(endMs, todayMs);
+        startMs = rangeStartMs;
+        endMs = todayMs;
       }
     }
   }
