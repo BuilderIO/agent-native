@@ -76,13 +76,19 @@ See Agent-Native in action:
 
 https://github.com/user-attachments/assets/ef51644b-6506-46d8-8083-0af7b7e5b65c
 
+<br />
+
 ## Open-source agents
 
 Start from one of these agents or use it as an example for your own.
 
+<br />
+
 <table>
 <tr>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Clips**
 
@@ -95,8 +101,12 @@ Start from one of these agents or use it as an example for your own.
 
 Record and understand meetings, screens, and voice notes.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Design**
 
@@ -109,8 +119,12 @@ Record and understand meetings, screens, and voice notes.
 
 Generate and refine interactive designs.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Slides**
 
@@ -123,10 +137,14 @@ Generate and refine interactive designs.
 
 Create and edit on-brand presentations.
 
+<br />
+
 </td>
 </tr>
 <tr>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Analytics**
 
@@ -139,8 +157,12 @@ Create and edit on-brand presentations.
 
 Ask questions of your data and build dashboards.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Calendar**
 
@@ -153,8 +175,12 @@ Ask questions of your data and build dashboards.
 
 Find time, schedule events, and manage bookings.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Mail**
 
@@ -167,10 +193,14 @@ Find time, schedule events, and manage bookings.
 
 Prioritize email, draft replies, and follow up.
 
+<br />
+
 </td>
 </tr>
 <tr>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Assets**
 
@@ -183,8 +213,12 @@ Prioritize email, draft replies, and follow up.
 
 Create and organize on-brand media.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Content**
 
@@ -196,6 +230,8 @@ Create and organize on-brand media.
 </a>
 
 Draft, organize, and publish content.
+
+<br />
 
 </td>
 <td width="33%"></td>
