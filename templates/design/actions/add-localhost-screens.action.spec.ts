@@ -841,6 +841,33 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(result.placedFrames[0]?.fileId).toBe("winner_file");
   });
 
+  it("does not adopt a colliding filename winner for another route", async () => {
+    mocks.state.insertConflictOnce = true;
+    mocks.state.winnerFile = {
+      id: "winner_file",
+      designId: "design_1",
+      filename: "localhost-account-settings.html",
+      fileType: "html",
+      content: "http://localhost:5173/account-settings",
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/account/settings"],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).not.toBe("winner_file");
+    expect(mocks.state.updatedFiles).toHaveLength(0);
+    expect(mocks.state.insertedFile).toMatchObject({
+      filename: "localhost-account-settings-2.html",
+      content: "http://localhost:5173/account/settings",
+    });
+  });
+
   it("rethrows a non-conflict insert error instead of silently swallowing it", async () => {
     // isUniqueConstraintViolation must only catch the specific
     // unique/primary-key-violation error class it's meant to recover from —

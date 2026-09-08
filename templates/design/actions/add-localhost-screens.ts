@@ -283,6 +283,8 @@ function uniqueFilename(
   return filename;
 }
 
+const MAX_FILENAME_INSERT_ATTEMPTS = 5;
+
 export function viewportFilename(
   pathOrUrl: string,
   width: number,
@@ -948,7 +950,7 @@ export default defineAction({
             : candidate === existingBase;
         }) ??
         (!requestedViewportExplicitly ? routeCandidates[0] : undefined);
-      const filename =
+      let filename =
         existing?.filename ??
         uniqueFilename(
           filenameKey,
@@ -998,48 +1000,65 @@ export default defineAction({
           await seedFromText(existing.id, url);
         }
       } else {
-        try {
-          await db.insert(schema.designFiles).values({
-            id: fileId,
-            designId,
-            filename,
-            fileType: "html",
-            content: url,
-            createdAt: now,
-            updatedAt: now,
-          });
-          await seedFromText(fileId, url);
-        } catch (err) {
-          if (!isUniqueConstraintViolation(err)) throw err;
-          // Cross-request race: this snapshot's `existingFiles` query ran
-          // before a concurrent add-localhost-screens call (for the same
-          // route) committed its own insert, so both requests independently
-          // computed the same deterministic filename and both tried to
-          // create it. The `design_files_design_filename_unique_idx` unique
-          // index (see server/plugins/db.ts) turns the loser's insert into
-          // this error instead of a silent duplicate screen. Recover by
-          // adopting whichever row actually won the race and updating its
-          // content, the same way the `existing` branch above does.
-          const [winner] = await db
-            .select()
-            .from(schema.designFiles)
-            .where(
-              and(
-                eq(schema.designFiles.designId, designId),
-                eq(schema.designFiles.filename, filename),
-              ),
-            )
-            .limit(1);
-          if (!winner) throw err;
-          fileId = winner.id;
-          await db
-            .update(schema.designFiles)
-            .set({ content: url, fileType: "html", updatedAt: now })
-            .where(eq(schema.designFiles.id, winner.id));
-          if (await hasCollabState(winner.id)) {
-            await applyText(winner.id, url, "content", "agent");
-          } else {
-            await seedFromText(winner.id, url);
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            await db.insert(schema.designFiles).values({
+              id: fileId,
+              designId,
+              filename,
+              fileType: "html",
+              content: url,
+              createdAt: now,
+              updatedAt: now,
+            });
+            await seedFromText(fileId, url);
+            break;
+          } catch (err) {
+            if (
+              !isUniqueConstraintViolation(err) ||
+              attempt >= MAX_FILENAME_INSERT_ATTEMPTS
+            ) {
+              throw err;
+            }
+            // Cross-request race: this snapshot's `existingFiles` query ran
+            // before another call committed its insert. Only adopt the
+            // winner when its persisted URL proves it is the same route;
+            // otherwise retry with a distinct filename so a lossy primary
+            // slug cannot overwrite a different route.
+            const [winner] = await db
+              .select()
+              .from(schema.designFiles)
+              .where(
+                and(
+                  eq(schema.designFiles.designId, designId),
+                  eq(schema.designFiles.filename, filename),
+                ),
+              )
+              .limit(1);
+            if (!winner) throw err;
+            if (
+              typeof winner.content === "string" &&
+              routeUrlsMatch(winner.content, url, { includeSearch: false })
+            ) {
+              fileId = winner.id;
+              await db
+                .update(schema.designFiles)
+                .set({ content: url, fileType: "html", updatedAt: now })
+                .where(eq(schema.designFiles.id, winner.id));
+              if (await hasCollabState(winner.id)) {
+                await applyText(winner.id, url, "content", "agent");
+              } else {
+                await seedFromText(winner.id, url);
+              }
+              break;
+            }
+            filename = uniqueFilename(
+              filenameKey,
+              usedFilenames,
+              preferredFilename,
+              includeOriginInFilename,
+            );
+            fileId = nanoid();
           }
         }
       }
