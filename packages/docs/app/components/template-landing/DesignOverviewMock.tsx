@@ -774,7 +774,10 @@ const DESIGN_MOCK_CSS = [
   // so the hero's only blue is the actual selection on the canvas.
   ".design-mock .dm-rail-item.is-active { background: var(--dm-active-row); color: var(--dm-fg); }",
   ".design-mock .dm-rail-icon { display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; }",
-  ".design-mock .dm-rail-label { max-width: 100%; overflow: hidden; padding: 0 4px; font-size: 11px; font-weight: 450; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }",
+  // 14px, not `1`: the ellipsis needs `overflow: hidden`, which crops whatever
+  // sits outside the content box, and at line-height 1 that includes the
+  // descender on `Agent`.
+  ".design-mock .dm-rail-label { max-width: 100%; overflow: hidden; padding: 0 4px; font-size: 11px; font-weight: 450; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }",
 
   // File panel — Screens above, Layers filling the rest.
   `.design-mock .dm-panel { display: flex; width: ${LEFT_PANEL_WIDTH}px; flex-shrink: 0; flex-direction: column; border-right: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }`,
