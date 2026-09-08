@@ -1,0 +1,66 @@
+---
+title: "लोकल फ़ोल्डर स्रोत"
+description: "Markdown और MDX फ़ोल्डर को डेटाबेस-समर्थित Content स्पेस से जोड़ें।"
+---
+
+# लोकल फ़ोल्डर स्रोत
+
+Content में अब एक ही डेटा मॉडल है: हर पेज SQL में रहता है, किसी **स्पेस** से
+जुड़ा होता है और उस स्पेस के सिस्टम **Files** डेटाबेस का आइटम होता है। लोकल
+फ़ोल्डर Files से जुड़ा स्रोत है, ऐप का दूसरा मोड नहीं। `AGENT_NATIVE_MODE`
+स्विच अब नहीं है।
+
+हर उपयोगकर्ता का निजी स्पेस, हर उपलब्ध संगठन का संगठन स्पेस और दिखाई देने वाले
+स्पेस चुनने के लिए निजी **Workspaces** कैटलॉग होता है। Files एक सामान्य Content
+डेटाबेस है; उसके गुण, फ़िल्टर, क्रम, समूह और सहेजे गए व्यू साइडबार भी बना सकते हैं।
+
+## फ़ोल्डर जोड़ें
+
+ब्राउज़र या Agent-Native Desktop से फ़ोल्डर चुनकर उसे मौजूदा स्पेस में जोड़ें,
+या उसका निजी स्पेस बनाएँ। SQL में केवल अपारदर्शी कनेक्शन ID, सापेक्ष पथ, hash और
+स्रोत मेटाडेटा रहता है—absolute path, browser handle या फ़ाइल का मूल body नहीं।
+
+नीतियाँ `database_primary`, `source_primary` और `reviewed_bidirectional` हैं।
+Sync फ़ाइलों को सामान्य SQL पेज बनाता है। दोनों तरफ एक साथ बदलाव होने पर किसी
+को overwrite करने के बजाय समीक्षा योग्य बदलाव बनता है। Disconnect करने पर पेज
+और लोकल फ़ाइलें बनी रहती हैं।
+
+## Repository से शुरू करें
+
+```bash
+npx @agent-native/core@latest content .
+```
+
+यह सामान्य database-backed Content शुरू करता है, फ़ोल्डर को स्रोत के रूप में
+दर्ज करता है और कनेक्शन स्क्रीन खोलता है। कोई mode environment variable नहीं लगता।
+
+## Configuration
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "roots": [
+        {
+          "name": "Docs",
+          "path": "docs",
+          "kind": "docs",
+          "extensions": [".md", ".mdx"],
+          "source": {
+            "type": "local-folder",
+            "connectionId": "local-folder:<opaque-id>",
+            "truthPolicy": "source_primary"
+          }
+        }
+      ],
+      "components": "components",
+      "extensions": "extensions"
+    }
+  }
+}
+```
+
+Migration में `mode: "local-files"` और `AGENT_NATIVE_MODE=local-files` हटाएँ,
+roots रखें और `source` जोड़ें। Frontmatter ID rename या move पर पेज की पहचान
+बचाता है। लोकल components और extensions trusted local bridge से ही लोड होते हैं।

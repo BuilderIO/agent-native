@@ -1,0 +1,357 @@
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import type { Browser, BrowserContext } from "@playwright/test";
+
+import { type BetaSite, originFor } from "./fleet";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./test-traffic";
+
+/**
+ * Authenticated-session bootstrap for the beta fleet.
+ *
+ * Beta hosts accept exactly one interactive sign-in: Google OAuth. CI must
+ * never drive a credential form, so an authenticated run replays an identity a
+ * human established once, supplied through one of two secrets:
+ *
+ *   BETA_E2E_SESSION_TOKENS  a JSON map of app id -> framework session token,
+ *                            replayed through `?_session=`, which the framework
+ *                            promotes to a cookie. A session is a row in one
+ *                            app's database, so this is per app; `"*"` is an
+ *                            escape hatch for a single-app run, not a
+ *                            fleet-wide credential.
+ *
+ *   BETA_E2E_STORAGE_STATE   a Playwright storageState JSON blob captured by
+ *                            `pnpm e2e:beta:capture`. Use when a host issues
+ *                            cookies the token path cannot reproduce.
+ *
+ *   BETA_E2E_SESSION_TOKEN_<APP>
+ *                            an optional per-app token override, useful when
+ *                            one host needs refreshing without replacing the
+ *                            fleet map.
+ *
+ * Both expire — the framework session is 30 days (`DEFAULT_MAX_AGE` in
+ * packages/core/src/server/auth.ts). `pnpm e2e:beta:capture` re-mints them.
+ *
+ * Every failure here throws. An authenticated suite that quietly degrades to an
+ * anonymous one reports green while testing nothing, which is the single
+ * failure mode this repo's no-silent-coercion rule exists to prevent — and the
+ * shape the existing template global-setups fall into today.
+ */
+
+const AUTH_DIR = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  ".auth",
+);
+const SESSION_EXCHANGE_MAX_ATTEMPTS = 3;
+const RETRYABLE_SESSION_EXCHANGE_STATUSES = new Set([500, 502, 503, 504]);
+
+export function shouldRetrySessionExchange(
+  status: number,
+  attempt: number,
+): boolean {
+  return (
+    attempt < SESSION_EXCHANGE_MAX_ATTEMPTS &&
+    RETRYABLE_SESSION_EXCHANGE_STATUSES.has(status)
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export interface SessionIdentity {
+  email: string;
+  orgId?: string;
+}
+
+export function authStatePath(appId: string): string {
+  return path.join(AUTH_DIR, `${appId}.json`);
+}
+
+/**
+ * Marker written by global setup once the authenticated lane is fully ready.
+ *
+ * A file rather than an env var: Playwright runs specs in separate worker
+ * processes, and `process.env` mutation is banned repo-wide because it is
+ * process-scoped state that leaks across concurrent work. A file is the same
+ * handoff without the footgun, and it is already gitignored alongside the
+ * session state it accompanies.
+ */
+export function laneMarkerPath(): string {
+  return path.join(AUTH_DIR, "lane-ready");
+}
+
+export function markAuthedLaneReady(): void {
+  mkdirSync(AUTH_DIR, { recursive: true });
+  writeFileSync(laneMarkerPath(), new Date().toISOString());
+}
+
+export function clearAuthedLaneMarker(): void {
+  rmSync(laneMarkerPath(), { force: true });
+}
+
+export function authedLaneReady(): boolean {
+  return existsSync(laneMarkerPath());
+}
+
+/** The identity every authenticated spec asserts it is running as. */
+export function expectedEmail(): string {
+  const email = process.env.BETA_E2E_EMAIL?.trim();
+  if (!email) {
+    throw new Error(
+      "BETA_E2E_EMAIL is not set. Authenticated beta specs must assert which identity they are running as; without it a bootstrap that silently lands as the wrong user would pass.",
+    );
+  }
+  return email;
+}
+
+function parseJsonEnv<T>(name: string): T | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as T;
+  } catch (error) {
+    throw new Error(
+      `${name} is set but is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function sessionTokens(): Record<string, string> | undefined {
+  return parseJsonEnv<Record<string, string>>("BETA_E2E_SESSION_TOKENS");
+}
+
+function sessionTokenEnvName(appId: string): string {
+  return `BETA_E2E_SESSION_TOKEN_${appId.replace(/[^a-z0-9]/gi, "_").toUpperCase()}`;
+}
+
+export function sessionTokenFor(appId: string): string | undefined {
+  const appToken = process.env[sessionTokenEnvName(appId)]?.trim();
+  if (appToken) return appToken;
+  const tokens = sessionTokens();
+  if (!tokens) return undefined;
+  return tokens[appId] ?? tokens["*"];
+}
+
+function storageStateBlob(): string | undefined {
+  const inline = process.env.BETA_E2E_STORAGE_STATE?.trim();
+  if (inline) return inline;
+  const file = process.env.BETA_E2E_STORAGE_STATE_FILE?.trim();
+  if (file) return readFileSync(path.resolve(file), "utf8");
+  return undefined;
+}
+
+function hasPerAppSessionToken(): boolean {
+  return Object.entries(process.env).some(
+    ([name, value]) =>
+      name.startsWith("BETA_E2E_SESSION_TOKEN_") && Boolean(value?.trim()),
+  );
+}
+
+/** True when this run has been given something to authenticate with. */
+export function hasSessionCredentials(): boolean {
+  return Boolean(
+    sessionTokens() || storageStateBlob() || hasPerAppSessionToken(),
+  );
+}
+
+/**
+ * Explain, in the terms someone fixing it needs, why no authenticated run is
+ * possible. Called at the one point where the run decides to stop.
+ */
+export function missingCredentialsMessage(): string {
+  return [
+    "No beta session credential was supplied, so no authenticated spec can run.",
+    "Set one of these repository secrets and pass it through to the workflow:",
+    '  BETA_E2E_SESSION_TOKENS  {"<app>":"<framework session token>", …}',
+    "  BETA_E2E_STORAGE_STATE   a Playwright storageState JSON blob",
+    "Mint either with `pnpm e2e:beta:capture` (opens a browser for a one-time Google sign-in).",
+  ].join("\n");
+}
+
+export function sessionFailureReason(options: {
+  status: number;
+  body: string;
+  tokenProvided: boolean;
+}): string {
+  const credential = options.tokenProvided
+    ? "supplied session token"
+    : "stored session cookie";
+  if (options.status >= 500) {
+    return `The beta host's session endpoint was unavailable (HTTP ${options.status}); retry the host.`;
+  }
+  if (options.status === 401 || options.status === 403) {
+    return `The ${credential} was rejected by this host (HTTP ${options.status}).`;
+  }
+
+  try {
+    const parsed = JSON.parse(options.body) as { error?: unknown } | null;
+    if (
+      typeof parsed?.error === "string" &&
+      /not authenticated/i.test(parsed.error)
+    ) {
+      return "The host answered successfully but did not honor the supplied session credential.";
+    }
+  } catch {
+    return `The beta host returned an unreadable session response (HTTP ${options.status}).`;
+  }
+  return `The beta host returned no authenticated identity (HTTP ${options.status}).`;
+}
+
+/** Read the live session the way the app itself would, from inside the page. */
+async function readSessionIdentity(
+  context: BrowserContext,
+  origin: string,
+): Promise<{ identity?: SessionIdentity; status: number; body: string }> {
+  const response = await context.request.get(
+    `${origin}/_agent-native/auth/session`,
+    {
+      headers: { accept: "application/json" },
+      timeout: 60_000,
+    },
+  );
+  const body = await response.text();
+
+  let identity: SessionIdentity | undefined;
+  try {
+    const parsed = JSON.parse(body) as { email?: string; orgId?: string };
+    if (parsed?.email) {
+      identity = {
+        email: parsed.email,
+        ...(parsed.orgId ? { orgId: parsed.orgId } : {}),
+      };
+    }
+  } catch {
+    identity = undefined;
+  }
+
+  return { identity, status: response.status(), body: body.slice(0, 400) };
+}
+
+/**
+ * Produce a signed-in context for one beta app and persist its storage state.
+ *
+ * Throws unless the resulting session resolves to `BETA_E2E_EMAIL`.
+ */
+export async function bootstrapAppSession(
+  browser: Browser,
+  site: BetaSite,
+): Promise<SessionIdentity> {
+  const origin = originFor(site);
+  const email = expectedEmail();
+  const blob = storageStateBlob();
+  const token = sessionTokenFor(site.id);
+
+  if (!blob && !token) throw new Error(missingCredentialsMessage());
+
+  const context = await browser.newContext(
+    blob
+      ? {
+          storageState: JSON.parse(blob),
+          extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
+        }
+      : { extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS },
+  );
+  await installBetaE2ETrafficMarker(context);
+
+  try {
+    if (token) {
+      // `promoteQuerySession` (packages/core/src/server/auth.ts) exchanges the
+      // token for this host's own session cookie on any request carrying it.
+      //
+      // Navigate a real browser page so Set-Cookie is persisted by the same
+      // cookie jar that is saved and reused by the authenticated specs.
+      const page = await context.newPage();
+      const exchangeSession = async () => {
+        const response = await page.goto(
+          `${origin}/_agent-native/auth/session?_session=${encodeURIComponent(token)}`,
+          { waitUntil: "domcontentloaded", timeout: 60_000 },
+        );
+        if (!response) {
+          throw new Error(
+            `${origin} returned no response while exchanging the session token.`,
+          );
+        }
+        return response;
+      };
+      let promoted: Awaited<ReturnType<typeof exchangeSession>>;
+      try {
+        promoted = await exchangeSession();
+        for (
+          let attempt = 1;
+          shouldRetrySessionExchange(promoted.status(), attempt);
+          attempt++
+        ) {
+          await sleep(1_000 * attempt);
+          promoted = await exchangeSession();
+        }
+      } catch {
+        // Keep the live query token out of Playwright's error and report text.
+        await page.close();
+        throw new Error(`${origin} failed while exchanging the session token.`);
+      }
+      await page.close();
+      if (promoted.status() >= 500) {
+        throw new Error(
+          `${origin} answered HTTP ${promoted.status()} while exchanging the session token.`,
+        );
+      }
+    }
+
+    let session = await readSessionIdentity(context, origin);
+    for (
+      let attempt = 1;
+      shouldRetrySessionExchange(session.status, attempt);
+      attempt++
+    ) {
+      await sleep(1_000 * attempt);
+      session = await readSessionIdentity(context, origin);
+    }
+    const { identity, status, body } = session;
+
+    if (!identity) {
+      throw new Error(
+        [
+          `Beta session bootstrap failed for ${site.id} (${origin}).`,
+          `GET /_agent-native/auth/session returned HTTP ${status}: ${body}`,
+          sessionFailureReason({
+            status,
+            body,
+            tokenProvided: Boolean(token),
+          }),
+        ].join("\n"),
+      );
+    }
+
+    if (identity.email.toLowerCase() !== email.toLowerCase()) {
+      throw new Error(
+        `Beta session bootstrap for ${site.id} resolved to ${identity.email}, not the expected ${email}. Refusing to run authenticated specs as an unexpected identity.`,
+      );
+    }
+
+    mkdirSync(AUTH_DIR, { recursive: true });
+    await context.storageState({ path: authStatePath(site.id) });
+    return identity;
+  } finally {
+    await context.close();
+  }
+}
+
+/** Persist a capture-time storage state for reuse as a secret. */
+export function writeCapturedState(appId: string, state: string): string {
+  mkdirSync(AUTH_DIR, { recursive: true });
+  const file = authStatePath(appId);
+  writeFileSync(file, state);
+  return file;
+}

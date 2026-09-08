@@ -1,0 +1,9 @@
+{
+  "name": "next-app-fixture",
+  "type": "module",
+  "dependencies": {
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  }
+}

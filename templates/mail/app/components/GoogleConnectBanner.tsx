@@ -1,0 +1,1139 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { signOut } from "@agent-native/core/client/hooks";
+import {
+  isInBuilderFrame,
+  oauthRedirectUri,
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import {
+  IconMail,
+  IconX,
+  IconExternalLink,
+  IconCheck,
+  IconCircle,
+  IconLoader2,
+  IconChevronUp,
+  IconUpload,
+  IconAlertTriangle,
+  IconLogout,
+} from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  useGoogleAuthStatus,
+  useGoogleAuthUrl,
+  useGoogleAddAccountUrl,
+  useDisconnectGoogle,
+} from "@/hooks/use-google-auth";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
+
+interface EnvKeyStatus {
+  key: string;
+  label: string;
+  required: boolean;
+  configured: boolean;
+}
+
+const STEPS = [
+  {
+    titleKey: "mail.googleConnect.enableGmailApi",
+    descriptionKey: "mail.googleConnect.enableGmailApiDescription",
+    url: "https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com",
+    linkTextKey: "mail.googleConnect.enableGmailApiLink",
+  },
+  {
+    titleKey: "mail.googleConnect.enablePeopleApi",
+    descriptionKey: "mail.googleConnect.enablePeopleApiDescription",
+    url: "https://console.cloud.google.com/flows/enableapi?apiid=people.googleapis.com",
+    linkTextKey: "mail.googleConnect.enablePeopleApiLink",
+  },
+  {
+    titleKey: "mail.googleConnect.configureConsent",
+    descriptionKey: "mail.googleConnect.configureConsentDescription",
+    url: "https://console.cloud.google.com/apis/credentials/consent",
+    linkTextKey: "mail.googleConnect.configureConsentLink",
+  },
+  {
+    titleKey: "mail.googleConnect.createCredentials",
+    descriptionKey: "mail.googleConnect.createCredentialsDescription",
+    url: "https://console.cloud.google.com/apis/credentials",
+    linkTextKey: "mail.googleConnect.createCredentialsLink",
+    showRedirectUri: true,
+  },
+  {
+    titleKey: "mail.googleConnect.uploadCredentialsJson",
+    descriptionKey: "mail.googleConnect.uploadCredentialsJsonDescription",
+    showUpload: true,
+  },
+];
+
+const DESKTOP_POLL_INTERVAL_MS = 1500;
+const ADD_ACCOUNT_POLL_INTERVAL_MS = 2000;
+// Bounds each poll's fetches so a hung request can't leave its in-flight
+// guard stuck and stall the interval forever.
+const DESKTOP_POLL_ABORT_MS = Math.max(10_000, DESKTOP_POLL_INTERVAL_MS * 4);
+const ADD_ACCOUNT_POLL_ABORT_MS = Math.max(
+  10_000,
+  ADD_ACCOUNT_POLL_INTERVAL_MS * 4,
+);
+
+function startManagedGoogleOAuth(): void {
+  const returnPath = `${window.location.pathname}${window.location.search}`;
+  startWorkspaceProviderOAuth("gmail", {
+    appId: "mail",
+    returnPath,
+    scope: "user",
+  });
+}
+
+function newDesktopOAuthVerifier(): string | null {
+  const cryptoApi = globalThis.crypto;
+  const randomUuid = cryptoApi?.randomUUID?.bind(cryptoApi);
+  if (typeof randomUuid === "function") {
+    return `${randomUuid()}${randomUuid()}`;
+  }
+  if (typeof cryptoApi?.getRandomValues === "function") {
+    const bytes = new Uint8Array(32);
+    cryptoApi.getRandomValues(bytes);
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  }
+  return null;
+}
+
+interface GoogleConnectBannerProps {
+  variant?: "banner" | "hero";
+}
+
+interface DesktopAuthIssue {
+  error?: string;
+  message?: string;
+  code?: string;
+  accountId?: string;
+  existingOwner?: string;
+  attemptedOwner?: string;
+}
+
+export function GoogleConnectBanner({
+  variant = "banner",
+}: GoogleConnectBannerProps) {
+  const t = useT();
+  const [wantAuthUrl, setWantAuthUrl] = useState(false);
+  const [wantAddAccount, setWantAddAccount] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+  const [desktopAuthIssue, setDesktopAuthIssue] =
+    useState<DesktopAuthIssue | null>(null);
+  const googleStatus = useGoogleAuthStatus();
+  const authUrl = useGoogleAuthUrl(wantAuthUrl);
+  const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
+  const disconnectGoogle = useDisconnectGoogle();
+
+  const accounts = googleStatus.data?.accounts ?? [];
+  const hasAccounts = accounts.length > 0;
+  const googleConfigured = googleStatus.data?.configured === true;
+  const canOfferOAuthSetup = useMemo(() => shouldOfferGoogleOAuthSetup(), []);
+
+  const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
+  const useDesktopAuth = useMemo(
+    () => /AgentNativeDesktop/i.test(navigator.userAgent) && !isBuilderFrame,
+    [isBuilderFrame],
+  );
+  const desktopPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const desktopPollInFlightRef = useRef(false);
+  const addAccountPollInFlightRef = useRef(false);
+  useEffect(() => {
+    return () => {
+      if (desktopPollRef.current) clearInterval(desktopPollRef.current);
+      if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
+    };
+  }, []);
+
+  function signInViaDesktopBrowser(addAccount = false) {
+    setDesktopAuthIssue(null);
+    const flowId =
+      crypto.randomUUID?.() ||
+      Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const verifier = newDesktopOAuthVerifier();
+    if (!verifier) {
+      setDesktopAuthIssue({
+        code: "desktop_auth_start_failed",
+        message: t("mail.error.failedToConnect"),
+      });
+      return;
+    }
+    const origin = window.location.origin;
+    const endpoint = addAccount
+      ? "/_agent-native/google/add-account/auth-url"
+      : "/_agent-native/google/auth-url";
+    const params = new URLSearchParams({
+      redirect_uri: oauthRedirectUri("/_agent-native/google/callback"),
+      desktop: "1",
+      flow_id: flowId,
+    });
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      setDesktopAuthIssue({
+        code: "popup_blocked",
+        message: t("mail.error.failedToConnect"),
+      });
+      return;
+    }
+    let pollHandle: ReturnType<typeof setInterval> | null = null;
+    const stopPoll = () => {
+      if (!pollHandle) return;
+      clearInterval(pollHandle);
+      if (desktopPollRef.current === pollHandle) {
+        desktopPollRef.current = null;
+      }
+      pollHandle = null;
+    };
+    void fetch(`${origin}${agentNativePath(endpoint)}?${params.toString()}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "X-Agent-Native-Desktop-Verifier": verifier },
+    })
+      .then(async (response) => {
+        let data: {
+          url?: unknown;
+          message?: unknown;
+          error?: unknown;
+        };
+        try {
+          data = (await response.json()) as typeof data;
+        } catch {
+          throw new Error(t("mail.googleConnect.connectionFailed"));
+        }
+        if (!response.ok || typeof data?.url !== "string") {
+          const message =
+            typeof data.message === "string"
+              ? data.message
+              : typeof data.error === "string"
+                ? data.error
+                : t("mail.googleConnect.connectionFailed");
+          throw new Error(message);
+        }
+        popup.location.href = data.url;
+      })
+      .catch((error) => {
+        stopPoll();
+        popup.close();
+        setDesktopAuthIssue({
+          code: "desktop_auth_start_failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : t("mail.googleConnect.connectionFailed"),
+        });
+      });
+    const start = Date.now();
+    if (desktopPollRef.current) clearInterval(desktopPollRef.current);
+    pollHandle = setInterval(async () => {
+      if (document.hidden || desktopPollInFlightRef.current) return;
+      desktopPollInFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        DESKTOP_POLL_ABORT_MS,
+      );
+      try {
+        try {
+          const res = await fetch(
+            agentNativePath(
+              `/_agent-native/auth/desktop-exchange?flow_id=${encodeURIComponent(flowId)}`,
+            ),
+            {
+              headers: {
+                "X-Agent-Native-Desktop-Verifier": verifier,
+              },
+              signal: controller.signal,
+            },
+          );
+          const data = await res.json();
+          if (data?.error) {
+            stopPoll();
+            setDesktopAuthIssue(data);
+          } else if (data?.token) {
+            stopPoll();
+            await fetch(
+              agentNativePath(
+                `/_agent-native/auth/session?_session=${data.token}`,
+              ),
+              {
+                credentials: "include",
+                signal: controller.signal,
+              },
+            );
+            window.location.reload();
+          } else if (Date.now() - start > 120_000) {
+            stopPoll();
+          }
+        } catch {
+          if (Date.now() - start > 120_000) {
+            stopPoll();
+          }
+        }
+      } finally {
+        clearTimeout(abortTimer);
+        desktopPollInFlightRef.current = false;
+      }
+    }, DESKTOP_POLL_INTERVAL_MS);
+    desktopPollRef.current = pollHandle;
+  }
+
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Wizard state
+  const [currentStep, setCurrentStep] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [envStatus, setEnvStatus] = useState<EnvKeyStatus[]>([]);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await fetch(agentNativePath("/_agent-native/env-status"));
+      if (res.ok) {
+        const data: EnvKeyStatus[] = await res.json();
+        setEnvStatus(data);
+        const allConfigured = data.every((k) => k.configured);
+        if (allConfigured && data.length > 0) {
+          setSaved(true);
+          setCurrentStep(STEPS.length - 1);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Check if credentials are already configured on mount
+  useEffect(() => {
+    void fetchStatus();
+  }, [fetchStatus]);
+
+  // When auth URL is ready, leave this tab for Google and let the callback
+  // return here. Opening a popup leaves users with duplicate Mail tabs after
+  // OAuth completes.
+  //
+  // `wantAuthUrl` is the user's retry intent and must be in the deps so a
+  // second click re-runs this effect (the cached authUrl.data won't change on
+  // its own).
+  useEffect(() => {
+    if (!wantAuthUrl || !authUrl.data?.url) return;
+    const url = authUrl.data.url;
+    setWantAuthUrl(false);
+    // In a React Native WebView, window.open() is silently blocked (WKWebView
+    // doesn't support it without onOpenWindow). Use postMessage to ask the
+    // native wrapper to open the URL in the system browser (Safari).
+    const rnWebView = (window as any).ReactNativeWebView;
+    const isNativeWebView = typeof rnWebView !== "undefined";
+    if (isNativeWebView) {
+      rnWebView.postMessage(JSON.stringify({ type: "openUrl", url }));
+      return;
+    }
+    window.location.href = url;
+  }, [wantAuthUrl, authUrl.data]);
+
+  // When auth URL fails, show wizard (for missing credentials) or an error message
+  useEffect(() => {
+    if (authUrl.error) {
+      setWantAuthUrl(false);
+      if (canOfferOAuthSetup) {
+        setShowWizard(true);
+        void fetchStatus();
+      }
+      setAuthError(
+        (authUrl.error as any)?.message || t("mail.error.failedToConnect"),
+      );
+    }
+  }, [authUrl.error, canOfferOAuthSetup, fetchStatus, t]);
+
+  const allConfigured =
+    envStatus.length > 0 && envStatus.every((k) => k.configured);
+
+  const handleSignOutForGoogle = useCallback(async () => {
+    await signOut();
+  }, []);
+
+  // When add-account URL is ready, open it and poll for new account.
+  // Same retry-intent rationale as the connect effect — `wantAddAccount`
+  // is in the deps so a second click rerun the effect; the polling
+  // interval lives in a ref so flipping wantAddAccount false here doesn't
+  // tear down the running poll.
+  useEffect(() => {
+    if (!wantAddAccount || !addAccountUrl.data?.url) return;
+    const isNativeWebView =
+      typeof (window as any).ReactNativeWebView !== "undefined";
+    if (isNativeWebView) {
+      window.location.href = addAccountUrl.data.url;
+    } else if (isBuilderFrame) {
+      window.location.href = addAccountUrl.data.url;
+    } else {
+      window.open(addAccountUrl.data.url, "_blank");
+    }
+    setWantAddAccount(false);
+
+    if (isNativeWebView || isBuilderFrame) return;
+
+    const prevCount = accounts.length;
+    if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
+    addAccountPollRef.current = setInterval(async () => {
+      if (document.hidden || addAccountPollInFlightRef.current) return;
+      addAccountPollInFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        ADD_ACCOUNT_POLL_ABORT_MS,
+      );
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/google/status"),
+          { signal: controller.signal },
+        )
+          // coercion-ok: a failed probe and a not-yet-added-account response
+          // both mean "keep waiting"; this loop only acts on an observed
+          // account-count increase.
+          .catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.accounts?.length > prevCount) {
+            if (addAccountPollRef.current) {
+              clearInterval(addAccountPollRef.current);
+              addAccountPollRef.current = null;
+            }
+            window.location.reload();
+          }
+        }
+      } finally {
+        clearTimeout(abortTimer);
+        addAccountPollInFlightRef.current = false;
+      }
+    }, ADD_ACCOUNT_POLL_INTERVAL_MS);
+    // accounts.length is captured into prevCount above; including it in deps
+    // would tear down and recreate the interval whenever the count changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantAddAccount, addAccountUrl.data, isBuilderFrame]);
+
+  function handleConnect() {
+    if (!googleConfigured && !canOfferOAuthSetup) return;
+    setDesktopAuthIssue(null);
+    if (useDesktopAuth) {
+      signInViaDesktopBrowser();
+      return;
+    }
+    startManagedGoogleOAuth();
+  }
+
+  function handleAddAccount() {
+    if (!googleConfigured && !canOfferOAuthSetup) return;
+    if (useDesktopAuth) {
+      signInViaDesktopBrowser(true);
+      return;
+    }
+    startManagedGoogleOAuth();
+  }
+
+  async function handleJsonUpload(file: File) {
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+
+      // Google's downloaded JSON has the credentials nested under "web" or "installed"
+      const creds = json.web || json.installed || json;
+      const clientId = creds.client_id;
+      const clientSecret = creds.client_secret;
+
+      if (!clientId || !clientSecret) {
+        throw new Error(t("mail.error.missingGoogleCredentials"));
+      }
+
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: "workspace",
+          vars: [
+            { key: "GOOGLE_CLIENT_ID", value: clientId },
+            { key: "GOOGLE_CLIENT_SECRET", value: clientSecret },
+          ],
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || t("mail.error.failedToSaveCredentials"));
+      }
+
+      setSaved(true);
+      await fetchStatus();
+      // Reload after the server has persisted the scoped credentials.
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : t("mail.error.failedToParseJson"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function copyToClipboard(text: string, key: string) {
+    void navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  }
+
+  if (dismissed) return null;
+  if (!googleStatus.data && !canOfferOAuthSetup && !googleStatus.isError)
+    return null;
+  if (
+    !googleConfigured &&
+    !canOfferOAuthSetup &&
+    !hasAccounts &&
+    !googleStatus.isError
+  )
+    return null;
+
+  // Full-page hero for setup / reconnection
+  if (variant === "hero") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center text-center px-6">
+        <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-white/[0.06]">
+          <IconMail className="h-7 w-7 text-white/40" />
+        </div>
+        <h2 className="text-lg font-semibold text-foreground">
+          {t("mail.googleConnect.connectTitle")}
+        </h2>
+        <p className="mt-2 max-w-sm text-sm text-muted-foreground leading-relaxed">
+          {t("mail.googleConnect.heroDescription")}
+        </p>
+        {googleStatus.isError ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-8 gap-2 px-5 h-9 text-sm font-medium"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("mail.error.tryAgain")}
+          </Button>
+        ) : googleConfigured || canOfferOAuthSetup ? (
+          <Button
+            size="sm"
+            className="mt-8 gap-2 px-5 h-9 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={() => {
+              setAuthError(null);
+              handleConnect();
+            }}
+            disabled={authUrl.isLoading || authUrl.isFetching}
+          >
+            <GoogleIcon className="h-4 w-4" />
+            {authUrl.isLoading
+              ? t("mail.accounts.connecting")
+              : allConfigured
+                ? t("mail.accounts.signInWithGoogle")
+                : t("mail.accounts.connectGoogle")}
+          </Button>
+        ) : null}
+
+        <GoogleAuthIssuePanel
+          issue={desktopAuthIssue}
+          onSignOut={handleSignOutForGoogle}
+          onDismiss={() => setDesktopAuthIssue(null)}
+          className="mt-5 w-full max-w-md"
+        />
+
+        {authError && allConfigured && (
+          <p className="mt-3 text-xs text-red-400">{authError}</p>
+        )}
+
+        {showWizard && !allConfigured && canOfferOAuthSetup && (
+          <div className="mt-10 w-full max-w-lg text-start">
+            <p className="text-xs text-muted-foreground mb-3">
+              {t("mail.googleConnect.setupIntro")}
+            </p>
+            <div className="space-y-3">
+              {STEPS.map((step, i) => {
+                const isActive = i === currentStep;
+                const isCompleted =
+                  i < currentStep || (i === STEPS.length - 1 && saved);
+
+                return (
+                  <div
+                    key={i}
+                    role="button"
+                    tabIndex={0}
+                    className={`w-full text-start rounded-lg border p-3 transition-colors cursor-pointer ${
+                      isActive
+                        ? "border-white/20 bg-white/[0.03]"
+                        : isCompleted
+                          ? "border-green-500/20 bg-green-500/5"
+                          : "border-border/50 opacity-50"
+                    }`}
+                    onClick={() => !saved && setCurrentStep(i)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        if (!saved) setCurrentStep(i);
+                      }
+                    }}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <div className="mt-0.5 shrink-0">
+                        {isCompleted ? (
+                          <IconCheck className="h-3.5 w-3.5 text-green-500" />
+                        ) : isActive ? (
+                          <IconCircle className="h-3.5 w-3.5 text-white fill-white" />
+                        ) : (
+                          <IconCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">
+                          <span className="text-muted-foreground me-1.5">
+                            {i + 1}.
+                          </span>
+                          {t(step.titleKey)}
+                        </p>
+
+                        {isActive && (
+                          <div className="mt-2 space-y-2.5">
+                            <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
+                              {t(step.descriptionKey)}
+                            </p>
+
+                            {step.showRedirectUri && (
+                              <div className="flex items-center gap-2">
+                                <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all select-all">
+                                  {redirectUri}
+                                </code>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="shrink-0 text-xs h-7"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    copyToClipboard(redirectUri, "redirect");
+                                  }}
+                                >
+                                  {copiedKey === "redirect" ? (
+                                    <>
+                                      <IconCheck className="h-3 w-3" />
+                                      {t("mail.googleConnect.copied")}
+                                    </>
+                                  ) : (
+                                    t("mail.googleConnect.copy")
+                                  )}
+                                </Button>
+                              </div>
+                            )}
+
+                            {step.url && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1.5 text-xs h-7"
+                                asChild
+                              >
+                                <a
+                                  href={step.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (i < STEPS.length - 1) {
+                                      setCurrentStep(i + 1);
+                                    }
+                                  }}
+                                >
+                                  <IconExternalLink className="h-3 w-3" />
+                                  {t(step.linkTextKey)}
+                                </a>
+                              </Button>
+                            )}
+
+                            {step.showUpload && !allConfigured && (
+                              <div
+                                className="space-y-2.5"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <input
+                                  ref={fileInputRef}
+                                  type="file"
+                                  accept=".json"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) void handleJsonUpload(file);
+                                  }}
+                                />
+                                {saveError && (
+                                  <p className="text-xs text-destructive">
+                                    {saveError}
+                                  </p>
+                                )}
+                                <Button
+                                  size="sm"
+                                  className="h-7 text-xs gap-1.5 bg-white text-black hover:bg-white/90"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    fileInputRef.current?.click();
+                                  }}
+                                  disabled={saving}
+                                >
+                                  {saving ? (
+                                    <IconLoader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <IconUpload className="h-3 w-3" />
+                                  )}
+                                  {saving
+                                    ? t("mail.googleConnect.saving")
+                                    : t("mail.googleConnect.uploadJson")}
+                                </Button>
+                              </div>
+                            )}
+
+                            {step.showUpload && allConfigured && (
+                              <div className="flex items-center gap-2 text-xs text-green-500">
+                                <IconCheck className="h-3.5 w-3.5" />
+                                {t(
+                                  "mail.googleConnect.credentialsConfiguredSignIn",
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Connected with accounts — show compact account strip
+  if (hasAccounts) {
+    return (
+      <div className="border-b border-border/30 bg-card">
+        <div className="flex items-center justify-between gap-3 px-4 py-1.5">
+          <div className="flex items-center gap-2 min-w-0">
+            {accounts.map((account) => (
+              <div
+                key={account.email}
+                className="group flex items-center gap-1.5 text-xs text-foreground/60"
+              >
+                <span className="truncate">{account.email}</span>
+                {!account.shared && (
+                  <button
+                    onClick={() => disconnectGoogle.mutate(account.email)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
+                  >
+                    <IconX className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            ))}
+            {(googleConfigured || canOfferOAuthSetup) && (
+              <button
+                onClick={handleAddAccount}
+                disabled={addAccountUrl.isLoading || addAccountUrl.isFetching}
+                className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
+              >
+                + {t("mail.accounts.addAccount")}
+              </button>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={() => setDismissed(true)}
+          >
+            <IconX className="h-3 w-3" />
+          </Button>
+        </div>
+        <GoogleAuthIssuePanel
+          issue={desktopAuthIssue}
+          onSignOut={handleSignOutForGoogle}
+          onDismiss={() => setDesktopAuthIssue(null)}
+          className="mx-4 mb-3"
+        />
+        {googleStatus.isError && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mx-4 mb-2"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("mail.error.tryAgain")}
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  // Not connected or not configured — show setup banner
+  return (
+    <div className="border-b border-border/30 bg-card">
+      {/* Compact banner row */}
+      <div className="flex items-center justify-between gap-3 px-4 py-2">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-primary/10">
+            <IconMail className="h-3 w-3 text-primary/70" />
+          </div>
+          <p className="text-[13px] font-medium leading-tight text-foreground/80">
+            {allConfigured
+              ? t("mail.googleConnect.readyToConnect")
+              : t("mail.googleConnect.connectBanner")}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {googleStatus.isError ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs h-7 font-medium"
+              onClick={() => void googleStatus.refetch()}
+              disabled={googleStatus.isFetching}
+            >
+              {t("mail.error.tryAgain")}
+            </Button>
+          ) : showWizard && !allConfigured && canOfferOAuthSetup ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs h-7 font-medium"
+              onClick={() => setShowWizard(false)}
+            >
+              <IconChevronUp className="h-3 w-3" />
+              {t("mail.googleConnect.hideSetup")}
+            </Button>
+          ) : allConfigured ? (
+            <Button
+              size="sm"
+              className="gap-1.5 text-xs h-7 font-medium bg-white text-black hover:bg-white/90"
+              onClick={() => {
+                setAuthError(null);
+                handleConnect();
+              }}
+              disabled={authUrl.isLoading || authUrl.isFetching}
+            >
+              <GoogleIcon className="h-3 w-3" />
+              {authUrl.isFetching
+                ? t("mail.accounts.connecting")
+                : t("mail.accounts.signInWithGoogle")}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="gap-1.5 text-xs h-7 font-medium bg-white text-black hover:bg-white/90"
+              onClick={handleConnect}
+              disabled={authUrl.isLoading || authUrl.isFetching}
+            >
+              {authUrl.isFetching ? "..." : t("mail.accounts.connectGoogle")}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground hover:text-foreground"
+            onClick={() => setDismissed(true)}
+          >
+            <IconX className="h-3 w-3" />
+          </Button>
+        </div>
+      </div>
+
+      <GoogleAuthIssuePanel
+        issue={desktopAuthIssue}
+        onSignOut={handleSignOutForGoogle}
+        onDismiss={() => setDesktopAuthIssue(null)}
+        className="mx-4 mb-3"
+      />
+
+      {/* Inline setup wizard */}
+      {showWizard && !allConfigured && canOfferOAuthSetup && (
+        <div className="px-4 pb-4 pt-1 max-w-2xl">
+          <p className="text-xs text-muted-foreground mb-3">
+            {t("mail.googleConnect.setupIntro")}
+          </p>
+          <div className="space-y-3">
+            {STEPS.map((step, i) => {
+              const isActive = i === currentStep;
+              const isCompleted =
+                i < currentStep || (i === STEPS.length - 1 && saved);
+
+              return (
+                <div
+                  key={i}
+                  role="button"
+                  tabIndex={0}
+                  className={`w-full text-start rounded-lg border p-3 transition-colors cursor-pointer ${
+                    isActive
+                      ? "border-primary/40 bg-primary/5"
+                      : isCompleted
+                        ? "border-green-500/20 bg-green-500/5"
+                        : "border-border/50 opacity-50"
+                  }`}
+                  onClick={() => !saved && setCurrentStep(i)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      if (!saved) setCurrentStep(i);
+                    }
+                  }}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <div className="mt-0.5 shrink-0">
+                      {isCompleted ? (
+                        <IconCheck className="h-3.5 w-3.5 text-green-500" />
+                      ) : isActive ? (
+                        <IconCircle className="h-3.5 w-3.5 text-primary fill-primary" />
+                      ) : (
+                        <IconCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">
+                        <span className="text-muted-foreground me-1.5">
+                          {i + 1}.
+                        </span>
+                        {t(step.titleKey)}
+                      </p>
+
+                      {isActive && (
+                        <div className="mt-2 space-y-2.5">
+                          <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
+                            {t(step.descriptionKey)}
+                          </p>
+
+                          {step.showRedirectUri && (
+                            <div className="flex items-center gap-2">
+                              <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all select-all">
+                                {redirectUri}
+                              </code>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0 text-xs h-7"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyToClipboard(redirectUri, "redirect");
+                                }}
+                              >
+                                {copiedKey === "redirect" ? (
+                                  <>
+                                    <IconCheck className="h-3 w-3" />
+                                    {t("mail.googleConnect.copied")}
+                                  </>
+                                ) : (
+                                  t("mail.googleConnect.copy")
+                                )}
+                              </Button>
+                            </div>
+                          )}
+
+                          {step.url && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5 text-xs h-7"
+                              asChild
+                            >
+                              <a
+                                href={step.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (i < STEPS.length - 1) {
+                                    setCurrentStep(i + 1);
+                                  }
+                                }}
+                              >
+                                <IconExternalLink className="h-3 w-3" />
+                                {t(step.linkTextKey)}
+                              </a>
+                            </Button>
+                          )}
+
+                          {step.showUpload && !allConfigured && (
+                            <div
+                              className="space-y-2.5"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".json"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) void handleJsonUpload(file);
+                                }}
+                              />
+                              {saveError && (
+                                <p className="text-xs text-destructive">
+                                  {saveError}
+                                </p>
+                              )}
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs gap-1.5"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  fileInputRef.current?.click();
+                                }}
+                                disabled={saving}
+                              >
+                                {saving ? (
+                                  <IconLoader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <IconUpload className="h-3 w-3" />
+                                )}
+                                {saving
+                                  ? t("mail.googleConnect.saving")
+                                  : t("mail.googleConnect.uploadJson")}
+                              </Button>
+                            </div>
+                          )}
+
+                          {step.showUpload && allConfigured && (
+                            <div className="flex items-center gap-2 text-xs text-green-500">
+                              <IconCheck className="h-3.5 w-3.5" />
+                              {t(
+                                "mail.googleConnect.credentialsConfiguredConnect",
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GoogleAuthIssuePanel({
+  issue,
+  onSignOut,
+  onDismiss,
+  className = "",
+}: {
+  issue: DesktopAuthIssue | null;
+  onSignOut: () => void;
+  onDismiss: () => void;
+  className?: string;
+}) {
+  const t = useT();
+  if (!issue) return null;
+  const account = issue.accountId || "that Google account";
+  const isOwnerMismatch = issue.code === "account_owner_mismatch";
+  const detail = isOwnerMismatch
+    ? t("mail.googleConnect.signOutThenSignIn", { account })
+    : issue.message ||
+      issue.error ||
+      t("mail.googleConnect.signOutThenSignIn", { account });
+  const shouldOfferSignOut =
+    isOwnerMismatch ||
+    Boolean(issue.existingOwner || issue.attemptedOwner || issue.accountId);
+
+  return (
+    <div
+      className={`rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-start ${className}`}
+    >
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
+          <IconAlertTriangle className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground">
+            {isOwnerMismatch
+              ? t("mail.googleConnect.ownerMismatch")
+              : t("mail.googleConnect.connectionFailed")}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {detail}
+          </p>
+          {shouldOfferSignOut && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 bg-white px-3 text-xs font-medium text-black hover:bg-white/90"
+                onClick={onSignOut}
+              >
+                <IconLogout className="h-3.5 w-3.5" />
+                {t("mail.googleConnect.signOut")}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                onClick={onDismiss}
+              >
+                {t("mail.googleConnect.dismiss")}
+              </Button>
+            </div>
+          )}
+        </div>
+        <button
+          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-white/5 hover:text-foreground"
+          onClick={onDismiss}
+          aria-label={t("mail.googleConnect.dismissNotice")}
+        >
+          <IconX className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GoogleIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+      />
+    </svg>
+  );
+}

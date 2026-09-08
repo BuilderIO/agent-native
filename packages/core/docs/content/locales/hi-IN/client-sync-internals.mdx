@@ -1,0 +1,124 @@
+---
+title: "सिंक इंटरनल्स"
+description: "useDbSync के पीछे का चेंज-वर्ज़न मेकैनिज़्म: कच्चे useQuery को सिंक करने के लिए useChangeVersion/useChangeVersions, और वे दो लेटेंसी पथ जो कोई रीफ़ेच ले सकता है।"
+---
+
+# सिंक इंटरनल्स
+
+[लाइव सिंक](/docs/key-concepts#polling-sync) मेंटल मॉडल को कवर करता है: एक एजेंट राइट एक चेंज इवेंट बन जाती है, `useDbSync()` उसे उठाता है, और प्रभावित क्वेरीज़ रीफ़ेच होती हैं। यह पेज उसके नीचे के मेकैनिज़्म को कवर करता है जिसे अधिकांश ऐप्स कभी सीधे नहीं छूते: वे चेंज-वर्ज़न काउंटर जिन्हें `useDbSync()` बंप करता है, और उन्हें कच्चे `useQuery()` कॉल में कैसे फ़ोल्ड करें जो `useActionQuery()` से नहीं गुज़रता।
+
+`useActionQuery()` किसी म्यूटेटिंग action के पूरा होने पर स्वचालित रूप से रीफ़ेच होता है (देखें [डेटा और सिंक](/docs/client-data#fetching-mutating))। `useChangeVersion()`/`useChangeVersions()` तक केवल तभी पहुंचें जब आप उस पथ के बाहर किसी कच्चे `useQuery()` कॉल को सिंक कर रहे हों, जैसे इंटीग्रेशन स्टेटस पढ़ने वाला कोई लो-लेवल क्लाइंट हेल्पर।
+
+## चेंज वर्ज़न कैसे काम करते हैं {#how-it-works}
+
+जब कोई सर्वर-साइड डेटाबेस म्यूटेशन होता है, तो सर्वर एक `source` key के साथ टैग किया गया चेंज इवेंट रिकॉर्ड करता है। `useDbSync()` उस इवेंट को प्राप्त करता है और उस source के लिए एक लोकल काउंटर बंप करता है। काउंटर को किसी React Query key में फ़ोल्ड करने से क्वेरी स्वचालित रूप से रीफ़ेच होती है जब भी बैकएंड उस source के लिए नई गतिविधि रिपोर्ट करता है।
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+<Signature
+  id="doc-block-client-sync-internals-1"
+  name="useChangeVersion"
+  params={[
+    {
+      name: "source",
+      type: "string",
+      description: 'देखने के लिए चेंज-इवेंट source, जैसे `"dashboards"`।',
+    },
+  ]}
+  returns={{
+    type: "number",
+    description:
+      "एक काउंटर जो हर बार दिए गए source के म्यूटेट होने पर बढ़ता है।",
+  }}
+/>
+
+<Signature
+  id="doc-block-client-sync-internals-2"
+  name="useChangeVersions"
+  params={[
+    {
+      name: "sources",
+      type: "readonly string[]",
+      description: "एक साथ देखने के लिए कई चेंज-इवेंट sources।",
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "दिए गए हर source के लिए वर्ज़न काउंटरों का योग।",
+  }}
+/>
+
+नीचे दिए उदाहरण में, एक कच्चा `useQuery()` कॉल सीधे किसी डैशबोर्ड को पढ़ता है, `"dashboards"` source के वर्ज़न काउंटर को अपनी query key में फ़ोल्ड करते हुए ताकि यह उस source के बदलने पर रीफ़ेच हो:
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client/hooks";
+
+function DashboardView({ id }) {
+  const version = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, version],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev,
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+`placeholderData: (prev) => prev` रीफ़ेच के दौरान पिछले डेटा को स्क्रीन पर रखता है, ताकि व्यू लोडिंग स्टेट पर फ़्लिकर न करे।
+
+## रीफ़ेच के दो पथ {#latency-models}
+
+एक म्यूटेशन UI तक दो तरीकों में से एक से पहुंचती है, और उनकी लेटेंसी अलग होती है।
+
+एक लोकल म्यूटेशन, जो आपके अपने `useActionMutation()` कॉल ने बस बनाया है, सफल होने पर तुरंत `source: "action"` इवेंट फायर करती है। उस action पर निर्भर हर क्वेरी तुरंत रीफ़ेच होती है। कोई राउंड-ट्रिप डिले नहीं है, क्योंकि जिस टैब ने राइट किया वह पहले से इसे जानता है।
+
+एक रिमोट म्यूटेशन, एजेंट से, किसी वेबहुक से, किसी अन्य टैब से, या किसी अन्य उपयोगकर्ता से, को पहले इस टैब तक पहुंचना होता है। `useDbSync()` इसे SSE पर लगभग तुरंत उठाता है, या SSE उपलब्ध न होने पर लगभग दो सेकंड के भीतर पोलिंग फ़ॉलबैक पर। केवल उस इवेंट के आने पर संबंधित वर्ज़न काउंटर बंप होता है और क्वेरी बैकग्राउंड में रीफ़ेच होती है।
+
+<Diagram id="doc-block-client-sync-internals-3" title="रीफ़ेच के दो पथ" summary="एक लोकल म्यूटेशन तुरंत अपने खुद के कैश को इनवैलिडेट करता है। एक रिमोट राइट SSE पर, या फ़ॉलबैक के रूप में पोलिंग टिक पर इस टैब तक पहुंचता है।">
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">यह टैब</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >सफलता पर source: "action" फायर करता है &rarr; तुरंत लोकल रीफ़ेच</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">एजेंट · वेबहुक · अन्य टैब</span
+      ><strong>रिमोट राइट</strong
+      ><small class="diagram-muted"
+        >SSE पुश, या फ़ॉलबैक के रूप में ~2s पोलिंग टिक &rarr; वर्ज़न बंप &rarr;
+        बैकग्राउंड रीफ़ेच</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## आगे क्या
+
+- [**लाइव सिंक**](/docs/key-concepts#polling-sync) - वह कॉन्सेप्चुअल मेंटल मॉडल जिसके नीचे यह पेज जाता है
+- [**डेटा और सिंक**](/docs/client-data) - `useActionQuery`/`useDbSync`, जिनका उपयोग अधिकांश पेजों को इन प्रिमिटिव के बजाय करना चाहिए
+- [**उन्नत**](/docs/client-advanced) - अन्य लोअर-लेवल क्लाइंट प्रिमिटिव और एस्केप हैच

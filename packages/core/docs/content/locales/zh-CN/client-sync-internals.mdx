@@ -1,0 +1,123 @@
+---
+title: "同步内部机制"
+description: "useDbSync 背后的变更版本机制：用于同步原始 useQuery 的 useChangeVersion/useChangeVersions，以及重新获取可能经过的两条延迟路径。"
+---
+
+# 同步内部机制
+
+[实时同步](/docs/key-concepts#polling-sync) 介绍了心智模型：一次代理写入变成一个变更事件，`useDbSync()` 捕获它，受影响的查询随之重新获取。本页介绍这背后大多数应用都不会直接接触的机制：`useDbSync()` 递增的变更版本计数器，以及如何把它们折叠进一个不经过 `useActionQuery()` 的原始 `useQuery()` 调用中。
+
+`useActionQuery()` 在一个变更类 action 完成时已经会自动重新获取（见 [数据与同步](/docs/client-data#fetching-mutating)）。只有当您在这条路径之外同步一个原始的 `useQuery()` 调用时——例如读取集成状态的底层客户端辅助函数——才需要用到 `useChangeVersion()`/`useChangeVersions()`。
+
+## 变更版本的工作原理 {#how-it-works}
+
+当服务器端发生一次数据库变更时，服务器会记录一个带有 `source` key 标记的变更事件。`useDbSync()` 接收该事件，并递增该 source 对应的本地计数器。把这个计数器折叠进 React Query 的 key 中，就能让查询在后端报告该 source 有新活动时自动重新获取。
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+<Signature
+  id="doc-block-client-sync-internals-1"
+  name="useChangeVersion"
+  params={[
+    {
+      name: "source",
+      type: "string",
+      description: '要监视的变更事件 source，例如 `"dashboards"`。',
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "一个计数器，每当给定的 source 发生变更时就会递增。",
+  }}
+/>
+
+<Signature
+  id="doc-block-client-sync-internals-2"
+  name="useChangeVersions"
+  params={[
+    {
+      name: "sources",
+      type: "readonly string[]",
+      description: "要同时监视的多个变更事件 source。",
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "所有给定 source 的版本计数器之和。",
+  }}
+/>
+
+在下面的示例中，一个原始的 `useQuery()` 调用直接读取一个 dashboard，并将 `"dashboards"` 这个 source 的版本计数器折叠进它的 query key，这样每当该 source 发生变化时它就会重新获取：
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client/hooks";
+
+function DashboardView({ id }) {
+  const version = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, version],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev,
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+`placeholderData: (prev) => prev` 在重新获取期间让屏幕上保留之前的数据，这样视图就不会闪烁进入加载状态。
+
+## 重新获取的两条路径 {#latency-models}
+
+一次变更会以两种方式之一到达 UI，二者的延迟不同。
+
+本地变更——即您自己的 `useActionMutation()` 调用刚刚发起的那次——一旦成功就会立即触发一个 `source: "action"` 事件。依赖该 action 的每个查询都会立即重新获取。这里没有往返延迟，因为发起写入的那个标签页已经知道这次写入了。
+
+远程变更——来自代理、webhook、另一个标签页，或另一个用户——则必须先到达这个标签页。`useDbSync()` 几乎会立即通过 SSE 捕获它，或者如果 SSE 不可用，则在大约两秒内通过轮询回退捕获它。只有当该事件到达之后，相关的版本计数器才会递增，查询才会在后台重新获取。
+
+<Diagram id="doc-block-client-sync-internals-3" title="重新获取的两条路径" summary="本地变更会立即使自己的缓存失效。远程写入通过 SSE 到达这个标签页，或作为回退经由轮询周期到达。">
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">此标签页</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >成功时触发 source: "action" &rarr; 立即在本地重新获取</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">代理 · webhook · 其他标签页</span
+      ><strong>远程写入</strong
+      ><small class="diagram-muted"
+        >SSE 推送，或约 2 秒的轮询周期作为回退 &rarr; 版本递增 &rarr;
+        后台重新获取</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## 下一步
+
+- [**实时同步**](/docs/key-concepts#polling-sync) — 本页所深入探讨的概念心智模型
+- [**数据与同步**](/docs/client-data) — `useActionQuery`/`useDbSync`，大多数页面应使用它们而不是这些原语
+- [**高级**](/docs/client-advanced) — 其他更底层的客户端原语和逃生舱

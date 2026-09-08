@@ -1,0 +1,116 @@
+---
+title: "国際化"
+description: "共有ロケールカタログ、言語ピッカー、ブラウザ言語フォールバックを使用して Agent-Native アプリをローカライズします。"
+---
+
+# 国際化
+
+Agent-Native アプリは、共有の `@agent-native/core/client/i18n` ランタイムを通じて、フレームワークとテンプレートの UI をローカライズできます。フレームワークはユーザーの言語選択を SQL 設定に保存し、それを actions として公開します。アプリがまだ文字列を翻訳していない場合は、英語にフォールバックします。
+
+## ランタイム
+
+`AppProviders` を通じてプロバイダーを使用します。
+
+```tsx
+import { AppProviders } from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+`getLocaleInitScript()` は、React がハイドレートする前に、初期の `lang`、`dir`、`window.__AGENT_NATIVE_LOCALE__` を設定します。パブリックな SSR ルートは、`@agent-native/core/server` の `resolveLocaleFromRequest()` を呼び出し、解決したロケールとカタログをそのスクリプトに渡すことで、ハイドレーションの不一致を避けられます。
+
+## カタログ
+
+ローカライズされた各テンプレートは、`app/i18n/` 配下にカタログを保持します。
+
+```ts filename="app/i18n/index.ts"
+import { createAgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
+import enUS from "./en-US";
+
+export const i18nCatalog = createAgentNativeI18nCatalog({
+  messages: enUS,
+  localeLoaders: {
+    "zh-CN": () => import("./zh-CN"),
+    "zh-TW": () => import("./zh-TW"),
+    "es-ES": () => import("./es-ES"),
+    "fr-FR": () => import("./fr-FR"),
+    "de-DE": () => import("./de-DE"),
+    "ja-JP": () => import("./ja-JP"),
+    "ko-KR": () => import("./ko-KR"),
+    "pt-BR": () => import("./pt-BR"),
+    "hi-IN": () => import("./hi-IN"),
+    "ar-SA": () => import("./ar-SA"),
+  },
+});
+```
+
+`messages` は `en-US` を直接バンドルするため、どのロケールが読み込まれる前でも常に利用できます。`localeLoaders` は他のすべてのカタログを動的インポートするため、ユーザーはアクティブなロケールだけをダウンロードします。サポートされているロケールコードは `en-US`、`zh-CN`、`zh-TW`、`es-ES`、`fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN`、`ar-SA` です。
+
+このリストはフレームワークによって固定されています。この例がたまたまバンドルしているものだけではありません。`LocaleCode` はこれらのコードのみからなる TypeScript のユニオン型であり、`set-localization-preference` は実行時にそれ以外の値を拒否します。各ロケールには、右横書き言語のテキスト方向のような、フレームワークが整備したメタデータも必要です。新しいロケールを追加することは、アプリにカタログファイルを追加することではなく、フレームワーク自体を拡張することを意味します。
+
+`createAgentNativeI18nCatalog` は、デフォルトで `en-US` となる省略可能な `sourceLocale` と、省略可能な `supportedLocales` 配列も受け取ります。アプリがフレームワークの 10 個のロケールすべてではなく一部だけの翻訳を提供する場合は `supportedLocales` を設定します。デフォルトではフレームワークがサポートするすべてのロケールになります。`LanguagePicker` はこのセット内のロケールのみを一覧表示し、検出または要求されたロケールがこのセットの外にある場合は `sourceLocale` にフォールバックします。
+
+## UI
+
+インターフェースの文字列を翻訳するには `useT()` を使用します。
+
+```tsx
+import { useT } from "@agent-native/core/client/i18n";
+
+function Greeting({ name }: { name: string }) {
+  const t = useT();
+  return <p>{t("greeting.hello", { name })}</p>;
+}
+```
+
+日付、数値、相対時間、リストには `useFormatters()` を使用します。翻訳文字列の中にロケール依存の日付や数値の書式設定を組み込まないでください。
+
+アプリがユーザーに言語を変更させる場所には `<LanguagePicker />` を配置します。標準の設定ページのパターンについては、[ツールキット: 設定](/docs/toolkit-settings) を参照してください。`openAgentSettings()` がどこに位置づけられるかもそこに記載されています。
+
+## Actions と永続性
+
+すべてのアプリは以下を継承します。
+
+- `get-localization-preference` — 現在のユーザーの `{ locale, timezone }` を読み取ります
+- `set-localization-preference` — `locale` および/または `timezone` を設定します（それぞれ省略可能）
+
+`locale` は `"system"` またはサポートされている BCP-47 ロケールです。`timezone` は `"system"` または `America/New_York` のような IANA タイムゾーンです。これは、スケジュールされた処理やオートメーションが、ホストのタイムゾーンではなくユーザーのタイムゾーンで実行されるようにするために存在します。`set-localization-preference` は既存の保存値を上書きするのではなくマージするため、片方のフィールドだけを設定すると、もう一方は変更されないまま残ります。
+
+永続的な値は、`localization` 配下のユーザースコープの SQL 設定に保存されます。`localStorage` はハイドレーション前と匿名ユーザーのフォールバックにのみ使用されます。アクティブなロケールはアンビエントコンテキストとしてアプリケーションステートにミラーリングされるため、エージェントは現在のインターフェース言語を把握できます。
+
+## ガード
+
+実行します。
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+アプリおよびテンプレートのカタログについて、ガードは次を検証します。
+
+- ロケールのファイル名、キーの整合性、プレースホルダーの整合性、および古くなったキー
+- 重複したキーと開発用に残されたマーカー
+- スクリプトの混在（例えばアラビア語のカタログ内に中国語のテキストが含まれている場合など）
+- `Intl.PluralRules` による CLDR の複数形カテゴリ
+- 英語のカタログにキーが存在しない、アプリのソースコード内の `t()` 呼び出し
+
+ガードは翻訳の品質ではなく構造を検証します。視認性の高い文字列には、依然として人間によるレビューが必要です。
+
+action 名、ルート、enum 値、アプリステートのキー、データベースの値、プロトコルのフィールド、環境変数名、プロバイダー名などの安定した識別子は翻訳しないでください。
+
+## 次のステップ
+
+- [**概要**](/docs/client-overview#app-shell) — i18n が基盤とする `AppProviders` ラッパーやその他のブラウザフック
+- [**ツールキット: 設定**](/docs/toolkit-settings) — 標準の設定ページに `<LanguagePicker>` を配置する方法
+- [**はじめに**](/docs/getting-started) — すでにローカライズされたカタログを提供しているテンプレートで最初のアプリを構築する

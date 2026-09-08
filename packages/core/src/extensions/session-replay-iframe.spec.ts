@@ -1,0 +1,168 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  isTrustedSessionReplayIframeParentOrigin,
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+  SESSION_REPLAY_IFRAME_PROBE,
+  SESSION_REPLAY_IFRAME_START,
+  SESSION_REPLAY_IFRAME_STOP,
+} from "../session-replay-iframe-protocol.js";
+import {
+  buildSessionReplayIframeBootstrap,
+  injectSessionReplayIframeBootstrap,
+  RRWEB_RECORD_IFRAME_CDN_URL,
+  RRWEB_RECORD_IFRAME_SRI,
+} from "./session-replay-iframe.js";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const EXTENSION_CLIENT_DIR = join(HERE, "..", "client", "extensions");
+
+describe("cooperative iframe session replay", () => {
+  it("pins the installed rrweb recorder and waits for a trusted start message", () => {
+    const bootstrap = buildSessionReplayIframeBootstrap();
+
+    expect(RRWEB_RECORD_IFRAME_CDN_URL).toBe(
+      "https://cdn.jsdelivr.net/npm/@rrweb/record@2.1.0/umd/record.min.js",
+    );
+    expect(RRWEB_RECORD_IFRAME_SRI).toBe(
+      "sha384-MrD66HBNSykaP2N95+6hQCFlF5oH2tvL3TD/zyvHNkP/sAFWZx98DX9MEDy8MdVT",
+    );
+    expect(bootstrap).toContain(
+      `script.src = "${RRWEB_RECORD_IFRAME_CDN_URL}"`,
+    );
+    expect(bootstrap).toContain(
+      `script.integrity = "${RRWEB_RECORD_IFRAME_SRI}"`,
+    );
+    expect(bootstrap).toContain(
+      "event.source !== window.parent || !isTrustedParentOrigin(event.origin, window.location.href)",
+    );
+    expect(bootstrap).toContain(
+      `message.type === "${SESSION_REPLAY_IFRAME_START}"`,
+    );
+    expect(bootstrap).toContain(
+      `message.type === "${SESSION_REPLAY_IFRAME_STOP}"`,
+    );
+    expect(bootstrap).toContain(`type: "${SESSION_REPLAY_IFRAME_PROBE}"`);
+    expect(bootstrap).toContain("recordCrossOriginIframes: true");
+    expect(bootstrap).not.toContain("<script src=");
+  });
+
+  it("trusts srcDoc parents and same-origin render parents, but rejects external embeds", () => {
+    expect(
+      isTrustedSessionReplayIframeParentOrigin(
+        "https://custom.example.test",
+        "about:srcdoc",
+      ),
+    ).toBe(true);
+    expect(
+      isTrustedSessionReplayIframeParentOrigin(
+        "https://custom.example.test",
+        "https://custom.example.test/_agent-native/extensions/ext-1/render",
+      ),
+    ).toBe(true);
+    expect(
+      isTrustedSessionReplayIframeParentOrigin(
+        "https://external.example.test",
+        "https://custom.example.test/_agent-native/extensions/ext-1/render",
+      ),
+    ).toBe(false);
+    expect(
+      isTrustedSessionReplayIframeParentOrigin("null", "about:srcdoc"),
+    ).toBe(false);
+  });
+
+  it("prepends only the recorder bootstrap to raw editor previews", () => {
+    const content = "<!doctype html><p>preview</p>";
+    const html = injectSessionReplayIframeBootstrap(content);
+    expect(html.endsWith(content)).toBe(true);
+    expect(html).toContain(SESSION_REPLAY_IFRAME_PROBE);
+    expect(html).not.toContain("window.appAction =");
+
+    const document = injectSessionReplayIframeBootstrap(
+      "<!doctype html><html><head><title>Preview</title></head><body /></html>",
+    );
+    expect(document.indexOf("<!doctype html>")).toBe(0);
+    expect(document.indexOf(SESSION_REPLAY_IFRAME_PROBE)).toBeLessThan(
+      document.indexOf("</head>"),
+    );
+  });
+
+  it("does not inject into a </head> that lives inside a script string", () => {
+    // The editor preview inlines a bridge bundle whose own source contains
+    // `parseFromString("<!doctype html><html><head><script>...</head>...")`.
+    // Splicing there both unterminates that string literal and closes the
+    // bridge's <script> early, so the whole bundle stops parsing.
+    const bridge =
+      "<script>\nvar d = new DOMParser().parseFromString(" +
+      '"<!doctype html><html><head><script></scr" + "ipt></head><body></body></html>", "text/html");\n</script>';
+    const content = `<!doctype html><html><head>${bridge}</head><body><p>preview</p></body></html>`;
+
+    const html = injectSessionReplayIframeBootstrap(content);
+
+    expect(html).toContain(SESSION_REPLAY_IFRAME_PROBE);
+    // The bridge script must survive intact, ahead of the injected bootstrap.
+    expect(html.indexOf(bridge)).toBeGreaterThanOrEqual(0);
+    expect(html.indexOf(SESSION_REPLAY_IFRAME_PROBE)).toBeGreaterThan(
+      html.indexOf(bridge),
+    );
+  });
+
+  it("does not inject into a </head> inside an RCDATA element", () => {
+    // `title` and `textarea` hold text, not markup, and `title` sits INSIDE
+    // the head — so a literal `</head>` there precedes the real one and would
+    // win, inserting the bootstrap as title text and silently disabling replay.
+    const html =
+      "<!doctype html><html><head><title>How to close a </head> tag</title>" +
+      "</head><body><textarea></head></textarea><p>preview</p></body></html>";
+
+    const out = injectSessionReplayIframeBootstrap(html);
+
+    expect(out).toContain(SESSION_REPLAY_IFRAME_PROBE);
+    // The title must survive intact, and the bootstrap must land after it.
+    expect(out).toContain("<title>How to close a </head> tag</title>");
+    expect(out.indexOf(SESSION_REPLAY_IFRAME_PROBE)).toBeGreaterThan(
+      out.indexOf("</title>"),
+    );
+  });
+
+  it("does not inject into a </head> inside any raw-text element", () => {
+    // `xmp`, `noembed`, `noframes` and `iframe` hold raw text, and
+    // `plaintext` swallows everything to EOF. A literal `</head>` in any of
+    // them would be picked as the insertion point, putting the bootstrap
+    // somewhere it never executes and silently disabling replay.
+    for (const tag of ["xmp", "noembed", "noframes", "iframe"]) {
+      const raw = `<${tag}></head></${tag}>`;
+      const html =
+        `<!doctype html><html><head>${raw}</head>` +
+        `<body><p>preview</p></body></html>`;
+      const out = injectSessionReplayIframeBootstrap(html);
+      expect(out, `${tag} raw text was split`).toContain(raw);
+      expect(
+        out.indexOf(SESSION_REPLAY_IFRAME_PROBE),
+        `bootstrap landed inside <${tag}>`,
+      ).toBeGreaterThan(out.indexOf(raw));
+    }
+  });
+
+  it("marks every first-party extension iframe host", () => {
+    const hostFiles = [
+      "AgentNativeExtensionFrame.tsx",
+      "EmbeddedExtension.tsx",
+      "ExtensionEditor.tsx",
+      "ExtensionViewer.tsx",
+      "InlineExtensionFrame.tsx",
+    ];
+
+    for (const file of hostFiles) {
+      const source = readFileSync(join(EXTENSION_CLIENT_DIR, file), "utf8");
+      expect(source, file).toContain("SESSION_REPLAY_IFRAME_ATTRIBUTE");
+    }
+    expect(SESSION_REPLAY_IFRAME_ATTRIBUTE).toBe(
+      "data-agent-native-session-replay",
+    );
+  });
+});

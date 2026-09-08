@@ -1,0 +1,473 @@
+---
+title: "Messaging"
+description: "Talk to your agent from Slack, Microsoft Teams, Discord interactions, email, Telegram, or WhatsApp."
+---
+
+# Messaging
+
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
+Connect your agent to Slack, Microsoft Teams, Discord interactions, email, Telegram, or WhatsApp. It's the same agent — same memory, same tools, same threads — just reachable from more places.
+
+<Callout tone="info">
+
+**Using the Dispatch template?** All of this is wired up for you in **Settings → Messaging**. Click to connect each platform — you don't need to read the rest of this page unless you're customizing or building your own template. See [Dispatch](/docs/dispatch) or the [Dispatch template reference](/docs/template-dispatch).
+
+</Callout>
+
+## What you can do {#what-you-can-do}
+
+- **Email your agent** at an address like `agent@yourcompany.com` — it replies in-thread, just like a coworker would.
+- **CC your agent** on a thread — it'll read along and jump in when you ask.
+- **DM the agent on Slack**, or `@mention` it in any channel.
+- **Message the bot in Microsoft Teams** in an allowed tenant.
+- **Run a Discord slash command.** The built-in Discord adapter handles HTTP interactions; ordinary Discord messages require a separate Gateway runtime.
+- **Message the agent on Telegram or WhatsApp** from your phone.
+- **Same agent, same memory.** Whatever you tell it on Slack is remembered when you email it later. The web chat and external messages share one thread history.
+- **Act on other tools from a message.** An @mention can end in a row in Notion, an issue in Jira, or a record in HubSpot — see [@mention in Slack → row in Notion](/docs/messaging-recipes) for the full worked example.
+- For one-way in-app alerts (bell icon, webhooks) see [Notifications](/docs/notifications).
+
+<Diagram id="doc-block-1s9dj7c" title="Many channels, one agent" summary={"Every platform fans into the same agent loop and the same SQL thread history — so a Slack DM and an email continue the same conversation."}>
+
+```html
+<div class="msg-fanin">
+  <div class="diagram-col">
+    <div class="diagram-node">Slack</div>
+    <div class="diagram-node">Microsoft Teams</div>
+    <div class="diagram-node">Discord interactions</div>
+    <div class="diagram-node">Email</div>
+    <div class="diagram-node">Telegram</div>
+    <div class="diagram-node">WhatsApp</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">One agent loop</span
+    ><small class="diagram-muted">same memory · same tools</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    One SQL thread history<br /><small class="diagram-muted"
+      >web chat + external messages share it</small
+    >
+  </div>
+</div>
+```
+
+```css
+.msg-fanin {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.msg-fanin .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.msg-fanin .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Set up Slack {#slack}
+
+### What you'll need
+
+- A Slack workspace where you can install apps (admin access)
+- About 5 minutes
+
+### Managed Add to Slack
+
+Managed OAuth is the recommended setup for Dispatch and multi-workspace apps.
+Each install gets its own encrypted bot-token bundle and health record, and
+Slack workspace, app, channel, and thread IDs are part of the conversation key.
+
+1. In **Settings → Messaging**, select **Agent manifest** to download the
+   host-specific `agent-native-slack-manifest.json`, then create or update your
+   Slack app at **[api.slack.com/apps](https://api.slack.com/apps)** by importing
+   it from **App Manifest**. The manifest enables Slack's current `agent_view`
+   experience plus a writable App Home **Messages** tab for direct messages.
+   Slack app icons are not part of the manifest. Under **Basic Information →
+   Display Information**, upload the Agent-Native icon so the Agents picker
+   matches the product; you can use the app's public `icon-512.svg` as the source
+   and convert it to a Slack-supported upload format if needed.
+2. Verify that the manifest requests these exact **Bot Token Scopes** under
+   **OAuth & Permissions**:
+
+   ```text
+   assistant:write
+   app_mentions:read
+   channels:history
+   channels:read
+   chat:write
+   files:read
+   groups:history
+   groups:read
+   im:history
+   im:read
+   mpim:history
+   mpim:read
+   pins:read
+   reactions:read
+   users:read
+   users:read.email
+   ```
+
+3. Add this **OAuth Redirect URL**:
+
+   ```text
+   https://your-app.example.com/_agent-native/integrations/slack/oauth/callback
+   ```
+
+4. Turn on **Event Subscriptions**, set the **Request URL**, and subscribe to
+   `app_home_opened`, `app_context_changed`, `app_mention`, and `message.im`:
+
+   ```text
+   https://your-app.example.com/_agent-native/integrations/slack/webhook
+   ```
+
+5. Turn on **Interactivity & Shortcuts** and set its **Request URL**:
+
+   ```text
+   https://your-app.example.com/_agent-native/integrations/slack/interactions
+   ```
+
+6. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and
+   `SLACK_SIGNING_SECRET` on your app. Then open **Settings → Messaging** and
+   click **Add to Slack**. Only an organization owner or admin can create a
+   shared workspace install.
+7. Reinstall the Slack app after applying or changing the manifest, scopes,
+   events, Agent view, or Messages tab so the installation receives the updated
+   permissions and surfaces.
+
+In the current Agent view, `app_home_opened` detects when someone opens the
+Messages tab, `app_context_changed` provides the Slack surface they are viewing,
+and `message.im` delivers their direct messages. Slack owners and admins can hide
+installed agents for the workspace or organization, and each member can hide an
+agent from their own top bar. If the install succeeds but the agent is not
+visible there, check those Slack display controls or open it from **Tools →
+Apps**.
+
+The OAuth entry and callback endpoints are
+`/_agent-native/integrations/slack/oauth/install` and
+`/_agent-native/integrations/slack/oauth/callback`. Slack access and refresh
+tokens remain server-side. The canonical manifest leaves Slack token rotation
+disabled.
+Use the install health control in Messaging settings to test or disconnect a
+workspace.
+
+### Legacy single-workspace setup
+
+For a private, single-workspace deployment, you can still install the app
+manually and configure `SLACK_BOT_TOKEN` plus `SLACK_SIGNING_SECRET`.
+`SLACK_ALLOWED_TEAM_IDS` and `SLACK_ALLOWED_API_APP_IDS` are recommended in
+production. The environment token is a compatibility fallback; managed installs
+take precedence.
+
+### Slack-native collaboration
+
+- **Explicit thread turns.** Start in a channel with an `@mention`. Each later
+  channel turn must explicitly mention the agent too. Ordinary thread replies,
+  inactive threads, and general channel chatter do not invoke it. DMs remain
+  direct invocations.
+- **Bounded native context.** Before execution, the adapter loads a bounded
+  slice of the Slack thread plus channel, sender, reaction, and file metadata.
+  It keeps file references and permalinks, never raw file bodies, in durable
+  integration state.
+- **Live work card.** Slack's streaming task surface shows the plan, tool and
+  delegated-agent progress, and final answer. The requester can cancel a running
+  task or approve/deny a gated action from signed, single-use controls.
+  `assistant:write` enables Agent View context events; `chat:write` powers
+  replies and live status updates.
+- **Personal and channel identity.** A personal Slack DM is accepted only for a
+  verified Agent-Native organization member or a Slack identity already linked
+  to that member. Configured channels instead run as the channel's explicit
+  service principal, with separate channel policies and budgets, so shared tools
+  and connections do not silently inherit the latest speaker's personal access.
+- **Explicit channel memory.** Channel memory is isolated by authorized
+  conversation scope. The agent saves or removes it only when someone explicitly
+  asks; ordinary conversation is not auto-memorized.
+- **Channel routines.** A recurring job created from Slack keeps its origin
+  scope, destination, thread, workspace, and optional model, then delivers its
+  scheduled result back to that Slack conversation.
+- **Governance.** Messaging settings expose configured-channel controls for
+  guest access, Slack Connect, service principals, default models, and budgets.
+  Daily or monthly organization, requester, and channel budgets are reserved
+  before a run and settled from actual usage. Audit and usage records keep
+  platform, workspace, channel, requester, task, run, source URL, and model
+  lineage.
+
+### Optional: app unfurls
+
+Slack app unfurls let an app replace Slack's normal link preview with a richer
+preview. Clips uses this for playable async screen-recording previews.
+
+Add these extra bot scopes when your app needs unfurls:
+
+- `links:read` — lets Slack notify the app when registered domains are posted
+- `links:write` — lets the app replace Slack's default preview
+- `links.embed:write` — lets the app embed approved media/player URLs
+
+Then subscribe to the `link_shared` event and register your public app domains
+under **App Unfurl Domains**. For Clips-only playable previews, set the Slack
+Event Subscriptions Request URL to:
+
+```text
+https://your-clips.example.com/api/slack/unfurl
+```
+
+A Slack app has one Events API Request URL. If the same Slack app should handle
+both agent chat events and Clips unfurls, route Slack events through a small
+dispatcher that sends message events to `/_agent-native/integrations/slack/webhook`
+and `link_shared` events to the Clips unfurl handler.
+
+### Tips
+
+- **Channel mentions** — use an @mention to start work. Each channel turn must explicitly mention the agent; ordinary thread replies and general channel chatter do not invoke it.
+- **DMs** — accepted personal DMs are private conversations and require a verified organization member or linked Slack identity.
+- **Identity** — personal DMs require a verified Agent-Native organization member or an already linked Slack identity. Configured channels use a separate service principal, policy, and budget.
+- **Production allowlists** — set `SLACK_ALLOWED_TEAM_IDS` and, for shared Slack apps, `SLACK_ALLOWED_API_APP_IDS` so a valid signing secret cannot be reused by an unexpected workspace.
+- **Clips app unfurls** — Clips can share the managed Slack app credentials, but a Slack app has only one Events API Request URL; route `link_shared` to Clips when chat and unfurls share an app.
+
+### Want to act on other tools from a Slack message? {#slack-to-notion}
+
+See [Messaging Recipes — @mention in Slack → row in Notion](/docs/messaging-recipes) for the full worked example: wiring the Notion provider API, storing the credential in the vault, and asking your agent to write the action.
+
+## Set up Microsoft Teams {#microsoft-teams}
+
+The built-in Teams adapter uses the Bot Framework activity endpoint. Incoming
+JWTs are validated with Microsoft's `botframework-connector`, including issuer,
+audience, signed service URL, and Teams channel endorsement checks.
+
+1. Create a Microsoft Entra app registration and Azure Bot resource.
+2. Configure:
+   - `MICROSOFT_TEAMS_APP_ID`
+   - `MICROSOFT_TEAMS_APP_PASSWORD`
+   - `MICROSOFT_TEAMS_APP_TENANT_ID` for a single-tenant registration
+   - `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS` as a comma-separated production allowlist
+3. Set the Azure Bot messaging endpoint to:
+
+   ```text
+   https://your-app.example.com/_agent-native/integrations/microsoft-teams/webhook
+   ```
+
+4. Add the Microsoft Teams channel to the bot and install it in an allowlisted tenant.
+
+Replies use the signed `serviceUrl`, conversation ID, and activity ID from the
+inbound activity. Proactive sends without an inbound conversation reference are
+not currently supported.
+
+## Set up Discord interactions {#discord}
+
+Discord supports HTTP interactions and persistent Gateway events. The built-in
+adapter implements **HTTP interactions only**: slash commands are verified with
+Discord's Ed25519 signature, acknowledged with a deferred type-5 response, and
+completed by editing the original interaction response. It does not claim to
+receive ordinary server messages or DMs.
+
+1. Create a Discord application and configure:
+   - `DISCORD_APPLICATION_ID`
+   - `DISCORD_PUBLIC_KEY`
+2. Set **Interactions Endpoint URL** to:
+
+   ```text
+   https://your-app.example.com/_agent-native/integrations/discord/webhook
+   ```
+
+3. Register a chat-input command with a string prompt option and install the
+   command for the intended server or users.
+
+Discord requires the initial response within 3 seconds. Interaction tokens are
+valid for 15 minutes and are stored only in the active queue payload; terminal
+queue rows erase that payload.
+
+## Set up Telegram {#telegram}
+
+### What you'll need
+
+- The Telegram app on your phone
+- About 3 minutes
+
+### Steps
+
+1. Open Telegram and message **[@BotFather](https://t.me/BotFather)**.
+2. Send `/newbot` and follow the prompts to name your bot. BotFather will reply with an **HTTP API token**. Copy it.
+3. In your app's environment variables, set:
+   - `TELEGRAM_BOT_TOKEN` — the token from BotFather
+   - `TELEGRAM_WEBHOOK_SECRET` — a random secret used to authenticate webhook deliveries
+4. After deploying, register the webhook by `POST`ing to your app at:
+
+   ```text
+   POST https://your-app.example.com/_agent-native/integrations/telegram/setup
+   ```
+
+   This tells Telegram to send messages to your app's webhook. You only need to do this once per deployment.
+
+5. Find your bot in Telegram (search for the username BotFather gave you) and send it a message.
+
+Telegram forum topics and private-chat topics keep `message_thread_id` in the
+canonical conversation identity. Replies preserve both the topic and the
+inbound message through Bot API `reply_parameters`.
+
+## Set up Email {#email}
+
+Email is the most powerful integration — your agent gets its own address, replies in-thread, can be CC'd on conversations, and uses the sender's email as their identity. No `/link` command needed.
+
+### What you'll need
+
+- A domain you control (or you can use a free Resend subdomain — see below)
+- An account with **Resend** or **SendGrid** to handle inbound + outbound mail
+- About 10 minutes
+
+### Steps (with Resend — easiest)
+
+1. Sign up at **[resend.com](https://resend.com)**. The free tier is enough to get started.
+2. Pick how the agent's email address will look:
+   - **Easiest:** use a free `<your-slug>.resend.app` address — no DNS needed.
+   - **Branded:** add a custom domain (like `yourcompany.com`) in Resend's **Domains** page and follow the DNS steps.
+3. In Resend, open **Webhooks** → **Add Endpoint** and point it at:
+
+   ```text
+   https://your-app.example.com/_agent-native/integrations/email/webhook
+   ```
+
+   Subscribe to the **`email.received`** event. Resend will give you a signing secret — copy it.
+
+4. In your app's environment variables, set:
+   - `EMAIL_AGENT_ADDRESS` — the address the agent receives mail at (e.g. `agent@yourcompany.com`)
+   - `RESEND_API_KEY` — your Resend API key
+   - `EMAIL_INBOUND_WEBHOOK_SECRET` — the signing secret from Resend (recommended; used for signature verification)
+
+5. Send an email to the agent's address. It'll reply in the same thread.
+
+### Steps (with SendGrid)
+
+1. Sign up at **[sendgrid.com](https://sendgrid.com)**.
+2. Add the MX record for your domain so inbound mail flows to SendGrid:
+   ```text
+   MX  yourcompany.com  →  mx.sendgrid.net  (priority 10)
+   ```
+3. Open **Settings → Inbound Parse**, click **Add Host & URL**, and set the destination to:
+
+   ```text
+   https://your-app.example.com/_agent-native/integrations/email/webhook
+   ```
+
+4. Set environment variables:
+   - `EMAIL_AGENT_ADDRESS` — the address the agent receives at
+   - `SENDGRID_API_KEY` — your SendGrid API key
+   - `EMAIL_INBOUND_WEBHOOK_SECRET` — optional Svix signing secret if you've configured signed webhooks
+
+5. Send an email to the agent's address.
+
+### Tips
+
+- **CC the agent** to bring it into a thread. When the agent is CC'd it will reply-all so the whole thread sees the response.
+- **Threading just works** — the agent uses standard `Message-ID` / `In-Reply-To` / `References` headers, so replies stay in the right thread in any email client.
+- **Identity is the sender's email.** If `alice@acme.com` emails the agent, that _is_ her identity — no link or signup flow.
+- **Rich responses** — markdown in the agent's response is rendered as HTML in the email.
+- **Allowed domains** — restrict who can email the agent by setting `allowedDomains` in the integration's config; messages from other domains are dropped.
+- **Rate limit** — 20 inbound messages per hour per sender.
+
+## Set up WhatsApp {#whatsapp}
+
+### What you'll need
+
+- A Meta (Facebook) developer account
+- A phone number you can dedicate to the bot
+- About 15 minutes (Meta's setup has the most steps)
+
+### Steps
+
+1. Go to the **[Meta Developer Portal](https://developers.facebook.com/)**, click **Create App**, and pick the **Business** type.
+2. Add the **WhatsApp** product to your app and configure a phone number to use as the sender.
+3. From the WhatsApp setup page, grab:
+   - **Access token** (the temporary one is fine for testing; generate a permanent token before going live)
+   - **Phone number ID**
+4. Pick any random string to use as a verify token — you'll enter the same value in two places below.
+5. In your app's environment variables, set:
+   - `WHATSAPP_ACCESS_TOKEN` — your access token
+   - `WHATSAPP_PHONE_NUMBER_ID` — the phone number ID
+   - `WHATSAPP_VERIFY_TOKEN` — the random string you picked
+   - `WHATSAPP_APP_SECRET` — the Meta app secret used to verify webhook HMAC signatures
+6. Back in Meta's WhatsApp config, open the webhook section and set:
+
+   ```text
+   Callback URL:  https://your-app.example.com/_agent-native/integrations/whatsapp/webhook
+   Verify token:  the same random string you set as WHATSAPP_VERIFY_TOKEN
+   ```
+
+   Subscribe to the `messages` field.
+
+7. Send a WhatsApp message to the bot's phone number.
+
+Replies quote the inbound WhatsApp message using its `wamid` when available.
+
+## Use Dispatch as your agent's central inbox {#dispatch}
+
+If you're running multiple agent-native apps (mail, calendar, analytics, etc.), the recommended pattern is to set up messaging on **[Dispatch](/docs/dispatch)** (see also the [template reference](/docs/template-dispatch)) and let it route work to your domain apps over [A2A](/docs/a2a-protocol).
+
+Why this is nice:
+
+- **One agent, one inbox.** All your channels (Slack, email, Telegram, WhatsApp) flow into Dispatch. You only set up integrations once.
+- **Dispatch delegates.** Ask "summarize last week's signups" — Dispatch calls the analytics agent. Ask "draft a reply to Alice" — Dispatch calls the mail agent.
+- **Clicks, not config.** Dispatch's **Settings → Messaging** page has connect buttons for every platform with the env-var fields built in.
+
+If you don't need an orchestrator, any single template can wire up messaging directly using the env vars on this page.
+
+---
+
+## Reference {#reference}
+
+The webhook routes and environment variables below apply across every platform. For the technical internals — the inbound webhook lifecycle, the integrations plugin, threading and identity, per-platform security, proactive sends, and writing a custom adapter — see [Messaging Internals](/docs/messaging-internals).
+
+### Webhook URLs {#webhook-urls}
+
+```text
+/_agent-native/integrations/slack/webhook
+/_agent-native/integrations/microsoft-teams/webhook
+/_agent-native/integrations/discord/webhook
+/_agent-native/integrations/telegram/webhook
+/_agent-native/integrations/whatsapp/webhook
+/_agent-native/integrations/email/webhook
+```
+
+Telegram also exposes a one-time setup endpoint:
+
+```text
+POST /_agent-native/integrations/telegram/setup
+```
+
+### Environment variables {#env-vars}
+
+| Platform        | Required                                                                                                                                                                    | Optional                                              |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Slack           | `SLACK_SIGNING_SECRET`, plus either `SLACK_CLIENT_ID`+`SLACK_CLIENT_SECRET` ([managed OAuth](#slack), recommended) or `SLACK_BOT_TOKEN` ([legacy single-workspace](#slack)) | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| Microsoft Teams | `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD`, `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`                                                                              | `MICROSOFT_TEAMS_APP_TENANT_ID`                       |
+| Discord         | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`                                                                                                                              | —                                                     |
+| Telegram        | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`                                                                                                                             | —                                                     |
+| Email           | `EMAIL_AGENT_ADDRESS`, plus one of `RESEND_API_KEY` or `SENDGRID_API_KEY`                                                                                                   | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| WhatsApp        | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`                                                                         | —                                                     |
+
+For Slack, `SLACK_BOT_TOKEN`, `SLACK_CLIENT_ID`, and `SLACK_CLIENT_SECRET` are each individually optional at the adapter level — only `SLACK_SIGNING_SECRET` is unconditionally required — because either credential set satisfies setup. Use managed OAuth (`SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`) for Dispatch and multi-workspace apps; `SLACK_BOT_TOKEN` is the compatibility path for a single-workspace deployment installed by hand. See [Set up Slack](#slack) above for both flows.
+
+Integration credentials resolve from the integration owner's scoped secrets first (user, org, then workspace), with deployment env vars available as a local or deliberate single-tenant fallback. The setup UI saves scoped secrets; use deployment configuration only when you intentionally want one shared integration identity. Values are never returned to the browser or stored in source code.
+
+The built-in runtime adapters are **Slack**, **Microsoft Teams**, **Discord interactions**, **Telegram**, **WhatsApp Cloud API**, and **provider-webhook email** (Resend or SendGrid). Discord support is interaction-only; ordinary Discord message ingestion is not included.
+
+## What's next {#whats-next}
+
+- [Messaging Recipes](/docs/messaging-recipes) — the full @mention-in-Slack-to-Notion-row worked example
+- [Messaging Internals](/docs/messaging-internals) — the webhook lifecycle, custom adapters, and security internals
+- [Dispatch](/docs/dispatch) — concept overview for using a central inbox across apps
+- [Dispatch template reference](/docs/template-dispatch) — recommended central inbox for multi-app workspaces
+- [A2A Protocol](/docs/a2a-protocol) — how Dispatch delegates work to other agents, including continuation recovery
+- [Workflow Connectors](/docs/automation-connectors) — pre-configured n8n/Zapier-style workflow invocation, distinct from a chat platform integration
+- [Security](/docs/security) — credential scoping and the webhook signature-verification model
+- [Agent Mentions](/docs/agent-mentions) — `@`-mentioning agents inside the web chat

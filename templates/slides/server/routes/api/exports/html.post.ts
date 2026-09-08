@@ -1,0 +1,63 @@
+import path from "path";
+
+import { readBody, runWithRequestContext } from "@agent-native/core/server";
+import { defineEventHandler, setResponseHeader, setResponseStatus } from "h3";
+
+import exportHtmlAction from "../../../../actions/export-html.js";
+import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
+
+export default defineEventHandler(async (event) => {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const session = auth.context;
+  if (!session.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  const body = (await readBody(event)) as { deckId?: string };
+
+  if (!body?.deckId) {
+    setResponseStatus(event, 400);
+    return { error: "deckId required" };
+  }
+
+  try {
+    const result = await runWithRequestContext(
+      { userEmail: session.email, orgId: session.orgId },
+      () => exportHtmlAction.run({ deckId: body.deckId! }),
+    );
+
+    if ("error" in result) {
+      setResponseStatus(event, 400);
+      return { error: result.error };
+    }
+
+    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    setResponseHeader(event, "Cache-Control", "no-store");
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    setResponseHeader(
+      event,
+      "Content-Disposition",
+      `attachment; filename="${path.basename(result.filename)}"`,
+    );
+
+    // Return the in-memory HTML string directly. Writing to disk first
+    // would break on serverless: a separate /api/exports/:filename GET
+    // would hit a different Lambda's empty filesystem and 404 with
+    // "file doesn't exist on site".
+    return result.html;
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Something went wrong exporting as HTML.";
+    setResponseStatus(event, message.startsWith("Deck not found") ? 404 : 500);
+    return {
+      error: message,
+    };
+  }
+});

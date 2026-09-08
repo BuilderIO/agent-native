@@ -1,0 +1,2757 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  builderBlocksHash,
+  builderBlocksToReadableMarkdown,
+  builderEntryToMdxBundle,
+  builderEntryToReadableMdxBundle,
+  builderReadableBodyToBuilderBlocks,
+  builderMdxBodyToBuilderBlocks,
+  builderMdxToBuilderBlocks,
+  type BuilderContentEntry,
+} from "./builder-mdx";
+import { builderSourceComponentMappingFor } from "./builder-source-component-registry";
+import { parseRegistryBlockData } from "./nfm-registry";
+
+const entry: BuilderContentEntry = {
+  id: "doc-entry-1",
+  model: "docs-content",
+  name: "Intro Doc",
+  published: "published",
+  lastUpdated: "1700000000000",
+  data: {
+    urlPath: "/c/docs/intro",
+    pageTitle: "Intro Doc",
+    blocks: [
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "text-1",
+        component: {
+          name: "Text",
+          options: { text: "<h2>Hello</h2><p>Welcome to docs.</p>" },
+        },
+        responsiveStyles: {
+          large: {
+            marginTop: "20px",
+            position: "relative",
+          },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "code-1",
+        component: {
+          name: "Code Block",
+          options: {
+            code: "console.log('hi')",
+            language: "javascript",
+            dark: true,
+          },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "symbol-1",
+        component: {
+          name: "Symbol",
+          options: {
+            symbol: {
+              model: "docs-nav",
+              entry: "nav-entry",
+              data: { label: "Docs" },
+              content: {
+                id: "nav-entry",
+                modelName: "symbol",
+                name: "Docs Nav",
+                data: {
+                  title: "Docs Nav",
+                  blocks: [
+                    {
+                      "@type": "@builder.io/sdk:Element",
+                      "@version": 2,
+                      id: "symbol-text-1",
+                      component: {
+                        name: "Text",
+                        options: { text: "<p>Shared nav body</p>" },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    ],
+  },
+};
+
+const tabbedEntry: BuilderContentEntry = {
+  id: "doc-entry-tabs",
+  model: "docs-content",
+  name: "Tabbed Doc",
+  lastUpdated: "1700000000001",
+  data: {
+    urlPath: "/c/docs/tabs",
+    pageTitle: "Tabbed Doc",
+    blocks: [
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "tabs-1",
+        component: {
+          name: "Tabbed Content",
+          options: {
+            title: "Frameworks",
+            tabs: [
+              {
+                id: "tab-react",
+                label: "React",
+                analyticsId: "react-tab",
+                content: [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    id: "custom-nested",
+                    component: {
+                      name: "Docs Alert",
+                      options: {
+                        tone: "info",
+                        body: "Keep this custom component raw.",
+                      },
+                    },
+                    responsiveStyles: {
+                      large: {
+                        marginBottom: "16px",
+                        position: "relative",
+                      },
+                    },
+                  },
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    id: "nested-code",
+                    component: {
+                      name: "Code Block",
+                      options: {
+                        code: "npm install @builder.io/sdk-react",
+                        language: "bash",
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    ],
+  },
+};
+
+function testBlocks(entry: BuilderContentEntry): unknown[] {
+  return Array.isArray(entry.data?.blocks) ? entry.data.blocks : [];
+}
+
+function textEntry(id: string, text: string): BuilderContentEntry {
+  return {
+    id,
+    model: "blog-article",
+    name: id,
+    lastUpdated: "1700000000100",
+    data: {
+      title: id,
+      blocks: [
+        {
+          "@type": "@builder.io/sdk:Element",
+          "@version": 2,
+          id: `${id}-text`,
+          component: {
+            name: "Text",
+            options: { text: `<p>${text}</p>` },
+          },
+        },
+      ],
+    },
+  };
+}
+
+function builderTrackingPixel(id: string) {
+  return {
+    id,
+    "@type": "@builder.io/sdk:Element",
+    tagName: "img",
+    properties: {
+      src: "https://cdn.builder.io/api/v1/pixel?apiKey=public-key",
+      "aria-hidden": "true",
+      alt: "",
+      role: "presentation",
+      width: "0",
+      height: "0",
+    },
+    responsiveStyles: {
+      large: {
+        height: "0",
+        width: "0",
+        display: "block",
+        opacity: "0",
+      },
+    },
+  };
+}
+
+describe("Builder MDX conversion", () => {
+  it("ignores regenerated Builder tracking pixels without hiding authored block changes", () => {
+    const authoredBlocks = [
+      {
+        id: "authored-text-1",
+        "@type": "@builder.io/sdk:Element",
+        component: {
+          name: "Text",
+          options: { text: "<p>Authored body.</p>" },
+        },
+      },
+    ];
+    const baseline = builderBlocksHash([
+      ...authoredBlocks,
+      builderTrackingPixel("builder-pixel-first-response"),
+    ]);
+
+    expect(
+      builderBlocksHash([
+        ...authoredBlocks,
+        builderTrackingPixel("builder-pixel-next-response"),
+      ]),
+    ).toBe(baseline);
+    expect(builderBlocksHash(authoredBlocks)).toBe(baseline);
+
+    const changedText = structuredClone(authoredBlocks);
+    changedText[0]!.component.options.text = "<p>Actually changed body.</p>";
+    const changedId = structuredClone(authoredBlocks);
+    changedId[0]!.id = "authored-text-2";
+    expect(builderBlocksHash(changedText)).not.toBe(baseline);
+    expect(builderBlocksHash(changedId)).toBe(baseline);
+
+    const authoredZeroSizeImage = builderTrackingPixel("authored-image");
+    authoredZeroSizeImage.properties.src = "https://example.com/pixel.gif";
+    expect(
+      builderBlocksHash([...authoredBlocks, authoredZeroSizeImage]),
+    ).not.toBe(baseline);
+  });
+
+  it("omits generated Builder tracking pixels from hydrated body content", async () => {
+    const authoredZeroSizeImage = builderTrackingPixel("authored-image");
+    authoredZeroSizeImage.properties.src = "https://example.com/pixel.gif";
+    const entry: BuilderContentEntry = {
+      id: "tracking-body",
+      model: "blog-article",
+      data: {
+        blocks: [
+          {
+            id: "authored-text",
+            "@type": "@builder.io/sdk:Element",
+            component: {
+              name: "Text",
+              options: { text: "<p>Authored body.</p>" },
+            },
+          },
+          builderTrackingPixel("generated-pixel"),
+          authoredZeroSizeImage,
+        ],
+      },
+    };
+
+    const readable = await builderEntryToReadableMdxBundle(entry);
+    expect(readable.mdx.body).toContain("Authored body.");
+    expect(readable.mdx.body).not.toContain("generated-pixel");
+    expect(readable.mdx.body).toContain("authored-image");
+  });
+
+  it("hashes Builder references by identity instead of volatile enrichment", () => {
+    const reference = {
+      "@type": "@builder.io/core:Reference",
+      id: "author-1",
+      model: "blog-author",
+      value: {
+        id: "author-1",
+        data: {
+          name: "Ada",
+          generatedTracking: builderTrackingPixel("first-enrichment"),
+        },
+      },
+    };
+    const blocks = [
+      {
+        id: "authored-text-1",
+        "@type": "@builder.io/sdk:Element",
+        component: {
+          name: "Text",
+          options: { text: "<p>Authored body.</p>", author: reference },
+        },
+      },
+    ];
+    const baseline = builderBlocksHash(blocks);
+    const reenriched = structuredClone(blocks);
+    reenriched[0]!.component.options.author.value = {
+      id: "author-1",
+      data: {
+        name: "Ada Lovelace",
+        generatedTracking: builderTrackingPixel("next-enrichment"),
+      },
+    };
+    expect(builderBlocksHash(reenriched)).toBe(baseline);
+
+    const changedReferenceId = structuredClone(blocks);
+    changedReferenceId[0]!.component.options.author.id = "author-2";
+    expect(builderBlocksHash(changedReferenceId)).not.toBe(baseline);
+
+    const changedReferenceModel = structuredClone(blocks);
+    changedReferenceModel[0]!.component.options.author.model = "guest-author";
+    expect(builderBlocksHash(changedReferenceModel)).not.toBe(baseline);
+  });
+
+  it("ignores nested generated tracking pixels without hiding nested authored content", () => {
+    const blocks = [
+      {
+        id: "authored-container",
+        "@type": "@builder.io/sdk:Element",
+        children: [
+          {
+            id: "authored-text-1",
+            "@type": "@builder.io/sdk:Element",
+            component: {
+              name: "Text",
+              options: { text: "<p>Nested authored body.</p>" },
+            },
+          },
+          builderTrackingPixel("nested-first-response"),
+        ],
+      },
+    ];
+    const baseline = builderBlocksHash(blocks);
+    const regeneratedPixel = structuredClone(blocks);
+    regeneratedPixel[0]!.children[1] = builderTrackingPixel(
+      "nested-next-response",
+    );
+    expect(builderBlocksHash(regeneratedPixel)).toBe(baseline);
+
+    const changedNestedText = structuredClone(blocks);
+    const nestedText = changedNestedText[0]!.children[0] as {
+      component: { options: { text: string } };
+    };
+    nestedText.component.options.text = "<p>Actually changed nested body.</p>";
+    expect(builderBlocksHash(changedNestedText)).not.toBe(baseline);
+  });
+
+  it("ignores regenerated Builder element ids and symbol revisions", () => {
+    const blocks = [
+      {
+        id: "symbol-wrapper-first",
+        "@type": "@builder.io/sdk:Element",
+        component: {
+          name: "Symbol",
+          options: {
+            symbol: {
+              content: {
+                rev: "first-revision",
+                data: {
+                  blocks: [
+                    {
+                      id: "symbol-text-first",
+                      "@type": "@builder.io/sdk:Element",
+                      component: {
+                        name: "Text",
+                        options: { text: "<p>Symbol body.</p>" },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    ];
+    const baseline = builderBlocksHash(blocks);
+    const regenerated = structuredClone(blocks);
+    regenerated[0]!.id = "symbol-wrapper-next";
+    regenerated[0]!.component.options.symbol.content.rev = "next-revision";
+    regenerated[0]!.component.options.symbol.content.data.blocks[0]!.id =
+      "symbol-text-next";
+    expect(builderBlocksHash(regenerated)).toBe(baseline);
+
+    const changedText = structuredClone(regenerated);
+    changedText[0]!.component.options.symbol.content.data.blocks[0]!.component.options.text =
+      "<p>Actually changed symbol body.</p>";
+    expect(builderBlocksHash(changedText)).not.toBe(baseline);
+  });
+
+  it("preserves authored nested ids and revisions", () => {
+    const blocks = [
+      {
+        id: "tabs-wrapper",
+        "@type": "@builder.io/sdk:Element",
+        component: {
+          name: "Tabbed Content",
+          options: {
+            tabs: [{ id: "overview", label: "Overview" }],
+            revision: { rev: "authored-revision" },
+          },
+        },
+      },
+    ];
+    const baseline = builderBlocksHash(blocks);
+    const changedTabId = structuredClone(blocks);
+    changedTabId[0]!.component.options.tabs[0]!.id = "details";
+    expect(builderBlocksHash(changedTabId)).not.toBe(baseline);
+
+    const changedAuthoredRevision = structuredClone(blocks);
+    changedAuthoredRevision[0]!.component.options.revision.rev =
+      "next-authored-revision";
+    expect(builderBlocksHash(changedAuthoredRevision)).not.toBe(baseline);
+  });
+
+  it.each([
+    [
+      "100-percent-free-angle",
+      "How Does Trae, the 100% Free AI IDE, Compare to Cursor? Values like &lt;5 should stay prose.",
+      "Values like <5 should stay prose.",
+    ],
+    [
+      "qwik-visible-task",
+      "Boost site perf with {useVisibleTask$()} without turning prose into an MDX expression.",
+      "Boost site perf with {useVisibleTask$()}",
+    ],
+    [
+      "a2a-braces",
+      'A2A protocol snippets can mention {"jsonrpc":"2.0"} in prose.',
+      '{"jsonrpc":"2.0"}',
+    ],
+  ])(
+    "round-trips MDX-unsafe Builder text prose: %s",
+    async (id, htmlText, expectedReadableText) => {
+      const bundle = await builderEntryToMdxBundle(textEntry(id, htmlText));
+
+      const result = await builderMdxToBuilderBlocks({
+        path: bundle.mdx.path,
+        source: bundle.mdx.source,
+        sidecars: bundle.files,
+      });
+      const readable = await builderBlocksToReadableMarkdown(result.blocks);
+
+      expect(readable).toContain(expectedReadableText);
+    },
+  );
+
+  it("escapes MDX-only syntax in generated lossless BuilderText wrappers", async () => {
+    const bundle = await builderEntryToMdxBundle(
+      textEntry(
+        "lossless-escape",
+        "Use {useVisibleTask$()} when a value is &lt;5.",
+      ),
+    );
+
+    expect(bundle.mdx.body).toContain("\\{useVisibleTask$()\\}");
+    expect(bundle.mdx.body).toContain("\\<5");
+  });
+
+  it("classifies Builder source components through an explicit mapping registry", () => {
+    expect(builderSourceComponentMappingFor("Text")).toMatchObject({
+      id: "builder-text-markdown",
+      readableMode: "editable-markdown",
+      mappingStatus: "mapped",
+      sourceEditState: "safe-to-edit",
+    });
+    expect(builderSourceComponentMappingFor("Material Table")).toMatchObject({
+      id: "builder-table-preserved",
+      readableMode: "source-component",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
+    });
+    expect(builderSourceComponentMappingFor(" material_table ")).toMatchObject({
+      id: "builder-table-preserved",
+    });
+    expect(builderSourceComponentMappingFor("PricingTable")).toMatchObject({
+      id: "builder-table-preserved",
+    });
+    expect(builderSourceComponentMappingFor("Portable Text")).toMatchObject({
+      id: "builder-unknown-preserved",
+    });
+    expect(builderSourceComponentMappingFor("Timetable Widget")).toMatchObject({
+      id: "builder-unknown-preserved",
+    });
+    expect(builderSourceComponentMappingFor("Preferences Panel")).toMatchObject(
+      {
+        id: "builder-unknown-preserved",
+      },
+    );
+    expect(
+      builderSourceComponentMappingFor("Internal Reference"),
+    ).toMatchObject({
+      id: "builder-reference-preserved",
+      readableMode: "source-component",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
+    });
+    expect(
+      builderSourceComponentMappingFor("CustomerOnlyWidget"),
+    ).toMatchObject({
+      id: "builder-unknown-preserved",
+      readableMode: "source-component",
+      mappingStatus: "unknown",
+      sourceEditState: "preserved-only",
+    });
+    expect(builderSourceComponentMappingFor(null)).toMatchObject({
+      id: "builder-nameless-preserved",
+      mappingStatus: "unknown",
+      sourceEditState: "preserved-only",
+    });
+  });
+
+  it("parses legacy and malformed source-component mapping attrs safely", async () => {
+    const legacy = await parseRegistryBlockData(
+      '<SourceComponent id="legacy-source-component" provider="builder" componentName="LegacyWidget" rawRef="content/builder/.raw/legacy.json" rawHash="legacy-hash" />',
+    );
+    expect(legacy?.data).toMatchObject({
+      provider: "builder",
+      componentName: "LegacyWidget",
+      rawRef: "content/builder/.raw/legacy.json",
+      rawHash: "legacy-hash",
+    });
+    expect(
+      (legacy?.data as { mappingStatus?: unknown } | undefined)?.mappingStatus,
+    ).toBeUndefined();
+    expect(
+      (legacy?.data as { sourceEditState?: unknown } | undefined)
+        ?.sourceEditState,
+    ).toBeUndefined();
+
+    const malformed = await parseRegistryBlockData(
+      '<SourceComponent id="bad-source-component" provider="builder" componentName="BadWidget" rawRef="content/builder/.raw/bad.json" rawHash="bad-hash" mappingStatus="delete-me" sourceEditState="editable-maybe" previewStatus="fine" previewKind="thing" />',
+    );
+    expect(malformed?.data).toMatchObject({
+      provider: "builder",
+      componentName: "BadWidget",
+      rawRef: "content/builder/.raw/bad.json",
+      rawHash: "bad-hash",
+    });
+    expect(
+      (malformed?.data as { mappingStatus?: unknown } | undefined)
+        ?.mappingStatus,
+    ).toBeUndefined();
+    expect(
+      (malformed?.data as { sourceEditState?: unknown } | undefined)
+        ?.sourceEditState,
+    ).toBeUndefined();
+    expect(
+      (malformed?.data as { previewStatus?: unknown } | undefined)
+        ?.previewStatus,
+    ).toBeUndefined();
+    expect(
+      (malformed?.data as { previewKind?: unknown } | undefined)?.previewKind,
+    ).toBeUndefined();
+  });
+
+  it("pulls Builder blocks into .builder.mdx with raw sidecars", async () => {
+    const bundle = await builderEntryToMdxBundle(entry);
+
+    expect(bundle.mdx.path).toBe(
+      "content/builder/docs/c-docs-intro.builder.mdx",
+    );
+    expect(bundle.mdx.source).toContain("<BuilderText");
+    expect(bundle.mdx.source).toContain("<BuilderCodeBlock");
+    expect(bundle.mdx.source).toContain("<BuilderSymbol");
+    expect(bundle.mdx.source).toContain(
+      'source="content/builder/symbols/symbol/docs-nav.builder.mdx"',
+    );
+    expect(
+      bundle.files["content/builder/symbols/symbol/docs-nav.builder.mdx"],
+    ).toContain("Shared nav body");
+    expect(
+      Object.keys(bundle.files).filter((path) => path.endsWith(".json")),
+    ).toHaveLength(4);
+  });
+
+  it("round-trips unchanged Builder blocks without loss", async () => {
+    const bundle = await builderEntryToMdxBundle(entry);
+
+    const result = await builderMdxToBuilderBlocks({
+      path: bundle.mdx.path,
+      source: bundle.mdx.source,
+      sidecars: bundle.files,
+    });
+
+    expect(result.blocks).toEqual(testBlocks(entry));
+    expect(result.blocksHash).toBe(builderBlocksHash(testBlocks(entry)));
+  });
+
+  it("round-trips edited modeled blocks through their sidecars", async () => {
+    const bundle = await builderEntryToMdxBundle(entry);
+    const editedSource = bundle.mdx.source.replace("Hello", "Hello again");
+
+    const result = await builderMdxToBuilderBlocks({
+      path: bundle.mdx.path,
+      source: editedSource,
+      sidecars: bundle.files,
+    });
+
+    expect(result.blocks).toHaveLength(3);
+    expect(result.blocks[0]).toMatchObject({
+      id: "text-1",
+      component: {
+        name: "Text",
+        options: {
+          text: expect.stringContaining("Hello again"),
+        },
+      },
+      responsiveStyles: {
+        large: {
+          marginTop: "20px",
+        },
+      },
+    });
+  });
+
+  it("converts fresh markdown images into Builder image blocks", async () => {
+    const source = [
+      "---",
+      'id: "builder_blog-article_local-image"',
+      "title: Local image",
+      'builder: {"model":"blog-article","entryId":"local-image","sourceHash":"source-hash","blocksHash":"blocks-hash","rawRoot":"content/builder/.raw/blog-article/local-image","path":"content/builder/blog/local-image.builder.mdx"}',
+      "---",
+      "",
+      "Intro paragraph.",
+      "",
+      "![Product diagram](https://cdn.example.com/product.png)",
+    ].join("\n");
+
+    const result = await builderMdxToBuilderBlocks({
+      path: "content/builder/blog-article/local-image.builder.mdx",
+      source,
+      sidecars: {},
+    });
+
+    expect(result.blocks).toHaveLength(2);
+    expect(result.blocks[1]).toMatchObject({
+      component: {
+        name: "Image",
+        options: {
+          image: "https://cdn.example.com/product.png",
+          altText: "Product diagram",
+        },
+      },
+    });
+  });
+
+  it("converts the rich Content fixture tail into native Builder media blocks", async () => {
+    const imageUrl =
+      "https://images.unsplash.com/photo-1462331940025-496dfbfc7564?auto=format&fit=crop&w=1200&q=80";
+    const videoUrl =
+      "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
+
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        `Closing paragraph.\n\n![](${imageUrl})\n\n<video src="${videoUrl}"></video>`,
+        {},
+      ),
+    ).resolves.toMatchObject([
+      { component: { name: "Text" } },
+      {
+        component: {
+          name: "Image",
+          options: { image: imageUrl, altText: "" },
+        },
+      },
+      {
+        component: {
+          name: "Video",
+          options: {
+            video: videoUrl,
+            autoPlay: false,
+            controls: false,
+            muted: false,
+            loop: false,
+            playsInline: false,
+          },
+        },
+      },
+    ]);
+  });
+
+  it("converts fresh Content callouts into safe Builder text blocks", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      [
+        '<callout icon="💡" color="blue_bg">',
+        "\tRemember **the review boundary**.",
+        "\t- Reconcile ambiguous writes",
+        "\t\t- Check the remote identity",
+        "\t- Publish once",
+        "</callout>",
+      ].join("\n"),
+      {},
+    );
+
+    expect(blocks).toMatchObject([
+      {
+        component: {
+          name: "Text",
+          options: {
+            text: [
+              "<blockquote>",
+              "<p><strong>💡</strong></p>",
+              "<p>Remember <strong>the review boundary</strong>.</p>\n",
+              "<ul><li>Reconcile ambiguous writes<ul><li>Check the remote identity</li></ul></li><li>Publish once</li></ul>",
+              "</blockquote>",
+            ].join(""),
+          },
+        },
+      },
+    ]);
+  });
+
+  it("omits the editor's trailing empty paragraph inside a callout", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      [
+        '<callout icon="💡">',
+        "\tLark callout",
+        "\t<empty-block/>",
+        "</callout>",
+      ].join("\n"),
+      {},
+    );
+
+    expect(blocks).toMatchObject([
+      {
+        component: {
+          name: "Text",
+          options: {
+            text: "<blockquote><p><strong>💡</strong></p><p>Lark callout</p></blockquote>",
+          },
+        },
+      },
+    ]);
+    expect(JSON.stringify(blocks)).not.toContain("empty-block");
+  });
+
+  it("preserves an empty-block literal in fenced code inside a callout", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      ["<callout>", "\t```mdx", "\t<empty-block/>", "\t```", "</callout>"].join(
+        "\n",
+      ),
+      {},
+    );
+
+    expect(JSON.stringify(blocks)).toContain("empty-block");
+  });
+
+  it("preserves an empty-block literal in inline code inside a callout", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      ["<callout>", "\tUse `<empty-block/>` literally.", "</callout>"].join(
+        "\n",
+      ),
+      {},
+    );
+
+    expect(JSON.stringify(blocks)).toContain("empty-block");
+  });
+
+  it("renders unsafe callout links as text without a stored script URL", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      [
+        "<callout>",
+        "\t[unsafe](javascript:alert(document.domain))",
+        "\t[external](//attacker.example)",
+        "\t[safe](https://example.com)",
+        "\t[local](/docs)",
+        "\t[next](chapter-2)",
+        "</callout>",
+      ].join("\n"),
+      {},
+    );
+
+    expect(blocks).toMatchObject([
+      {
+        component: {
+          options: {
+            text: expect.not.stringContaining("javascript:"),
+          },
+        },
+      },
+    ]);
+    expect(JSON.stringify(blocks)).toContain(
+      '<a href=\\"https://example.com\\">safe</a>',
+    );
+    expect(JSON.stringify(blocks)).not.toContain("attacker.example");
+    expect(JSON.stringify(blocks)).toContain('<a href=\\"/docs\\">local</a>');
+    expect(JSON.stringify(blocks)).toContain(
+      '<a href=\\"chapter-2\\">next</a>',
+    );
+  });
+
+  it("extracts callout bodies after literal greater-than attributes", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      ['<callout icon="x>y">', "\tBody only", "</callout>"].join("\n"),
+      {},
+    );
+
+    expect(blocks).toMatchObject([
+      {
+        component: {
+          options: {
+            text: "<blockquote><p><strong>x&gt;y</strong></p><p>Body only</p></blockquote>",
+          },
+        },
+      },
+    ]);
+  });
+
+  it("assigns distinct stable IDs to repeated identical callouts", async () => {
+    const source = [
+      "<callout>",
+      "\tRepeated",
+      "</callout>",
+      "",
+      "<callout>",
+      "\tRepeated",
+      "</callout>",
+    ].join("\n");
+    const first = await builderMdxBodyToBuilderBlocks(source, {});
+    const second = await builderMdxBodyToBuilderBlocks(source, {});
+    const ids = first.map((block) => (block as { id: string }).id);
+
+    expect(new Set(ids).size).toBe(2);
+    expect(second.map((block) => (block as { id: string }).id)).toEqual(ids);
+  });
+
+  it("rejects dynamic or unknown fresh callout syntax", async () => {
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        ['<callout tone="warning">', "\tUnsafe", "</callout>"].join("\n"),
+        {},
+      ),
+    ).rejects.toThrow("Unsupported Builder callout attribute: tone");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        ["<callout>", "\t{danger}", "</callout>"].join("\n"),
+        {},
+      ),
+    ).rejects.toThrow("Unsupported dynamic syntax inside Builder callout");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        ["<callout>", '\t<empty-block reason="unsafe" />', "</callout>"].join(
+          "\n",
+        ),
+        {},
+      ),
+    ).rejects.toThrow("Unsupported Builder callout empty-block syntax");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        ["<callout>", "\t<empty-block></empty-block>", "</callout>"].join("\n"),
+        {},
+      ),
+    ).rejects.toThrow("Unsupported Builder callout empty-block syntax");
+  });
+
+  it("preserves ordered and unordered Markdown lists as distinct Builder HTML lists", async () => {
+    const markdown = [
+      "- Inspect the review.",
+      "- Reconcile ambiguity.",
+      "1. Review the exact target.",
+      "2. Prepare without writing.",
+      "3. Publish once.",
+    ].join("\n");
+    const blocks = await builderMdxBodyToBuilderBlocks(markdown, {});
+
+    expect(blocks).toMatchObject([
+      {
+        component: {
+          name: "Text",
+          options: {
+            text: "<ul><li>Inspect the review.</li><li>Reconcile ambiguity.</li></ul>",
+          },
+        },
+      },
+      {
+        component: {
+          name: "Text",
+          options: {
+            text: "<ol><li>Review the exact target.</li><li>Prepare without writing.</li><li>Publish once.</li></ol>",
+          },
+        },
+      },
+    ]);
+    await expect(builderBlocksToReadableMarkdown(blocks)).resolves.toBe(
+      markdown.replace("1. Review", "\n1. Review"),
+    );
+  });
+
+  it("preserves nested ordered and unordered Builder HTML list structure", async () => {
+    const blocks = [
+      {
+        component: {
+          name: "Text",
+          options: {
+            text: [
+              "<ul>",
+              "<li>Inspect the review.<ol><li>Prepare safely.</li><li>Publish once.</li></ol></li>",
+              "<li>Reconcile ambiguity.</li>",
+              "</ul>",
+            ].join(""),
+          },
+        },
+      },
+    ];
+
+    await expect(builderBlocksToReadableMarkdown(blocks)).resolves.toBe(
+      [
+        "- Inspect the review.",
+        "    1. Prepare safely.",
+        "    2. Publish once.",
+        "- Reconcile ambiguity.",
+      ].join("\n"),
+    );
+  });
+
+  it("fails closed for unsafe or dynamic fresh media URLs", async () => {
+    await expect(
+      builderMdxBodyToBuilderBlocks("![](javascript:alert(1))", {}),
+    ).rejects.toThrow("safe HTTP(S) URL");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        "![Private](https://user:password@example.com/private.png)",
+        {},
+      ),
+    ).rejects.toThrow("safe HTTP(S) URL");
+    await expect(
+      builderMdxBodyToBuilderBlocks("![]({imageUrl})", {}),
+    ).rejects.toThrow("absolute URL");
+  });
+
+  it("ignores only the exact empty Content editor block sentinel", async () => {
+    await expect(
+      builderMdxBodyToBuilderBlocks("Before.\n\n<empty-block />\n\nAfter.", {}),
+    ).resolves.toMatchObject([
+      { component: { name: "Text", options: { text: "<p>Before.</p>" } } },
+      { component: { name: "Text", options: { text: "<p>After.</p>" } } },
+    ]);
+    await expect(
+      builderMdxBodyToBuilderBlocks("<empty-block/>", {}),
+    ).resolves.toEqual([]);
+    await expect(
+      builderMdxBodyToBuilderBlocks("```mdx\n<empty-block/>\n```", {}),
+    ).resolves.toMatchObject([
+      {
+        component: {
+          name: "Text",
+          options: { text: expect.stringContaining("&lt;empty-block/&gt;") },
+        },
+      },
+    ]);
+  });
+
+  it("rejects decorated or content-bearing empty-block lookalikes", async () => {
+    await expect(
+      builderMdxBodyToBuilderBlocks('<empty-block id="keep-me" />', {}),
+    ).rejects.toThrow("Unsupported Builder MDX component: <empty-block>");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        "<empty-block>meaningful content</empty-block>",
+        {},
+      ),
+    ).rejects.toThrow("Unsupported Builder MDX component: <empty-block>");
+  });
+
+  it("converts a native Content table into a deterministic Builder Text block", async () => {
+    const body = [
+      '<table class="notion-table" style="min-width: 50px;">',
+      "<colgroup>",
+      '<col style="min-width: 25px;" />',
+      '<col style="min-width: 25px;" />',
+      "</colgroup>",
+      "<tbody>",
+      "<tr>",
+      '<td colspan="1" rowspan="1"><p>Fixture</p></td>',
+      '<td colspan="1" rowspan="1"><p><strong>Expected</strong></p></td>',
+      "</tr>",
+      "</tbody>",
+      "</table>",
+    ].join("\n");
+
+    const first = await builderMdxBodyToBuilderBlocks(body, {});
+    const second = await builderMdxBodyToBuilderBlocks(body, {});
+
+    expect(first).toEqual(second);
+    expect(first).toEqual([
+      expect.objectContaining({
+        id: expect.stringMatching(/^builder-mdx-table-/),
+        component: {
+          name: "Text",
+          options: { text: body },
+        },
+      }),
+    ]);
+  });
+
+  it("preserves Builder rating spans inside native tables", async () => {
+    const body = [
+      "<table>",
+      "<tbody><tr>",
+      '<td><span class="dark-mode-invert">⭐⭐⭐</span></td>',
+      "</tr></tbody>",
+      "</table>",
+    ].join("\n");
+
+    await expect(builderMdxBodyToBuilderBlocks(body, {})).resolves.toEqual([
+      expect.objectContaining({
+        component: { name: "Text", options: { text: body } },
+      }),
+    ]);
+    const unsafe = await builderMdxBodyToBuilderBlocks(
+      '<table><tbody><tr><td><span class="danger">x</span></td></tr></tbody></table>',
+      {},
+    );
+    expect(unsafe).toEqual([
+      expect.objectContaining({
+        component: {
+          name: "Text",
+          options: {
+            text: expect.stringContaining(
+              "&lt;span class=&quot;danger&quot;&gt;",
+            ),
+          },
+        },
+      }),
+    ]);
+    expect(JSON.stringify(unsafe)).not.toContain('<span class="danger">');
+  });
+
+  it("keeps standalone image lines native when editor serialization removes blank lines", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      [
+        "[Test YouTube link](https://www.youtube.com/watch?v=jNQXAC9IVRw)",
+        "![Image one](https://example.com/one.png)",
+        "![Image two](https://example.com/two.png)",
+      ].join("\n"),
+      {},
+    );
+
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]).toMatchObject({ component: { name: "Text" } });
+    expect(blocks[1]).toMatchObject({
+      component: {
+        name: "Image",
+        options: { image: "https://example.com/one.png", altText: "Image one" },
+      },
+    });
+    expect(blocks[2]).toMatchObject({
+      component: {
+        name: "Image",
+        options: { image: "https://example.com/two.png", altText: "Image two" },
+      },
+    });
+  });
+
+  it("extracts standalone images from a lazily continued blockquote", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      [
+        "> A quotation.",
+        "[Test YouTube link](https://www.youtube.com/watch?v=jNQXAC9IVRw)",
+        "BuilderSync image repair marker.",
+        "![Image one](https://example.com/one.png)",
+        "![Image two](https://example.com/two.png)",
+      ].join("\n"),
+      {},
+    );
+
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]).toMatchObject({ component: { name: "Text" } });
+    expect(JSON.stringify(blocks[0])).toContain("A quotation.");
+    expect(JSON.stringify(blocks[0])).toContain("Test YouTube link");
+    expect(blocks[1]).toMatchObject({
+      component: {
+        name: "Image",
+        options: { image: "https://example.com/one.png", altText: "Image one" },
+      },
+    });
+    expect(blocks[2]).toMatchObject({
+      component: {
+        name: "Image",
+        options: { image: "https://example.com/two.png", altText: "Image two" },
+      },
+    });
+  });
+
+  it("keeps inline prose images inside a Builder Text block", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      "Before ![inline](https://example.com/inline.png) after.",
+      {},
+    );
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ component: { name: "Text" } });
+  });
+
+  it("preserves native Content tables across Builder readable hydration and merge", async () => {
+    const table = [
+      '<table class="notion-table" style="min-width: 50px;">',
+      "<tbody><tr><td><p>Fixture</p></td><td><p>Expected</p></td></tr></tbody>",
+      "</table>",
+    ].join("\n");
+    const blocks = await builderMdxBodyToBuilderBlocks(table, {});
+    const article: BuilderContentEntry = {
+      id: "article-native-table",
+      model: "blog-article",
+      name: "Article Native Table",
+      data: { title: "Article Native Table", blocks },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    expect(readable.mdx.body).toBe(table);
+    await expect(
+      builderReadableBodyToBuilderBlocks({
+        localContent: readable.mdx.body,
+        losslessContent: lossless.mdx.body,
+        sidecars,
+      }),
+    ).resolves.toEqual({ blocks, warnings: [] });
+  });
+
+  it("rejects dynamic or unsafe markup inside a native Content table", async () => {
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        [
+          '<table class="notion-table" data-danger="yes">',
+          "<tbody>",
+          "<tr><td>Unsafe</td></tr>",
+          "</tbody>",
+          "</table>",
+        ].join("\n"),
+        {},
+      ),
+    ).rejects.toThrow("Unsupported Builder table attribute");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        "<table><tbody><tr><td>{dangerousValue}</td></tr></tbody></table>",
+        {},
+      ),
+    ).rejects.toThrow("Unsupported dynamic syntax");
+  });
+
+  it("converts a native Content video into a deterministic Builder Video block", async () => {
+    const body =
+      '<video src="https://cdn.example.com/demo.mp4?download=1" controls width="640" poster="https://cdn.example.com/poster.jpg" preload="metadata" title="Demo"></video>';
+
+    const first = await builderMdxBodyToBuilderBlocks(body, {});
+    const second = await builderMdxBodyToBuilderBlocks(body, {});
+
+    expect(first).toEqual(second);
+    expect(first).toEqual([
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: expect.stringMatching(/^builder-mdx-video-/),
+        component: {
+          name: "Video",
+          options: {
+            video: "https://cdn.example.com/demo.mp4?download=1",
+            posterImage: "https://cdn.example.com/poster.jpg",
+            autoPlay: false,
+            controls: true,
+            muted: false,
+            loop: false,
+            playsInline: false,
+            preload: "metadata",
+            width: 640,
+          },
+        },
+        responsiveStyles: {
+          large: {
+            display: "flex",
+            flexDirection: "column",
+            position: "relative",
+          },
+        },
+      },
+    ]);
+  });
+
+  it("hydrates Builder Video blocks as editable native Content video markup", async () => {
+    const body =
+      '<video src="https://cdn.example.com/demo.mp4" controls muted width="640"></video>';
+    const blocks = await builderMdxBodyToBuilderBlocks(body, {});
+    const article: BuilderContentEntry = {
+      id: "article-native-video",
+      model: "blog-article",
+      name: "Article Native Video",
+      data: { title: "Article Native Video", blocks },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    expect(readable.mdx.body).toBe(body);
+    await expect(
+      builderReadableBodyToBuilderBlocks({
+        localContent: readable.mdx.body,
+        losslessContent: lossless.mdx.body,
+        sidecars,
+      }),
+    ).resolves.toEqual({ blocks, warnings: [] });
+  });
+
+  it("round-trips Content blockquotes through Builder Text HTML", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      "> A test quote should remain a quote.",
+      {},
+    );
+    expect(blocks).toMatchObject([
+      {
+        component: {
+          name: "Text",
+          options: {
+            text: "<blockquote><p>A test quote should remain a quote.</p></blockquote>",
+          },
+        },
+      },
+    ]);
+    const readable = await builderEntryToReadableMdxBundle({
+      id: "article-quote",
+      model: "blog-article",
+      name: "Article Quote",
+      data: { title: "Article Quote", blocks },
+    });
+    expect(readable.mdx.body).toBe("> A test quote should remain a quote.");
+  });
+
+  it("maps literal native video booleans and rejects unsafe video attributes", async () => {
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        '<video src="https://cdn.example.com/demo.mp4" autoplay muted loop playsinline height="360"></video>',
+        {},
+      ),
+    ).resolves.toMatchObject([
+      {
+        component: {
+          name: "Video",
+          options: {
+            autoPlay: true,
+            controls: false,
+            muted: true,
+            loop: true,
+            playsInline: true,
+            height: 360,
+          },
+        },
+      },
+    ]);
+
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        '<video src="https://cdn.example.com/demo.mp4" autoplay="false" muted="false" loop="false" playsinline="false"></video>',
+        {},
+      ),
+    ).resolves.toMatchObject([
+      {
+        component: {
+          name: "Video",
+          options: {
+            autoPlay: false,
+            controls: false,
+            muted: false,
+            loop: false,
+            playsInline: false,
+          },
+        },
+      },
+    ]);
+
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        '<video src="javascript:alert(1)" controls></video>',
+        {},
+      ),
+    ).rejects.toThrow("safe HTTP(S) URL");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        '<video src="https://cdn.example.com/demo.webm" controls></video>',
+        {},
+      ),
+    ).rejects.toThrow("MP4");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        '<video src="https://cdn.example.com/demo.mp4" onplay="alert(1)"></video>',
+        {},
+      ),
+    ).rejects.toThrow("Unsupported Builder video attribute");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        "<video src={videoUrl} controls></video>",
+        {},
+      ),
+    ).rejects.toThrow("literal values");
+  });
+
+  it("reverses emitted markdown image URL escaping when round-tripping Builder images", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-image-url-escape",
+      model: "blog-article",
+      name: "Article Image URL Escape",
+      data: {
+        title: "Article Image URL Escape",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "image-paren",
+            component: {
+              name: "Image",
+              options: {
+                image: "https://cdn.example.com/screenshots/plan(1).png",
+                altText: "Plan screenshot",
+              },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    expect(readable.mdx.body).toContain(
+      "![Plan screenshot](https://cdn.example.com/screenshots/plan(1%29.png)",
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks?.[0]).toMatchObject({
+      component: {
+        name: "Image",
+        options: {
+          image: "https://cdn.example.com/screenshots/plan(1).png",
+          altText: "Plan screenshot",
+        },
+      },
+    });
+  });
+
+  it("blocks pushability when a raw sidecar hash is tampered", async () => {
+    const bundle = await builderEntryToMdxBundle(entry);
+    const rawPath = Object.keys(bundle.files).find((path) =>
+      path.endsWith(".json"),
+    );
+    expect(rawPath).toBeTruthy();
+    const tampered = {
+      ...bundle.files,
+      [rawPath!]: bundle.files[rawPath!].replace("text-1", "text-tampered"),
+    };
+
+    await expect(
+      builderMdxToBuilderBlocks({
+        path: bundle.mdx.path,
+        source: bundle.mdx.source,
+        sidecars: tampered,
+      }),
+    ).rejects.toThrow("hash mismatch");
+  });
+
+  it("blocks pushability when a referenced raw sidecar is missing", async () => {
+    const bundle = await builderEntryToMdxBundle(entry);
+
+    await expect(
+      builderMdxToBuilderBlocks({
+        path: bundle.mdx.path,
+        source: bundle.mdx.source,
+        sidecars: {},
+      }),
+    ).rejects.toThrow("Missing Builder raw sidecar");
+  });
+
+  it("rejects unsupported MDX instead of pushing it as Builder text", async () => {
+    const bundle = await builderEntryToMdxBundle(entry);
+
+    await expect(
+      builderMdxToBuilderBlocks({
+        path: bundle.mdx.path,
+        source: `${bundle.mdx.source}\n\nexport const meta = {}\n`,
+        sidecars: bundle.files,
+      }),
+    ).rejects.toThrow("Unsupported Builder MDX syntax");
+
+    await expect(
+      builderMdxToBuilderBlocks({
+        path: bundle.mdx.path,
+        source: `${bundle.mdx.source}\n\n<CustomDocsWidget />\n`,
+        sidecars: bundle.files,
+      }),
+    ).rejects.toThrow("Unsupported Builder MDX component");
+  });
+
+  it("rejects Symbol entry retargeting", async () => {
+    const bundle = await builderEntryToMdxBundle(entry);
+    const retargetedSource = bundle.mdx.source.replace(
+      'entry="nav-entry"',
+      'entry="other-entry"',
+    );
+
+    await expect(
+      builderMdxToBuilderBlocks({
+        path: bundle.mdx.path,
+        source: retargetedSource,
+        sidecars: bundle.files,
+      }),
+    ).rejects.toThrow("Symbol entry is read-only");
+  });
+
+  it("round-trips Tabbed Content with nested raw blocks and tab metadata", async () => {
+    const bundle = await builderEntryToMdxBundle(tabbedEntry);
+
+    expect(bundle.mdx.source).toContain("<BuilderTabbedContent");
+    expect(bundle.mdx.source).toContain("<BuilderRawBlock");
+
+    const result = await builderMdxToBuilderBlocks({
+      path: bundle.mdx.path,
+      source: bundle.mdx.source,
+      sidecars: bundle.files,
+    });
+
+    expect(result.blocks).toEqual(testBlocks(tabbedEntry));
+    expect(result.blocksHash).toBe(builderBlocksHash(testBlocks(tabbedEntry)));
+  });
+
+  it("merges readable edits inside Builder tab content", async () => {
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(tabbedEntry),
+      builderEntryToMdxBundle(tabbedEntry),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    expect(readable.mdx.body).toContain("### React");
+    expect(readable.mdx.body).toContain("npm install @builder.io/sdk-react");
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body
+        .replace("### React", "### React SDK")
+        .replace(
+          "npm install @builder.io/sdk-react",
+          "pnpm add @builder.io/sdk-react",
+        ),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    const tabsBlock = result.blocks?.[0] as any;
+    expect(tabsBlock.component.options.tabs[0]).toMatchObject({
+      label: "React SDK",
+      analyticsId: "react-tab",
+    });
+    expect(tabsBlock.component.options.tabs[0].content[1]).toMatchObject({
+      id: "nested-code",
+      component: {
+        name: "Code Block",
+        options: {
+          code: "pnpm add @builder.io/sdk-react",
+          language: "bash",
+        },
+      },
+    });
+  });
+
+  it("emits readable child text for unknown Builder container blocks", async () => {
+    const bundle = await builderEntryToMdxBundle({
+      id: "article-with-container",
+      model: "blog-article",
+      name: "Container Article",
+      data: {
+        title: "Container Article",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "section-1",
+            component: {
+              name: "Core:Section",
+              options: { maxWidth: 1200 },
+            },
+            children: [
+              {
+                "@type": "@builder.io/sdk:Element",
+                "@version": 2,
+                id: "section-text-1",
+                component: {
+                  name: "Text",
+                  options: {
+                    text: "<h2>Readable heading</h2><p>This paragraph should appear in Content.</p>",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(bundle.mdx.body).toContain("Readable heading");
+    expect(bundle.mdx.body).toContain(
+      "This paragraph should appear in Content.",
+    );
+    expect(bundle.mdx.body).not.toContain("<BuilderRawBlock");
+  });
+
+  it("preserves known Builder reference blocks instead of flattening nested children", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-reference-block",
+      model: "blog-article",
+      name: "Article Reference Block",
+      data: {
+        title: "Article Reference Block",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "reference-1",
+            component: {
+              name: "Reference Block",
+              options: {
+                entry: "shared-doc",
+                model: "docs-content",
+              },
+            },
+            children: [
+              {
+                "@type": "@builder.io/sdk:Element",
+                "@version": 2,
+                id: "reference-child-text",
+                component: {
+                  name: "Text",
+                  options: {
+                    text: "<p>This child text belongs to the source reference.</p>",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+
+    expect(readable.mdx.body).toContain("<SourceComponent");
+    expect(readable.mdx.body).toContain('componentName="Reference Block"');
+    expect(readable.mdx.body).not.toContain(
+      "This child text belongs to the source reference.",
+    );
+    const marker = readable.mdx.body
+      .split("\n\n")
+      .find((unit) => unit.includes("<SourceComponent"));
+    expect(marker).toBeDefined();
+    const parsedMarker = await parseRegistryBlockData(marker!);
+    expect(parsedMarker?.data).toMatchObject({
+      provider: "builder",
+      componentName: "Reference Block",
+      mappingId: "builder-reference-preserved",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
+    });
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks).toEqual(lossless.blocks);
+  });
+
+  it("hydrates database bodies as clean readable markdown", async () => {
+    const bundle = await builderEntryToReadableMdxBundle(entry);
+
+    expect(bundle.mdx.body).toContain("## Hello");
+    expect(bundle.mdx.body).toContain("Welcome to docs.");
+    expect(bundle.mdx.body).toContain("<SourceComponent");
+    expect(bundle.mdx.body).toContain('componentName="Symbol"');
+    const marker = bundle.mdx.body
+      .split("\n\n")
+      .find((unit) => unit.includes('componentName="Symbol"'));
+    expect(marker).toBeDefined();
+    const parsedMarker = await parseRegistryBlockData(marker!);
+    expect(parsedMarker?.data).toMatchObject({
+      componentName: "Symbol",
+      mappingId: "builder-symbol-preserved",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
+      previewKind: "symbol",
+    });
+    expect(bundle.mdx.body).not.toContain("<BuilderText");
+    expect(bundle.mdx.body).not.toContain("<BuilderRawBlock");
+  });
+
+  it("hydrates Builder images as native markdown images", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-with-image",
+      model: "blog-article",
+      name: "Article with Image",
+      data: {
+        title: "Article with Image",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "image-1",
+            component: {
+              name: "Image",
+              options: {
+                image:
+                  "https://cdn.builder.io/api/v1/image/assets%2Fdemo%2Fimage.png?width=780",
+                altText: "Architecture diagram",
+              },
+            },
+          },
+        ],
+      },
+    };
+    const readable = await builderEntryToReadableMdxBundle(article);
+
+    expect(readable.mdx.body).toBe(
+      "![Architecture diagram](https://cdn.builder.io/api/v1/image/assets%2Fdemo%2Fimage.png?width=780)",
+    );
+    expect(readable.mdx.body).not.toContain("<SourceComponent");
+  });
+
+  it("merges native markdown image edits back into Builder image blocks", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-with-editable-image",
+      model: "blog-article",
+      name: "Article with Editable Image",
+      data: {
+        title: "Article with Editable Image",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-before",
+            component: {
+              name: "Text",
+              options: { text: "<p>Intro paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "image-1",
+            component: {
+              name: "Image",
+              options: {
+                image: "https://cdn.example.com/before.png",
+                altText: "Before diagram",
+              },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    expect(readable.mdx.body).toContain(
+      "![Before diagram](https://cdn.example.com/before.png)",
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body.replace(
+        "![Before diagram](https://cdn.example.com/before.png)",
+        "![After diagram](https://cdn.example.com/after.png)",
+      ),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks?.[1]).toMatchObject({
+      id: "image-1",
+      component: {
+        name: "Image",
+        options: {
+          image: "https://cdn.example.com/after.png",
+          altText: "After diagram",
+        },
+      },
+    });
+  });
+
+  it("merges readable markdown edits back into Builder text while preserving unsupported blocks", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-with-embed",
+      model: "blog-article",
+      name: "Article with Embed",
+      data: {
+        title: "Article with Embed",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-before",
+            component: {
+              name: "Text",
+              options: { text: "<p>First paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "embed-1",
+            component: {
+              name: "Embed",
+              options: { url: "https://example.com/embed" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-after",
+            component: {
+              name: "Text",
+              options: { text: "<p>Second paragraph.</p>" },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    expect(readable.mdx.body).toContain("<SourceComponent");
+    expect(readable.mdx.body).toContain('componentName="Embed"');
+    const marker = readable.mdx.body
+      .split("\n\n")
+      .find((unit) => unit.includes("<SourceComponent"));
+    expect(marker).toBeDefined();
+    const parsedMarker = await parseRegistryBlockData(marker!);
+    expect(parsedMarker?.type).toBe("source-component");
+    expect(parsedMarker?.data).toMatchObject({
+      provider: "builder",
+      componentName: "Embed",
+      mappingId: "builder-embed-preserved",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
+      previewStatus: "available",
+      previewKind: "embed",
+      previewUrl: "https://example.com/embed",
+    });
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body.replace(
+        "First paragraph.",
+        "First paragraph edited.",
+      ),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks).toHaveLength(3);
+    expect(result.blocks?.[0]).toMatchObject({
+      id: "text-before",
+      component: {
+        name: "Text",
+        options: { text: expect.stringContaining("First paragraph edited.") },
+      },
+    });
+    expect(result.blocks?.[1]).toMatchObject({
+      id: "embed-1",
+      component: { name: "Embed" },
+    });
+    expect(result.blocks?.[2]).toMatchObject({
+      id: "text-after",
+      component: {
+        name: "Text",
+        options: { text: expect.stringContaining("Second paragraph.") },
+      },
+    });
+  });
+
+  it("blocks readable merge when a source component marker is removed", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-marker-delete",
+      model: "blog-article",
+      name: "Article Marker Delete",
+      data: {
+        title: "Article Marker Delete",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-before",
+            component: {
+              name: "Text",
+              options: { text: "<p>First paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "table-1",
+            component: {
+              name: "Table",
+              options: { rows: [["A", "B"]] },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+    const tableMarker = readable.mdx.body
+      .split("\n\n")
+      .find((unit) => unit.includes("<SourceComponent"));
+    expect(tableMarker).toBeDefined();
+    const parsedTableMarker = await parseRegistryBlockData(tableMarker!);
+    expect(parsedTableMarker?.data).toMatchObject({
+      provider: "builder",
+      componentName: "Table",
+      previewKind: "table",
+      previewItems: ["1 row", "2 columns"],
+      preview: {
+        status: "available",
+        kind: "table",
+        label: "Builder Table",
+        fields: [
+          { label: "row", value: "1" },
+          { label: "columns", value: "2" },
+        ],
+        table: {
+          columns: [
+            { id: "column-1", label: "Column 1" },
+            { id: "column-2", label: "Column 2" },
+          ],
+          rows: [{ "column-1": "A", "column-2": "B" }],
+          truncated: false,
+        },
+      },
+    });
+
+    const withoutMarker = readable.mdx.body
+      .split("\n\n")
+      .filter((unit) => !unit.includes("<SourceComponent"))
+      .join("\n\n");
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: withoutMarker,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain(
+      "changed preserved source component markers",
+    );
+  });
+
+  it("keeps Builder blocks stable when readable markdown has no edits", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-no-edit",
+      model: "blog-article",
+      name: "Article No Edit",
+      data: {
+        title: "Article No Edit",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-before",
+            component: {
+              name: "Text",
+              options: { text: "<p>First paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "embed-1",
+            component: {
+              name: "Embed",
+              options: { url: "https://example.com/embed" },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks).toEqual(lossless.blocks);
+  });
+
+  it("preserves source markers when adjacent readable prose changes", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-adjacent-edit",
+      model: "blog-article",
+      name: "Article Adjacent Edit",
+      data: {
+        title: "Article Adjacent Edit",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-before",
+            component: {
+              name: "Text",
+              options: { text: "<p>First paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "table-1",
+            component: {
+              name: "Table",
+              options: { rows: [["A", "B"]] },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-after",
+            component: {
+              name: "Text",
+              options: { text: "<p>Second paragraph.</p>" },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body
+        .replace("First paragraph.", "First paragraph edited.")
+        .replace("Second paragraph.", "Second paragraph edited."),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks?.[1]).toMatchObject({
+      id: "table-1",
+      component: { name: "Table" },
+    });
+    expect(result.blocks?.[0]).toMatchObject({
+      component: {
+        name: "Text",
+        options: { text: expect.stringContaining("First paragraph edited.") },
+      },
+    });
+    expect(result.blocks?.[2]).toMatchObject({
+      component: {
+        name: "Text",
+        options: { text: expect.stringContaining("Second paragraph edited.") },
+      },
+    });
+  });
+
+  it("keeps a compact two-word edit semantic across readable block boundaries", async () => {
+    const blocks = [
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "heading-1",
+        component: {
+          name: "Text",
+          options: { text: "<h2>BS-QA-R40</h2>" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "paragraph-1",
+        component: {
+          name: "Text",
+          options: { text: "<p>R40 rich fixture paragraph.</p>" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "list-1",
+        component: {
+          name: "Text",
+          options: { text: "<ul><li>One</li><li>Two</li></ul>" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "code-1",
+        component: {
+          name: "Code Block",
+          options: { code: "const answer = 42;", language: "ts" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "embed-1",
+        component: {
+          name: "Embed",
+          options: { url: "https://example.com/embed" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "quote-1",
+        component: {
+          name: "Text",
+          options: { text: "<blockquote><p>A quote.</p></blockquote>" },
+        },
+      },
+    ];
+    const article: BuilderContentEntry = {
+      id: "article-compact-two-word-edit",
+      model: "blog-article",
+      name: "Article Compact Two Word Edit",
+      data: { title: "Article Compact Two Word Edit", blocks },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body
+        .replace(/\n\n/g, "\n")
+        .replace("rich fixture", "semantic sample"),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(
+      result.blocks?.map((block) => (block as { id?: string }).id),
+    ).toEqual(blocks.map((block) => block.id));
+    expect(result.blocks?.[1]).toMatchObject({
+      component: {
+        name: "Text",
+        options: { text: "<p>R40 semantic sample paragraph.</p>" },
+      },
+    });
+    expect(result.blocks?.[0]).toEqual(lossless.blocks[0]);
+    expect(result.blocks?.[2]).toEqual(lossless.blocks[2]);
+    expect(result.blocks?.[3]).toEqual(lossless.blocks[3]);
+    expect(result.blocks?.[4]).toEqual(lossless.blocks[4]);
+    expect(result.blocks?.[5]).toEqual(lossless.blocks[5]);
+  });
+
+  it.each([
+    ["heading", "## Heading", "Heading"],
+    ["list", "- One\n- Two", "One\nTwo"],
+    ["quote", "> A quote.", "A quote."],
+    ["fence", "```ts\nconst answer = 42;\n```", "const answer = 42;"],
+  ])("rejects a real %s node-kind change", async (_kind, before, after) => {
+    const blocks = [
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "heading-1",
+        component: { name: "Text", options: { text: "<h2>Heading</h2>" } },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "list-1",
+        component: {
+          name: "Text",
+          options: { text: "<ul><li>One</li><li>Two</li></ul>" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "quote-1",
+        component: {
+          name: "Text",
+          options: { text: "<blockquote><p>A quote.</p></blockquote>" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "code-1",
+        component: {
+          name: "Code Block",
+          options: { code: "const answer = 42;", language: "ts" },
+        },
+      },
+    ];
+    const article: BuilderContentEntry = {
+      id: `article-real-${_kind}-change`,
+      model: "blog-article",
+      data: { title: "Article Real Structure Change", blocks },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body.replace(before, after),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("moved or restructured");
+  });
+
+  it("rejects movement between same-kind editable nodes", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-same-kind-move",
+      model: "blog-article",
+      data: {
+        title: "Article Same-kind Move",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-1",
+            component: {
+              name: "Text",
+              options: { text: "<p>First unique paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-2",
+            component: {
+              name: "Text",
+              options: { text: "<p>Second unique paragraph.</p>" },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body.replace(
+        "First unique paragraph.\n\nSecond unique paragraph.",
+        "Second unique paragraph.\n\nFirst unique paragraph.",
+      ),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("moved existing semantic blocks");
+  });
+
+  it("rejects ambiguous movement when same-kind editable nodes are also edited", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-same-kind-move-and-edit",
+      model: "blog-article",
+      data: {
+        title: "Article Same-kind Move and Edit",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-1",
+            component: {
+              name: "Text",
+              options: { text: "<p>First unique paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-2",
+            component: {
+              name: "Text",
+              options: { text: "<p>Second unique paragraph.</p>" },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body.replace(
+        "First unique paragraph.\n\nSecond unique paragraph.",
+        "Second revised paragraph.\n\nFirst revised paragraph.",
+      ),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("moved existing semantic blocks");
+  });
+
+  it("allows multiple paragraph edits within one Builder Text segment", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-multi-paragraph-text-edit",
+      model: "blog-article",
+      data: {
+        title: "Article Multi-paragraph Text Edit",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-1",
+            component: {
+              name: "Text",
+              options: {
+                text: "<p>First paragraph.</p><p>Second paragraph.</p>",
+              },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body
+        .replace("First paragraph.", "First paragraph revised.")
+        .replace("Second paragraph.", "Second paragraph revised."),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks?.[0]).toMatchObject({
+      id: "text-1",
+      component: {
+        name: "Text",
+        options: {
+          text: expect.stringContaining("Second paragraph revised."),
+        },
+      },
+    });
+  });
+
+  it("returns a validation warning for MDX-sensitive readable prose", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-mdx-sensitive-prose",
+      model: "blog-article",
+      data: {
+        title: "Article MDX-sensitive Prose",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-1",
+            component: {
+              name: "Text",
+              options: {
+                text: "<p>Values like &lt;5 and {draft} remain prose.</p>",
+              },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("cannot be parsed safely as MDX");
+  });
+
+  it("blocks readable merge when a source component marker is moved", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-marker-move",
+      model: "blog-article",
+      name: "Article Marker Move",
+      data: {
+        title: "Article Marker Move",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-before",
+            component: {
+              name: "Text",
+              options: { text: "<p>First paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "embed-1",
+            component: {
+              name: "Embed",
+              options: { url: "https://example.com/embed" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-after",
+            component: {
+              name: "Text",
+              options: { text: "<p>Second paragraph.</p>" },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+    const units = readable.mdx.body.split("\n\n");
+    const marker = units.find((unit) => unit.includes("<SourceComponent"));
+    const moved = units
+      .filter((unit) => !unit.includes("<SourceComponent"))
+      .concat(marker ? [marker] : [])
+      .join("\n\n");
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: moved,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("moved or restructured");
+  });
+
+  it("preserves completely unknown Builder component types as source markers", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-unknown-component",
+      model: "blog-article",
+      name: "Article Unknown Component",
+      data: {
+        title: "Article Unknown Component",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "unknown-1",
+            component: {
+              name: "CustomerOnlyWidget",
+              options: { message: "private provider shape" },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const marker = readable.mdx.body
+      .split("\n\n")
+      .find((unit) => unit.includes("<SourceComponent"));
+    expect(marker).toBeDefined();
+    const parsedMarker = await parseRegistryBlockData(marker!);
+    expect(parsedMarker?.data).toMatchObject({
+      provider: "builder",
+      componentName: "CustomerOnlyWidget",
+      mappingId: "builder-unknown-preserved",
+      mappingStatus: "unknown",
+      sourceEditState: "preserved-only",
+      previewStatus: "warning",
+      previewKind: "component",
+      preview: {
+        status: "warning",
+        kind: "component",
+        label: "Builder CustomerOnlyWidget",
+      },
+    });
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks).toEqual(lossless.blocks);
+  });
+
+  it("does not label mapped-name variants as safe-to-edit markers", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-mapped-name-variant",
+      model: "blog-article",
+      name: "Article Mapped Name Variant",
+      data: {
+        title: "Article Mapped Name Variant",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "lowercase-text-1",
+            component: {
+              name: "text",
+              options: { text: "<p>Lowercase mapped name.</p>" },
+            },
+          },
+        ],
+      },
+    };
+
+    const readable = await builderEntryToReadableMdxBundle(article);
+    const marker = readable.mdx.body
+      .split("\n\n")
+      .find((unit) => unit.includes("<SourceComponent"));
+    expect(marker).toBeDefined();
+    const parsedMarker = await parseRegistryBlockData(marker!);
+    expect(parsedMarker?.data).toMatchObject({
+      provider: "builder",
+      componentName: "text",
+      mappingId: "builder-unknown-preserved",
+      mappingStatus: "unknown",
+      sourceEditState: "preserved-only",
+      previewStatus: "warning",
+      title: "Builder text",
+    });
+  });
+
+  it("renders Builder Material Table components as structured source table previews", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-material-table",
+      model: "blog-article",
+      name: "Article Material Table",
+      data: {
+        title: "Article Material Table",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "material-table-1",
+            component: {
+              name: "Material Table",
+              options: {
+                headColumns: [
+                  { label: "Writing Code" },
+                  { label: "Designing Systems" },
+                ],
+                bodyRows: [
+                  {
+                    columns: [
+                      {
+                        content: [
+                          {
+                            "@type": "@builder.io/sdk:Element",
+                            "@version": 2,
+                            id: "cell-1",
+                            component: {
+                              name: "Text",
+                              options: { text: "<p>Hand-writing syntax</p>" },
+                            },
+                          },
+                        ],
+                      },
+                      {
+                        content: [
+                          {
+                            "@type": "@builder.io/sdk:Element",
+                            "@version": 2,
+                            id: "cell-2",
+                            component: {
+                              name: "Text",
+                              options: {
+                                text: "<p>Engineering deterministic constraints</p>",
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "pixel-1",
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const markers = readable.mdx.body
+      .split("\n\n")
+      .filter((unit) => unit.includes("<SourceComponent"));
+    expect(markers).toHaveLength(2);
+    const parsedTable = await parseRegistryBlockData(markers[0]!);
+    expect(parsedTable?.data).toMatchObject({
+      provider: "builder",
+      componentName: "Material Table",
+      mappingId: "builder-table-preserved",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
+      previewKind: "table",
+      previewItems: ["1 row", "2 columns"],
+      preview: {
+        status: "available",
+        kind: "table",
+        label: "Builder Table",
+        table: {
+          columns: [
+            { id: "column-1", label: "Writing Code" },
+            { id: "column-2", label: "Designing Systems" },
+          ],
+          rows: [
+            {
+              "column-1": "Hand-writing syntax",
+              "column-2": "Engineering deterministic constraints",
+            },
+          ],
+          truncated: false,
+        },
+      },
+    });
+    const parsedNameless = await parseRegistryBlockData(markers[1]!);
+    expect(parsedNameless?.data).toMatchObject({
+      componentName: "Builder component",
+      mappingId: "builder-nameless-preserved",
+      mappingStatus: "unknown",
+      sourceEditState: "preserved-only",
+      previewStatus: "unavailable",
+    });
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks).toEqual(lossless.blocks);
+  });
+
+  it("blocks readable merge when a source component marker is tampered", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-marker-tamper",
+      model: "blog-article",
+      name: "Article Marker Tamper",
+      data: {
+        title: "Article Marker Tamper",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-before",
+            component: {
+              name: "Text",
+              options: { text: "<p>First paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "embed-1",
+            component: {
+              name: "Embed",
+              options: { url: "https://example.com/embed" },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+    const tampered = readable.mdx.body.replace(
+      /rawHash="[^"]+"/,
+      'rawHash="tampered"',
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: tampered,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("hash mismatch");
+  });
+
+  it("warns instead of merging readable markdown when the structure is ambiguous", async () => {
+    const [readable, bundle] = await Promise.all([
+      builderEntryToReadableMdxBundle(entry),
+      builderEntryToMdxBundle(entry),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(bundle.files).filter(([path]) => path !== bundle.mdx.path),
+    );
+    const marker = readable.mdx.body
+      .split("\n\n")
+      .find((unit) => unit.includes("<SourceComponent"));
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: [
+        "One new paragraph that no longer matches the source shape.",
+        marker,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      losslessContent: bundle.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("changed structure");
+  });
+});

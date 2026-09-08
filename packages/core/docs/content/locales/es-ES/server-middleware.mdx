@@ -1,0 +1,151 @@
+---
+title: "Middleware"
+description: "Middleware de Nitro en server/middleware/: qué es, cómo escribir el suyo propio y cómo funciona el guardia de autenticación incorporado."
+---
+
+# Middleware
+
+Middleware es código que se ejecuta en cada solicitud entrante antes de que llegue a un manejador de ruta. Se sitúa entre los llamantes y las rutas, lo que lo convierte en el lugar adecuado para asuntos transversales: autenticación, registro, cabeceras CORS, limitación de tasa, o cualquier cosa que deba aplicarse sin importar qué ruta gestione la solicitud.
+
+<Diagram id="doc-block-server-middleware-1" title="Dónde se ejecuta el middleware" summary="El middleware intercepta cada solicitud antes de que llegue a una ruta. Las solicitudes permitidas continúan hacia el manejador de ruta; las solicitudes bloqueadas reciben una redirección o una respuesta de error.">
+
+```html
+<div class="diagram-mw">
+  <div class="diagram-col">
+    <div class="diagram-node">Navegador / UI</div>
+    <div class="diagram-node">Bucle del agente</div>
+    <div class="diagram-node">
+      Clientes externos<br /><small class="diagram-muted"
+        >HTTP · MCP · A2A</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Middleware</strong>
+    <small class="diagram-muted">server/middleware/</small>
+    <small class="diagram-muted">se ejecuta en cada solicitud</small>
+  </div>
+  <div class="mw-outcomes">
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">permitida</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>Rutas y manejadores</div>
+    </div>
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">bloqueada</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>Redirección / error</div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mw {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mw .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mw .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-mw .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mw-outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mw-outcome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mw-label {
+  font-size: 11px;
+  min-width: 44px;
+  text-align: right;
+}
+.mw-arrow {
+  font-size: 16px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Nitro recoge automáticamente los archivos en `server/middleware/`; no se requiere registro. Cada archivo de ese directorio se ejecuta en cada solicitud, en orden alfabético.
+
+## Escribir Middleware {#writing-middleware}
+
+Un archivo de middleware exporta un `defineEventHandler`. Para dejar que la solicitud continúe, no devuelva nada. Para bloquearla, lance un `createError` o devuelva una redirección con `sendRedirect`.
+
+```ts filename="server/middleware/cors.ts"
+import { defineEventHandler, setResponseHeader } from "h3";
+
+export default defineEventHandler((event) => {
+  setResponseHeader(event, "Access-Control-Allow-Origin", "*");
+  // returning nothing passes the request through to the route handler
+});
+```
+
+Varios archivos de middleware se ejecutan en orden alfabético de nombre de archivo antes del manejador de ruta correspondiente. Cada middleware puede inspeccionar o modificar la solicitud, establecer cabeceras de respuesta, o cortocircuitar la respuesta por completo.
+
+Para más patrones de middleware — lógica condicional, operaciones asíncronas, interceptación de respuestas — consulte los [documentos de middleware de Nitro](https://nitro.build/guide/routing#middleware) y los [documentos de H3](https://h3.unjs.io).
+
+## El Middleware de Autenticación {#auth-middleware}
+
+Toda aplicación nativa del agente incluye `server/middleware/auth.ts`. Impone la autenticación en todas las rutas, incluidas las rutas de páginas públicas y las rutas `/api/*` personalizadas que de otro modo eludirían la autenticación incorporada del marco.
+
+### El Guardia de Autenticación {#auth-guard}
+
+```ts filename="server/middleware/auth.ts"
+import { runAuthGuard } from "@agent-native/core/server";
+import { defineEventHandler } from "h3";
+
+export default defineEventHandler(async (event) => {
+  return runAuthGuard(event);
+});
+```
+
+`runAuthGuard` comprueba cada solicitud contra la configuración de autenticación establecida por el [plugin de autenticación](/docs/server-plugins#auth-plugin). Si la solicitud no está autenticada y la ruta no figura en `publicPaths`, redirige a la página de inicio de sesión.
+
+### Por Qué Middleware, y No un Plugin o un Guardia de Ruta {#why-middleware}
+
+El registro de middleware incorporado del manejador del marco se limita a las rutas `/_agent-native/*`. Sin un archivo de middleware separado, las rutas de páginas (`/`, `/settings`) y las rutas de API personalizadas (`/api/*`) eludirían la autenticación por completo.
+
+Los plugins se ejecutan al inicio, no por solicitud, por lo que no pueden imponer autenticación por solicitud. Un guardia a nivel de ruta en cada manejador de ruta personalizado es propenso a errores y fácil de olvidar. El middleware en `server/middleware/` es el único lugar que se ejecuta en cada solicitud sin importar la ruta.
+
+### Agregar Rutas Públicas {#public-paths}
+
+Para permitir el acceso sin autenticación a rutas específicas, páselas a `createAuthPlugin` en `server/plugins/auth.ts`, no directamente al middleware:
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhooks/stripe"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+`runAuthGuard` lee las rutas públicas configuradas desde el plugin de autenticación en el momento de la solicitud.
+
+## ¿Qué sigue? {#whats-next}
+
+- [**Plugins**](/docs/server-plugins): configuración del plugin de autenticación que el middleware impone
+- [**Rutas**](/docs/server-routes): rutas personalizadas protegidas por este middleware
+- [**Seguridad**](/docs/security): delimitación de datos, guardias de acceso y el modelo completo de autenticación
+- [**Documentos de middleware de Nitro**](https://nitro.build/guide/routing#middleware): la API completa de middleware y sus patrones
