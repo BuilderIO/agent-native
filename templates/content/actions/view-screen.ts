@@ -211,6 +211,64 @@ export function documentContentPreview(content: string) {
   };
 }
 
+/** Shape written by the editor's `content-selection.ts` client helper. Kept
+ *  as a local structural type (rather than imported from `app/`) since
+ *  actions are server-only and app-state values are untrusted input anyway. */
+interface ContentSelectionAppState {
+  documentId?: unknown;
+  collapsed?: unknown;
+  selectedText?: unknown;
+  textTruncated?: unknown;
+  blockText?: unknown;
+  heading?: unknown;
+}
+
+/**
+ * Build the `selection` screen section from the raw `content-selection`
+ * app-state value, or return null when there is nothing usable — no value,
+ * malformed value, or a selection left over from a document that isn't the
+ * one currently open (the tab navigated away without clearing it in time).
+ */
+export function buildSelectionScreenSection(
+  selection: unknown,
+  openDocumentId: string | undefined,
+): Record<string, unknown> | null {
+  if (!selection || typeof selection !== "object") return null;
+  const state = selection as ContentSelectionAppState;
+  if (
+    typeof state.documentId !== "string" ||
+    !openDocumentId ||
+    state.documentId !== openDocumentId
+  ) {
+    return null;
+  }
+
+  const heading = typeof state.heading === "string" ? state.heading : null;
+  const blockText = typeof state.blockText === "string" ? state.blockText : "";
+
+  if (state.collapsed === true || typeof state.selectedText !== "string") {
+    return {
+      documentId: state.documentId,
+      collapsed: true,
+      blockText,
+      heading,
+      hint: "Cursor position only; no text is selected. Call get-document for full body access before editing.",
+    };
+  }
+
+  return {
+    documentId: state.documentId,
+    collapsed: false,
+    selectedText: state.selectedText,
+    textTruncated: state.textTruncated === true,
+    blockText,
+    heading,
+    hint:
+      "To edit this exact text, call edit-document with find set to selectedText above (verbatim) and replace set to the new text; " +
+      "id, baseRevision, and idempotencyKey are all required and come from get-document.",
+  };
+}
+
 function propertyForDatabaseItem(
   item: ContentDatabaseItem,
   property: DocumentProperty,
@@ -677,7 +735,7 @@ interface NavigationState {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns bounded navigation, document previews, and the current database window; use get-document for full page content.",
+    "See what the user is currently looking at on screen. Returns bounded navigation, document previews, the current database window, and the editor's current text selection (if any); use get-document for full page content.",
   deferLoading: false,
   schema: z.object({}),
   http: false,
@@ -685,12 +743,18 @@ export default defineAction({
     const navigation = await readAppStateForCurrentTab("navigation");
     const localFilesState = await readAppState("local-files");
     const contentSpaceState = await readAppState("content-space");
+    const selectionState = await readAppStateForCurrentTab("content-selection");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
     if (contentSpaceState) screen.contentSpace = contentSpaceState;
 
     const nav = navigation as NavigationState | null;
+    const selectionSection = buildSelectionScreenSection(
+      selectionState,
+      nav?.documentId,
+    );
+    if (selectionSection) screen.selection = selectionSection;
     const db = getDb();
 
     if (nav?.view === "local-files") {

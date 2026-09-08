@@ -806,10 +806,10 @@ describe("useDesignHotkeys — Shift+A adds auto layout", () => {
 });
 
 describe("useDesignHotkeys — minimize UI and show/hide comments", () => {
-  it("uses Figma's Shift+\\ chord without claiming Cmd/Ctrl+\\", async () => {
+  it("uses Cmd/Ctrl+\\ for sidebars and Cmd/Ctrl+Shift+\\ for minimal UI", async () => {
     const onToggleUi = vi.fn();
-    await withHotkeys({ onToggleUi }, () => {
-      dispatchKey("|", { code: "Backslash", shiftKey: true });
+    const onToggleMinimalUi = vi.fn();
+    await withHotkeys({ onToggleUi, onToggleMinimalUi }, () => {
       dispatchKey("\\", { code: "Backslash", metaKey: true });
       dispatchKey("\\", { code: "Backslash", ctrlKey: true });
       dispatchKey("|", {
@@ -822,8 +822,10 @@ describe("useDesignHotkeys — minimize UI and show/hide comments", () => {
         ctrlKey: true,
         shiftKey: true,
       });
+      dispatchKey("|", { code: "Backslash", shiftKey: true });
     });
-    expect(onToggleUi).toHaveBeenCalledTimes(1);
+    expect(onToggleUi).toHaveBeenCalledTimes(2);
+    expect(onToggleMinimalUi).toHaveBeenCalledTimes(2);
   });
 
   it("fires onToggleComments for Shift+C, not the comment tool", async () => {

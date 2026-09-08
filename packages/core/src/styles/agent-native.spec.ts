@@ -67,7 +67,7 @@ describe("agent-native shell surface tokens", () => {
     });
 
     expect(css).toMatch(
-      /\.search-field-owns-clear::-webkit-search-cancel-button,\s*\.search-field-owns-clear::-webkit-search-decoration,\s*\.search-field-owns-clear::-webkit-search-results-button,\s*\.search-field-owns-clear::-webkit-search-results-decoration\s*\{[^}]*-webkit-appearance: none;[^}]*appearance: none;/s,
+      /\.agent-native-search-input::-webkit-search-cancel-button,\s*\.agent-native-search-input::-webkit-search-decoration,\s*\.agent-native-search-input::-webkit-search-results-button,\s*\.agent-native-search-input::-webkit-search-results-decoration\s*\{[^}]*-webkit-appearance: none;[^}]*appearance: none;/s,
     );
     expect(css).not.toMatch(
       /(^|[\s,])input\[type="search"\]::-webkit-search-cancel-button/m,

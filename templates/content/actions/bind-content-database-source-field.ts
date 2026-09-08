@@ -365,6 +365,25 @@ export default defineAction({
           "Source field was deleted before its binding could be saved.",
         );
       }
+      const [persistedField] = await tx
+        .select({
+          id: schema.contentDatabaseSourceFields.id,
+          propertyId: schema.contentDatabaseSourceFields.propertyId,
+          localFieldKey: schema.contentDatabaseSourceFields.localFieldKey,
+          mappingType: schema.contentDatabaseSourceFields.mappingType,
+        })
+        .from(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.id, updatedField.id));
+      if (
+        !persistedField ||
+        persistedField.propertyId !== property.id ||
+        persistedField.localFieldKey !== property.id ||
+        persistedField.mappingType !== "property"
+      ) {
+        throw new Error(
+          "Source field was deleted before its binding could be saved.",
+        );
+      }
       const [updatedSource] = await tx
         .update(schema.contentDatabaseSources)
         .set({ updatedAt: now })

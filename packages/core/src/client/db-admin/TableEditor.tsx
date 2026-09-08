@@ -21,7 +21,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type {
-  DbAdminDialect,
   DbAdminFilter,
   DbAdminForeignKey,
   DbAdminSort,
@@ -54,7 +53,6 @@ import {
 
 export interface TableEditorProps {
   table: string;
-  dialect: DbAdminDialect;
   requestConfig?: DbAdminRequestConfig;
   initialFilters?: DbAdminFilter[];
   onNavigateToRow: (table: string, filters: DbAdminFilter[]) => void;
@@ -74,7 +72,6 @@ function slugifyFilenamePart(value: string): string {
 
 export function TableEditor({
   table,
-  dialect: _dialect,
   requestConfig,
   initialFilters,
   onNavigateToRow,

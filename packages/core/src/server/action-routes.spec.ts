@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { getRequestRunContext } from "./request-context.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
@@ -66,6 +67,7 @@ vi.mock("../org/context.js", () => ({
     mockResolveOrgIdForEmail(...args),
   getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
   resolveOrgByDomain: (...args: unknown[]) => mockResolveOrgByDomain(...args),
+  isFederationMembershipValidatedForEvent: () => false,
 }));
 
 vi.mock("./auth.js", () => ({
@@ -723,6 +725,7 @@ describe("mountActionRoutes", () => {
       ping: {
         run: vi.fn(async () => ({
           browserSessionId: getRequestContext()?.browserSessionId,
+          browserTabId: getRequestContext()?.run?.browserTabId,
           clientPlatform: getRequestContext()?.clientPlatform,
         })),
       } as any,
@@ -736,6 +739,7 @@ describe("mountActionRoutes", () => {
       _method: "POST",
       _headers: {
         "x-agent-native-session-id": "pinned-session-1",
+        "x-agent-native-browser-tab": "tab-a",
         "x-agent-native-client-platform": "mobile",
       },
       req: { json: async () => ({}) },
@@ -748,10 +752,12 @@ describe("mountActionRoutes", () => {
 
     expect(await mounted[0].handler(withSession)).toEqual({
       browserSessionId: "pinned-session-1",
+      browserTabId: "tab-a",
       clientPlatform: "mobile",
     });
     expect(await mounted[0].handler(withoutSession)).toEqual({
       browserSessionId: undefined,
+      browserTabId: undefined,
       clientPlatform: undefined,
     });
   });
@@ -2261,10 +2267,7 @@ describe("mountActionRoutes", () => {
     expect(received.orgId).toBeNull();
   });
 
-  it.each([
-    "no such table: org_members",
-    'relation "org_members" does not exist',
-  ])(
+  it.each(['relation "org_members" does not exist'])(
     "suppresses the verified first-boot missing org table error: %s",
     async (message) => {
       const { mountActionRoutes } = await import("./action-routes.js");
@@ -2654,6 +2657,112 @@ describe("mountWebMcpActionRoutes", () => {
       }),
     ).resolves.toEqual({ caller: "webmcp" });
     expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("filters manifest.keyToolNames to tools this manifest actually lists", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        eligible: {
+          tool: { description: "Eligible", parameters: { type: "object" } },
+          run: vi.fn(),
+          readOnly: true,
+        } as any,
+        // Not exposed to external agents, so it never reaches the manifest's
+        // own `tools` list even though it's in `keyToolNames` below.
+        hidden: {
+          tool: { description: "Hidden", parameters: { type: "object" } },
+          run: vi.fn(),
+          agentTool: false,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: vi.fn(async () => "owner@example.com"),
+        manifest: {
+          name: "Clips",
+          description: "Read clips",
+          keyToolNames: ["eligible", "hidden"],
+        },
+      },
+    );
+
+    const compatibilityRoute = mounted.find(
+      ({ path }) => path === "/.well-known/mcp.json",
+    );
+    const compatibilityManifest = await compatibilityRoute?.handler({
+      _method: "GET",
+      _headers: { host: "clips.example.com", "x-forwarded-proto": "https" },
+    });
+
+    expect(compatibilityManifest.instructions).toContain(
+      "Key tools for this app: eligible.",
+    );
+    expect(compatibilityManifest.instructions).not.toContain("hidden");
+  });
+
+  it("resolves getRequestRunContext().browserTabId from X-Agent-Native-Browser-Tab, on both the webmcp and /mcp/tool paths, and leaves it undefined without the header", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    // The action itself reads the context — same helper
+    // `readAppStateForCurrentTab` (application-state/script-helpers.ts) uses
+    // to scope app state to the calling tab.
+    const run = vi.fn(async () => ({
+      browserTabId: getRequestRunContext()?.browserTabId,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(nitroApp, {
+      eligible: {
+        tool: { description: "Eligible", parameters: { type: "object" } },
+        run,
+        readOnly: true,
+      } as any,
+    });
+
+    const webMcpRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/eligible",
+    );
+    const mcpToolRoute = mounted.find(
+      ({ path }) => path === "/mcp/tool/eligible",
+    );
+
+    await expect(
+      webMcpRoute?.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-browser-tab": "tab-abc123" },
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ browserTabId: "tab-abc123" });
+
+    await expect(
+      mcpToolRoute?.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-browser-tab": "tab-abc123" },
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ browserTabId: "tab-abc123" });
+
+    // No header sent (CLI/external-agent callers that predate tab scoping):
+    // no id is fabricated, it just stays undefined.
+    await expect(
+      webMcpRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ browserTabId: undefined });
   });
 
   it("serves only explicitly public read-only actions to anonymous pages", async () => {

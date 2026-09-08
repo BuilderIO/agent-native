@@ -87,10 +87,8 @@ const messages = {
     cloudConnectedReloading: "Erfolgreich verbunden. Wird neu geladen...",
     cloudConnectionFailed: "Verbindung fehlgeschlagen",
     cloudTestConnect: "Testen und verbinden",
-    cloudSqliteEdge: "SQLite am Edge",
     cloudServerlessPostgres: "Serverloses Postgres",
     cloudOpenSourceFirebaseAlternative: "Open-Source-Alternative zu Firebase",
-    cloudCloudflareSqliteEdge: "SQLite am Edge von Cloudflare",
     designSlidePreview: "Folienvorschau",
     designSlideTitle: "Folientitel",
     designSupportingText:

@@ -498,11 +498,31 @@ jobs:
       - name: Run Content DB tests
         run: pnpm test:content-db
 
+  pglite-tests:
+    name: PGlite lock and migration tests
+    needs: change-scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
       - name: Install isolated PGlite test driver
         run: >-
           npm install --ignore-scripts --no-save
           --prefix "$RUNNER_TEMP/s2573-pglite"
-          @electric-sql/pglite@0.5.4
+          @electric-sql/pglite@0.5.8
 
       - name: Run PGlite lock and migration action semantics tests
         run: node scripts/test-content-database-lock-pglite.mjs
@@ -904,8 +924,8 @@ jobs:
       - name: Import SSR handler — must not crash at cold-start
         # External timeout is a backstop against a pathological synchronous hang;
         # the script itself races module eval against a 30s window and force-exits.
-        # Match the deployed Netlify environment so failed best-effort local
-        # SQLite setup cannot call process.exit during this import-only probe.
+        # Match the deployed Netlify environment so local setup cannot call
+        # process.exit during this import-only probe.
         # This lane intentionally probes the three built representatives above.
         # The smoke script's optional `--report-uncovered` mode is fail-closed;
         # use it only when the caller intends to gate on full template coverage.

@@ -59,10 +59,10 @@ export function buildFrameworkCore(
   const hasDatabaseTools = hasDatabaseReadTools(options?.databaseTools);
   const hasDatabaseWrites = hasDatabaseWriteTools(options?.databaseTools);
   const dataRule = hasDatabaseWrites
-    ? "All app state is in a SQL database (could be SQLite, Postgres, Turso, or Cloudflare D1 — never assume which). Use the available database tools."
+    ? "All app state is in a Postgres database. Use the available database tools."
     : hasDatabaseTools
-      ? "All app state is in a SQL database (could be SQLite, Postgres, Turso, or Cloudflare D1 — never assume which). Use the available read-only database tools for inspection and typed app actions for writes."
-      : "All app state is in a SQL database (could be SQLite, Postgres, Turso, or Cloudflare D1 — never assume which). Use typed app actions for data access; raw database tools are not available on this surface.";
+      ? "All app state is in a Postgres database. Use the available read-only database tools for inspection and typed app actions for writes."
+      : "All app state is in a Postgres database. Use typed app actions for data access; raw database tools are not available on this surface.";
   const refreshRule = hasDatabaseWrites
     ? `5. **Screen refresh is automatic** — The UI re-fetches its own queries after any successful mutating tool call (template actions like ${appActionExamplesText}, and \`db-exec\` / \`db-patch\`), so you rarely need \`refresh-screen\`; its description covers the exceptions. Never tell the user to reload the page.`
     : `5. **Screen refresh is automatic** — The UI re-fetches its own queries after any successful mutating tool call (template actions like ${appActionExamplesText}), so you rarely need \`refresh-screen\`; its description covers the exceptions. Never tell the user to reload the page.`;

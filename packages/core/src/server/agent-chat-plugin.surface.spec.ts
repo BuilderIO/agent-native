@@ -128,6 +128,17 @@ describe("interactive agent run options", () => {
 });
 
 describe("request-scoped action surface", () => {
+  it("does not import the release migration script during dev discovery", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const skipFiles = source.match(
+      /const skipFiles = new Set\(\[[\s\S]*?\]\);/,
+    )?.[0];
+
+    expect(skipFiles).toContain('"migrate-production"');
+  });
+
   it("restores the durable worker org from the validated persisted surface", () => {
     const source = readFileSync("src/server/agent-chat-plugin.ts", {
       encoding: "utf-8",

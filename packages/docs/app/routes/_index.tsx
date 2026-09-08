@@ -9,10 +9,10 @@ export default function Home() {
   return (
     <div className="builder-brand-tokens min-h-screen">
       <Hero />
+      <TemplateShowcase />
       <FeaturesActions />
       <BuiltInFeatures />
       <WorksWithStack />
-      <TemplateShowcase />
       <BottomCta />
     </div>
   );

@@ -162,6 +162,8 @@ export function buildSitemapPaths(rootDir: string): string[] {
  *   `<meta http-equiv="refresh">` 200 page;
  * - draft docs, hidden by `VITE_SHOW_DRAFTS` — including every translation of a
  *   canonically-draft slug, matching `loadDocRespectingDraftVisibility`.
+ * - the Getting Started roots, whose `?tab=cloud` variant must reach SSR
+ *   instead of inheriting the local guide from a static file.
  * - the community catalog, which is read from Builder at request time so new
  *   published listings do not get frozen into the prerendered HTML.
  *
@@ -179,6 +181,7 @@ export function buildPrerenderPaths(): string[] {
     .filter(
       (page) =>
         !draftSlugs.has(page.docSlug) &&
+        page.docSlug !== "getting-started" &&
         !isRedirectedDocsPath(page.path) &&
         !isDynamicCommunityPath(page.path),
     )

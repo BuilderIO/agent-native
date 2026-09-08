@@ -77,6 +77,43 @@ function summarizeSettings(settings: FormSettings) {
   };
 }
 
+interface FormsSelectionState {
+  formId?: string;
+  selectedFieldId?: string;
+  selectedFieldLabel?: string;
+  selectedFieldType?: string;
+}
+
+interface FormSelectionSummary {
+  fieldId: string;
+  label?: string;
+  type?: string;
+  hint: string;
+}
+
+/**
+ * The form builder (FormBuilderPage) writes `forms-selection` whenever the
+ * Field Properties panel is open for a field, and clears it (null) on
+ * deselect/unmount. Only surface it here when it names the SAME form the
+ * screen is currently showing — otherwise a selection left over from a form
+ * the user has since navigated away from would get attributed to whatever
+ * form they're viewing now.
+ */
+export function buildFormSelectionSummary(
+  selection: FormsSelectionState | null,
+  formId: string,
+): FormSelectionSummary | null {
+  if (!selection || selection.formId !== formId || !selection.selectedFieldId) {
+    return null;
+  }
+  return {
+    fieldId: selection.selectedFieldId,
+    label: selection.selectedFieldLabel,
+    type: selection.selectedFieldType,
+    hint: `To change this field, read its full current data with get-form, then call patch-form-fields with id="${formId}" and ops=[{"op":"upsert","field":{...that field, id "${selection.selectedFieldId}", with your edits}}] — upsert replaces the whole field.`,
+  };
+}
+
 function summarizeResponseData(
   data: Record<string, unknown>,
   fields: FormField[],
@@ -119,6 +156,18 @@ export default defineAction({
             .select({ count: sql<number>`count(*)` })
             .from(schema.responses)
             .where(eq(schema.responses.formId, nav.formId));
+          const selectionState = (await readAppStateForCurrentTab(
+            "forms-selection",
+            {
+              // No global fallback: another tab's selected field must never
+              // become this tab's patch target.
+              fallbackToGlobal: false,
+            },
+          )) as FormsSelectionState | null;
+          const selection = buildFormSelectionSummary(
+            selectionState,
+            nav.formId,
+          );
 
           screen.form = {
             id: form.id,
@@ -136,6 +185,7 @@ export default defineAction({
             responseCount: responseCount?.count ?? 0,
             createdAt: form.createdAt,
             updatedAt: form.updatedAt,
+            ...(selection ? { selection } : {}),
           };
         }
       } catch {

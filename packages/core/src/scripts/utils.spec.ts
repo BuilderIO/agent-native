@@ -125,14 +125,14 @@ describe("loadEnv", () => {
       );
       fs.writeFileSync(
         path.join(appDir, ".env.local"),
-        ["DATABASE_URL=file:./data/app.db", "AN_TEST_LOCAL_ONLY=local"].join(
+        ["DATABASE_URL=pglite:./data/pglite", "AN_TEST_LOCAL_ONLY=local"].join(
           "\n",
         ),
       );
 
       loadEnv(path.join(appDir, ".env"));
 
-      expect(process.env.DATABASE_URL).toBe("file:./data/app.db");
+      expect(process.env.DATABASE_URL).toBe("pglite:./data/pglite");
       expect(process.env.AN_TEST_SHARED).toBe("app");
       expect(process.env.AN_TEST_LOCAL_ONLY).toBe("local");
       expect(process.env.AN_TEST_WORKSPACE_ONLY).toBe("workspace-local");

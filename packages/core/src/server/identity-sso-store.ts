@@ -20,9 +20,7 @@ import { randomBytes } from "node:crypto";
 
 import {
   getDbExec,
-  intType,
   isConnectionError,
-  isPostgres,
   isProductionServerlessFunctionRuntime,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
@@ -243,9 +241,9 @@ function buildIdentitySsoFlowStateCreateSql(): string {
           redirect_uri TEXT NOT NULL,
           authority TEXT NOT NULL,
           code_challenge TEXT NOT NULL,
-          created_at ${intType()},
-          expires_at ${intType()},
-          consumed_at ${intType()}
+          created_at BIGINT,
+          expires_at BIGINT,
+          consumed_at BIGINT
         )
       `;
 }
@@ -254,7 +252,7 @@ function buildIdentitySsoJtiCreateSql(): string {
   return `
         CREATE TABLE IF NOT EXISTS identity_sso_jti (
           jti TEXT PRIMARY KEY,
-          seen_at ${intType()}
+          seen_at BIGINT
         )
       `;
 }
@@ -267,7 +265,7 @@ export async function ensureTable(): Promise<void> {
     _initPromise = (async () => {
       const flowStateSql = buildIdentitySsoFlowStateCreateSql();
       const jtiSql = buildIdentitySsoJtiCreateSql();
-      if (isPostgres()) {
+      {
         await ensureTableExists("identity_sso_flow_state", flowStateSql);
         await ensureTableExists("identity_sso_jti", jtiSql);
         return;

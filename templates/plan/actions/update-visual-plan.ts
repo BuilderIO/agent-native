@@ -943,10 +943,8 @@ export default defineAction({
       });
     }
 
-    // Async transactions are safe on every driver here: better-sqlite3's
-    // normally-sync-only transaction() is patched to support async callbacks
-    // in packages/core/src/db/create-get-db.ts (patchBetterSqliteTransactions,
-    // wired into createGetDb for local sqlite urls), matching libsql/Postgres.
+    // Async transactions are safe on both supported runtimes through
+    // createGetDb's shared Postgres transaction surface.
     // See restore-plan-version.ts for the same pattern. The leading
     // optimistic-lock UPDATE still guards concurrent writes; a thrown error
     // (e.g. the zero-rows-affected conflict below) rolls back the whole block.

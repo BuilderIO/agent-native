@@ -154,8 +154,8 @@ const zhCN = {
           body: "一次定义工作，然后从 UI、agent、HTTP、MCP、A2A 和 CLI 使用它。",
         },
         sqlStateOrm: {
-          title: "SQL 状态与 ORM",
-          body: "持久应用数据、application state、迁移，以及不绑定供应商的 schema。",
+          title: "PostgreSQL 状态与 ORM",
+          body: "持久应用数据、application state、迁移，以及 PostgreSQL/PGlite schema。",
         },
         dbAdmin: {
           title: "数据库管理",
@@ -207,7 +207,8 @@ const zhCN = {
       title: "面向 agent-native apps 的框架",
       body1:
         "Agent-Native 是一个开源框架，用来构建 agentic applications：从 Chat 开始，定义共享 actions，再围绕同一份 state 添加 UI、jobs 和协作。",
-      body2: "使用你自己的数据库、托管服务、模型栈和 app 代码。",
+      body2:
+        "使用本地 PGlite 或托管 PostgreSQL，以及你自己的托管服务、模型栈和 app 代码。",
       cta: "阅读框架指南",
       primitives: {
         actions: {
@@ -224,10 +225,10 @@ const zhCN = {
           description:
             "app-agent loop、tools、skills、memory、jobs 和可观测性一起交付。",
         },
-        backendAgnostic: {
-          title: "后端无关",
+        postgresSpecific: {
+          title: "PostgreSQL 专用",
           description:
-            "接入任何 Drizzle 支持的 SQL 数据库和 Nitro 兼容的托管环境。",
+            "使用框架的 PostgreSQL schema 助手，在本地使用 PGlite，或在任何 Nitro 兼容主机上使用托管 Postgres。",
         },
       },
     },
@@ -305,7 +306,7 @@ const zhCN = {
     },
     quickStart: {
       title: "从一条命令开始",
-      body: "一条命令会创建一个聊天优先的本地 app，背后有 actions、durable threads 和 SQLite 支撑。只有 automation-first workflow 暂时不需要浏览器 UI 时才使用 `--headless`。",
+      body: "一条命令会创建一个聊天优先的本地 app，背后有 actions、durable threads 和 PGlite 支撑。只有 automation-first workflow 暂时不需要浏览器 UI 时才使用 `--headless`。",
     },
     finalCta: {
       title: "为 agentic 时代而建的软件",
@@ -430,19 +431,18 @@ const zhCN = {
   },
   homepage: {
     hero: {
-      title: "面向 agentic 应用的框架",
-      bodyLine1: "构建配备直观 UI 的自主型 agent。",
-      bodyLine2: "使用你自己的 LLM，随处部署。",
+      title: "面向 agentic 应用的框架。",
+      bodyLine1: "一个面向带有 UI 和 agent 的应用的开源 TypeScript 框架。",
+      bodyLine2: "只需定义一次每个 Action，即可从任何地方调用。",
       tryAnApp: "试用应用",
     },
     install: {
       copyCommand: "复制安装命令",
     },
     actions: {
-      title: "一个 Action 驱动所有能力面",
-      bodyLine1: "Action 定义你的 agent 能做什么。",
-      bodyLine2:
-        "只需定义一次每项能力，即可在 agent、UI、HTTP API、MCP、A2A 或 CLI 中使用。",
+      title: "从任何地方调用一个 Action。",
+      bodyLine1: "使用 defineAction() 定义一项能力。",
+      bodyLine2: "你的 React UI、agent、HTTP 客户端和集成都会调用同一份代码。",
       diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
     },
     builtIn: {
@@ -462,7 +462,7 @@ const zhCN = {
           body: "agent 知道用户正在查看、选择和编辑的内容。",
         },
         sharedSql: {
-          title: "共享的 SQL 数据",
+          title: "共享的 PostgreSQL 数据",
           body: "用户和 agent 读取并更新同一份可信数据源。",
         },
         skillsMemory: {
@@ -488,13 +488,13 @@ const zhCN = {
       },
     },
     stack: {
-      title: "适配你的技术栈",
-      body: "带上你自己的 LLM、数据库、工具和基础设施。Agent-Native 是开源的 TypeScript，因此你构建的一切始终归你所有。",
+      title: "使用你自己的技术栈",
+      body: "Agent-Native 是开源 TypeScript。选择你的模型、数据库和托管方式，并将应用代码保留在你的代码仓库中。",
       exploreApps: "探索用 Agent-Native 构建的应用",
     },
     showcase: {
-      title: "你能用 Agent-Native 构建什么？",
-      body: "为会议、设计、演示文稿、数据等工作构建带 UI 的 agent。从这些开源应用之一开始，或构建你自己的 agent。",
+      title: "用 Agent-Native 构建的真实应用",
+      body: "可免费使用或无限定制的开源 Agent-Native 应用。",
       browseApps: "浏览应用",
       scrollLeft: "向左滚动应用",
       scrollRight: "向右滚动应用",
@@ -513,17 +513,28 @@ const zhCN = {
       download: "下载",
       apps: "应用",
       privacyPolicy: "隐私政策",
-      saasTerms: "托管服务条款",
+      saasTerms: "SaaS 条款",
       legalResources: "法律资源",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "不在本地构建？",
-      exploreApp: "先试用在线应用",
-      between: "或",
-      joinWaitlist: "加入候补名单",
-      end: "改为在浏览器中构建。",
+    tabs: {
+      label: "选择构建方式",
+      local: "本地构建",
+      localDescription: "使用 CLI 在你的计算机上构建。",
+      cloud: "云端构建",
+      cloudDescription: "使用 Builder.io 在浏览器中构建。",
+    },
+    cloud: {
+      intro:
+        "无需安装任何内容，即可构建相同的应用。描述你想要的内容，智能体会在 Builder 为你托管的工作区中编写并运行代码。",
+      stepOneTitle: "创建 Builder 账号",
+      stepOneBody:
+        "使用 Builder 账号在浏览器中构建。免费开始，无需自带 API 密钥。",
+      stepTwoTitle: "开始输入提示",
+      stepTwoBody: "用自然语言描述你想构建的内容，智能体会为你创建。",
+      stepThreeTitle: "部署",
+      stepThreeBody: "准备好后，在 Builder 中一键部署你的应用。",
     },
   },
   templatesPage: {
@@ -547,7 +558,6 @@ const zhCN = {
     tryCommunityDemo: "体验演示",
     customizeDescription: "以这个应用为起点。",
     customizeOnline: "在线",
-    customizeOnlineBadge: "加入等候名单",
     customizeLocally: "本地",
     communityNew: "新应用",
     communityComingSoon: "即将推出",
@@ -597,15 +607,8 @@ const zhCN = {
     readDocs: "阅读文档",
     buildOnline: "在线构建",
     popoverTitle: "在浏览器中构建",
-    popoverBody:
-      "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
-    emailLabel: "邮箱",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "加入候补名单",
-    joining: "正在加入…",
-    joined: "你已加入候补名单。在线构建访问开放后我们会发送邮件通知你。",
-    invalidEmail: "请输入有效的邮箱地址。",
-    submitError: "无法加入候补名单。请重试。",
+    popoverBody: "使用 Builder.io 在云端快速生成 agent-native 应用。",
+    launchBuilder: "启动 Builder",
   },
   templateCard: {
     pasteIntoTerminal: "粘贴到您的终端中。",

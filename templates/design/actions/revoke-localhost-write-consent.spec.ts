@@ -2,9 +2,8 @@
  * Tests for revoke-localhost-write-consent action.
  *
  * VE5 regression: `revoked` must be derived from the scoped grant's existence
- * (select-then-delete), NOT from the driver-specific `rowsAffected` field of
- * the delete result — several drivers do not report it, which made the action
- * return `revoked: false` even though the grant was deleted.
+ * (select-then-delete), not from mutation metadata. The action must report
+ * `revoked: true` when the scoped grant was deleted.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -35,8 +34,7 @@ vi.mock("../server/db/index.js", () => ({
     delete: () => ({
       where: () => {
         deleteCalls += 1;
-        // Deliberately resolve to a result WITHOUT rowsAffected, mimicking
-        // drivers that do not report affected rows.
+        // The action derives its result from the scoped read, not this result.
         return Promise.resolve({});
       },
     }),

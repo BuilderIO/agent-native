@@ -27,6 +27,7 @@ import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
 import { agentChatStreamingUrl, agentNativePath } from "./api-path.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   createRunStreamToken,
@@ -2019,7 +2020,6 @@ function formatRuntimeDebugDetails(payload: unknown): string {
       ? `db_configured: ${database.configured}`
       : "",
     stringValue(database.source) ? `db_source: ${database.source}` : "",
-    stringValue(database.dialect) ? `db_dialect: ${database.dialect}` : "",
     stringValue(database.protocol) ? `db_protocol: ${database.protocol}` : "",
     stringValue(database.host) ? `db_host: ${database.host}` : "",
     stringValue(database.database) ? `db_database: ${database.database}` : "",
@@ -2119,7 +2119,9 @@ export function createAgentChatAdapter(
   const harnessRef = options?.harnessRef;
   const hostedHarnessRef = options?.hostedHarnessRef;
   const execModeRef = options?.execModeRef;
-  const browserTabId = options?.browserTabId;
+  const browserTabId =
+    options?.browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   const scopeRef = options?.scopeRef;
   const surface = options?.surface ?? "app";
   // A queued recovery can survive until a server-owned continuation finishes,
@@ -2710,6 +2712,9 @@ export function createAgentChatAdapter(
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
         };
+        if (browserTabId) {
+          headers["x-agent-native-browser-tab"] = browserTabId;
+        }
         try {
           const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
           if (tz) headers["x-user-timezone"] = tz;

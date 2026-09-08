@@ -157,8 +157,8 @@ const hiIN = {
           body: "काम को एक बार define करें और UI, agent, HTTP, MCP, A2A और CLI से use करें।",
         },
         sqlStateOrm: {
-          title: "SQL state और ORM",
-          body: "Durable app data, application state, migrations और provider-agnostic schemas।",
+          title: "PostgreSQL state और ORM",
+          body: "Durable app data, application state, migrations और PostgreSQL/PGlite schemas।",
         },
         dbAdmin: {
           title: "Database admin",
@@ -211,7 +211,7 @@ const hiIN = {
       body1:
         "Agent-Native agentic applications बनाने के लिए open-source framework है: Chat से शुरू करें, shared actions define करें, फिर उसी state के आसपास UI, jobs और collaboration जोड़ें।",
       body2:
-        "अपना database, hosting provider, model stack और app code साथ लाएं।",
+        "Local PGlite या hosted PostgreSQL, अपना hosting provider, model stack और app code इस्तेमाल करें।",
       cta: "framework guide पढ़ें",
       primitives: {
         actions: {
@@ -222,17 +222,17 @@ const hiIN = {
         sharedState: {
           title: "साझा state",
           description:
-            "SQL-backed app state humans, agents और sessions को sync में रखता है।",
+            "PostgreSQL/PGlite-backed app state humans, agents और sessions को sync में रखता है।",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "app-agent loop, tools, skills, memory, jobs और observability साथ में ship होते हैं।",
         },
-        backendAgnostic: {
-          title: "बैकएंड अज्ञेयवादी",
+        postgresSpecific: {
+          title: "PostgreSQL-विशिष्ट",
           description:
-            "किसी भी Drizzle-supported SQL database और Nitro-compatible host को plug in करें।",
+            "Framework के PostgreSQL schema helpers को local PGlite या किसी भी Nitro-compatible host पर hosted Postgres के साथ इस्तेमाल करें।",
         },
       },
     },
@@ -311,7 +311,7 @@ const hiIN = {
     },
     quickStart: {
       title: "एक command से शुरू करें",
-      body: "एक command actions, durable threads और SQLite पर backed chat-first स्थानीय app बनाता है। `--headless` केवल तब इस्तेमाल करें जब automation-first workflow को अभी browser UI नहीं चाहिए।",
+      body: "एक command actions, durable threads और PGlite पर backed chat-first स्थानीय app बनाता है। `--headless` केवल तब इस्तेमाल करें जब automation-first workflow को अभी browser UI नहीं चाहिए।",
     },
     finalCta: {
       title: "agentic era के लिए बना software",
@@ -436,19 +436,19 @@ const hiIN = {
   },
   homepage: {
     hero: {
-      title: "एजेंटिक एप्लिकेशन फ्रेमवर्क",
-      bodyLine1: "सहज UI वाले स्वायत्त एजेंट बनाएं।",
-      bodyLine2: "अपना LLM लाएं। कहीं भी डिप्लॉय करें।",
+      title: "एजेंटिक ऐप्स के लिए फ्रेमवर्क।",
+      bodyLine1: "UI और एजेंट वाले ऐप्स के लिए एक ओपन-सोर्स TypeScript फ्रेमवर्क।",
+      bodyLine2: "हर Action को एक बार परिभाषित करें और कहीं से भी कॉल करें।",
       tryAnApp: "कोई ऐप आज़माएं",
     },
     install: {
       copyCommand: "इंस्टॉल कमांड कॉपी करें",
     },
     actions: {
-      title: "एक Action हर सतह को चलाता है",
-      bodyLine1: "Actions तय करते हैं कि आपका एजेंट क्या कर सकता है।",
+      title: "कहीं से भी एक Action को कॉल करें।",
+      bodyLine1: "defineAction() से एक क्षमता परिभाषित करें।",
       bodyLine2:
-        "हर क्षमता को एक बार परिभाषित करें, फिर उसे एजेंट, UI, HTTP API, MCP, A2A या CLI से उपयोग करें।",
+        "आपका React UI, एजेंट, HTTP क्लाइंट और इंटीग्रेशन सभी एक ही कोड को कॉल करते हैं।",
       diagramAlt: "एक Action UI, MCP, एजेंट चैट, A2A, HTTP API और CLI को चलाता है",
     },
     builtIn: {
@@ -468,7 +468,7 @@ const hiIN = {
           body: "एजेंट जानता है कि उपयोगकर्ता क्या देख रहे, चुन रहे और संपादित कर रहे हैं।",
         },
         sharedSql: {
-          title: "साझा SQL डेटा",
+          title: "साझा PostgreSQL डेटा",
           body: "उपयोगकर्ता और एजेंट एक ही विश्वसनीय स्रोत को पढ़ते और अपडेट करते हैं।",
         },
         skillsMemory: {
@@ -494,13 +494,13 @@ const hiIN = {
       },
     },
     stack: {
-      title: "आपके स्टैक के साथ काम करता है",
-      body: "अपना LLM, डेटाबेस, टूल्स और इंफ्रास्ट्रक्चर लाएं। Agent-Native ओपन-सोर्स TypeScript है, इसलिए आप जो भी बनाते हैं वह आपका ही रहता है।",
+      title: "अपना स्टैक लाएं",
+      body: "Agent-Native ओपन-सोर्स TypeScript है। अपना मॉडल, डेटाबेस और होस्ट चुनें, फिर एप्लिकेशन कोड अपने रिपॉज़िटरी में रखें।",
       exploreApps: "Agent-Native से बने ऐप्स देखें",
     },
     showcase: {
-      title: "Agent-Native से आप क्या बना सकते हैं?",
-      body: "मीटिंग्स, डिज़ाइन, प्रेज़ेंटेशन, डेटा और दूसरे कामों के लिए UI वाले एजेंट बनाएं। इनमें से किसी ओपन-सोर्स ऐप से शुरुआत करें या अपना एजेंट बनाएं।",
+      title: "Agent-Native से बने वास्तविक ऐप्स",
+      body: "ओपन-सोर्स Agent-Native ऐप्स जिन्हें आप मुफ़्त में इस्तेमाल या अनंत रूप से कस्टमाइज़ कर सकते हैं।",
       browseApps: "ऐप्स देखें",
       scrollLeft: "ऐप्स बाईं ओर स्क्रॉल करें",
       scrollRight: "ऐप्स दाईं ओर स्क्रॉल करें",
@@ -519,17 +519,29 @@ const hiIN = {
       download: "डाउनलोड",
       apps: "ऐप्स",
       privacyPolicy: "गोपनीयता नीति",
-      saasTerms: "होस्ट की गई सेवा की शर्तें",
+      saasTerms: "SaaS की शर्तें",
       legalResources: "कानूनी संसाधन",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "लोकल रूप से नहीं बना रहे हैं?",
-      exploreApp: "पहले एक live ऐप देखें",
-      between: "या",
-      joinWaitlist: "waitlist में शामिल हों",
-      end: "और इसके बजाय browser में बनाएं।",
+    tabs: {
+      label: "बनाने का तरीका चुनें",
+      local: "लोकल में बनाएं",
+      localDescription: "अपने कंप्यूटर पर बनाने के लिए CLI का उपयोग करें।",
+      cloud: "क्लाउड में बनाएं",
+      cloudDescription: "Builder.io के साथ ब्राउज़र में बनाएं।",
+    },
+    cloud: {
+      intro:
+        "कुछ भी इंस्टॉल किए बिना वही ऐप बनाएं। आप जो चाहते हैं उसका वर्णन करें; एजेंट Builder द्वारा होस्ट किए गए वर्कस्पेस में कोड लिखकर चलाता है।",
+      stepOneTitle: "Builder अकाउंट बनाएं",
+      stepOneBody:
+        "ब्राउज़र में बनाने के लिए अपने Builder खाते का उपयोग करें। बिना API keys लाए मुफ्त में शुरू करें।",
+      stepTwoTitle: "प्रॉम्प्ट करें",
+      stepTwoBody:
+        "आप जो बनाना चाहते हैं उसे साधारण भाषा में बताएं और एजेंट उसे आपके लिए बना देगा।",
+      stepThreeTitle: "डिप्लॉय करें",
+      stepThreeBody: "तैयार होने पर Builder में अपनी ऐप को एक क्लिक से डिप्लॉय करें।",
     },
   },
   templatesPage: {
@@ -553,7 +565,6 @@ const hiIN = {
     tryCommunityDemo: "डेमो आज़माएँ",
     customizeDescription: "इस ऐप को शुरुआती बिंदु के रूप में उपयोग करें।",
     customizeOnline: "ऑनलाइन",
-    customizeOnlineBadge: "वेटलिस्ट में शामिल हों",
     customizeLocally: "लोकल",
     communityNew: "नया",
     communityComingSoon: "जल्द आ रहा है",
@@ -607,15 +618,8 @@ const hiIN = {
     readDocs: "डॉक्स पढ़ें",
     buildOnline: "ऑनलाइन बनाएँ",
     popoverTitle: "Browser में बनाएँ",
-    popoverBody:
-      "Builder.io क्लाउड में agent-native ऐप शुरू और कस्टमाइज़ कर सकता है — actions, auth, SQL state और agent chat सहित. शुरुआती पहुँच के लिए waitlist में शामिल हों.",
-    emailLabel: "ईमेल",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "Waitlist में शामिल हों",
-    joining: "शामिल हो रहे हैं…",
-    joined: "आप waitlist में हैं. build-online access खुलने पर हम आपको ईमेल करेंगे.",
-    invalidEmail: "एक मान्य ईमेल पता दर्ज करें.",
-    submitError: "Waitlist में शामिल नहीं हो सके. कृपया फिर से कोशिश करें.",
+    popoverBody: "Builder.io के साथ क्लाउड में agent-native ऐप तेज़ी से बनाएं.",
+    launchBuilder: "Builder लॉन्च करें",
   },
   templateCard: {
     pasteIntoTerminal: "अपने टर्मिनल में चिपकाएँ.",

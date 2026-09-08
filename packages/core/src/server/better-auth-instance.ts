@@ -30,21 +30,12 @@ import {
   timestamp as pgTimestamp,
   boolean as pgBoolean,
 } from "drizzle-orm/pg-core";
-import {
-  sqliteTable,
-  text as sqliteText,
-  integer as sqliteInteger,
-} from "drizzle-orm/sqlite-core";
 
 import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
-  getDialect,
-  getCloudflareD1Binding,
   getRuntimeDatabaseUrl,
-  getDatabaseAuthToken,
-  closePgliteClients,
   getPgliteClient,
   isPgliteUrl,
   loadPgliteDrizzle,
@@ -54,9 +45,6 @@ import {
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
-  prepareLocalSqliteUrl,
-  sqliteFilenameFromUrl,
-  retrySqliteBusy,
 } from "../db/client.js";
 import {
   CORE_RESET_PASSWORD_EMAIL_ID,
@@ -759,94 +747,6 @@ const pgAuthSchema = {
   }),
 };
 
-const sqliteAuthSchema = {
-  user: sqliteTable("user", {
-    id: sqliteText("id").primaryKey(),
-    name: sqliteText("name").notNull(),
-    email: sqliteText("email").notNull().unique(),
-    emailVerified: sqliteInteger("email_verified", { mode: "boolean" })
-      .notNull()
-      .default(false),
-    onboardingRole: sqliteText("onboarding_role"),
-    image: sqliteText("image"),
-    createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: sqliteInteger("updated_at", { mode: "timestamp_ms" }).notNull(),
-  }),
-  session: sqliteTable("session", {
-    id: sqliteText("id").primaryKey(),
-    expiresAt: sqliteInteger("expires_at", { mode: "timestamp_ms" }).notNull(),
-    token: sqliteText("token").notNull().unique(),
-    createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: sqliteInteger("updated_at", { mode: "timestamp_ms" }).notNull(),
-    ipAddress: sqliteText("ip_address"),
-    userAgent: sqliteText("user_agent"),
-    userId: sqliteText("user_id").notNull(),
-    activeOrganizationId: sqliteText("active_organization_id"),
-  }),
-  account: sqliteTable("account", {
-    id: sqliteText("id").primaryKey(),
-    accountId: sqliteText("account_id").notNull(),
-    providerId: sqliteText("provider_id").notNull(),
-    userId: sqliteText("user_id").notNull(),
-    accessToken: sqliteText("access_token"),
-    refreshToken: sqliteText("refresh_token"),
-    idToken: sqliteText("id_token"),
-    accessTokenExpiresAt: sqliteInteger("access_token_expires_at", {
-      mode: "timestamp_ms",
-    }),
-    refreshTokenExpiresAt: sqliteInteger("refresh_token_expires_at", {
-      mode: "timestamp_ms",
-    }),
-    scope: sqliteText("scope"),
-    password: sqliteText("password"),
-    createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: sqliteInteger("updated_at", { mode: "timestamp_ms" }).notNull(),
-  }),
-  verification: sqliteTable("verification", {
-    id: sqliteText("id").primaryKey(),
-    identifier: sqliteText("identifier").notNull(),
-    value: sqliteText("value").notNull(),
-    expiresAt: sqliteInteger("expires_at", { mode: "timestamp_ms" }).notNull(),
-    createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: sqliteInteger("updated_at", { mode: "timestamp_ms" }).notNull(),
-  }),
-  organization: sqliteTable("organization", {
-    id: sqliteText("id").primaryKey(),
-    name: sqliteText("name").notNull(),
-    slug: sqliteText("slug").notNull().unique(),
-    logo: sqliteText("logo"),
-    metadata: sqliteText("metadata"),
-    createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: sqliteInteger("updated_at", { mode: "timestamp_ms" }).notNull(),
-  }),
-  member: sqliteTable("member", {
-    id: sqliteText("id").primaryKey(),
-    organizationId: sqliteText("organization_id").notNull(),
-    userId: sqliteText("user_id").notNull(),
-    role: sqliteText("role").notNull().default("member"),
-    createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: sqliteInteger("updated_at", { mode: "timestamp_ms" }).notNull(),
-  }),
-  invitation: sqliteTable("invitation", {
-    id: sqliteText("id").primaryKey(),
-    organizationId: sqliteText("organization_id").notNull(),
-    email: sqliteText("email").notNull(),
-    role: sqliteText("role"),
-    status: sqliteText("status").notNull().default("pending"),
-    expiresAt: sqliteInteger("expires_at", { mode: "timestamp_ms" }).notNull(),
-    inviterId: sqliteText("inviter_id").notNull(),
-    createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: sqliteInteger("updated_at", { mode: "timestamp_ms" }).notNull(),
-  }),
-  jwks: sqliteTable("jwks", {
-    id: sqliteText("id").primaryKey(),
-    publicKey: sqliteText("public_key").notNull(),
-    privateKey: sqliteText("private_key").notNull(),
-    createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
-    expiresAt: sqliteInteger("expires_at", { mode: "timestamp_ms" }),
-  }),
-};
-
 /**
  * Mirror a Better Auth `account` row for Google into the `oauth_tokens`
  * table that template code (mail's Gmail client, calendar's events fetcher)
@@ -857,7 +757,7 @@ const sqliteAuthSchema = {
  *
  * Resolves `account.userId` to the user's email by querying the `user`
  * table (Better Auth always quotes "user" because it's a reserved word
- * in Postgres; SQLite accepts the quotes too).
+ * in Postgres).
  *
  * The hook is fire-and-forget from the caller's perspective — every
  * failure is caught upstream so a flake in `oauth_tokens` never blocks
@@ -1125,24 +1025,17 @@ async function replaceUnverifiedCredentialWithGoogle(input: {
     );
   }
 
-  const postgres = isPostgres();
-  const timestamp = postgres ? new Date().toISOString() : Date.now();
-  const unverified = postgres ? false : 0;
+  const timestamp = new Date().toISOString();
+  const unverified = false;
 
   await db.transaction(async (tx) => {
-    // Serialize the same Google subject across users on Postgres. SQLite's
-    // write transaction already serializes this replacement path.
-    if (postgres) {
-      await tx.execute({
-        sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-        args: [`google:${input.accountId}`],
-      });
-    }
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`google:${input.accountId}`],
+    });
 
     const currentUser = await tx.execute({
-      sql:
-        'SELECT id FROM "user" WHERE id = ? AND email = ? AND email_verified = ?' +
-        (postgres ? " FOR UPDATE" : ""),
+      sql: 'SELECT id FROM "user" WHERE id = ? AND email = ? AND email_verified = ? FOR UPDATE',
       args: [input.userId, input.email, unverified],
     });
     if (currentUser.rows.length !== 1) {
@@ -1152,9 +1045,7 @@ async function replaceUnverifiedCredentialWithGoogle(input: {
     }
 
     const linkedGoogle = await tx.execute({
-      sql:
-        'SELECT user_id FROM "account" WHERE provider_id = ? AND account_id = ?' +
-        (postgres ? " FOR UPDATE" : ""),
+      sql: 'SELECT user_id FROM "account" WHERE provider_id = ? AND account_id = ? FOR UPDATE',
       args: ["google", input.accountId],
     });
     const linkedUserId = linkedGoogle.rows[0]?.user_id;
@@ -1593,7 +1484,6 @@ export async function resetBetterAuth(): Promise<void> {
   // Auth — ending it here would take the framework's and every store's database
   // access down with it. `closeDbExec()` owns that.
   _neonAuthPool = undefined;
-  await closePgliteClients();
 }
 
 // A `closeDbExec()` releases the pool this instance's adapter is bound to, so
@@ -1626,7 +1516,6 @@ function resetAuthOnPoolClose(driver?: string, url?: string): void {
 async function createBetterAuthInstance(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInstance> {
-  const dialect = getDialect();
   const basePath = config?.basePath ?? "/_agent-native/auth/ba";
 
   // Build social providers from env vars
@@ -1692,7 +1581,7 @@ async function createBetterAuthInstance(
   }
 
   // Build database config
-  const database = await buildDatabaseConfig(dialect);
+  const database = await buildDatabaseConfig();
 
   const secret = resolveAuthSecret();
 
@@ -2046,90 +1935,42 @@ async function createBetterAuthInstance(
   return auth as unknown as BetterAuthInstance;
 }
 
-/**
- * Configure the local auth connection with the same write contention settings
- * as the shared app connection. Better Auth uses its own SQLite handle, so the
- * app connection's busy timeout does not protect first-run account creation.
- */
-export async function configureLocalSqlite(sqlite: {
-  pragma(statement: string): unknown;
-  close?(): void;
-}): Promise<void> {
-  sqlite.pragma("busy_timeout = 10000");
-  try {
-    // Vite can start a replacement Nitro runtime while the previous instance is
-    // still releasing app.db, and the busy timeout can expire during that
-    // handoff, so retry the idempotent WAL negotiation.
-    await retrySqliteBusy(async () => sqlite.pragma("journal_mode = WAL"), {
-      rethrow: true,
+export async function buildDatabaseConfig(): Promise<
+  BetterAuthOptions["database"]
+> {
+  const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
+  const { buildResilientNeonPool, buildResilientPostgresJsClient, isNeonUrl } =
+    await import("../db/create-get-db.js");
+
+  if (isPgliteUrl(url)) {
+    const { drizzle } = await loadPgliteDrizzle();
+    const client = await getPgliteClient(url);
+    const db = drizzle({ client, schema: pgAuthSchema });
+    const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+    return drizzleAdapter(db, {
+      provider: "pg",
+      schema: pgAuthSchema,
     });
-  } catch (error) {
-    sqlite.close?.();
-    throw error;
   }
-}
 
-export async function buildDatabaseConfig(
-  dialect: string,
-): Promise<BetterAuthOptions["database"]> {
-  if (dialect === "postgres") {
-    const url = getRuntimeDatabaseUrl();
-    const {
-      buildResilientNeonPool,
-      buildResilientPostgresJsClient,
-      isNeonUrl,
-    } = await import("../db/create-get-db.js");
-
-    if (isPgliteUrl(url)) {
-      const { drizzle } = await loadPgliteDrizzle();
-      const client = await getPgliteClient(url);
-      const db = drizzle({ client, schema: pgAuthSchema });
-      const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
-      return drizzleAdapter(db, {
-        provider: "pg",
-        schema: pgAuthSchema,
-      });
-    }
-
-    // Neon via @neondatabase/serverless (WebSockets over HTTPS). postgres-js
-    // opens a raw TCP connection on port 5432 which frequently times out on
-    // Netlify Functions / Vercel / CF Workers when Neon's pooler is cold.
-    if (isNeonUrl(url)) {
-      const { Pool } = await import("@neondatabase/serverless");
-      // Cap the auth pool the same way as the app pool. Better Auth runs a
-      // session lookup on essentially every authenticated request, so an
-      // un-capped pool here is a primary contributor to "Max client
-      // connections reached" across concurrent serverless instances.
-      resetAuthOnPoolClose("neon", url);
-      _neonAuthPool = sharedDbPool(
-        "neon",
-        url,
-        () => new Pool({ connectionString: url, ...neonPoolOptions() }),
-      );
-      guardNeonPool(_neonAuthPool, url, "db/neon-auth");
-      const { drizzle } = await import("drizzle-orm/neon-serverless");
-      const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
-        schema: pgAuthSchema,
-      });
-      const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
-      return drizzleAdapter(db, {
-        provider: "pg",
-        schema: pgAuthSchema,
-      });
-    }
-
-    // Non-Neon Postgres (Supabase, self-hosted, etc.) → postgres-js.
-    // pgPoolOptions caps this pool to a small size on serverless. Better Auth
-    // runs a session lookup on essentially every authenticated request, so an
-    // un-capped pool here is a primary contributor to "Max client connections
-    // reached" across concurrent serverless instances.
-    const { default: postgres } = await import("postgres");
-    resetAuthOnPoolClose("postgres-js", url);
-    const sql = sharedDbPool("postgres-js", url, () =>
-      postgres(url, pgPoolOptions(url)),
+  // Neon via @neondatabase/serverless (WebSockets over HTTPS). postgres-js
+  // opens a raw TCP connection on port 5432 which frequently times out on
+  // Netlify Functions / Vercel / CF Workers when Neon's pooler is cold.
+  if (isNeonUrl(url)) {
+    const { Pool } = await import("@neondatabase/serverless");
+    // Cap the auth pool the same way as the app pool. Better Auth runs a
+    // session lookup on essentially every authenticated request, so an
+    // un-capped pool here is a primary contributor to "Max client
+    // connections reached" across concurrent serverless instances.
+    resetAuthOnPoolClose("neon", url);
+    _neonAuthPool = sharedDbPool(
+      "neon",
+      url,
+      () => new Pool({ connectionString: url, ...neonPoolOptions() }),
     );
-    const { drizzle } = await import("drizzle-orm/postgres-js");
-    const db = drizzle(buildResilientPostgresJsClient(sql), {
+    guardNeonPool(_neonAuthPool, url, "db/neon-auth");
+    const { drizzle } = await import("drizzle-orm/neon-serverless");
+    const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
       schema: pgAuthSchema,
     });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
@@ -2139,53 +1980,23 @@ export async function buildDatabaseConfig(
     });
   }
 
-  if (dialect === "d1") {
-    const d1 = getCloudflareD1Binding();
-    if (!d1) {
-      throw new Error(
-        "Cloudflare D1 database binding is unavailable; configure the DB binding before initializing Better Auth.",
-      );
-    }
-    const { drizzle } = await import("drizzle-orm/d1");
-    const db = drizzle(d1 as Parameters<typeof drizzle>[0], {
-      schema: sqliteAuthSchema,
-    });
-    const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
-    return drizzleAdapter(db, {
-      provider: "sqlite",
-      schema: sqliteAuthSchema,
-    });
-  }
-
-  // SQLite / libsql
-  const url = getRuntimeDatabaseUrl("file:./data/app.db");
-
-  if (url.startsWith("file:") || !url.includes("://")) {
-    // Local SQLite via better-sqlite3
-    const { default: Database } = await import("better-sqlite3");
-    const sqliteUrl = await prepareLocalSqliteUrl(
-      url.startsWith("file:") ? url : `file:${url}`,
-    );
-    const sqlite = new Database(sqliteFilenameFromUrl(sqliteUrl));
-    await configureLocalSqlite(sqlite);
-    const { drizzle } = await import("drizzle-orm/better-sqlite3");
-    const db = drizzle(sqlite, { schema: sqliteAuthSchema });
-    const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
-    return drizzleAdapter(db, {
-      provider: "sqlite",
-      schema: sqliteAuthSchema,
-    });
-  }
-
-  // Remote libsql (Turso). Use the web client to avoid serverless bundles
-  // depending on libsql's platform-specific native packages.
-  const { createClient } = await import("@libsql/client/web");
-  const client = createClient({ url, authToken: getDatabaseAuthToken() });
-  const { drizzle } = await import("drizzle-orm/libsql/web");
-  const db = drizzle(client, { schema: sqliteAuthSchema });
+  // Non-Neon Postgres (Supabase, self-hosted, etc.) → postgres-js.
+  // pgPoolOptions caps this pool to a small size on serverless. Better Auth
+  // runs a session lookup on essentially every authenticated request, so an
+  // un-capped pool here is a primary contributor to "Max client connections
+  // reached" across concurrent serverless instances.
+  const { default: postgres } = await import("postgres");
+  resetAuthOnPoolClose("postgres-js", url);
+  const sql = sharedDbPool("postgres-js", url, () =>
+    postgres(url, pgPoolOptions(url)),
+  );
+  const { drizzle } = await import("drizzle-orm/postgres-js");
+  const db = drizzle(buildResilientPostgresJsClient(sql), {
+    schema: pgAuthSchema,
+  });
   const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
   return drizzleAdapter(db, {
-    provider: "sqlite",
-    schema: sqliteAuthSchema,
+    provider: "pg",
+    schema: pgAuthSchema,
   });
 }

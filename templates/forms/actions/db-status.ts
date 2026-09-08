@@ -11,14 +11,14 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const url = getRuntimeDatabaseUrl("file:./data/app.db");
+    const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
     const isLocal = isLocalDatabase();
 
     try {
       const result = await getDbExec().execute("SELECT 1 as ok");
       return {
         url: isLocal ? url : url.replace(/\/\/.*@/, "//***@"),
-        mode: isLocal ? "local (SQLite file)" : "remote (cloud)",
+        mode: isLocal ? "local (PGlite)" : "remote (cloud)",
         status: result.rows.length > 0 ? "connected" : "unexpected response",
       };
     } catch (err) {

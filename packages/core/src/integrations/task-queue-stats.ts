@@ -75,9 +75,7 @@ function isMissingTableError(err: unknown): boolean {
       : typeof err === "string"
         ? err
         : (JSON.stringify(err ?? "") ?? "");
-  return /no such table|does not exist|relation .* does not exist|undefined_table/i.test(
-    msg,
-  );
+  return /does not exist|relation .* does not exist|undefined_table/i.test(msg);
 }
 
 function stringValue(value: unknown, fallback = ""): string {

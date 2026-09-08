@@ -5,7 +5,8 @@
  * metadata and flags needed by the scheduling UI (display name, invalid
  * flag, app icon, default-for-type).
  */
-import { table, text, integer } from "@agent-native/core/db/schema";
+import { table, text } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const schedulingCredentials = table("scheduling_credentials", {
   id: text("id").primaryKey(),
@@ -23,11 +24,9 @@ export const schedulingCredentials = table("scheduling_credentials", {
   /** External account email (e.g. Google account email) */
   externalEmail: text("external_email"),
   /** True after a 401/403 — UI prompts re-connect */
-  invalid: integer("invalid", { mode: "boolean" }).notNull().default(false),
+  invalid: boolean("invalid").notNull().default(false),
   /** Whether this is the user's default for its category (e.g. default video) */
-  isDefault: integer("is_default", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  isDefault: boolean("is_default").notNull().default(false),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

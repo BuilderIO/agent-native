@@ -136,7 +136,7 @@ demo 负责。
 
 - **工作代理** — 已连接到应用程序，能够对您的数据执行 actions，并了解您正在查看的内容。请参阅 [Messaging the agent](/docs/messaging)。
 - **Auth** — 登录、会话、组织和多租户隔离。
-- **数据库** — 架构、查询和迁移，随时可用。带上您自己的 SQL 数据库（Postgres、SQLite、Turso、D1），框架会自动适配。
+- **数据库** — 可直接使用的 schema、查询和迁移。开发时使用本地 PGlite，部署环境使用托管 PostgreSQL。
 - **实时 UI** — 屏幕与代理保持同步。例如，在聊天中起草一封邮件，收件箱会立即更新。
 - **部署就绪** — 可部署到 Netlify、Vercel、Cloudflare、AWS 或任何支持运行 Node 的主机。
 - **品牌挂钩** — 更改名称、颜色、徽标和文案。
@@ -280,6 +280,6 @@ CLI 会先询问 **如何开始？**。选择 **Chat** 可创建包含 Chat 和 
 
 填写 `.env`（`ANTHROPIC_API_KEY` 和 `DATABASE_URL`），然后运行 `pnpm install` 和 `pnpm dev`。没有需要实现的登录功能，也没有占位符路由。
 
-部署目标：任何 Nitro 兼容主机（Node、Cloudflare、Netlify、Vercel、Deno、Lambda、Bun）和任何 Drizzle 兼容 SQL 数据库（SQLite、Postgres、Turso、D1、Supabase、Neon）。对于工作区，`npx @agent-native/core@latest deploy` 一次构建每个应用程序并将它们发送到单个源。参见[Deployment](/docs/deployment)。
+部署目标：任何受支持的 Nitro 兼容主机和托管 PostgreSQL 数据库。对于工作区，`npx @agent-native/core@latest deploy` 一次构建所有应用，并将它们部署在单一源之后。参见 [Deployment](/docs/deployment)。
 
 要创作和发布您自己的应用模板，请参阅 [Creating Templates](/docs/creating-templates)。

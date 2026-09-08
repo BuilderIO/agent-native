@@ -20,7 +20,6 @@ const execute = vi.fn(async ({ sql }: { sql: string }) => {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
-  isPostgres: () => false,
 }));
 
 const settings = new Map<string, Record<string, unknown>>();

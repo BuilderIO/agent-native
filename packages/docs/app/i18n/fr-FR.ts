@@ -158,8 +158,8 @@ const frFR = {
           body: "Définissez le travail une fois et utilisez-le depuis l’UI, l’agent, HTTP, MCP, A2A et CLI.",
         },
         sqlStateOrm: {
-          title: "État SQL et ORM",
-          body: "Données d’app durables, état applicatif, migrations et schémas indépendants du fournisseur.",
+          title: "État PostgreSQL et ORM",
+          body: "Données d’app durables, état applicatif, migrations et schémas PostgreSQL/PGlite.",
         },
         dbAdmin: {
           title: "Admin base de données",
@@ -212,7 +212,7 @@ const frFR = {
       body1:
         "Agent-Native est un framework open source pour construire des agentic applications : commencez avec Chat, définissez des actions partagées, puis ajoutez UI, jobs et collaboration autour du même état.",
       body2:
-        "Apportez votre propre base de données, fournisseur d'hébergement, stack de modèles et code d'app.",
+        "Utilisez PGlite local ou PostgreSQL hébergé, votre fournisseur d’hébergement, votre stack de modèles et votre code d’app.",
       cta: "Lire le guide du framework",
       primitives: {
         actions: {
@@ -230,10 +230,10 @@ const frFR = {
           description:
             "L'app-agent loop, les tools, skills, memory, jobs et l'observabilité sont livrés ensemble.",
         },
-        backendAgnostic: {
-          title: "Indépendant du backend",
+        postgresSpecific: {
+          title: "Spécifique à PostgreSQL",
           description:
-            "Branchez n'importe quelle base de données SQL prise en charge par Drizzle et n'importe quel hôte compatible Nitro.",
+            "Utilisez les assistants de schéma PostgreSQL du framework avec PGlite local ou Postgres hébergé sur n’importe quel hôte compatible Nitro.",
         },
       },
     },
@@ -313,7 +313,7 @@ const frFR = {
     },
     quickStart: {
       title: "Commencez avec une commande",
-      body: "Une commande crée une app locale chat-first adossée à actions, durable threads et SQLite. Utilisez `--headless` seulement pour les workflows automation-first sans UI navigateur pour le moment.",
+      body: "Une commande crée une app locale chat-first adossée à actions, durable threads et PGlite. Utilisez `--headless` seulement pour les workflows automation-first sans UI navigateur pour le moment.",
     },
     finalCta: {
       title: "Un logiciel conçu pour l'ère agentic",
@@ -438,19 +438,21 @@ const frFR = {
   },
   homepage: {
     hero: {
-      title: "Le framework des applications agentic",
-      bodyLine1: "Créez des agents autonomes avec des interfaces intuitives.",
-      bodyLine2: "Apportez votre propre LLM. Déployez où vous voulez.",
+      title: "Le framework pour les applications agentiques.",
+      bodyLine1:
+        "Un framework TypeScript open source pour des apps avec une interface et un agent.",
+      bodyLine2:
+        "Définissez chaque action une fois et appelez-la depuis n’importe où.",
       tryAnApp: "Essayer une app",
     },
     install: {
       copyCommand: "Copier la commande d'installation",
     },
     actions: {
-      title: "Une action alimente chaque surface",
-      bodyLine1: "Les actions définissent ce que votre agent peut faire.",
+      title: "Appelez une action depuis n’importe où.",
+      bodyLine1: "Définissez une capacité avec defineAction().",
       bodyLine2:
-        "Définissez chaque capacité une fois, puis utilisez-la depuis l'agent, l'UI, HTTP API, MCP, A2A ou CLI.",
+        "Votre UI React, votre agent, vos clients HTTP et vos intégrations utilisent tous le même code.",
       diagramAlt:
         "Une action alimente l'UI, MCP, le chat de l'agent, A2A, HTTP API et CLI",
     },
@@ -471,7 +473,7 @@ const frFR = {
           body: "L'agent sait ce que les utilisateurs consultent, sélectionnent et éditent.",
         },
         sharedSql: {
-          title: "Données SQL partagées",
+          title: "Données PostgreSQL partagées",
           body: "Les utilisateurs et les agents lisent et mettent à jour la même source de vérité.",
         },
         skillsMemory: {
@@ -497,13 +499,13 @@ const frFR = {
       },
     },
     stack: {
-      title: "Fonctionne avec votre stack",
-      body: "Apportez votre LLM, base de données, outils et infrastructure. Agent-Native est du TypeScript open source, donc tout ce que vous construisez reste à vous.",
+      title: "Apportez votre propre stack",
+      body: "Agent-Native est en TypeScript open source. Choisissez votre modèle, votre base de données et votre hébergement, puis gardez le code de l’application dans votre dépôt.",
       exploreApps: "Explorer les apps créées avec Agent-Native",
     },
     showcase: {
-      title: "Que pouvez-vous construire avec Agent-Native ?",
-      body: "Créez des agents avec des UI pour les réunions, le design, les présentations, les données et plus encore. Partez de l'une de ces apps open source ou créez la vôtre.",
+      title: "De vraies apps créées avec Agent-Native",
+      body: "Des apps Agent-Native open source que vous pouvez utiliser gratuitement ou personnaliser à l’infini.",
       browseApps: "Parcourir les apps",
       scrollLeft: "Défiler les apps vers la gauche",
       scrollRight: "Défiler les apps vers la droite",
@@ -522,17 +524,30 @@ const frFR = {
       download: "Télécharger",
       apps: "Apps",
       privacyPolicy: "Politique de confidentialité",
-      saasTerms: "Conditions du service hébergé",
+      saasTerms: "Conditions SaaS",
       legalResources: "Ressources juridiques",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Vous ne développez pas en local ?",
-      exploreApp: "Explorez d’abord une application en ligne",
-      between: "ou",
-      joinWaitlist: "inscrivez-vous sur la liste d’attente",
-      end: "pour développer dans le navigateur.",
+    tabs: {
+      label: "Choisissez votre mode de création",
+      local: "Développer en local",
+      localDescription: "Utilisez la CLI pour développer sur votre machine.",
+      cloud: "Développer dans le cloud",
+      cloudDescription: "Développez dans le navigateur avec Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Développez les mêmes applications sans rien installer. Décrivez ce que vous voulez et l’agent écrit et exécute le code dans un espace de travail hébergé par Builder.",
+      stepOneTitle: "Créer un compte Builder",
+      stepOneBody:
+        "Utilisez votre compte Builder pour développer dans le navigateur. Commencez gratuitement, sans fournir de clés API.",
+      stepTwoTitle: "À vous de prompter",
+      stepTwoBody:
+        "Décrivez en langage courant ce que vous voulez créer et l’agent le fera pour vous.",
+      stepThreeTitle: "Déployer",
+      stepThreeBody:
+        "Quand vous êtes prêt, déployez votre application en un clic dans Builder.",
     },
   },
   templatesPage: {
@@ -558,7 +573,6 @@ const frFR = {
     tryCommunityDemo: "Essayer la démo",
     customizeDescription: "Utilisez cette app comme point de départ.",
     customizeOnline: "En ligne",
-    customizeOnlineBadge: "Rejoindre la liste d'attente",
     customizeLocally: "Local",
     communityNew: "Nouveau",
     communityComingSoon: "Bientôt disponible",
@@ -616,15 +630,8 @@ const frFR = {
     buildOnline: "Créer en ligne",
     popoverTitle: "Créer dans le navigateur",
     popoverBody:
-      "Builder.io peut lancer et personnaliser une app agent-native dans le cloud — actions, auth, état SQL et chat agent inclus. Rejoignez la liste d'attente pour un accès anticipé.",
-    emailLabel: "E-mail",
-    emailPlaceholder: "vous@entreprise.com",
-    joinWaitlist: "Rejoindre la liste d'attente",
-    joining: "Inscription…",
-    joined:
-      "Vous êtes sur la liste d'attente. Nous vous enverrons un e-mail quand l'accès à la création en ligne ouvrira.",
-    invalidEmail: "Saisissez une adresse e-mail valide.",
-    submitError: "Impossible de rejoindre la liste d'attente. Réessayez.",
+      "Générez rapidement des apps agent-native dans le cloud avec Builder.io.",
+    launchBuilder: "Lancer Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Collez dans votre terminal.",

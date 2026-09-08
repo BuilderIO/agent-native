@@ -13,7 +13,7 @@
  * joins on `template_id`.
  */
 
-import { table, text, integer } from "../db/schema.js";
+import { table, text, bigint } from "../db/schema.js";
 
 export const emailLog = table("email_log", {
   id: text("id").primaryKey(),
@@ -34,7 +34,7 @@ export const emailLog = table("email_log", {
   error: text("error"),
   /** "resend" | "sendgrid" | "dev". */
   provider: text("provider").notNull(),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
 export const EMAIL_LOG_CREATE_SQL = `CREATE TABLE IF NOT EXISTS email_log (

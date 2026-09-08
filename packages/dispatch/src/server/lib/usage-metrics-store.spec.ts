@@ -79,8 +79,12 @@ describe("listDispatchUsageMetrics", () => {
   });
 
   it("returns empty metrics when usage storage bootstrap and reads fail", async () => {
-    mocks.getUsageSummary.mockRejectedValue(new Error("database is locked"));
-    mocks.execute.mockRejectedValue(new Error("no such table: token_usage"));
+    mocks.getUsageSummary.mockRejectedValue(
+      new Error("could not serialize access due to concurrent update"),
+    );
+    mocks.execute.mockRejectedValue(
+      new Error('relation "token_usage" does not exist'),
+    );
     mocks.listWorkspaceApps.mockResolvedValue([
       {
         id: "dispatch",

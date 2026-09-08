@@ -10214,6 +10214,8 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Cmd/Ctrl+Shift+R paste to replace", key: "r", shift: true },
   { name: "Cmd/Ctrl+Shift+H toggle hidden", key: "h", shift: true },
   { name: "Cmd/Ctrl+Shift+L toggle locked", key: "l", shift: true },
+  { name: "Cmd/Ctrl+Backslash toggle sidebars", key: "\\" },
+  { name: "Cmd/Ctrl+Shift+Backslash minimal UI", key: "|", shift: true },
   { name: "Cmd/Ctrl+G group", key: "g" },
   // BUG-UNGROUP-HOTKEY: Shift+Cmd+G ungroups (see useDesignHotkeys.ts's Cmd+G
   // family) — was dead because handleDesignHotkey itself swallowed it, not
@@ -10466,7 +10468,7 @@ it(
 );
 
 it(
-  "editor chrome bridge forwards Shift+\\ and leaves host Cmd/Ctrl chords alone",
+  "editor chrome bridge forwards Cmd+\\ and Cmd+Shift+\\, but leaves Shift+\\ and other host chords alone",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -10493,8 +10495,34 @@ it(
       await page.evaluate(() => {
         document.body.dispatchEvent(
           new KeyboardEvent("keydown", {
+            key: "\\",
+            code: "Backslash",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await page.waitForTimeout(60);
+      expect(await readBridgeMessages(page)).toContainEqual(
+        expect.objectContaining({
+          type: "design-hotkey",
+          code: "Backslash",
+          shiftKey: false,
+          metaKey: true,
+          ctrlKey: false,
+        }),
+      );
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+      });
+
+      await page.evaluate(() => {
+        document.body.dispatchEvent(
+          new KeyboardEvent("keydown", {
             key: "|",
             code: "Backslash",
+            metaKey: true,
             shiftKey: true,
             bubbles: true,
             cancelable: true,
@@ -10507,10 +10535,32 @@ it(
           type: "design-hotkey",
           code: "Backslash",
           shiftKey: true,
-          metaKey: false,
+          metaKey: true,
           ctrlKey: false,
         }),
       );
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+      });
+
+      // The shifted chord is no longer the Design chrome shortcut.
+      await page.evaluate(() => {
+        document.body.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "|",
+            code: "Backslash",
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await page.waitForTimeout(60);
+      expect(
+        (await readBridgeMessages(page)).some(
+          (message) => message.type === "design-hotkey",
+        ),
+      ).toBe(false);
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
       });
@@ -10548,25 +10598,6 @@ it(
       await page.keyboard.down("Meta");
       await page.keyboard.press("l");
       await page.keyboard.up("Meta");
-      // Bare Cmd+\ belongs to the desktop coding host. Design only claims
-      // Figma's modifier-free Shift+\ minimize-UI chord.
-      await page.evaluate(() => {
-        document.body.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "\\",
-            code: "Backslash",
-            metaKey: true,
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-      await page.waitForTimeout(60);
-
-      const messages = await readBridgeMessages(page);
-      expect(messages.some((message) => message.type === "design-hotkey")).toBe(
-        false,
-      );
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

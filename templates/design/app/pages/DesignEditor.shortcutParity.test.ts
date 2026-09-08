@@ -27,10 +27,10 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
 
   it("routes panel shortcuts through the same state as the visible rail", () => {
     expect(editorSource).toContain(
-      'const handleShowLayersPanel = useCallback(() => {\n    setUiHidden(false);\n    setActiveLeftPanel("file");',
+      'const handleShowLayersPanel = useCallback(() => {\n    setMinimalUi(false);\n    setUiHidden(false);\n    setActiveLeftPanel("file");',
     );
     expect(editorSource).toContain(
-      'const handleShowAssetsPanel = useCallback(() => {\n    setUiHidden(false);\n    setActiveLeftPanel("assets");',
+      'const handleShowAssetsPanel = useCallback(() => {\n    setMinimalUi(false);\n    setUiHidden(false);\n    setActiveLeftPanel("assets");',
     );
     expect(editorSource).toContain(
       "onShowLayersPanel: initialGenerationChromeLimited\n      ? undefined\n      : handleShowLayersPanel",

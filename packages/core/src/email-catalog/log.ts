@@ -8,12 +8,13 @@
 
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -29,11 +30,10 @@ export async function ensureTable(): Promise<void> {
       const client = getDbExec();
       // Generic INTEGER maps to BIGINT on Postgres, which millisecond
       // timestamps need.
-      const createSql = isPostgres()
-        ? EMAIL_LOG_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT")
-        : EMAIL_LOG_CREATE_SQL;
-      if (isPostgres()) {
+      const createSql = EMAIL_LOG_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT");
+      {
         await ensureTableExists("email_log", createSql);
+        await widenIntColumnsToBigInt("email_log", ["created_at"]);
         await ensureColumnExists(
           "email_log",
           "org_id",
@@ -54,7 +54,9 @@ export async function ensureTable(): Promise<void> {
       try {
         await client.execute("ALTER TABLE email_log ADD COLUMN org_id TEXT");
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = String(
+          (error as { message?: unknown } | null)?.message ?? error,
+        );
         if (!/already exists|duplicate column name/i.test(message)) {
           throw error;
         }

@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   contentForSlideTextContainer,
@@ -8,6 +12,20 @@ import {
   restoreSlideTextContainerContent,
   selectionOffsetsWithin,
 } from "./SlideRichTextEditor";
+
+const stylesheet = document.createElement("style");
+stylesheet.textContent = readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "../../global.css"),
+  "utf8",
+);
+
+beforeAll(() => {
+  document.head.append(stylesheet);
+});
+
+afterAll(() => {
+  stylesheet.remove();
+});
 
 describe("slide rich text normalization", () => {
   it("converts legacy bullet rows without losing row styling", () => {
@@ -25,7 +43,72 @@ describe("slide rich text normalization", () => {
     expect(items[0]?.textContent).toBe("First");
     expect(items[0]?.style.fontSize).toBe("24px");
     expect(items[0]?.style.color).toBe("red");
+    expect(list.style.getPropertyValue("--slide-legacy-list")).toBe("1");
     expect(html).not.toContain("<p></p>");
+  });
+
+  it("restores styled bullet rows after editing their semantic list", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;align-items:baseline;gap:20px;font-size:22px;color:rgb(255, 255, 255)">
+          <span style="font-size:8px">●</span><span>First point</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:20px;font-size:22px;color:rgb(255, 255, 255)">
+          <span style="font-size:8px">●</span><span>Second point</span>
+        </div>
+      </div>
+    `;
+    const target = root.firstElementChild as HTMLElement;
+    const source = target.innerHTML;
+    const restored = restoreSlideTextContainerContent(
+      target,
+      '<ul><li style="font-size:22px;color:rgb(255, 255, 255)"><p><strong>Updated point</strong></p></li><li style="font-size:22px;color:rgb(255, 255, 255)"><p>Second point</p></li></ul>',
+      source,
+    );
+
+    const rows = restored.querySelectorAll(":scope > div");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.querySelector(":scope > span")?.textContent).toBe("●");
+    expect(rows[0]?.querySelectorAll(":scope > span")).toHaveLength(2);
+    expect(rows[0]?.querySelector("strong")?.textContent).toBe("Updated point");
+    expect((rows[0]?.firstElementChild as HTMLElement).style.fontSize).toBe(
+      "8px",
+    );
+    expect((rows[0] as HTMLElement).style.gap).toBe("20px");
+  });
+
+  it("keeps persisted semantic lists styled without an editor marker", () => {
+    document.body.innerHTML = `
+      <div class="slide-content">
+        <div class="fmd-slide">
+          <div><ul><li><p>First point</p></li></ul></div>
+        </div>
+      </div>
+    `;
+    const list = document.querySelector("ul") as HTMLElement;
+    const style = getComputedStyle(list);
+
+    expect(style.listStylePosition).toBe("outside");
+    expect(style.listStyleType).toBe("disc");
+    expect(style.paddingLeft).toBe("24px");
+  });
+
+  it("scales headings from the text block in both canvas states", () => {
+    document.body.innerHTML = `
+      <div class="slide-content">
+        <div class="fmd-slide">
+          <div style="font-size:14px"><h1>Canvas</h1></div>
+          <div class="slide-shared-rich-editor">
+            <div class="an-rich-md-prose" style="font-size:14px"><h1>Editor</h1></div>
+          </div>
+        </div>
+      </div>
+    `;
+    const headings = document.querySelectorAll("h1");
+
+    expect(getComputedStyle(headings[0]!).fontSize).toBe("28px");
+    expect(getComputedStyle(headings[1]!).fontSize).toBe("28px");
   });
 
   it("preserves styled imported trailing paragraphs", () => {

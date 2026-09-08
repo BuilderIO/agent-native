@@ -30,7 +30,7 @@ import {
 
 export default defineAction({
   description:
-    "Aggregate analytics for a recording — views, unique viewers, completion rate, drop-off curve, CTA conversion.",
+    "Aggregate analytics for a recording — views, unique viewers, reactions, completion rate, drop-off curve, CTA conversion.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -49,14 +49,19 @@ export default defineAction({
       .from(schema.recordingEvents)
       .where(eq(schema.recordingEvents.recordingId, args.recordingId));
 
-    const [[viewLogRow], agentViews, agentViewers] = await Promise.all([
-      db
-        .select({ value: count() })
-        .from(schema.recordingViews)
-        .where(eq(schema.recordingViews.recordingId, args.recordingId)),
-      countRecordingAgentViews(args.recordingId),
-      listRecordingAgentViewers(args.recordingId),
-    ]);
+    const [[viewLogRow], agentViews, agentViewers, [reactionCountRow]] =
+      await Promise.all([
+        db
+          .select({ value: count() })
+          .from(schema.recordingViews)
+          .where(eq(schema.recordingViews.recordingId, args.recordingId)),
+        countRecordingAgentViews(args.recordingId),
+        listRecordingAgentViewers(args.recordingId),
+        db
+          .select({ value: count() })
+          .from(schema.recordingReactions)
+          .where(eq(schema.recordingReactions.recordingId, args.recordingId)),
+      ]);
 
     // Same definition as `countedViewCondition`, applied to rows already in
     // memory so this action keeps its single viewer-row read. One row per
@@ -112,6 +117,7 @@ export default defineAction({
       countedViewers === 0
         ? 0
         : Math.min(100, (ctaClicks / countedViewers) * 100);
+    const reactions = Number(reactionCountRow?.value ?? 0);
 
     // Top viewers by total watch ms
     const topViewers = (
@@ -133,6 +139,7 @@ export default defineAction({
       agentViews,
       agentViewers,
       uniqueViewers,
+      reactions,
       completionRate,
       ctaConversionRate,
       dropOff: buckets,

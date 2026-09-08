@@ -8,7 +8,7 @@
  * Chat before it was traced to the shared settings component.
  *
  * The stylesheet suppresses the platform widget only for fields carrying
- * `search-field-owns-clear`, because a field with no clear button of its own
+ * `agent-native-search-input`, because a field with no clear button of its own
  * still needs it. That makes the pairing the invariant worth checking: a
  * search input whose wrapper renders a clear button must carry the class, and
  * a field carrying the class must actually render one.
@@ -36,7 +36,11 @@ const SOURCE_EXTENSIONS = /\.(tsx|jsx)$/;
 const EXCLUDED_PATH =
   /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage|corpus|\.tmp[^/]*)(\/|$)/;
 
-const OPT_IN_CLASS = "search-field-owns-clear";
+const OPT_IN_CLASS = "agent-native-search-input";
+// Some fields suppress the widget with an inline Tailwind arbitrary variant
+// instead of the shared class. Either one satisfies the invariant.
+const INLINE_SUPPRESSION_RE =
+  /\[&::-webkit-search-cancel-button\]:appearance-none/;
 // `oxfmt` rewrites `type='search'` to `type="search"` but keeps the braces on
 // `type={"search"}`, so both bare and braced literals reach the repo.
 const SEARCH_TYPE_RE = /type=(?:["']search["']|\{\s*["']search["']\s*\})/;
@@ -121,7 +125,9 @@ function main() {
         const element = elementAround(lines, index);
         if (ALLOW_PRAGMA.test(lines[element.start - 1] ?? "")) continue;
 
-        const optedIn = element.text.includes(OPT_IN_CLASS);
+        const optedIn =
+          element.text.includes(OPT_IN_CLASS) ||
+          INLINE_SUPPRESSION_RE.test(element.text);
         const following = lines
           .slice(element.end + 1, element.end + 1 + WRAPPER_LOOKAHEAD_LINES)
           .join("\n");

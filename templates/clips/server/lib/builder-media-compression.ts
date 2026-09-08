@@ -949,7 +949,7 @@ export function mediaDurationsMateriallyMatch(
 export async function runBuilderMediaCompressionSweepOnce(): Promise<void> {
   const exec = getDbExec();
   const { rows } = await exec.execute({
-    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE ?`,
+    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE $1`,
     args: [`${BUILDER_MEDIA_COMPRESSION_STATE_PREFIX}%`],
   });
 

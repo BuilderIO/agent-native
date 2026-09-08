@@ -646,10 +646,10 @@
      away its only pointer-accessible way to clear. `guard:single-search-clear`
      fails when a field grows its own clear button without this class, so the
      duplicate cannot come back silently. */
-  .search-field-owns-clear::-webkit-search-cancel-button,
-  .search-field-owns-clear::-webkit-search-decoration,
-  .search-field-owns-clear::-webkit-search-results-button,
-  .search-field-owns-clear::-webkit-search-results-decoration {
+  .agent-native-search-input::-webkit-search-cancel-button,
+  .agent-native-search-input::-webkit-search-decoration,
+  .agent-native-search-input::-webkit-search-results-button,
+  .agent-native-search-input::-webkit-search-results-decoration {
     -webkit-appearance: none;
     appearance: none;
   }

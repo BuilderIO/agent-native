@@ -3,12 +3,6 @@ build
 
 .generated/
 
-# Stray SQLite files at the template root (real DB lives under data/)
-/app.db
-/app.db-shm
-/app.db-wal
-/local.db
-
 .vercel/
 
 # Copied from @mediapipe/tasks-vision at build/dev start by vite.config.ts.

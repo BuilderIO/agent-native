@@ -10,9 +10,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 // after every move, through a separate raw connection from the action's own
 // `getDb()`. Six concurrent moves each opening/closing a `db.transaction()`
 // on the drizzle connection while that separate connection tries to upsert
-// `application_state` is enough cross-connection SQLite write-lock
-// contention to occasionally exceed `busy_timeout` and throw "database is
-// locked" — a pre-existing test-harness artifact of that dual-connection
+// `application_state` creates cross-connection lock contention in local tests,
+// which can occasionally exceed the query timeout — a pre-existing test-harness
+// artifact of that dual-connection
 // design, unrelated to the sibling-position race this file tests. Stub it
 // out so the test isolates the resequencing behavior.
 vi.mock("@agent-native/core/application-state", () => ({
@@ -21,7 +21,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `move-document-position-race-${process.pid}-${Date.now()}.sqlite`,
+  `move-document-position-race-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -32,7 +32,7 @@ let moveDocumentAction: typeof import("./move-document.js").default;
 const OWNER = "owner@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -42,9 +42,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;

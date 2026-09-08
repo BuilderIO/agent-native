@@ -1,4 +1,4 @@
-// Integration tests for the server-side CRM query. Boots a real libsql (SQLite)
+// Integration tests for the server-side CRM query. Boots a real PGlite
 // database, runs the actual migrations, and seeds attribute values through the
 // real bitemporal writer — the whole point of this file is that filters, sorts,
 // and cursors are proven against SQL rather than against a stub.
@@ -15,7 +15,7 @@ import type { CrmWritableAttribute } from "./record-fields.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-query-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-query-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -169,7 +169,7 @@ let initech = "";
 let hooli = "";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../db/index.js");
   getDb = dbModule.getDb;
   schema = await import("../db/schema.js");
@@ -289,9 +289,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("record summary", () => {

@@ -74,6 +74,13 @@ export interface AgentChatMcpOptions {
   icons?: AgentChatMcpIcon[];
   /** Additional host-facing guidance included in MCP initialization metadata. */
   instructions?: string;
+  /**
+   * Key tools to name in the MCP/WebMCP instructions for external callers.
+   * Defaults to the app's own `initialToolNames` — the in-app agent's
+   * curated starter list is the one index unless a different subset should
+   * be shown to external connectors.
+   */
+  keyToolNames?: readonly string[];
 }
 
 /** The legacy top-level keys `mcp` replaces. */
@@ -92,6 +99,8 @@ export interface AgentChatMcpLegacyInput {
   connectorCatalog?: string[];
   /** @deprecated Use `mcp.externalAgents`. */
   externalAgents?: ExternalAgentPolicy;
+  /** App's own curated starter tool list; the `mcp.keyToolNames` default. */
+  initialToolNames?: readonly string[];
   mcp?: AgentChatMcpOptions;
 }
 
@@ -106,6 +115,7 @@ export interface ResolvedAgentChatMcp {
   websiteUrl: string | undefined;
   icons: AgentChatMcpIcon[] | undefined;
   instructions: string | undefined;
+  keyToolNames: readonly string[] | undefined;
 }
 
 function conflict(
@@ -225,5 +235,6 @@ export function resolveAgentChatMcpOptions(
       legacyInfo?.instructions,
       mcp.instructions,
     ),
+    keyToolNames: mcp.keyToolNames ?? input?.initialToolNames,
   };
 }
