@@ -1,0 +1,38 @@
+---
+title: "Vercel"
+description: "Stellen Sie eine agentennative App mit der Vercel-Nitro-Voreinstellung auf Vercel bereit, eigenständig oder als Arbeitsbereich."
+---
+
+# Vercel
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Bereitstellung über die Vercel CLI oder Git Push:
+
+```bash
+vercel deploy
+```
+
+Bauen Sie für einen Arbeitsbereich jede App in ein einziges Vercel-Build-Output-API-Bundle:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+Legen Sie für Vercel-Git-Bereitstellungen den Build-Befehl auf Folgendes fest:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+Der Workspace-Build kopiert die Nitro-`vercel`-Ausgabe jeder App in das Root-`.vercel/output`, gibt jeder Funktion eine eigene Mount-Pfad-Umgebung und schreibt die Routenkonfiguration, die Apps unter `/<app-id>` bereitstellt.
+
+## Was kommt als nächstes?
+
+- [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank und eine Voreinstellung vor Ihrer ersten Produktionsbereitstellung
+- [**Arbeitsbereichsbereitstellung**](/docs/workspace-deployment) — der Workspace-Build von `deploy --preset vercel` im Detail
+- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare) und [**Andere Plattformen**](/docs/other-platforms) — die anderen Nitro-Voreinstellungen

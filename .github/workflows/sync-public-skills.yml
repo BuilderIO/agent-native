@@ -1,0 +1,60 @@
+name: Sync public skills repo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/visual-plans/**"
+      - "skills/visual-recap/**"
+      - "skills/visual-edit/**"
+      - "skills/an/**"
+      - ".agents/plugins/agent-native-visual-plans/**"
+      - ".agents/plugins/agent-native-design/**"
+      - ".agents/plugins/agent-native/**"
+      - "templates/plan/.agents/skills/visual-plan/**"
+      - "templates/plan/.agents/skills/visual-recap/**"
+      - "templates/design/.agents/skills/visual-edit/**"
+      - "scripts/sync-plan-skills.ts"
+      - "scripts/sync-plan-marketplace.ts"
+      - "packages/core/src/cli/skills.ts"
+      - "packages/core/src/cli/skills-content/**"
+      - ".github/workflows/sync-public-skills.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: sync-public-skills
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    name: Ask BuilderIO/skills to sync exported skills
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          repositories: skills
+
+      - name: Dispatch public skills sync
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api repos/BuilderIO/skills/dispatches \
+            --method POST \
+            -f event_type=agent-native-plan-skills-updated \
+            -f "client_payload[sourceRepository]=${{ github.repository }}" \
+            -f "client_payload[sourceSha]=${{ github.sha }}" \
+            -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          gh api repos/BuilderIO/skills/dispatches \
+            --method POST \
+            -f event_type=agent-native-public-skills-updated \
+            -f "client_payload[sourceRepository]=${{ github.repository }}" \
+            -f "client_payload[sourceSha]=${{ github.sha }}" \
+            -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

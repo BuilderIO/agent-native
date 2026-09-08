@@ -1,0 +1,127 @@
+---
+title: "Sync-Interna"
+description: "Der Änderungsversionsmechanismus hinter useDbSync: useChangeVersion/useChangeVersions zur Synchronisierung eines rohen useQuery, und die zwei Latenzpfade, die ein erneutes Abrufen nehmen kann."
+---
+
+# Sync-Interna
+
+[Live Sync](/docs/key-concepts#polling-sync) behandelt das mentale Modell: Ein Agenten-Schreibvorgang wird zu einem Änderungsereignis, `useDbSync()` nimmt es auf, und betroffene Abfragen rufen erneut ab. Diese Seite behandelt den Mechanismus darunter, den die meisten Apps nie direkt anfassen: die Änderungsversionszähler, die `useDbSync()` erhöht, und wie man sie in einen rohen `useQuery()`-Aufruf einbaut, der nicht über `useActionQuery()` läuft.
+
+`useActionQuery()` ruft bereits automatisch erneut ab, wenn eine mutierende Action abschließt (siehe [Daten & Sync](/docs/client-data#fetching-mutating)). Greifen Sie nur zu `useChangeVersion()`/`useChangeVersions()`, wenn Sie einen rohen `useQuery()`-Aufruf außerhalb dieses Pfads synchronisieren, etwa einen niedrigen Client-Helfer, der den Integrationsstatus liest.
+
+## Wie Änderungsversionen funktionieren {#how-it-works}
+
+Wenn eine serverseitige Datenbankmutation auftritt, zeichnet der Server ein Änderungsereignis mit einem `source`-Schlüssel auf. `useDbSync()` empfängt dieses Ereignis und erhöht einen lokalen Zähler für diese Quelle. Das Einbauen des Zählers in einen React-Query-Schlüssel lässt die Abfrage automatisch erneut abrufen, sobald das Backend neue Aktivität für diese Quelle meldet.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+<Signature
+  id="doc-block-client-sync-internals-1"
+  name="useChangeVersion"
+  params={[
+    {
+      name: "source",
+      type: "string",
+      description:
+        'Die zu beobachtende Änderungsereignisquelle, z. B. `"dashboards"`.',
+    },
+  ]}
+  returns={{
+    type: "number",
+    description:
+      "Ein Zähler, der sich erhöht, sobald die angegebene Quelle mutiert wird.",
+  }}
+/>
+
+<Signature
+  id="doc-block-client-sync-internals-2"
+  name="useChangeVersions"
+  params={[
+    {
+      name: "sources",
+      type: "readonly string[]",
+      description:
+        "Mehrere gleichzeitig zu beobachtende Änderungsereignisquellen.",
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "Die Summe der Versionszähler für jede angegebene Quelle.",
+  }}
+/>
+
+Im folgenden Beispiel liest ein roher `useQuery()`-Aufruf direkt ein Dashboard und baut den Versionszähler der Quelle `"dashboards"` in seinen Abfrageschlüssel ein, sodass er erneut abruft, sobald sich diese Quelle ändert:
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client/hooks";
+
+function DashboardView({ id }) {
+  const version = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, version],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev,
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+`placeholderData: (prev) => prev` behält die vorherigen Daten während des erneuten Abrufens auf dem Bildschirm, sodass die Ansicht nicht zu einem Ladezustand flackert.
+
+## Zwei Wege zu einem erneuten Abruf {#latency-models}
+
+Eine Mutation erreicht die UI auf einem von zwei Wegen, und diese haben unterschiedliche Latenz.
+
+Eine lokale Mutation, eine, die Ihr eigener `useActionMutation()`-Aufruf gerade ausgeführt hat, löst bei Erfolg sofort ein `source: "action"`-Ereignis aus. Jede Abfrage, die von dieser Action abhängt, ruft sofort erneut ab. Es gibt keine Roundtrip-Verzögerung, da der Tab, der den Schreibvorgang ausgeführt hat, bereits davon weiß.
+
+Eine entfernte Mutation, vom Agenten, einem Webhook, einem anderen Tab oder einem anderen Benutzer, muss diesen Tab erst erreichen. `useDbSync()` nimmt sie fast sofort über SSE auf, oder über den Polling-Fallback innerhalb von etwa zwei Sekunden, wenn SSE nicht verfügbar ist. Erst wenn dieses Ereignis eintrifft, erhöht sich der entsprechende Versionszähler und die Abfrage ruft im Hintergrund erneut ab.
+
+<Diagram id="doc-block-client-sync-internals-3" title="Zwei Wege zu einem erneuten Abruf" summary="Eine lokale Mutation macht ihre eigenen Caches sofort ungültig. Ein entfernter Schreibvorgang erreicht diesen Tab über SSE oder den Polling-Tick als Fallback.">
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">Dieser Tab</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >löst bei Erfolg source: "action" aus &rarr; sofortiges lokales erneutes
+        Abrufen</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">Agent · Webhook · anderer Tab</span
+      ><strong>Entfernter Schreibvorgang</strong
+      ><small class="diagram-muted"
+        >SSE-Push, oder der ~2s-Polling-Tick als Fallback &rarr; Version erhöht
+        sich &rarr; erneutes Abrufen im Hintergrund</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## Was kommt als nächstes?
+
+- [**Live Sync**](/docs/key-concepts#polling-sync) — das konzeptuelle mentale Modell, das diese Seite unterlegt
+- [**Daten & Sync**](/docs/client-data) — `useActionQuery`/`useDbSync`, die die meisten Seiten statt dieser Primitive verwenden sollten
+- [**Fortgeschritten**](/docs/client-advanced) — die anderen niedrigeren Client-Primitive und Escape-Hatches

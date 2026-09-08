@@ -1,0 +1,180 @@
+---
+title: "Reviewing and Commenting on Plans"
+description: "How reviewers comment on an Agent-Native Plan, how the agent tells addressed feedback from open feedback, how sharing and roles work, and how to delete or restore a plan."
+---
+
+# Reviewing and Commenting on Plans
+
+This page is for anyone reviewing a plan or recap, and for anyone sharing,
+reporting, or deleting one. It covers what happens after a plan exists — see
+[Visual Plans](/docs/template-plan) for how a plan gets created in the first
+place.
+
+## Comment types {#comment-types}
+
+Reviewers comment directly on the plan instead of leaving separate notes.
+
+- **Text comments** attach to the nearest prose block.
+- **Visual and canvas comments** pin to an exact spot on a wireframe, image, or
+  design board, and carry target coordinates so the agent knows precisely what
+  was flagged.
+- Every comment can target either the **agent** or a **human** reviewer.
+  Agent-targeted comments are the ones the agent is expected to act on; a
+  human-targeted comment is context, not an instruction.
+- **@mentions** notify teammates with inline chips. When email is configured,
+  new comments send a best-effort notification: root comments and replies
+  notify the plan owner and anyone @mentioned, and replies also notify prior
+  human participants in that thread.
+- Comments thread as replies to a parent comment, and each one carries the
+  reviewer's identity (name/email) when known.
+
+<WireframeBlock id="doc-block-plan1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:420px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill accent'>Open</span><span class='wf-muted' style='font-size:12px'>3 comments · 1 resolved</span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px;padding:12px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill'>Ada</span><span class='wf-muted' style='font-size:11px'>targets: agent</span></div><div class='wf-box'>Should this button disable while saving?</div><div style='display:flex;align-items:center;gap:8px;padding-left:16px'><span class='wf-pill'>Agent</span><span class='wf-muted' style='font-size:11px'>reply</span></div><div class='wf-box' style='margin-left:16px'>Yes — added a disabled state, see the updated screen.</div><button class='primary' style='align-self:flex-end'>Resolve</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px;padding:12px;opacity:0.6'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill'>Priya</span><span class='wf-muted' style='font-size:11px'>targets: human · resolved</span></div><div class='wf-box'>Copy nit — fixed in v2.</div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## Resolving feedback and version history {#resolving}
+
+The agent reads pending feedback with `get-plan-feedback`, which returns flat
+comments, grouped threads, anchor summaries, and recent review events. Once a
+change addresses a thread, the agent re-reads the plan to confirm the change
+persisted, then calls `resolve-plan-comment` for that thread and
+`consume-plan-feedback` for its comments — so review history stays visible
+instead of being deleted.
+
+<Diagram id="doc-block-plan2" title="Comment lifecycle" summary="A comment stays open until the agent verifies the requested change landed, then marks it resolved and consumed.">
+
+```html
+<div class="diagram-lifecycle">
+  <div class="diagram-node">
+    Posted<br /><small class="diagram-muted"
+      >text, visual, or canvas anchor</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    Agent reads<br /><small class="diagram-muted">get-plan-feedback</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Plan updated<br /><small class="diagram-muted">re-read to verify</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Resolved + consumed<br /><small class="diagram-muted"
+      >resolve-plan-comment · consume-plan-feedback</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-lifecycle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-lifecycle .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-lifecycle .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+```
+
+</Diagram>
+
+Deleting a comment (`delete-plan-comment`) is a soft delete — it disappears
+from normal views but the row stays for audit/debugging, and deleting a
+thread's root comment also deletes its replies. Use it only when a reviewer
+explicitly wants a comment removed or an accidental post undone; prefer
+resolving for feedback that has simply been handled.
+
+Plans also keep snapshots before meaningful authoring changes (pure comments
+and status changes do not trigger a snapshot). Use `list-plan-versions` to see
+saved snapshots and `get-plan-version` to inspect one before recommending a
+rollback. `restore-plan-version` snapshots the current plan first (so restore
+itself is reversible) and restores the plan's authoring content while
+preserving sharing, ownership, hosted publish metadata, comments, and activity
+history.
+
+## Sharing a plan {#sharing}
+
+- **Viewing** a public or org-shared plan works for anyone with the link — no
+  account required.
+- **Commenting** on a shared plan requires an agent-native account.
+- **Sharing** a plan — publishing it to a link, private sharing, or granting
+  reviewer roles — requires signing in. Google sign-in appears when the
+  standard Google OAuth env vars are configured.
+
+Each share grant has a role:
+
+| Role       | Can do                                                               |
+| ---------- | -------------------------------------------------------------------- |
+| **Viewer** | View the plan and comment on it                                      |
+| **Editor** | Everything a viewer can, plus edit plan content                      |
+| **Admin**  | Everything an editor can, plus grant or remove other people's access |
+
+Only the plan's owner can delete it, publish/unpublish it, or run a hard
+delete, regardless of admin shares — share roles control collaboration, not
+ownership transfer. See [Requesting access to a private plan](/docs/template-plan#request-access)
+for what a viewer without a share sees.
+
+The hosted Plans connector lives at `https://plan.agent-native.com/mcp`.
+Never put shared secrets in skill files.
+
+## Reporting abuse on a public plan {#report-abuse}
+
+Anyone who can view a **public** plan can report it for moderation without
+changing the plan's content. Reporting requires being signed in — the report
+is scoped to that viewer so it cannot be spoofed anonymously.
+
+A report has one required reason plus optional free-text details:
+
+`spam`, `harassment`, `hate`, `sexual`, `violence`, `self-harm`, `privacy`,
+`illegal`, `other`.
+
+Submitting a second report for the same plan from the same person does not
+create a duplicate — it updates the existing open report (bumping an
+occurrence count) instead. This is a flag for moderation review; it does not
+remove the plan or notify the plan's owner.
+
+## Deleting and restoring plans {#delete-data}
+
+Signed-in owners can delete their hosted plans and recaps from the Plans list
+or the plan action menu.
+
+- **Soft delete** moves the plan to the **Deleted** tab, makes normal plan
+  views/direct links stop working, and removes public access by making the row
+  private. The SQL rows are retained so the owner can restore the plan later.
+- **Restore** is available from the **Deleted** tab for soft-deleted plans.
+- **Permanent delete** removes the hosted plan row and plan-scoped comments,
+  sections, activity events, version snapshots, share grants, abuse reports,
+  and SQL asset records. The UI requires typing `DELETE <plan-id>` before the
+  final button enables.
+
+Permanent delete removes the Plan app's database records and SQL-backed asset
+bytes/references. If a deployment uses an external upload provider, provider
+object retention follows that provider's lifecycle because the shared upload
+abstraction does not currently expose object deletion. Local-files privacy mode
+keeps the source in your local MDX folder instead; deleting hosted data does
+not touch local files — see
+[Local-Files Mode and Desktop Sync](/docs/template-plan-local-and-desktop).
+
+## What's next
+
+- [**Visual Plans**](/docs/template-plan) — how a plan or recap gets created
+- [**Local-Files Mode and Desktop Sync**](/docs/template-plan-local-and-desktop) — keep review content off the hosted database
+- [**Events and Automations**](/docs/template-plan-automations) — trigger a webhook or wake the agent when someone comments
+- [**Extending Plan**](/docs/template-plan-developers) — the comment and sharing data model
+- [**Sharing**](/docs/sharing) — the framework-level sharing model Plan builds on

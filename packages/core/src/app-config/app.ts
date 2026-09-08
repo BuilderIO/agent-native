@@ -1,0 +1,182 @@
+import { z } from "zod";
+
+const AUTH_ENTRY_PATHS = new Set([
+  "/sign-in",
+  "/_agent-native/sign-in",
+  "/login",
+  "/signup",
+]);
+
+function isAuthEntryPath(value: string): boolean {
+  const normalized = value.replace(/\/+$/, "") || "/";
+  for (const path of AUTH_ENTRY_PATHS) {
+    if (normalized === path || normalized.endsWith(path)) return true;
+  }
+  return false;
+}
+
+/**
+ * App identity.
+ *
+ * Three fields, not one, because the eight environment keys that spell "which
+ * app is this" were never all the same question:
+ *
+ * - `id` is this deployment's own identity — data programs, onboarding, the
+ *   CLI, and agent model defaults scope by it.
+ * - `workspaceId` is the identity a workspace deploy assigns. `vault_grants`
+ *   rows are written with it, so credential scoping must prefer it over `id`
+ *   or an app would look up grants under a name nobody granted.
+ * - `name` is the user-facing display name ("Acme"), used in transactional
+ *   emails and page titles. It is not an identifier, and only leaks into
+ *   identity resolution as a last-resort fallback in readers that had nothing
+ *   better.
+ *
+ * Collapsing these into one field is the tempting simplification and it is
+ * wrong: it would silently repoint credential grant lookups.
+ *
+ * None of them has a default. `credentialProvider` denies access when no app
+ * identity is configured, and a default of `"app"` would turn that denial into
+ * a lookup scoped to an app literally named `app`. Readers that want a
+ * placeholder apply it themselves, where it is visible.
+ */
+export const appConfig = z.object({
+  id: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_APP_ID", "APP_ID"],
+      doc: "Stable identity of this app deployment.",
+    }),
+  workspaceId: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: [
+        "AGENT_NATIVE_WORKSPACE_APP_ID",
+        "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
+      ],
+      doc: "Identity assigned by a workspace deploy. Credential grants are scoped to this.",
+    }),
+  name: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["APP_NAME"],
+      doc: "User-facing display name of this app.",
+    }),
+  homePath: z
+    .string()
+    .trim()
+    .min(1)
+    .refine((value) => {
+      if (
+        !value.startsWith("/") ||
+        value.startsWith("//") ||
+        /[\u0000-\u001f\u007f\\<>"'?#]/.test(value)
+      ) {
+        return false;
+      }
+      const base = "https://agent-native.invalid";
+      if (!URL.canParse(value, base)) return false;
+      const parsed = new URL(value, base);
+      return (
+        parsed.origin === base &&
+        parsed.pathname === value &&
+        !isAuthEntryPath(value)
+      );
+    }, "must be an origin-relative non-auth path without a query or fragment")
+    .optional()
+    .meta({
+      doc: "Private app route used after authentication. Apps default to /home; set this to / to keep the app at the root.",
+    }),
+  logoUrl: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["APP_LOGO_URL"],
+      doc: "Absolute HTTPS logo URL used in transactional emails and social OG images.",
+    }),
+  pingMessage: z
+    .string()
+    .min(1)
+    .default("pong")
+    .meta({
+      env: ["PING_MESSAGE"],
+      doc: "Message returned by the framework ping route.",
+    }),
+  healthStrictSchema: z
+    .boolean()
+    .default(false)
+    .meta({
+      env: ["AGENT_NATIVE_HEALTH_STRICT_SCHEMA"],
+      doc: "Return HTTP 503 when the framework health schema probe is not ready.",
+    }),
+  /**
+   * The app's canonical public URL — what a user sees in a share link, an
+   * email, or a JWT issuer claim.
+   *
+   * This is NOT "where does this running deployment answer". On a deploy
+   * preview those differ, and conflating them is what sent background work to
+   * production from a preview twice. Self-address is derived by
+   * `resolveSelfDispatchBaseUrl()`, which consults the platform's own deploy
+   * URLs first and falls back to this; it is deliberately not settable here.
+   *
+   * Not `.url()`-validated on purpose. This value is read by self-dispatch,
+   * SSR, and OAuth, so a malformed one would make every `getAppConfig()` call
+   * in the process throw rather than fail in the one place that cares.
+   * Consumers that need a parseable URL validate it themselves and say what
+   * broke — `onboarding-html.ts` already reports "invalid app URL" with the
+   * feature named, which is a better error than a zod path.
+   */
+  url: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: [
+        "APP_URL",
+        "VITE_APP_URL",
+        "BETTER_AUTH_URL",
+        "VITE_BETTER_AUTH_URL",
+      ],
+      doc: "Canonical public URL of this app, used for user-facing links.",
+    }),
+  packageName: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["npm_package_name"],
+      doc: "Package name of the running app, as npm sets it for a script.",
+    }),
+  template: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["VITE_AGENT_NATIVE_TEMPLATE"],
+      doc: "Runtime app or template identity used by framework integrations.",
+    }),
+  sourceTemplate: z.string().min(1).optional().meta({
+    doc: "Source template recorded by scaffolding for first-party identity checks.",
+  }),
+
+  // ── package.json-derived branding ───────────────────────────────────────
+  //
+  // Filled by the `package` layer (the lowest one), which matches this app's
+  // package.json against the first-party template table. Deliberately no `env`
+  // alias on either: `slug` selects the per-app mailbox on agent-native.com, so
+  // it must not be settable by an ambient string on the host. The layer is the
+  // only writer, and it only ever emits a name the template table already
+  // contains.
+  slug: z.string().min(1).optional().meta({
+    doc: "First-party template slug, matched from package.json. Selects the per-app transactional email sender.",
+  }),
+  description: z.string().min(1).optional().meta({
+    doc: "One-line description of the app, from first-party template metadata.",
+  }),
+});

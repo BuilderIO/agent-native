@@ -1,0 +1,38 @@
+---
+title: "Vercel"
+description: "使用 Vercel Nitro 预设将代理本机应用部署到 Vercel,可以独立部署,也可以作为工作区部署。"
+---
+
+# Vercel
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+通过 Vercel CLI 或 git push 部署:
+
+```bash
+vercel deploy
+```
+
+对于工作区,把每个应用都构建进同一个 Vercel Build Output API 包:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+对于 Vercel 的 Git 部署,把构建命令设置为:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+这个工作区构建会把每个应用的 Nitro `vercel` 输出复制到根目录的 `.vercel/output` 中,为每个函数配置自己的挂载路径环境,并写出把各个应用服务在 `/<app-id>` 下的路由配置。
+
+## 下一步
+
+- [**Deployment**](/docs/deployment) — 在第一次生产部署之前选择一个持久数据库和一个预设
+- [**Workspace Deployment**](/docs/workspace-deployment) — 完整介绍 `deploy --preset vercel` 的工作区构建
+- [Node.js](/docs/node-js), [Docker](/docs/docker)、[**Netlify**](/docs/netlify)、[**Cloudflare**](/docs/cloudflare) 和 [**Other Platforms**](/docs/other-platforms) — 其他 Nitro 预设

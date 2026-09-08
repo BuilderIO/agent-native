@@ -1,0 +1,64 @@
+[build]
+ignore = "node ./scripts/netlify-ignore-build.mjs analytics"
+# The workspace package dist folders are ignored/generated artifacts. Rebuild
+# core explicitly here so a cached Netlify install cannot bundle an older agent
+# loop into Analytics' server functions (including A2A/MCP final-response
+# guards).
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter analytics build && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter analytics migrate:production; fi"
+publish = "templates/analytics/dist"
+functions = "templates/analytics/.netlify/functions-internal"
+
+[build.environment]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+GTM_CONTAINER_ID = "GTM-N3WSTXZ"
+NITRO_PRESET = "netlify"
+NPM_CONFIG_PRODUCTION = "false"
+AGENT_PROD_CODE_EXECUTION = "sandboxed"
+# Analytics dashboard creation can span multiple model/tool rounds; keep those
+# turns on the durable background worker instead of the short foreground wall.
+AGENT_CHAT_DURABLE_BACKGROUND = "true"
+
+[context.production.environment]
+AGENT_NATIVE_HOSTED_HARNESS = "true"
+AGENT_NATIVE_ENABLE_KEEP_WARM = "1"
+AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1"
+# Keep the public shell close to the current deploy. A stale shell can retain
+# hashed modulepreload URLs after a Netlify asset publish and leave the app on
+# its loading screen while those chunks return 404.
+AGENT_NATIVE_SSR_CACHE = "30s"
+# Analytics owns its schema at release time (`migrate:production` above), so
+# production request functions skip migrations. Ordinary deploy previews still
+# run request-path migrations; the beta prebuilt lane explicitly supplies the
+# release owner even though it builds with branch-deploy context.
+AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
+
+# A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
+# Hosted agent chat uses a soft timeout before this function timeout so the
+# hidden auto-continuation path can hand off before Netlify kills the function.
+# If AGENT_RUN_SOFT_TIMEOUT_MS is customized, keep it below this timeout.
+[functions."*"]
+timeout = 75
+
+# Recent durable Analytics runs recorded failed-worker RSS above 4 GB while
+# Netlify Functions default to 1 GB. Give the long-running agent worker the
+# highest supported allocation so memory pressure does not masquerade as a
+# stale heartbeat; query and connection bounds remain the primary safeguards.
+[functions.server-agent-background]
+memory = "4gb"
+
+[functions.dashboard-report-sweep-background]
+timeout = 300
+memory = "2gb"
+
+[functions.analytics-alert-sweep-background]
+timeout = 120
+
+[functions.uptime-monitor-sweep-background]
+timeout = 120
+
+[functions.analytics-rollup-backfill-background]
+timeout = 300
+memory = "2gb"
+
+[functions.session-replay-retention-sweep-background]
+timeout = 120
