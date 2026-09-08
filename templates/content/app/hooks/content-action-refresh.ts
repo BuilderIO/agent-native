@@ -53,19 +53,65 @@ const CONTENT_MUTATIONS = new Set([
 
 function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
   if (query.queryKey[0] !== "action") return false;
-  if (
-    query.queryKey[1] !== "get-document" &&
-    query.queryKey[1] !== "list-comments"
-  ) {
-    return false;
-  }
+  const actionName = query.queryKey[1];
   const args = query.queryKey[2];
+  if (!args || typeof args !== "object") return false;
+  if (actionName === "get-document") {
+    return "id" in args && args.id === documentId;
+  }
+  if (
+    actionName === "list-comments" ||
+    actionName === "list-comment-ai-requests"
+  ) {
+    return "documentId" in args && args.documentId === documentId;
+  }
   return (
-    !!args &&
-    typeof args === "object" &&
-    (("id" in args && args.id === documentId) ||
-      ("documentId" in args && args.documentId === documentId))
+    actionName === "list-resource-suggestions" &&
+    "resourceType" in args &&
+    args.resourceType === "document" &&
+    "resourceId" in args &&
+    args.resourceId === documentId
   );
+}
+
+function queryActionName(query: ActionQuery): string | undefined {
+  return query.queryKey[0] === "action" && typeof query.queryKey[1] === "string"
+    ? query.queryKey[1]
+    : undefined;
+}
+
+function eventRefreshesQuery(eventKey: string, queryAction: string): boolean {
+  if (CONTENT_MUTATIONS.has(eventKey)) {
+    return queryAction === "get-document" || queryAction === "list-comments";
+  }
+  if (eventKey === "start-comment-ai-request") {
+    return queryAction === "list-comment-ai-requests";
+  }
+  if (
+    eventKey === "reply-to-comment-ai-request" ||
+    eventKey === "create-comment-ai-suggestion"
+  ) {
+    return (
+      queryAction === "list-comments" ||
+      queryAction === "list-comment-ai-requests" ||
+      queryAction === "list-resource-suggestions"
+    );
+  }
+  if (eventKey === "apply-comment-ai-request") {
+    return (
+      queryAction === "get-document" ||
+      queryAction === "list-comments" ||
+      queryAction === "list-comment-ai-requests" ||
+      queryAction === "list-resource-suggestions"
+    );
+  }
+  if (eventKey === "decide-resource-suggestion") {
+    return (
+      queryAction === "get-document" ||
+      queryAction === "list-resource-suggestions"
+    );
+  }
+  return false;
 }
 
 export function contentDocumentIdFromPathname(
@@ -83,11 +129,13 @@ export function contentActionInvalidatePredicate(
     if (documentId === undefined || !queryTargetsDocument(query, documentId)) {
       return false;
     }
+    const actionName = queryActionName(query);
+    if (!actionName) return false;
     return events.some(
       (event) =>
         event.source === "action" &&
         typeof event.key === "string" &&
-        CONTENT_MUTATIONS.has(event.key),
+        eventRefreshesQuery(event.key, actionName),
     );
   };
 }

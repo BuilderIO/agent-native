@@ -8,6 +8,7 @@ import {
   index,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
 import { boolean } from "drizzle-orm/pg-core";
 
 export const documents = table("documents", {
@@ -144,6 +145,7 @@ export const documentComments = table("document_comments", {
   mentionsJson: text("mentions_json"),
   authorEmail: text("author_email").notNull(),
   authorName: text("author_name"),
+  actorKind: text("actor_kind"),
   resolved: integer("resolved").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -155,6 +157,41 @@ export const documentComments = table("document_comments", {
   // discussion instead of creating unrelated top-level comments.
   notionDiscussionId: text("notion_discussion_id"),
 });
+
+export const commentAiRequests = table(
+  "comment_ai_requests",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    requesterEmail: text("requester_email").notNull(),
+    documentId: text("document_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    rootCommentId: text("root_comment_id").notNull(),
+    fieldId: text("field_id").notNull(),
+    intent: text("intent").notNull(),
+    status: text("status").notNull().default("queued"),
+    threadDigest: text("thread_digest").notNull(),
+    snapshotJson: text("snapshot_json").notNull(),
+    baseRevision: text("base_revision").notNull(),
+    suggestionRevision: text("suggestion_revision").notNull(),
+    runId: text("run_id"),
+    agentThreadId: text("agent_thread_id"),
+    resultJson: text("result_json"),
+    payloadJson: text("payload_json"),
+    error: text("error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (request) => [
+    uniqueIndex("comment_ai_requests_active_thread_idx")
+      .on(request.documentId, request.threadId, request.requesterEmail)
+      .where(sql`${request.status} IN ('queued', 'running')`),
+    index("comment_ai_requests_document_requester_idx").on(
+      request.documentId,
+      request.requesterEmail,
+    ),
+  ],
+);
 
 export const documentSyncLinks = table("document_sync_links", {
   documentId: text("document_id").primaryKey(),

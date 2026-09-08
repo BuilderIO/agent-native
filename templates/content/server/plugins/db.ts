@@ -1081,6 +1081,29 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS document_edit_receipts_owner_document_idx
         ON document_edit_receipts (owner_email, document_id)`,
     },
+    {
+      version: 88,
+      name: "content-comment-ai-requests-and-actor",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS actor_kind TEXT;
+      CREATE TABLE IF NOT EXISTS comment_ai_requests (
+        id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, requester_email TEXT NOT NULL,
+        document_id TEXT NOT NULL, thread_id TEXT NOT NULL, root_comment_id TEXT NOT NULL,
+        field_id TEXT NOT NULL, intent TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
+        thread_digest TEXT NOT NULL, snapshot_json TEXT NOT NULL, base_revision TEXT NOT NULL,
+        suggestion_revision TEXT NOT NULL, run_id TEXT, agent_thread_id TEXT,
+        result_json TEXT, payload_json TEXT, error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS comment_ai_requests_document_requester_idx
+        ON comment_ai_requests (document_id, requester_email)`,
+    },
+    {
+      version: 89,
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS comment_ai_requests_active_thread_idx
+        ON comment_ai_requests (document_id, thread_id, requester_email)
+        WHERE status IN ('queued', 'running')`,
+    },
   ],
   { table: "content_migrations" },
 );

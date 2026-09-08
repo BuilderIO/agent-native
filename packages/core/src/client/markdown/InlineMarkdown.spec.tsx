@@ -47,6 +47,26 @@ describe("InlineMarkdown", () => {
     expect(links[0]?.rel).toBe("noopener noreferrer");
   });
 
+  it("lets the app route safe links without exposing unsafe URLs to its renderer", () => {
+    const renderLink = vi.fn((href, children, className) => (
+      <a href={href} className={className}>
+        {children}
+      </a>
+    ));
+    act(() =>
+      root.render(
+        <InlineMarkdown
+          content="[proposal](/page/page-1?suggestion=s-1) [unsafe](javascript:alert)"
+          renderLink={renderLink}
+        />,
+      ),
+    );
+    const link = container.querySelector("a");
+    expect(link?.getAttribute("href")).toBe("/page/page-1?suggestion=s-1");
+    expect(link?.hasAttribute("target")).toBe(false);
+    expect(renderLink).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps headings and other block syntax out of compact surfaces", () => {
     act(() => {
       root.render(

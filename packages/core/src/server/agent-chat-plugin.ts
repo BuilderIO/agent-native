@@ -4008,6 +4008,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const normalizedSurface =
                 normalizeAgentActionSurfaceResolution(surface);
               if (normalizedSurface.mode === "default") return surface;
+              if (normalizedSurface.actionScope) {
+                return {
+                  allowedActionNames: normalizedSurface.allowedActionNames,
+                  actionScope: normalizedSurface.actionScope,
+                };
+              }
               const localActionNames = details.availableActionNames.filter(
                 (name) => localDevActionNames.has(name),
               );

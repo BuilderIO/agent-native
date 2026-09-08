@@ -112,6 +112,7 @@ import {
   newDocumentPageChoiceIsDisabled,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
+import { useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   CommentDraftProvider,
@@ -897,6 +898,7 @@ function DocumentEditorBody({
     ) &&
     !document.database &&
     !document.source?.mode;
+  const commentAi = useCommentAiRequests(documentId, { enabled: canComment });
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -1031,9 +1033,22 @@ function DocumentEditorBody({
     t,
   ]);
 
+  const handledSuggestionDeepLinkRef = useRef<string | null>(null);
   useEffect(() => {
     const suggestionId = new URLSearchParams(location.search).get("suggestion");
-    if (!suggestionId || !suggestionsQuery.data) return;
+    if (!suggestionId) {
+      handledSuggestionDeepLinkRef.current = null;
+      return;
+    }
+    const deepLinkKey = `${documentId}:${suggestionId}`;
+    if (
+      handledSuggestionDeepLinkRef.current === deepLinkKey ||
+      !suggestionsQuery.data?.suggestions.some(
+        (suggestion) => suggestion.id === suggestionId,
+      )
+    )
+      return;
+    setSelectedSuggestionId(suggestionId);
     if (utilityPanel !== "comments" || !commentsBrowseOpen) {
       setUtilityPanel("comments");
       setCommentsBrowseOpen(true);
@@ -1042,11 +1057,16 @@ function DocumentEditorBody({
     const target = globalThis.document.querySelector<HTMLElement>(
       `[data-suggestion-id="${CSS.escape(suggestionId)}"]`,
     );
-    target?.scrollIntoView({ block: "nearest" });
-    target?.focus();
+    if (!target) return;
+    handledSuggestionDeepLinkRef.current = deepLinkKey;
+    target.scrollIntoView({ block: "nearest" });
+    target.focus();
   }, [
     commentsBrowseOpen,
+    commentsHistoryRailMounted,
+    documentId,
     location.search,
+    selectedSuggestionId,
     suggestionsQuery.data,
     utilityPanel,
   ]);
@@ -2593,6 +2613,8 @@ function DocumentEditorBody({
     });
   }, []);
 
+  const handledCommentDeepLinkRef = useRef<string | null>(null);
+
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
       setUtilityPanel(nextPanel);
@@ -2614,6 +2636,23 @@ function DocumentEditorBody({
     clearCommentFocus();
     setSelectedSuggestionId(null);
   }, [clearCommentFocus, documentId]);
+
+  useEffect(() => {
+    const threadId = new URLSearchParams(location.search).get("comment");
+    if (!threadId) {
+      handledCommentDeepLinkRef.current = null;
+      return;
+    }
+    const deepLinkKey = `${documentId}:${threadId}`;
+    if (
+      handledCommentDeepLinkRef.current === deepLinkKey ||
+      !threads?.some((thread) => thread.threadId === threadId)
+    ) {
+      return;
+    }
+    handledCommentDeepLinkRef.current = deepLinkKey;
+    activateCommentThread(threadId, true);
+  }, [activateCommentThread, documentId, location.search, threads]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2865,6 +2904,8 @@ function DocumentEditorBody({
       suggestions={suggestionsQuery.data?.suggestions ?? []}
       canDecideSuggestions={canEdit}
       decidingSuggestion={decideSuggestion.isPending}
+      canSuggest={canSuggest}
+      commentAi={commentAi}
       onDecideSuggestion={(suggestion, decision) =>
         decideSuggestion.mutate({
           id: suggestion.id,

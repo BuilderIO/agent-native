@@ -8,7 +8,9 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
-import type {
+import {
+  normalizeAgentActionScope,
+  type AgentActionScope,
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
 } from "../agent/types.js";
@@ -1751,7 +1753,7 @@ function shouldCaptureRecoveryHttpStatus(status: number): boolean {
   return status < 500 || status >= 600;
 }
 
-function generateTurnId(): string {
+export function generateAgentChatTurnId(): string {
   if (
     typeof crypto !== "undefined" &&
     typeof crypto.randomUUID === "function"
@@ -2188,6 +2190,18 @@ export function createAgentChatAdapter(
         typeof runConfig.custom === "object" &&
         (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
           true;
+      const actionScope: AgentActionScope | undefined = (() => {
+        if (
+          !runConfig?.custom ||
+          typeof runConfig.custom !== "object" ||
+          !("actionScope" in runConfig.custom)
+        ) {
+          return undefined;
+        }
+        return normalizeAgentActionScope(
+          (runConfig.custom as { actionScope?: unknown }).actionScope,
+        );
+      })();
       // Names what the turn is for (`sendToAgentChat({ usageLabel })`). Rides
       // the run config so a queued send keeps its label when it finally flushes,
       // and every auto-continuation of the turn re-sends the same one.
@@ -2260,7 +2274,7 @@ export function createAgentChatAdapter(
             : undefined;
         return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
       })();
-      const turnId = requestedTurnId ?? generateTurnId();
+      const turnId = requestedTurnId ?? generateAgentChatTurnId();
       let streamTransportFallbackUsed = false;
 
       const withRequestModeMetadata = (
@@ -2279,6 +2293,7 @@ export function createAgentChatAdapter(
               ...custom,
               turnId,
               ...(requestMode ? { requestMode } : {}),
+              ...(actionScope ? { actionScope } : {}),
             },
           },
         };
@@ -4107,6 +4122,7 @@ export function createAgentChatAdapter(
                   turnId,
                   ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
                   ...(usageLabel ? { usageLabel } : {}),
+                  ...(actionScope ? { actionScope } : {}),
                   ...(threadId ? { threadId } : {}),
                   ...(unstable_parentId !== undefined
                     ? { parentId: unstable_parentId }

@@ -2164,6 +2164,47 @@ describe("createAgentChatAdapter", () => {
     expect(body.usageLabel).toBe("crm:enrich-record");
   });
 
+  it("sends the run config's action scope with the chat request", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-scoped",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Draft a reply" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: {
+            actionScope: {
+              kind: "content-comment-ai",
+              requestId: "request-1",
+            },
+          },
+        },
+      } as any),
+    );
+
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).actionScope).toEqual({
+      kind: "content-comment-ai",
+      requestId: "request-1",
+    });
+    expect(results.at(-1)?.metadata?.custom).toMatchObject({
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+  });
+
   it("keeps recovery prompts from replacing the original user request", async () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(

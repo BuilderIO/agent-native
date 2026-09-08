@@ -24,6 +24,11 @@ export interface InlineMarkdownProps {
   linkClassName?: string;
   codeClassName?: string;
   inline?: boolean;
+  renderLink?: (
+    href: string,
+    children: ReactNode,
+    className: string,
+  ) => ReactNode;
   protectedSpans?: readonly InlineMarkdownProtectedSpan[];
   renderProtectedSpan?: (
     span: InlineMarkdownProtectedSpan,
@@ -50,6 +55,7 @@ export function InlineMarkdown({
   linkClassName,
   codeClassName,
   inline = false,
+  renderLink,
   protectedSpans = [],
   renderProtectedSpan,
 }: InlineMarkdownProps) {
@@ -76,16 +82,18 @@ export function InlineMarkdown({
         ? defaultUrlTransform(normalizeInlineMarkdownHref(href))
         : "";
       if (!safeHref) return <>{children}</>;
+      const anchorClassName = cn(
+        "text-primary underline-offset-2 hover:underline",
+        linkClassName,
+      );
+      if (renderLink) return renderLink(safeHref, children, anchorClassName);
 
       return (
         <a
           href={safeHref}
           target="_blank"
           rel="noopener noreferrer"
-          className={cn(
-            "text-primary underline-offset-2 hover:underline",
-            linkClassName,
-          )}
+          className={anchorClassName}
         >
           {children}
         </a>

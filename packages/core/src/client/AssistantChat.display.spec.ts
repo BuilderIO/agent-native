@@ -28,6 +28,7 @@ import {
   assistantChatAutoscrollStatusKey,
   assistantUiMessageListStructureKey,
   assistantUiRecoverableRenderErrorKind,
+  approvalProtocolContinuationContext,
   createUserMessageRunConfig,
   dedupeReconnectContentAgainstMessages,
   shouldShowReconnectOverlay,
@@ -38,7 +39,9 @@ import {
   isAssistantUiStaleIndexError,
   installAssistantUiMessageRepositoryRecovery,
   latestNonRecoveryUserMessageText,
+  latestProtocolContinuationContext,
   matchesUserStoppedRun,
+  protocolContinuationContext,
   reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
   resolveAssistantChatRunningState,
@@ -576,6 +579,131 @@ describe("createUserMessageRunConfig model snapshot", () => {
     expect(options.runConfig?.custom).toEqual({
       agentNativeQueuedMessageId: "queued-legacy",
     });
+  });
+
+  it("preserves the action scope in queued run configuration", () => {
+    const options = createUserMessageRunConfig(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "queued-scope",
+      undefined,
+      undefined,
+      "turn-scope",
+      undefined,
+      { kind: "content-comment-ai", requestId: "request-1" },
+    );
+
+    expect(options.runConfig?.custom).toMatchObject({
+      agentNativeQueuedMessageId: "queued-scope",
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+    expect(options.metadata?.custom).toMatchObject({
+      turnId: "turn-scope",
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+  });
+});
+
+describe("scoped protocol continuations", () => {
+  const scopedUser = {
+    role: "user",
+    metadata: {
+      custom: {
+        turnId: "turn-scoped",
+        actionScope: {
+          kind: "content-comment-ai",
+          requestId: "request-1",
+        },
+      },
+    },
+    content: [{ type: "text", text: "Draft a reply" }],
+  };
+
+  it("restores scope only for the matching turn", () => {
+    expect(protocolContinuationContext([scopedUser], "turn-scoped")).toEqual({
+      turnId: "turn-scoped",
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+    expect(protocolContinuationContext([scopedUser], "turn-other")).toEqual({
+      turnId: "turn-other",
+    });
+  });
+
+  it("does not leak an older scope into an unrelated newer turn", () => {
+    const unscopedAssistant = {
+      role: "assistant",
+      metadata: { custom: { turnId: "turn-unscoped" } },
+      content: [{ type: "text", text: "Done" }],
+    };
+
+    expect(
+      latestProtocolContinuationContext([scopedUser, unscopedAssistant]),
+    ).toEqual({ turnId: "turn-unscoped" });
+  });
+
+  it("binds approval scope to the message with that approval", () => {
+    const approvalMessage = {
+      role: "assistant",
+      metadata: { custom: { turnId: "turn-scoped" } },
+      content: [
+        {
+          type: "tool-call",
+          approval: { approvalKey: "approval-scoped" },
+        },
+      ],
+    };
+    const laterUnscoped = {
+      role: "assistant",
+      metadata: { custom: { turnId: "turn-unscoped" } },
+      content: [{ type: "text", text: "Later message" }],
+    };
+
+    expect(
+      approvalProtocolContinuationContext(
+        [scopedUser, approvalMessage, laterUnscoped],
+        "approval-scoped",
+      ),
+    ).toEqual({
+      turnId: "turn-scoped",
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+    expect(
+      approvalProtocolContinuationContext(
+        [scopedUser, approvalMessage, laterUnscoped],
+        "approval-other",
+      ),
+    ).toEqual({});
+  });
+
+  it("fails closed when stored scope metadata is malformed", () => {
+    expect(() =>
+      protocolContinuationContext(
+        [
+          {
+            ...scopedUser,
+            metadata: {
+              custom: { turnId: "turn-scoped", actionScope: [] },
+            },
+          },
+        ],
+        "turn-scoped",
+      ),
+    ).toThrow("actionScope must be a JSON object");
   });
 });
 
@@ -1642,6 +1770,42 @@ describe("tool approval continuation", () => {
     expect(approvalSource).toContain(
       "true, // hideUserMessage: this is a protocol continuation, not a new prompt",
     );
+    expect(approvalSource).toContain("approvalProtocolContinuationContext(");
+    expect(approvalSource).toContain("continuation.actionScope");
+  });
+});
+
+describe("protocol continuation scope wiring", () => {
+  it("carries the originating scope through reconnect and recovery controls", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const reconnectStart = source.indexOf(
+      "if (!pendingReconnectRecovery) return;",
+    );
+    const reconnectEnd = source.indexOf(
+      "const latestMessage =",
+      reconnectStart,
+    );
+    const controlsStart = source.indexOf(
+      "{visibleLoopLimit && !showRunningInUI && (",
+    );
+    const controlsEnd = source.indexOf(
+      "{showReconnectOverlay &&",
+      controlsStart,
+    );
+
+    expect(source.slice(reconnectStart, reconnectEnd)).toContain(
+      "continuation.actionScope",
+    );
+    expect(source.slice(controlsStart, controlsEnd)).toContain(
+      "continuation.actionScope",
+    );
+    expect(
+      source
+        .slice(controlsStart, controlsEnd)
+        .match(/continuation\.actionScope/g),
+    ).toHaveLength(2);
   });
 });
 

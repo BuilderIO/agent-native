@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
 /**
@@ -2181,7 +2182,15 @@ export function annotateMissingTable(err: unknown, sql: unknown): unknown {
   return err;
 }
 
+const scopedDbExec = new AsyncLocalStorage<DbExec>();
+
+export function withDbExec<T>(exec: DbExec, run: () => T): T {
+  return scopedDbExec.run(exec, run);
+}
+
 export function getDbExec(): DbExec {
+  const scoped = scopedDbExec.getStore();
+  if (scoped) return scoped;
   if (_exec) return _exec;
 
   // Sanitize args because PostgreSQL parameters cannot be undefined.

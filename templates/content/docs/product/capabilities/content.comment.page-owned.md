@@ -42,6 +42,10 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 - Anchors follow stable Block identity where possible and preserve historical target context after deletion rather than attaching to plausible new text.
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
 - References and embeds display the authoritative Page-owned thread; they do not clone or re-home it.
+- Ask AI presents an explicit intent before dispatch: Suggest changes, Reply in thread, or Apply changes and resolve. Suggest changes is the preferred editorial option and uses the existing suggested-edits availability and access rules.
+- Every AI request binds the authenticated requester, Page body, original root Comment and thread, submitted conversation, and revision. A scoped run can use only that intent's dedicated operation; targeting and write authority do not come from chat history or model-written arguments.
+- Reply adds an AI-attributed answer to the original thread without editing or resolving. Suggest creates a native proposal linked in both directions and leaves the original thread open, including after human acceptance. Apply-and-resolve verifies the saved edit and unchanged source conversation before resolving; conflicts and partial success remain available for review.
+- Retrying one request recovers its retained operation and result. It does not silently replace its intent, duplicate a reply or proposal, or reapply a saved edit. Unknown historical authorship is not retrospectively labeled AI.
 
 ## Boundaries and non-goals
 
@@ -58,6 +62,14 @@ Given a Comment on a Block range, when the range and Block are deleted, then the
 ### Keep one authoritative thread across an embed
 
 Given a Page with a Comment thread is referenced or embedded elsewhere, when a viewer opens the thread from either occurrence, then they see the same Page-owned thread and access decision.
+
+### Choose how AI handles feedback
+
+Given an open Page-body Comment and an unfinished human reply, opening and dismissing Ask AI preserves the draft and dispatches nothing. Choosing Reply adds one AI answer to that same thread. Choosing Suggest creates a reviewable proposal without changing accepted text. Only Apply changes and resolve may change accepted text and resolve, and only after both the saved revision and original feedback have been checked.
+
+### Recover partial AI work
+
+Given an edit was saved but its receipt or resolution failed, reopening the Page exposes that partial result. Retrying the same request reuses the saved edit receipt and attempts only unfinished work. If the Page or feedback changed in the meantime, the thread stays open for review.
 
 ## Current evidence
 

@@ -1625,6 +1625,7 @@ describe("resolveAgentOwnerEmail", () => {
 describe("createProductionAgentHandler", () => {
   it("limits each request to the action names returned by resolveActionSurface", async () => {
     const seenTools: string[][] = [];
+    const seenScopes: unknown[] = [];
     const lifecycle: string[] = [];
     const engine: AgentEngine = {
       name: "test",
@@ -1641,6 +1642,7 @@ describe("createProductionAgentHandler", () => {
       async *stream(opts): AsyncIterable<EngineEvent> {
         lifecycle.push("stream");
         seenTools.push(opts.tools.map((tool) => tool.name));
+        seenScopes.push(getRequestRunContext()?.actionScope);
         yield {
           type: "assistant-content",
           parts: [{ type: "text", text: "done" }],
@@ -1652,22 +1654,31 @@ describe("createProductionAgentHandler", () => {
       systemPrompt: "Test",
       engine,
       actions: {
-        allowed: actionEntry({}),
+        allowed: { ...actionEntry({}), deferLoading: true },
         denied: actionEntry({}),
         "tool-search": actionEntry({}),
       },
+      initialToolNames: ["denied"],
       prepareRequest: async () => {
         lifecycle.push("prepare");
       },
-      resolveActionSurface: async ({ threadId, availableActionNames }) => {
+      resolveActionSurface: async ({
+        threadId,
+        actionScope,
+        availableActionNames,
+      }) => {
         lifecycle.push("surface");
         expect(threadId).toBe("thread-allowed");
+        expect(actionScope).toEqual({
+          kind: "content-comment-ai",
+          requestId: "request-1",
+        });
         expect(availableActionNames).toEqual([
           "allowed",
           "denied",
           "tool-search",
         ]);
-        return { allowedActionNames: ["allowed"] };
+        return { allowedActionNames: ["allowed"], actionScope };
       },
     });
     const event = mockEvent(
@@ -1677,6 +1688,10 @@ describe("createProductionAgentHandler", () => {
         body: JSON.stringify({
           message: "Use the configured agent",
           threadId: "thread-allowed",
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: "request-1",
+          },
         }),
       }),
     );
@@ -1693,8 +1708,88 @@ describe("createProductionAgentHandler", () => {
     await vi.waitFor(() => {
       expect(seenTools).toEqual([["allowed"]]);
     });
+    expect(seenScopes).toEqual([
+      { kind: "content-comment-ai", requestId: "request-1" },
+    ]);
     expect(lifecycle).toEqual(["prepare", "surface", "stream"]);
     expect(getRequestRunContext()).toBeUndefined();
+  });
+
+  it("rejects invalid action scopes before invoking the resolver", async () => {
+    const resolver = vi.fn(async () => ({
+      allowedActionNames: ["allowed"],
+      actionScope: {},
+    }));
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield { type: "stop", reason: "end_turn" };
+        },
+      },
+      actions: { allowed: actionEntry({}) },
+      resolveActionSurface: resolver,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run",
+          actionScope: { value: "x".repeat(9_000) },
+        }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(response).toEqual({
+      error: "actionScope must be at most 8192 bytes",
+    });
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("rejects a scoped request when no action-surface resolver is configured", async () => {
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      actions: { allowed: actionEntry({}) },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run",
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: "request-1",
+          },
+        }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(response).toEqual({
+      error: "actionScope requires resolveActionSurface",
+    });
   });
 
   it("uses the normal initial tool surface when the resolver selects the default", async () => {
@@ -2000,8 +2095,16 @@ describe("filterActionsByAllowedNames", () => {
     expect(
       normalizeAgentActionSurfaceResolution({
         allowedActionNames: ["allowed", "allowed"],
+        actionScope: { kind: "content-comment-ai", requestId: "request-1" },
       }),
-    ).toEqual({ mode: "allowlist", allowedActionNames: ["allowed"] });
+    ).toEqual({
+      mode: "allowlist",
+      allowedActionNames: ["allowed"],
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
     expect(() =>
       normalizeAgentActionSurfaceResolution({
         mode: "default",
@@ -2027,6 +2130,12 @@ describe("filterActionsByAllowedNames", () => {
         allowedActionNames: "allowed",
       }),
     ).toThrow("resolveActionSurface returned an invalid action surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: ["allowed"],
+        actionScope: { value: "x".repeat(9_000) },
+      }),
+    ).toThrow("actionScope must be at most 8192 bytes");
   });
 
   it("treats an explicit empty allowlist as no actions", () => {
@@ -2114,6 +2223,40 @@ describe("filterActionsByAllowedNames", () => {
         "__resolvedActionSurface",
       ),
     ).toEqual({ orgId: null, allowedActionNames: ["allowed"] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            allowedActionNames: ["allowed"],
+            actionScope: {
+              kind: "content-comment-ai",
+              requestId: "request-1",
+            },
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({
+      orgId: "org-123",
+      allowedActionNames: ["allowed"],
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            allowedActionNames: ["allowed"],
+            actionScope: { value: "x".repeat(9_000) },
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
     expect(
       readPersistedActionSurface(
         {
