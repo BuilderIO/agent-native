@@ -46,6 +46,14 @@ describe("selected library actions layout", () => {
     expect(primaryActionsSource).toContain('triggerIcon="chevron"');
     expect(gridSource).toContain('import { FolderCard } from "./folder-card"');
     expect(gridSource).toContain("visibleFolders");
+    expect(gridSource).toContain("organizationId: currentOrganizationId");
+    expect(folderRouteSource).toContain("useOrganizations()");
+    expect(folderRouteSource).toContain(
+      "organizationId: currentOrganizationId",
+    );
+    expect(spaceFolderRouteSource).toContain(
+      "organizationId: currentOrganizationId",
+    );
     expect(gridSource).toContain('t("navigation.folders")');
     expect(gridSource).toContain('aria-labelledby="library-folders-heading"');
     expect(gridSource).toContain('t("navigation.recordings")');

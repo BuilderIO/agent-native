@@ -26,7 +26,10 @@ export default function SpaceFolderRoute() {
     (candidate: any) => candidate.id === spaceId,
   );
 
-  const { data: folders } = useFolders({ spaceId });
+  const { data: folders } = useFolders({
+    organizationId: currentOrganizationId,
+    spaceId,
+  });
   const folder = useMemo(
     () =>
       (folders?.folders ?? []).find((f: any) => f.id === folderId) as

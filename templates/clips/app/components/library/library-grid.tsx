@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/context-menu";
 import {
   useFolders,
+  useOrganizations,
   useRecordings,
   useRecordingsCount,
   useTrashRecording,
@@ -243,12 +244,21 @@ export function LibraryGrid({
   const moveRecording = useMoveRecording();
   const canManageRecordings = view !== "shared";
   const canMoveSelection = view === "library" || view === "space";
+  const { data: organizations } = useOrganizations({
+    enabled: canMoveSelection,
+  });
+  const currentOrganizationId =
+    organizations?.currentId ?? organizations?.organizations?.[0]?.id;
   const { data: scopedFolders, isLoading: isFoldersLoading } = useFolders(
     {
+      organizationId: currentOrganizationId,
       spaceId: view === "space" ? (spaceId ?? null) : null,
     },
     {
-      enabled: canMoveSelection && (view !== "space" || Boolean(spaceId)),
+      enabled:
+        canMoveSelection &&
+        Boolean(currentOrganizationId) &&
+        (view !== "space" || Boolean(spaceId)),
     },
   );
   const visibleFolders = useMemo(
