@@ -26,9 +26,11 @@ AgentHarness substrate
 AgentRunHost
 AGENTS.md · skills
 analytics@example.com, ops@example.com
+Amazon RDS for PostgreSQL
 Apple Silicon
 AuthSession
 Azure Static Web Apps
+Azure Database for PostgreSQL
 AWS Lambda
 Bearer access token
 Better Auth
@@ -41,6 +43,7 @@ Claude Code / Codex
 Claude web
 CLI
 Cloudflare D1
+Cloud SQL for PostgreSQL
 create-form · update-form
 createSession.resumeState
 CRUD
