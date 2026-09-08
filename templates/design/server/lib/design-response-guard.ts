@@ -40,7 +40,7 @@ const DESIGN_MUTATION_ACTIONS = new Set([
 const DESIGN_MUTATION_VERBS =
   /\b(?:add|adding|adjust|adjusting|align|aligning|apply|applying|build|building|change|changing|clean|cleaning|create|creating|decrease|decreasing|delete|deleting|design|designing|duplicate|duplicating|edit|editing|enhance|enhancing|fix|fixing|generate|generating|improve|improving|import|importing|increase|increasing|insert|inserting|make|making|modify|modifying|move|moving|polish|polishing|place|placing|reduce|reducing|refine|refining|remove|removing|replace|replacing|resize|resizing|restyle|restyling|rework|reworking|tune|tuning|update|updating)\b/i;
 const DESIGN_MUTATION_OBJECTS =
-  /\b(?:animation|animations|asset|background|behavior|behaviors|border|button|canvas|card|color|colors|component|design|file|footer|font|gap|header|height|hero|image|interaction|interactions|it|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|states|style|styles|text|this|theme|transition|transitions|typography|variant|version|visual|visuals|width|wireframe)\b/i;
+  /\b(?:(?:animation|asset|background|behavior|border|button|canvas|card|color|component|design|file|footer|font|gap|header|height|hero|image|interaction|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|style|text|theme|transition|typography|variant|version|visual|width|wireframe)s?|it|this)\b/i;
 const DESIGN_ADVISORY_WORDS =
   /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|teach(?:ing)?|tip|tips|thoughts?|tutorials?)\b/i;
 const DESIGN_TEST_REQUEST =
@@ -332,7 +332,7 @@ function removeAdvisorySkillsClauses(text: string): string {
 }
 
 function removeDesignTestRequests(text: string): string {
-  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+(?:then|after|after\\s+that|afterwards?|subsequently|before|while))?|then|after|after\\s+that|afterwards?|subsequently|before|while|followed\\s+by)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?${DESIGN_MUTATION_VERBS.source}|(?<!\\w)[-–—](?!\\w)|[.!?,;]|$`;
+  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+(?:then|after|after\\s+that|afterwards?|subsequently|before|while))?|then|after|after\\s+that|afterwards?|subsequently|before|while|followed\\s+by)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?(?:[\\w-]+\\s+)?${DESIGN_MUTATION_VERBS.source}|(?<!\\w)[-–—](?!\\w)|[.!?]|[,;](?=\\s+(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?(?:[\\w-]+\\s+)?${DESIGN_MUTATION_VERBS.source})|$`;
   const mutationVerbs = new RegExp(DESIGN_MUTATION_VERBS.source, "gi");
   const testRequests = new RegExp(DESIGN_TEST_REQUEST.source, "gi");
   const targetSuffix = new RegExp(
@@ -340,14 +340,23 @@ function removeDesignTestRequests(text: string): string {
     "i",
   );
   const sharedObjectPattern =
-    /(?:^|\s)(?:and|or|plus|&)\s+(?:(?:a|an|the|another|new)\s+)([\w-]+)/gi;
+    /(?:^|\s)(?:and|or|plus|&)\s+(?:(a|an|the|another|new)\s+)?([\w-]+)/gi;
   const removals: Array<[number, number]> = [];
 
   for (const match of text.matchAll(testRequests)) {
     const testStart = match.index ?? 0;
     const testEnd = testStart + match[0].length;
     const prefix = text.slice(0, testStart);
-    const boundaries = [...prefix.matchAll(DESIGN_TEST_CLAUSE_BOUNDARY)];
+    const boundaries = [...prefix.matchAll(DESIGN_TEST_CLAUSE_BOUNDARY)].filter(
+      (boundary) => {
+        const boundaryStart = boundary.index ?? 0;
+        const boundaryEnd = boundaryStart + boundary[0].length;
+        return (
+          !/\band\b/i.test(boundary[0]) ||
+          !DESIGN_TEST_TARGET_DESCRIPTOR.test(prefix.slice(boundaryEnd))
+        );
+      },
+    );
     const lastBoundary = boundaries[boundaries.length - 1];
     const clauseStart = lastBoundary
       ? (lastBoundary.index ?? 0) + lastBoundary[0].length
@@ -370,9 +379,16 @@ function removeDesignTestRequests(text: string): string {
     const sharedObject = [...afterTest.matchAll(sharedObjectPattern)].find(
       (match) => {
         const matchStart = match.index ?? 0;
+        const object = match[2] ?? "";
         return (
           !/[,;]/.test(afterTest.slice(0, matchStart)) &&
-          DESIGN_MUTATION_OBJECTS.test(match[1] ?? "")
+          !DESIGN_TEST_REQUEST.test(afterTest.slice(matchStart)) &&
+          (match[1] !== undefined ||
+            !/\b(?:for|of|on|in|against|with|using)\b/i.test(
+              afterTest.slice(0, matchStart),
+            )) &&
+          !/^(?:it|this)$/i.test(object) &&
+          DESIGN_MUTATION_OBJECTS.test(object)
         );
       },
     );
