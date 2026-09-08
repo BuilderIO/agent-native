@@ -332,15 +332,17 @@ function removeAdvisorySkillsClauses(text: string): string {
 }
 
 function removeDesignTestRequests(text: string): string {
-  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+(?:then|after|after\\s+that|afterwards?|subsequently|before|while))?|then|after|after\\s+that|afterwards?|subsequently|before|while|followed\\s+by)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?(?:[\\w-]+\\s+)?${DESIGN_MUTATION_VERBS.source}|(?<!\\w)[-–—](?!\\w)|[.!?]|[,;](?=\\s+(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?(?:[\\w-]+\\s+)?${DESIGN_MUTATION_VERBS.source})|$`;
+  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but|or)(?:\\s+(?:then|after|after\\s+that|afterwards?|subsequently|before|while))?|then|after|after\\s+that|afterwards?|subsequently|before|while|followed\\s+by)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?(?:[\\w-]+\\s+)?${DESIGN_MUTATION_VERBS.source}|(?<!\\w)[-–—](?!\\w)|[.!?]|[,;](?=\\s+(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?(?:[\\w-]+\\s+)?${DESIGN_MUTATION_VERBS.source})|$`;
   const mutationVerbs = new RegExp(DESIGN_MUTATION_VERBS.source, "gi");
   const testRequests = new RegExp(DESIGN_TEST_REQUEST.source, "gi");
   const targetSuffix = new RegExp(
     `${DESIGN_TEST_TARGET_PREPOSITIONS.source}[^.!?]*?(?=${mutationClauseBoundary})`,
     "i",
   );
-  const sharedObjectPattern =
-    /(?:^|\s)(?:and|or|plus|&)\s+(?:(a|an|the|another|new)\s+)?([\w-]+)/gi;
+  const sharedObjectPattern = new RegExp(
+    `(?:^|\\s)(?:and|plus|&)\\s+(?:[\\w-]+\\s+)*?(${DESIGN_MUTATION_OBJECTS.source})(?=\\s|$|[,.!?;])`,
+    "gi",
+  );
   const removals: Array<[number, number]> = [];
 
   for (const match of text.matchAll(testRequests)) {
@@ -379,11 +381,13 @@ function removeDesignTestRequests(text: string): string {
     const sharedObject = [...afterTest.matchAll(sharedObjectPattern)].find(
       (match) => {
         const matchStart = match.index ?? 0;
-        const object = match[2] ?? "";
+        const object = match[1] ?? "";
+        const hasMutationDeterminer =
+          /\b(?:a|an|another|new|some|any|one|two|three)\b/i.test(match[0]);
         return (
           !/[,;]/.test(afterTest.slice(0, matchStart)) &&
           !DESIGN_TEST_REQUEST.test(afterTest.slice(matchStart)) &&
-          (match[1] !== undefined ||
+          (hasMutationDeterminer ||
             !/\b(?:for|of|on|in|against|with|using)\b/i.test(
               afterTest.slice(0, matchStart),
             )) &&
