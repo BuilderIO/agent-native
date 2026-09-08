@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertDelegatedPolicyId,
+  assertJobExecutionTargetFields,
   buildJobResourceContent,
   classifyJobResource,
   isRecoveredFactoryJob,
@@ -60,6 +62,20 @@ describe("job resource frontmatter", () => {
       hasExplicitTriggerType: true,
       triggerType: "schedule",
     });
+  });
+
+  it("rejects unbounded execution targets and delegated policy IDs", () => {
+    expect(() => assertDelegatedPolicyId("crm-safe\nenabled: false")).toThrow(
+      /Delegated automation policy IDs/,
+    );
+    expect(() =>
+      assertJobExecutionTargetFields({ executionHostId: "not a host" }),
+    ).toThrow(/Execution host IDs/);
+    expect(() =>
+      assertJobExecutionTargetFields({
+        executionCwd: `${"a".repeat(1025)}`,
+      }),
+    ).toThrow(/1024 characters/);
   });
 
   it("preserves application-owned fields during a scheduler rewrite", () => {

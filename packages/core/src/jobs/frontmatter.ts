@@ -232,6 +232,41 @@ function assertBoundedFrontmatterValue(
   }
 }
 
+export function assertDelegatedPolicyId(value: string | undefined): void {
+  if (!value) return;
+  if (!DELEGATED_POLICY_ID_RE.test(value)) {
+    throw new Error(
+      "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
+    );
+  }
+}
+
+export function assertJobExecutionTargetFields(
+  meta: Pick<
+    JobFrontmatter,
+    "executionHostId" | "executionEngine" | "executionCwd"
+  >,
+): void {
+  assertBoundedFrontmatterValue(
+    meta.executionHostId,
+    "Execution host IDs",
+    EXECUTION_ID_RE,
+  );
+  assertBoundedFrontmatterValue(
+    meta.executionEngine,
+    "Execution engine IDs",
+    EXECUTION_ID_RE,
+  );
+  if (
+    meta.executionCwd !== undefined &&
+    (meta.executionCwd.length > 1024 || /[\r\n]/.test(meta.executionCwd))
+  ) {
+    throw new Error(
+      "Execution workspace paths must be at most 1024 characters.",
+    );
+  }
+}
+
 /**
  * Normalize the non-secret MCP capability references persisted with a job.
  * Tool names are opaque framework identifiers; URLs and credentials never
@@ -500,24 +535,8 @@ export function buildJobResourceContent(
   meta: JobFrontmatter,
   body: string,
 ): string {
-  if (
-    meta.delegatedPolicyId &&
-    !DELEGATED_POLICY_ID_RE.test(meta.delegatedPolicyId)
-  ) {
-    throw new Error(
-      "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
-    );
-  }
-  assertBoundedFrontmatterValue(
-    meta.executionHostId,
-    "Execution host IDs",
-    EXECUTION_ID_RE,
-  );
-  assertBoundedFrontmatterValue(
-    meta.executionEngine,
-    "Execution engine IDs",
-    EXECUTION_ID_RE,
-  );
+  assertDelegatedPolicyId(meta.delegatedPolicyId);
+  assertJobExecutionTargetFields(meta);
   assertBoundedFrontmatterValue(
     meta.remoteRequestId,
     "Remote request IDs",
@@ -538,14 +557,6 @@ export function buildJobResourceContent(
     "Remote automation run IDs",
     REMOTE_ID_RE,
   );
-  if (
-    meta.executionCwd !== undefined &&
-    (meta.executionCwd.length > 1024 || /[\r\n]/.test(meta.executionCwd))
-  ) {
-    throw new Error(
-      "Execution workspace paths must be at most 1024 characters.",
-    );
-  }
 
   const lines = [
     "---",

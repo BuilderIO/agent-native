@@ -438,6 +438,26 @@ Observe Slack.`),
     );
   });
 
+  it("rejects an invalid delegatedPolicyId on update without rewriting the job", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          name: "notify",
+          scope: "organization",
+          delegatedPolicyId: "crm-safe\nenabled: false",
+        },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringMatching(/Delegated automation policy IDs/),
+    });
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
   it("rejects an ordinary org member mutating another creator's automation", async () => {
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
     resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));

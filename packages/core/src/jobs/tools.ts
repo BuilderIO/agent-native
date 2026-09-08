@@ -24,6 +24,7 @@ import {
   isValidTimezone,
 } from "./cron.js";
 import {
+  assertJobExecutionTargetFields,
   classifyJobResource,
   jobBelongsToApp,
   patchJobFrontmatterFields,
@@ -398,6 +399,18 @@ async function runUpdate(
         ? executionCwd.trim()
         : undefined;
     fields.executionCwd = meta.executionCwd;
+  }
+
+  if (
+    Object.hasOwn(fields, "executionHostId") ||
+    Object.hasOwn(fields, "executionEngine") ||
+    Object.hasOwn(fields, "executionCwd")
+  ) {
+    try {
+      assertJobExecutionTargetFields(meta);
+    } catch (err) {
+      return JSON.stringify({ error: (err as Error).message });
+    }
   }
 
   if (args.mcpTools !== undefined) {

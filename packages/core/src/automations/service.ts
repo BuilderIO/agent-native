@@ -1,6 +1,7 @@
 import { getDbExec } from "../db/client.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
+  assertDelegatedPolicyId,
   buildJobResourceContent,
   isRecoveredFactoryJob,
   jobBelongsToApp,
@@ -574,6 +575,14 @@ export async function updateAutomation(
   }
   if (input.delegatedPolicyId !== undefined) {
     meta.delegatedPolicyId = input.delegatedPolicyId?.trim() || undefined;
+    try {
+      assertDelegatedPolicyId(meta.delegatedPolicyId);
+    } catch (error) {
+      throw httpError(
+        error instanceof Error ? error.message : String(error),
+        400,
+      );
+    }
     fields.delegatedPolicyId = meta.delegatedPolicyId;
   }
   if (input.model !== undefined) {
