@@ -8,6 +8,7 @@ import {
   recoveredFactoryOwnerOrgId,
   parseJobResource,
   patchJobFrontmatterFields,
+  replaceJobResourceBody,
   type JobFrontmatter,
 } from "./frontmatter.js";
 
@@ -87,6 +88,41 @@ Run the automation.`;
     expect(rewritten).toContain("source: slack");
     expect(rewritten).toContain("slackChannelId: C0BUK2293SA");
     expect(rewritten).toContain('lastRun: "2026-08-21T17:30:01.097Z"');
+  });
+
+  it("patches named fields on an existing job without moving extras", () => {
+    const content = `---
+enabled: true
+slackChannelId: C0BUK2293SA
+displayName: Slack feedback
+schedule: "*/5 * * * *"
+---
+
+Observe Slack.`;
+    const patched = patchJobFrontmatterFields(content, {
+      enabled: false,
+      lastStatus: "success",
+    });
+
+    expect(patched).toContain("enabled: false");
+    expect(patched.indexOf("slackChannelId: C0BUK2293SA")).toBeLessThan(
+      patched.indexOf('schedule: "*/5 * * * *"'),
+    );
+    expect(patched).toContain("displayName: Slack feedback");
+    expect(patched).toContain("Observe Slack.");
+  });
+
+  it("replaces the body without rewriting YAML extras", () => {
+    const content = `---
+enabled: true
+slackChannelId: C0BUK2293SA
+---
+
+Observe Slack.`;
+    const next = replaceJobResourceBody(content, "Watch the channel.");
+    expect(next).toContain("slackChannelId: C0BUK2293SA");
+    expect(next).toContain("Watch the channel.");
+    expect(next).not.toContain("Observe Slack.");
   });
 
   it("patches execution fields without dropping tags a partial rebuild would lose", () => {

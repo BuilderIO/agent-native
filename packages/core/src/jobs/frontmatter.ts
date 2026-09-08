@@ -490,6 +490,12 @@ function pushString(
   lines.push(`${key}: ${serialized}`);
 }
 
+/**
+ * Serialize a new job document from known fields plus any extras bag.
+ *
+ * Existing jobs must `patchJobFrontmatterFields` / `replaceJobResourceBody`
+ * so application extras are not dropped.
+ */
 export function buildJobResourceContent(
   meta: JobFrontmatter,
   body: string,
@@ -597,20 +603,6 @@ export function buildJobResourceContent(
   return lines.join("\n");
 }
 
-/** Execution bookkeeping the scheduler may patch; everything else stays as stored. */
-export const JOB_EXECUTION_FRONTMATTER_FIELDS = [
-  "lastRun",
-  "lastCheck",
-  "lastStatus",
-  "lastError",
-  "nextRun",
-  "remoteRequestId",
-  "remoteCommandId",
-  "remoteRunId",
-  "remoteAutomationRunId",
-  "remoteAdvanceSchedule",
-] as const;
-
 export type JobExecutionFrontmatterPatch = {
   lastRun?: string;
   lastCheck?: string;
@@ -624,20 +616,12 @@ export type JobExecutionFrontmatterPatch = {
   remoteAdvanceSchedule?: boolean;
 };
 
-function serializeExecutionFrontmatterValue(
-  key: (typeof JOB_EXECUTION_FRONTMATTER_FIELDS)[number],
-  value: string | boolean,
-): string {
-  if (typeof value === "boolean") return String(value);
-  if (key === "lastStatus") return value;
-  return JSON.stringify(value);
-}
-
-function setOrRemoveFrontmatterField(
-  content: string,
-  key: string,
-  serialized: string | undefined,
-): string {
+function jobFrontmatterBounds(content: string): {
+  newline: string;
+  opener: string;
+  closer: string;
+  end: number;
+} {
   const newline = content.startsWith("---\r\n")
     ? "\r\n"
     : content.startsWith("---\n")
@@ -645,7 +629,7 @@ function setOrRemoveFrontmatterField(
       : null;
   if (!newline) {
     throw new Error(
-      "Job resource is missing frontmatter; cannot patch execution fields.",
+      "Job resource is missing frontmatter; cannot patch the stored document.",
     );
   }
   const opener = `---${newline}`;
@@ -653,9 +637,18 @@ function setOrRemoveFrontmatterField(
   const end = content.indexOf(closer, opener.length);
   if (end === -1) {
     throw new Error(
-      "Job resource is missing frontmatter; cannot patch execution fields.",
+      "Job resource is missing frontmatter; cannot patch the stored document.",
     );
   }
+  return { newline, opener, closer, end };
+}
+
+function setOrRemoveFrontmatterField(
+  content: string,
+  key: string,
+  serialized: string | undefined,
+): string {
+  const { newline, opener, end } = jobFrontmatterBounds(content);
   const frontmatter = content.slice(opener.length, end);
   const pattern = new RegExp(`^${key}:.*(?:\\r?\\n)?`, "m");
   if (serialized === undefined) {
@@ -671,19 +664,52 @@ function setOrRemoveFrontmatterField(
   return `${content.slice(0, end)}${newline}${key}: ${serialized}${content.slice(end)}`;
 }
 
+const UNQUOTED_STRING_FRONTMATTER_KEYS = new Set([
+  "lastStatus",
+  "triggerType",
+  "mode",
+  "runAs",
+]);
+
+export type JobFrontmatterPatchValue =
+  | string
+  | number
+  | boolean
+  | readonly string[]
+  | undefined;
+
+export type JobFrontmatterPatch = {
+  [key: string]: JobFrontmatterPatchValue;
+};
+
+function serializeFrontmatterPatchValue(
+  key: string,
+  value: string | number | boolean | readonly string[],
+): string {
+  if (typeof value === "boolean" || typeof value === "number") {
+    return String(value);
+  }
+  if (Array.isArray(value)) return JSON.stringify(value);
+  if (UNQUOTED_STRING_FRONTMATTER_KEYS.has(key) && typeof value === "string") {
+    return value;
+  }
+  return JSON.stringify(value);
+}
+
 /**
- * Update scheduler-owned YAML keys on the stored document.
+ * Update named YAML keys on the stored document.
  *
- * A parse-then-rebuild from a partial in-memory meta object drops tags the
- * editor still has on disk (`triggerType`, `domain`, `appId`, extras). Status
- * writes must only touch execution fields.
+ * Create may rebuild from `JobFrontmatter`. Existing jobs must patch: a
+ * parse-then-rebuild from known fields drops application extras (`displayName`,
+ * `slackChannelId`) and renormalizes the rest of the file.
  */
 export function patchJobFrontmatterFields(
   content: string,
-  fields: JobExecutionFrontmatterPatch,
+  fields: JobFrontmatterPatch,
 ): string {
   let next = content;
-  for (const key of JOB_EXECUTION_FRONTMATTER_FIELDS) {
+  for (const key of Object.keys(fields)) {
+    if (key === EXTRA_FRONTMATTER_LINES) continue;
     if (!Object.hasOwn(fields, key)) continue;
     const value = fields[key];
     next = setOrRemoveFrontmatterField(
@@ -691,8 +717,14 @@ export function patchJobFrontmatterFields(
       key,
       value === undefined
         ? undefined
-        : serializeExecutionFrontmatterValue(key, value),
+        : serializeFrontmatterPatchValue(key, value),
     );
   }
   return next;
+}
+
+/** Replace the markdown body after the closing `---` without touching YAML. */
+export function replaceJobResourceBody(content: string, body: string): string {
+  const { newline, closer, end } = jobFrontmatterBounds(content);
+  return `${content.slice(0, end + closer.length)}${newline}${newline}${body}`;
 }
