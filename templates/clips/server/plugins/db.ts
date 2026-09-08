@@ -1218,6 +1218,17 @@ export const migrations = runMigrations(
         ALTER TABLE clips_backfill_leases ALTER COLUMN expires_at TYPE BIGINT
       `,
     },
+    {
+      version: 71,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE recording_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE clips_meeting_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE clips_dictation_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE clips_vocabulary_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE calendar_account_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
   ],
   { table: "clips_migrations" },
 );

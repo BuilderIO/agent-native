@@ -231,4 +231,9 @@ export const ORG_MIGRATIONS = [
       ALTER TABLE workspace_apps ALTER COLUMN updated_at TYPE BIGINT;
     `,
   },
+  {
+    version: 1023,
+    name: "workspace-app-shares-notified-at",
+    sql: `ALTER TABLE workspace_app_shares ADD COLUMN IF NOT EXISTS notified_at TEXT`,
+  },
 ];

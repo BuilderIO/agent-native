@@ -72,6 +72,7 @@ type DirectShare = {
 type RecordingState = {
   id: string;
   meetingId: string | null;
+  meetingVisibility: string | null;
   organizationId: string;
   ownerEmail: string;
   title: string;
@@ -337,6 +338,7 @@ function defaultRepository(): TransactionalEmailRepository {
       .where(
         and(
           eq(schema.recordingShares.principalType, "user"),
+          isNotNull(schema.recordingShares.notifiedAt),
           recipient
             ? ownerEmailMatches(schema.recordingShares.principalId, recipient)
             : undefined,
@@ -378,6 +380,7 @@ function defaultRepository(): TransactionalEmailRepository {
         .where(
           and(
             eq(schema.recordingShares.principalType, "user"),
+            isNotNull(schema.recordingShares.notifiedAt),
             ownerEmailMatches(schema.recordingShares.principalId, recipient),
             gte(schema.recordingShares.createdAt, enabledAt),
           ),
@@ -403,6 +406,7 @@ function defaultRepository(): TransactionalEmailRepository {
           .where(
             and(
               eq(schema.recordingShares.principalType, "user"),
+              isNotNull(schema.recordingShares.notifiedAt),
               ownerEmailMatches(schema.recordingShares.principalId, recipient),
               eq(schema.recordingShares.resourceId, distinct.recordingId),
               eq(schema.recordingShares.createdAt, distinct.firstSharedAt!),
@@ -529,11 +533,17 @@ function defaultRepository(): TransactionalEmailRepository {
           archivedAt: schema.recordings.archivedAt,
           trashedAt: schema.recordings.trashedAt,
           meetingId: schema.meetings.id,
+          meetingVisibility: schema.meetings.visibility,
         })
         .from(schema.recordings)
         .leftJoin(
           schema.meetings,
-          eq(schema.meetings.recordingId, schema.recordings.id),
+          and(
+            eq(schema.meetings.recordingId, schema.recordings.id),
+            // A trashed meeting 404s on its own share route, so it must not
+            // claim the recording's reminder link.
+            isNull(schema.meetings.trashedAt),
+          ),
         )
         .where(
           and(
@@ -571,11 +581,17 @@ function defaultRepository(): TransactionalEmailRepository {
           archivedAt: schema.recordings.archivedAt,
           trashedAt: schema.recordings.trashedAt,
           meetingId: schema.meetings.id,
+          meetingVisibility: schema.meetings.visibility,
         })
         .from(schema.recordings)
         .leftJoin(
           schema.meetings,
-          eq(schema.meetings.recordingId, schema.recordings.id),
+          and(
+            eq(schema.meetings.recordingId, schema.recordings.id),
+            // A trashed meeting 404s on its own share route, so it must not
+            // claim the recording's reminder link.
+            isNull(schema.meetings.trashedAt),
+          ),
         )
         .where(eq(schema.recordings.id, recordingId))
         .limit(1);
@@ -607,6 +623,7 @@ function defaultRepository(): TransactionalEmailRepository {
         .where(
           and(
             eq(schema.recordingShares.id, shareId),
+            isNotNull(schema.recordingShares.notifiedAt),
             eq(schema.recordingShares.resourceId, recordingId),
             eq(schema.recordingShares.principalType, "user"),
           ),
@@ -1041,6 +1058,7 @@ async function makeSendInput(
       to: recipient,
       recordingId: recordings[0].id,
       meetingId: recordings[0].meetingId,
+      meetingIsPublic: recordings[0].meetingVisibility === "public",
       title: recordings[0].title,
       senderEmail,
       senderName,

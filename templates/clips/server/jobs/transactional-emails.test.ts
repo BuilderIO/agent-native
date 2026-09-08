@@ -70,10 +70,12 @@ function recording(
   id: string,
   ownerEmail = "sender@example.com",
   meetingId: string | null = null,
+  meetingVisibility: string | null = null,
 ): Recording {
   return {
     id,
     meetingId,
+    meetingVisibility,
     organizationId: "org-1",
     ownerEmail,
     title: `Clip ${id}`,
@@ -280,6 +282,7 @@ function createRepository(unresolved: {
       return state.shares.some(
         (share) =>
           share.id === shareId &&
+          share.notifiedAt !== null &&
           share.recordingId === recordingId &&
           share.recipient.trim().toLowerCase() === recipient,
       );
@@ -517,6 +520,44 @@ describe("transactional email worker", () => {
     ).toBeNull();
   });
 
+  it("drops a reminder queued before the grant was recognised as unnotified", async () => {
+    const clock = await setup();
+    clock.setNow("2026-08-03T00:00:00.000Z");
+    const send = vi.fn().mockResolvedValue(undefined);
+    await clock.store.enqueue("unviewed-reminder:legacy-grant", {
+      type: "unviewed-reminder",
+      recipient: "attendee@example.com",
+      recordingIds: ["recording-1"],
+      shareId: "legacy-grant",
+      requestedBy: "sender@example.com",
+    });
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [
+          {
+            id: "legacy-grant",
+            recordingId: "recording-1",
+            recipient: "attendee@example.com",
+            createdBy: "sender@example.com",
+            createdAt: "2026-08-01T00:00:00.000Z",
+            notifiedAt: null,
+          },
+        ],
+        recordings: new Map([["recording-1", recording("recording-1")]]),
+      }),
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(
+      await clock.store.readJob("unviewed-reminder:legacy-grant"),
+    ).toMatchObject({ state: "cancelled" });
+  });
+
   it("resolves the reminder originator profile and organization logo", async () => {
     const clock = await setup();
     clock.setNow("2026-08-03T00:00:00.000Z");
@@ -549,6 +590,7 @@ describe("transactional email worker", () => {
       to: "person@example.com",
       recordingId: "recording-1",
       meetingId: null,
+      meetingIsPublic: false,
       title: "Clip recording-1",
       senderEmail: "sender@example.com",
       senderName: "Alex Rivera",

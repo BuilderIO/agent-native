@@ -81,4 +81,11 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
           AND thread_data LIKE '%"integrationDeliveryAttempted":true%'
     `,
   },
+  {
+    version: 4,
+    name: "chat-thread-shares-notified-at",
+    sql: `
+      ALTER TABLE chat_thread_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+    `,
+  },
 ];

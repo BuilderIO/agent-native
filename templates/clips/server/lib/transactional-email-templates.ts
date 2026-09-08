@@ -41,6 +41,8 @@ export type ClipsTransactionalEmailInput =
       recordingId: string;
       /** Set when the clip is a meeting recording, which has no video to play. */
       meetingId?: string | null;
+      /** Public meeting pages render signed-out; private ones need the app. */
+      meetingIsPublic?: boolean;
       title?: string | null;
       senderEmail?: string | null;
       senderName?: string | null;
@@ -189,20 +191,25 @@ function clipUrl(
 }
 
 /**
- * Recipients have no session and meeting recordings have no video, so neither
- * `/r/` (signed-in app route) nor the clip player resolves for them.
+ * The best page this recipient can open. `/r/` is the signed-in app route, and
+ * a meeting recording has no video for the clip player to resolve; the public
+ * meeting page in turn renders signed-out only when the meeting is public.
  */
 function recipientUrl(
   recordingId: string,
   meetingId: string | null | undefined,
+  meetingIsPublic: boolean | undefined,
   options: ClipsTransactionalEmailRenderOptions,
 ): string {
-  return appUrlForPath(
-    meetingId
-      ? `/share/meeting/${encodeURIComponent(meetingId)}`
-      : `/share/${encodeURIComponent(recordingId)}`,
-    options,
-  );
+  if (meetingId) {
+    return appUrlForPath(
+      meetingIsPublic
+        ? `/share/meeting/${encodeURIComponent(meetingId)}`
+        : `/meetings/${encodeURIComponent(meetingId)}`,
+      options,
+    );
+  }
+  return appUrlForPath(`/share/${encodeURIComponent(recordingId)}`, options);
 }
 
 function clipCommentsUrl(
@@ -487,7 +494,12 @@ export function renderClipsTransactionalEmail(
             ctaLabel: "Watch the Clip Manually",
             footerNoun: "this Clip",
           };
-      const url = recipientUrl(input.recordingId, input.meetingId, options);
+      const url = recipientUrl(
+        input.recordingId,
+        input.meetingId,
+        input.meetingIsPublic,
+        options,
+      );
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
         brandLogoUrl: resolveBrandLogoUrl(input.brandLogoUrl, options),

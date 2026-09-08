@@ -293,6 +293,7 @@ describe("renderClipsTransactionalEmail", () => {
       to: "attendee@example.test",
       recordingId: "rec-2",
       meetingId: "meet-9",
+      meetingIsPublic: true,
       title: "Company All-Hands",
       senderName: "Alex Rivera",
     });
@@ -310,6 +311,26 @@ describe("renderClipsTransactionalEmail", () => {
         /href="https:\/\/clips\.example\/share\/meeting\/meet-9"/g,
       ),
     ).toHaveLength(2);
+  });
+
+  it("keeps a private meeting on the signed-in app route", () => {
+    const reminder = render({
+      kind: "unviewed-reminder",
+      to: "attendee@example.test",
+      recordingId: "rec-2",
+      meetingId: "meet-9",
+      meetingIsPublic: false,
+      title: "Team sync",
+      senderName: "Alex Rivera",
+    });
+
+    expect(reminder.html).toContain(
+      'href="https://clips.example/meetings/meet-9"',
+    );
+    expect(reminder.html).not.toContain("/share/meeting/");
+    expect(reminder.html).toContain(
+      "Alex Rivera shared meeting notes with you",
+    );
   });
 
   it("names the reading agent and falls back when it is unidentified", () => {
