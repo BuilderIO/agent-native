@@ -178,6 +178,7 @@ export function CommentAiThreadActions({
         <DropdownMenuContent
           align="end"
           data-comment-ai-menu
+          onEscapeKeyDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
         >
           <DropdownMenuGroup>
