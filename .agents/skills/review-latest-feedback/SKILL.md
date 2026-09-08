@@ -31,16 +31,35 @@ posts three messages beats a run that posts thirty.
 Other agents work this channel concurrently, so an unclaimed report is one
 someone else may investigate. The eye is a temporary exclusive-work lock, not a
 bookmark. Keep your eye only while investigating, fixing, or waiting on one
-targeted reporter detail that could unblock the work. If no verified
-reproduction or safe fix remains, remove it, record **Open - no reply** with
-evidence, and post nothing. Ask for missing detail only when it would enable
-reproduction or a fix, such as a browser-console screenshot.
+targeted reporter detail that could unblock the work.
+
+**A reported defect is in scope by default: fix it, or ask the reporter for
+what you need to fix it. Those are the only two endings.** Failing to reproduce
+is a reason to ask, never a reason to close. "No verified reproduction" and "no
+safe fix from this evidence" are the two sentences this workflow has used to
+drop real bugs silently; neither is a disposition. When you cannot reproduce,
+say what you tried and ask for the one detail that would unblock you - request
+id, failure time, console screenshot, account, or URL.
+
+**Skipped** is only for a report that is not a defect: a feature request, an
+enhancement idea, or a subjective visual preference. Breakage is never
+**Skipped**, however awkward it is to reproduce. **Open - no reply** is a last
+resort for a defect you actually worked, could not fix, and could not form a
+question about; record what you tried, and expect a reviewer to ask why no
+question was possible.
 
 Release your eye for every terminal disposition: **Fixed**, **Shipped**,
 **Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**, or
 **Abandoned - no answer in 4 days**. Only **In progress** and pending
 **Clarification needed** retain it. **Clustered** is terminal for a duplicate
 row that is not the single owning investigation.
+
+**Releasing an eye means adding `✅` to the parent, not deleting the `👀`.** No
+connected Slack tool exposes `reactions.remove` - every connector offers
+`add_reaction` and `get_reactions` and nothing else - so a claim can be marked
+finished but never unmarked. Wherever this skill says remove or release an eye,
+add `✅` and treat the pair as released. A `👀` with no `✅` is the only open
+claim, which is what makes the Phase 1 cursor below correct.
 
 Only remove this workflow's eye. A foreign eye from another valid workflow
 identity is ownership, even when stale: do not remove, duplicate, or reply over
@@ -131,7 +150,7 @@ Also search for the invoking identity's eye-marked parents before applying the
 disclosure filter:
 
 ```
-slack_search: hasmy:eyes in:<#CHANNEL>
+slack_search: hasmy::eyes: -hasmy::white_check_mark: in:<#CHANNEL>
 ```
 
 The test for "answered" is mechanical: **did a person speak after your
@@ -180,8 +199,8 @@ unanswered clarification, restore it to the pending set.
   a linked PR, "not a Clips issue" — is still an answer. Close it as
   **Resolved elsewhere** (terminal, and distinct from **Skipped**, which means
   out of scope): remove the `👀`, name who resolved it and where, post
-  nothing. Removing the eye is what makes the closure durable, or the next
-  run's `hasmy:eyes` resurfaces it as unfinished forever.
+  nothing. Adding `✅` is what makes the closure durable, or the next run's
+  open-claim cursor resurfaces it as unfinished forever.
 - **No answer, posted under 4 days ago** → leave it. Post nothing. A second
   message is a nag, not a follow-up.
 - **No answer, posted over 4 days ago** → the question failed. Drop it
@@ -302,8 +321,8 @@ slack_search: has:reaction in:<#CHANNEL>
 
 Read each matching parent and its reaction metadata. Use other valid workflow
 identities' eyes only to detect **Owned elsewhere**; leave those items out of
-your worklist. `hasmy:eyes` optimizes the current identity's scan but is never
-the only cursor. Keep your active claims in the worklist until a verified fix,
+your worklist. The `hasmy::eyes: -hasmy::white_check_mark:` cursor optimizes
+the current identity's scan but is never the only cursor. Keep your active claims in the worklist until a verified fix,
 targeted clarification, or Phase 0 release.
 
 Group repeat symptoms into one cluster with one owning investigation; the
@@ -416,8 +435,9 @@ have. Three kinds qualify:
 - **A question** — subject to the budget below.
 
 Everything else gets an internal recap row and **no message**. Follow the Phase
-0 contract for the eye; when no verified reproduction or safe fix remains,
-record **Open - no reply**, release it, and do not message merely to hand off.
+0 contract for the eye. A defect you could not fix earns a question, not
+silence; record **Open - no reply** only when no question would unblock it, and
+do not message merely to hand off.
 Never post the same sentence into multiple threads: if three reports share one
 cause, reply in one and record the rest as clustered.
 
@@ -540,9 +560,10 @@ Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Unavailable or unverified: ...
 ```
 
-`Open - no reply` is a success state when investigation ended without a
-verified reproduction or safe fix and no reporter detail would unblock it. It
-always means the eye was removed. "Nothing matched" is valid only after each
+`Open - no reply` is a last resort, not a success state. It requires that you
+worked the defect, could not fix it, and could not form a question that would
+unblock it; a run whose ledger is mostly `Open - no reply` has under-asked, not
+finished. It always means the eye was released with `✅`. "Nothing matched" is valid only after each
 source was queried successfully, with the cursor stated.
 
 ## Related skills
