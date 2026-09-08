@@ -91,6 +91,9 @@ describe("selected library actions layout", () => {
     expect(layoutSource).toContain(
       "<SidebarFeedbackButton collapsed={showCollapsedSidebar} />",
     );
+    expect(layoutSource).toContain("data-sidebar-footer-utilities");
+    expect(layoutSource).toContain('? "flex flex-col items-center gap-1"');
+    expect(layoutSource).toContain('"!size-9 !p-0 [&>svg]:!size-4"');
     expect(layoutSource).toContain("function isSidebarGroupActive(");
     expect(layoutSource).toContain(
       'group === "library" && pathname.startsWith("/library/folder/")',

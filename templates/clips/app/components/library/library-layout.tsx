@@ -826,9 +826,10 @@ export function LibraryLayout({
         >
           <SidebarFeedbackButton collapsed={showCollapsedSidebar} />
           <div
+            data-sidebar-footer-utilities
             className={cn(
               showCollapsedSidebar
-                ? "flex items-center justify-center gap-1"
+                ? "flex flex-col items-center gap-1"
                 : "flex items-center gap-0.5",
             )}
           >
@@ -836,7 +837,9 @@ export function LibraryLayout({
               compact={showCollapsedSidebar}
               className={cn(
                 "!bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary",
-                !showCollapsedSidebar && "min-w-0 flex-1",
+                showCollapsedSidebar
+                  ? "!size-9 !p-0 [&>svg]:!size-4"
+                  : "min-w-0 flex-1",
               )}
               settingsPath="/settings/organization"
               currentAppId="clips"
