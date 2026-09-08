@@ -24,7 +24,7 @@
 export const BOARD_SCALE = 0.4;
 
 export const DESKTOP_ARTBOARD_WIDTH = 1280;
-export const DESKTOP_ARTBOARD_HEIGHT = 1400;
+export const DESKTOP_ARTBOARD_HEIGHT = 1240;
 export const MOBILE_ARTBOARD_WIDTH = 390;
 export const MOBILE_ARTBOARD_HEIGHT = 1100;
 
@@ -59,16 +59,26 @@ const STATS = [
   { value: "94%", label: "Stick with it", tone: "cyan" },
 ];
 
-const CLASSES = [
-  { title: "Sprint Intervals", meta: "28 min · HIIT", tone: "coral" },
-  { title: "Deep Mobility", meta: "35 min · Recovery", tone: "cyan" },
+const CLASSES: {
+  title: string;
+  meta: string;
+  tone: string;
+  /** Absent until the cover art for that class has been picked. */
+  src?: string;
+}[] = [
+  {
+    title: "Sprint Intervals",
+    meta: "28 min · HIIT",
+    tone: "coral",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F756dda96e9774315951d2635dcbbb4c4?format=webp&width=660",
+  },
+  {
+    title: "Deep Mobility",
+    meta: "35 min · Recovery",
+    tone: "cyan",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F153d1f4a1b4b4915bed9ee5114d6c93f?format=webp&width=660",
+  },
   { title: "Heavy Compound", meta: "45 min · Strength", tone: "violet" },
-];
-
-const COACHES = [
-  { name: "Nadia Okonjo", focus: "Endurance" },
-  { name: "Rui Alcantara", focus: "Strength" },
-  { name: "Mei Sato", focus: "Mobility" },
 ];
 
 /**
@@ -181,14 +191,6 @@ export function FitnessDesktopArtboard() {
             <SelectedCta />
             <span className="ft-cta-ghost">Watch demo</span>
           </div>
-          <div className="ft-hero-proof">
-            <span className="ft-proof-avatars">
-              <ImageSlot label="Member" size="72" round />
-              <ImageSlot label="Member" size="72" round />
-              <ImageSlot label="Member" size="72" round />
-            </span>
-            <span className="ft-proof-text">Loved by 12,000+ members</span>
-          </div>
         </div>
         <ImageSlot
           label="Hero athlete"
@@ -216,22 +218,9 @@ export function FitnessDesktopArtboard() {
         <div className="ft-class-grid">
           {CLASSES.map((item) => (
             <div key={item.title} className={`ft-class is-${item.tone}`}>
-              <ImageSlot label="Class cover" size="330 × 130" />
+              <ImageSlot label="Class cover" size="330 × 130" src={item.src} />
               <span className="ft-class-title">{item.title}</span>
               <span className="ft-class-meta">{item.meta}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="ft-coaches">
-        <h3 className="ft-section-title">Your coaches</h3>
-        <div className="ft-coach-row">
-          {COACHES.map((coach) => (
-            <div key={coach.name} className="ft-coach">
-              <ImageSlot label="Coach" size="96" round />
-              <span className="ft-coach-name">{coach.name}</span>
-              <span className="ft-coach-focus">{coach.focus}</span>
             </div>
           ))}
         </div>
@@ -291,7 +280,7 @@ export function FitnessMobileArtboard() {
         <div className="ft-class-grid">
           {CLASSES.slice(0, 2).map((item) => (
             <div key={item.title} className={`ft-class is-${item.tone}`}>
-              <ImageSlot label="Class cover" size="294 × 120" />
+              <ImageSlot label="Class cover" size="294 × 120" src={item.src} />
               <span className="ft-class-title">{item.title}</span>
               <span className="ft-class-meta">{item.meta}</span>
             </div>
@@ -349,13 +338,6 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-subhead { margin: 20px 0 0; max-width: 440px; color: rgba(255, 253, 248, 0.72); font-size: 19px; line-height: 1.5; }",
   ".design-mock .ft-hero-actions { display: flex; align-items: center; gap: 16px; margin-top: 32px; }",
   ".design-mock .ft-cta-ghost { display: flex; height: 52px; align-items: center; padding: 0 24px; border: 2px solid rgba(255, 253, 248, 0.32); border-radius: 999px; color: var(--ft-surface); font-size: 17px; font-weight: 600; }",
-  ".design-mock .ft-hero-proof { display: flex; align-items: center; gap: 14px; margin-top: 36px; }",
-  ".design-mock .ft-proof-avatars { display: flex; align-items: center; }",
-  ".design-mock .ft-proof-avatars .ft-slot { width: 44px; height: 44px; flex-shrink: 0; border-color: rgba(255, 253, 248, 0.4); background: rgba(255, 253, 248, 0.12); }",
-  ".design-mock .ft-proof-avatars .ft-slot + .ft-slot { margin-left: -12px; }",
-  ".design-mock .ft-proof-avatars .ft-slot-cross { display: none; }",
-  ".design-mock .ft-proof-avatars .ft-slot-label { color: rgba(255, 253, 248, 0.66); font-size: 9px; }",
-  ".design-mock .ft-proof-text { color: rgba(255, 253, 248, 0.6); font-size: 15px; font-weight: 500; }",
   ".design-mock .ft-hero-art { width: 460px; height: 420px; flex-shrink: 0; border-radius: 28px; }",
 
   // The selected `Start free trial` CTA and its editor chrome.
@@ -392,14 +374,6 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-class.is-violet .ft-slot { background: rgba(124, 77, 255, 0.14); }",
   ".design-mock .ft-class-title { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; }",
   ".design-mock .ft-class-meta { color: var(--ft-ink-soft); font-size: 15px; font-weight: 500; }",
-
-  // Coaches
-  ".design-mock .ft-coaches { flex-shrink: 0; padding: 36px 48px 0; }",
-  ".design-mock .ft-coach-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 20px; }",
-  ".design-mock .ft-coach { display: flex; align-items: center; gap: 14px; padding: 16px 20px; border-radius: 999px; background: rgba(124, 77, 255, 0.08); }",
-  ".design-mock .ft-coach .ft-slot { width: 56px; height: 56px; flex-shrink: 0; }",
-  ".design-mock .ft-coach-name { font-size: 17px; font-weight: 700; }",
-  ".design-mock .ft-coach-focus { margin-left: auto; color: var(--ft-violet); font-size: 14px; font-weight: 600; }",
 
   // Closing band
   ".design-mock .ft-band { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 36px 24px 24px; padding: 30px 40px; border-radius: 32px; background: linear-gradient(100deg, var(--ft-violet), var(--ft-coral) 62%, var(--ft-amber)); color: var(--ft-surface); }",

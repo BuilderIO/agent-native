@@ -207,13 +207,6 @@ const LAYER_ROWS: LayerRow[] = [
     disclosure: "collapsed",
   },
   {
-    id: "coaches",
-    label: "Coaches",
-    depth: 1,
-    glyph: "rows",
-    disclosure: "collapsed",
-  },
-  {
     id: "frame-root",
     label: "Frame",
     depth: 0,
