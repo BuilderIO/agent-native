@@ -19474,6 +19474,7 @@ function DesignEditor() {
               currentUserEmail={currentUser?.email}
               followingEmail={followingEmail}
               onAvatarClick={handleAvatarClick}
+              disableAgentClick
               className="shrink-0"
             />
           )}

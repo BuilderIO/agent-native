@@ -33,6 +33,8 @@ export interface PresenceBarProps {
    * (or null for the agent avatar). Use this to start/stop follow mode.
    */
   onAvatarClick?: (user: CollabUser | null) => void;
+  /** Keep the AI avatar display-only when no agent viewport can be followed. */
+  disableAgentClick?: boolean;
   /**
    * The email of the user currently being followed. Highlighted with a
    * blue ring to indicate active follow mode.
@@ -253,6 +255,7 @@ export function PresenceBar({
   maxVisible = 5,
   className,
   onAvatarClick,
+  disableAgentClick,
   followingEmail,
 }: PresenceBarProps) {
   const { humanUsers, showAgent } = useMemo(() => {
@@ -285,7 +288,11 @@ export function PresenceBar({
         {showAgent && (
           <AgentAvatar
             active={!!agentActive}
-            onClick={onAvatarClick ? () => onAvatarClick(null) : undefined}
+            onClick={
+              !disableAgentClick && onAvatarClick
+                ? () => onAvatarClick(null)
+                : undefined
+            }
             isFollowing={isFollowingAgent}
           />
         )}

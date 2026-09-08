@@ -306,7 +306,9 @@ export default defineAction({
     replace: z
       .string()
       .optional()
-      .describe("Replacement text (default: empty string)"),
+      .describe(
+        "Replacement text; pass an empty string explicitly to clear it",
+      ),
     fullContent: z
       .string()
       .optional()
@@ -482,6 +484,18 @@ export default defineAction({
         errorCode: "slide_find_object_id_conflict",
       });
     }
+    if (objectId !== undefined && replace === undefined) {
+      fail(
+        "Legacy --objectId requires --replace; pass an empty string explicitly to clear the element",
+        { errorCode: "slide_object_id_replace_required" },
+      );
+    }
+    if (find !== undefined && replace === undefined) {
+      fail(
+        "Legacy --find requires --replace; pass an empty string explicitly to clear the match",
+        { errorCode: "slide_find_replace_required" },
+      );
+    }
     if (replace !== undefined && find === undefined && objectId === undefined) {
       fail("Legacy --replace requires --find", {
         errorCode: "slide_replace_requires_find",
@@ -622,7 +636,7 @@ export default defineAction({
           : previousContent;
         const patched = await applySlideContentEdits(
           sourceContent,
-          [{ objectId, replace: replace ?? "" }],
+          [{ objectId, replace: replace! }],
           format,
         );
         const nextContent = normalizeSlidePadding(patched.content);

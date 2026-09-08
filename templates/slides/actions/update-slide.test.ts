@@ -271,6 +271,32 @@ describe("update-slide", () => {
     );
   });
 
+  it("rejects a compact object edit without an explicit replacement", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        objectId: "title",
+      }),
+    ).rejects.toThrow("Legacy --objectId requires --replace");
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("rejects a legacy find edit without an explicit replacement", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        find: "Old",
+      }),
+    ).rejects.toThrow("Legacy --find requires --replace");
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
   it("preserves dismissed overflow warnings for human content edits", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",

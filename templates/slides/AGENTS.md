@@ -70,9 +70,10 @@ Read the relevant skill before deeper work:
 - For per-click reveals, follow `slide-editing`'s click-to-reveal rules.
 - For images, use `generate-image-api` with provenance; show results as
   `![alt](url)`.
-- For focused edits, use `update-slide` with `view-screen`'s `objectId` when
-  available; otherwise use exact `find`, `expectedMatches: 1`, and
-  `baseContentHash` (see `slide-editing` and `mcp.instructions`).
+- For focused edits, prefer `view-screen`'s exact `selectedText` with `find`,
+  `expectedMatches: 1`, and `baseContentHash`; without it, use `objectId` with
+  `replace` and the same hash, else exact `find` and `expectedMatches: 1` (see
+  `slide-editing` and `mcp.instructions`).
 - For data requests, follow `analytics-data-for-decks`; delegate via Analytics
   over A2A, never write SQL or call providers directly.
 - Without a reference deck or design system, call `get-workspace-defaults`

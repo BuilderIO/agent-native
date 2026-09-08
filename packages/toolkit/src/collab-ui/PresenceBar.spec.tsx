@@ -53,4 +53,29 @@ describe("PresenceBar", () => {
     });
     expect(container.querySelector('[aria-label="AI agent"]')).not.toBeNull();
   });
+
+  it("keeps the AI avatar display-only when agent follow is disabled", () => {
+    const onAvatarClick = vi.fn();
+    act(() => {
+      root.render(
+        <PresenceBar
+          activeUsers={[]}
+          agentPresent
+          onAvatarClick={onAvatarClick}
+          disableAgentClick
+        />,
+      );
+    });
+
+    const avatar = container.querySelector<HTMLElement>(
+      '[aria-label="AI agent"]',
+    );
+    expect(avatar?.getAttribute("role")).toBeNull();
+    expect(avatar?.style.cursor).toBe("default");
+
+    act(() =>
+      avatar?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    expect(onAvatarClick).not.toHaveBeenCalled();
+  });
 });

@@ -153,7 +153,7 @@ export default createAgentChatPlugin({
   mcp: {
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
-      'Design system: every deck read (get-deck, view-screen, get-workspace-defaults, get-deck-reference-context) returns `designSystem` — a bounded summary with scope "summary" and a `next` line — and get-deck also returns `deckStyle` plus `representativeSlideId`. Before the first slide you author in a deck, call get-design-system { id } once for the full tokens, assets, docs, and custom instructions (create-deck already returns it in full); reuse it for every later slide instead of re-reading it. Apply designSystem.agentContext and deckStyle before authoring or restyling. If designSystem.status is "unavailable", follow its message; never invent a generic style. For a new deck, pass the exact title as `designSystem` or a designSystemId; omit both to get the caller\'s personal default, then the workspace default. When view-screen returns an exact selectedText range, edit immediately with one update-slide literal edits replacement and expectedMatches=1, passing currentSlideContentHash as baseContentHash; when it returns a stable objectId without exact selectedText, use one update-slide replace edit with that objectId instead of fetching the full deck. Use targeted get-deck with slideId only for ambiguous, truncated, or structural text. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove a deck. Read back the same slide after writing; a delegated ask_app response is unverified until that readback confirms it.',
+      'Design system: every deck read (get-deck, view-screen, get-workspace-defaults, get-deck-reference-context) returns `designSystem` — a bounded summary with scope "summary" and a `next` line — and get-deck also returns `deckStyle` plus `representativeSlideId`. Before the first slide you author in a deck, call get-design-system { id } once for the full tokens, assets, docs, and custom instructions (create-deck already returns it in full); reuse it for every later slide instead of re-reading it. Apply designSystem.agentContext and deckStyle before authoring or restyling. If designSystem.status is "unavailable", follow its message; never invent a generic style. For a new deck, pass the exact title as `designSystem` or a designSystemId; omit both to get the caller\'s personal default, then the workspace default. When view-screen returns an exact selectedText range, edit immediately with one update-slide literal edits replacement and expectedMatches=1, passing currentSlideContentHash as baseContentHash when available; when it returns a stable objectId without exact selectedText, use one update-slide replace edit with that objectId and the same hash when available instead of fetching the full deck. Use targeted get-deck with slideId only for ambiguous, truncated, or structural text. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove a deck. Read back the same slide after writing; a delegated ask_app response is unverified until that readback confirms it.',
   },
   externalAgents: { writes: "allowlisted" },
   durableBackgroundRuns: true,
@@ -202,9 +202,10 @@ and expectedMatches=1;
 pass currentSlideContentHash as baseContentHash when available. Do not call
 get-deck without slideId, enumerate the deck, or request full HTML for this
 path. If no exact selectedText range is available, the value is an element
-preview or truncated, call update-slide with the supplied objectId when one is
-available; otherwise, when the literal match fails or the request changes
-markup or layout, call get-deck with slideId only. First classify the
+preview or truncated, call update-slide with the supplied objectId and pass
+currentSlideContentHash as baseContentHash when available; otherwise, when the
+literal match fails or the request changes markup or layout, call get-deck with
+slideId only. First classify the
 remaining request scope. For a
 styling-only request, set styleOnly=true, change only the requested CSS
 declarations on the identified elements, and preserve text, element order,
