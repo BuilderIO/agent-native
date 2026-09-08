@@ -1,0 +1,248 @@
+name: Publish Clips Chrome extension
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  # ponytail: one Store item, so a global lock is enough; split by item if this expands.
+  group: clips-chrome-extension-publish
+  cancel-in-progress: false
+
+env:
+  CWS_API_ROOT: https://chromewebstore.googleapis.com
+  CWS_API_SCOPE: https://www.googleapis.com/auth/chromewebstore
+  CWS_ITEM_ID: ${{ vars.CLIPS_CWS_ITEM_ID }}
+  CWS_PUBLISHER_ID: ${{ vars.CLIPS_CWS_PUBLISHER_ID }}
+  CWS_SERVICE_ACCOUNT: ${{ vars.CLIPS_CWS_SERVICE_ACCOUNT_EMAIL }}
+  CWS_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.CLIPS_CWS_WORKLOAD_IDENTITY_PROVIDER }}
+
+jobs:
+  publish:
+    name: Publish Clips Chrome extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Require the main branch
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$WORKFLOW_REF" != "refs/heads/main" ]]; then
+            echo "::error::Run this workflow from the main branch."
+            exit 1
+          fi
+
+      - name: Validate Chrome Web Store configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variable in CWS_ITEM_ID CWS_PUBLISHER_ID CWS_SERVICE_ACCOUNT CWS_WORKLOAD_IDENTITY_PROVIDER; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::Repository variable for $variable is not configured."
+              exit 1
+            fi
+          done
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test the extension
+        run: pnpm --filter clips-chrome-extension test
+
+      - name: Typecheck the extension
+        run: pnpm --filter clips-chrome-extension typecheck
+
+      - name: Build the Store package
+        run: pnpm --filter clips-chrome-extension package
+
+      - name: Resolve the package artifact
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest_path="templates/clips/chrome-extension/dist/manifest.json"
+          version="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$manifest_path")"
+          zip_path="templates/clips/chrome-extension/releases/clips-chrome-extension-${version}.zip"
+          test -s "$manifest_path"
+          test -s "$zip_path"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
+          echo "Prepared Clips Chrome extension version $version."
+
+      - name: Authenticate to Google Cloud
+        id: google-auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ env.CWS_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.CWS_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: ${{ env.CWS_API_SCOPE }}
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Verify the current Store state
+        id: store-status
+        env:
+          ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          status_url="${CWS_API_ROOT}/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_ITEM_ID}:fetchStatus"
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            "$status_url" > "$RUNNER_TEMP/clips-cws-status.json"
+
+          published_version="$(jq -r '.publishedItemRevisionStatus.distributionChannels[0].crxVersion // empty' "$RUNNER_TEMP/clips-cws-status.json")"
+          submitted_state="$(jq -r '.submittedItemRevisionStatus.state // empty' "$RUNNER_TEMP/clips-cws-status.json")"
+          echo "published_version=$published_version" >> "$GITHUB_OUTPUT"
+          echo "submitted_state=$submitted_state" >> "$GITHUB_OUTPUT"
+          echo "Current published version: ${published_version:-none}"
+          echo "Current submitted state: ${submitted_state:-none}"
+
+          if [[ "$submitted_state" == "PENDING_REVIEW" || "$submitted_state" == "STAGED" ]]; then
+            echo "::error::The Store item already has a submitted revision in state $submitted_state. Wait for it to finish before releasing another version."
+            exit 1
+          fi
+
+      - name: Require a newer extension version
+        env:
+          CURRENT_STORE_VERSION: ${{ steps.store-status.outputs.published_version }}
+          EXTENSION_VERSION: ${{ steps.package.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const current = process.env.CURRENT_STORE_VERSION;
+          const next = process.env.EXTENSION_VERSION;
+
+          if (!current) process.exit(0);
+
+          const parseVersion = (value) => {
+            const parts = value.split(".").map(Number);
+            if (
+              parts.length === 0 ||
+              parts.some((part) => !Number.isInteger(part) || part < 0)
+            ) {
+              throw new Error(`Invalid Chrome version: ${value}`);
+            }
+            return parts;
+          };
+
+          const currentParts = parseVersion(current);
+          const nextParts = parseVersion(next);
+          const length = Math.max(currentParts.length, nextParts.length);
+          for (let index = 0; index < length; index += 1) {
+            const currentPart = currentParts[index] ?? 0;
+            const nextPart = nextParts[index] ?? 0;
+            if (nextPart > currentPart) process.exit(0);
+            if (nextPart < currentPart) {
+              throw new Error(`${next} is not newer than the Store version ${current}`);
+            }
+          }
+
+          throw new Error(`${next} is not newer than the Store version ${current}`);
+          NODE
+
+      - name: Upload the package
+        env:
+          ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
+          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          upload_url="${CWS_API_ROOT}/upload/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_ITEM_ID}:upload"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/zip" \
+            --data-binary "@${ZIP_PATH}" \
+            "$upload_url" > "$RUNNER_TEMP/clips-cws-upload.json"
+
+          upload_state="$(jq -r '.uploadState // empty' "$RUNNER_TEMP/clips-cws-upload.json")"
+          echo "Chrome Web Store upload state: $upload_state"
+          case "$upload_state" in
+            SUCCEEDED)
+              ;;
+            IN_PROGRESS)
+              for attempt in {1..60}; do
+                sleep 5
+                status_url="${CWS_API_ROOT}/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_ITEM_ID}:fetchStatus"
+                curl --fail-with-body --silent --show-error \
+                  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+                  "$status_url" > "$RUNNER_TEMP/clips-cws-upload-status.json"
+                async_state="$(jq -r '.lastAsyncUploadState // empty' "$RUNNER_TEMP/clips-cws-upload-status.json")"
+                echo "Upload poll ${attempt}/60: ${async_state:-unknown}"
+                case "$async_state" in
+                  SUCCEEDED)
+                    break
+                    ;;
+                  FAILED|NOT_FOUND)
+                    echo "::error::Chrome Web Store package upload ended in state $async_state."
+                    exit 1
+                    ;;
+                  IN_PROGRESS|UPLOAD_STATE_UNSPECIFIED|"")
+                    if [[ "$attempt" == 60 ]]; then
+                      echo "::error::Chrome Web Store package upload did not finish within five minutes."
+                      exit 1
+                    fi
+                    ;;
+                  *)
+                    echo "::error::Unknown Chrome Web Store upload state: $async_state"
+                    exit 1
+                    ;;
+                esac
+              done
+              ;;
+            FAILED|NOT_FOUND|UPLOAD_STATE_UNSPECIFIED|"")
+              echo "::error::Chrome Web Store package upload failed with state ${upload_state:-unknown}."
+              exit 1
+              ;;
+            *)
+              echo "::error::Unknown Chrome Web Store upload state: $upload_state"
+              exit 1
+              ;;
+          esac
+
+      - name: Submit the package for publication
+        env:
+          ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          publish_url="${CWS_API_ROOT}/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_ITEM_ID}:publish"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"publishType":"DEFAULT_PUBLISH","blockOnWarnings":true}' \
+            "$publish_url" > "$RUNNER_TEMP/clips-cws-publish.json"
+
+          publish_state="$(jq -r '.state // empty' "$RUNNER_TEMP/clips-cws-publish.json")"
+          echo "Chrome Web Store submission state: $publish_state"
+          jq -r '.warningInfo.warnings[]? | "Warning: \(.reason): \(.description)"' "$RUNNER_TEMP/clips-cws-publish.json"
+          case "$publish_state" in
+            PENDING_REVIEW|STAGED|PUBLISHED|PUBLISHED_TO_TESTERS)
+              echo "Submitted Clips Chrome extension version ${{ steps.package.outputs.version }}: https://chromewebstore.google.com/detail/${CWS_ITEM_ID}"
+              ;;
+            *)
+              echo "::error::Chrome Web Store returned an unexpected publication state: ${publish_state:-unknown}"
+              exit 1
+              ;;
+          esac
