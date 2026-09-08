@@ -169,10 +169,16 @@ describe("identity SSO feature switch and request classifiers", () => {
     expect(store.getIdentityHubUrl()).toBeUndefined();
   });
 
-  it("keeps the browser entry available for explicitly configured self-hosted apps", () => {
+  it("keeps the removed browser entry as a no-op compatibility export", () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL =
       "https://dispatch.agent-native.com";
+    expect(store.identitySsoLoginButtonHtml()).toBe("");
+    expect(
+      store.identitySsoLoginButtonHtml({
+        requestHost: "mail.agent-native.com",
+      }),
+    ).toBe("");
   });
 
   it("normalizes a configured hub without accepting credentials or queries", () => {

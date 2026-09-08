@@ -42,6 +42,7 @@ import {
   createSsoState,
   CANONICAL_IDENTITY_SSO_HUB_URL,
   getIdentityHubUrl,
+  identitySsoLoginButtonHtml,
   isCanonicalIdentitySsoClientRequest,
   isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
@@ -55,7 +56,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 
-export { getIdentityHubUrl, isIdentitySsoEnabled };
+export { getIdentityHubUrl, identitySsoLoginButtonHtml, isIdentitySsoEnabled };
 
 export const IDENTITY_SSO_PROVIDER_ID = "agent-native";
 export const IDENTITY_SSO_SCOPE = "identity";

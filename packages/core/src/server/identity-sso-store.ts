@@ -184,6 +184,13 @@ export function isCanonicalIdentitySsoClientRequest(
   return isCanonicalIdentitySsoClientOrigin(`https://${host}`);
 }
 
+/** @deprecated Browser sign-in with Agent-Native was removed. */
+export function identitySsoLoginButtonHtml(
+  _options: { requestHost?: string } = {},
+): string {
+  return "";
+}
+
 export interface CreateSsoStateInput {
   returnPath: string | null;
   appId: string;
