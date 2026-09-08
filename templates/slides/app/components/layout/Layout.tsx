@@ -15,7 +15,7 @@ import { CreativeContextComposerChip } from "@agent-native/creative-context/clie
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { extractGoogleSlidesUrls } from "@shared/google-docs";
 import { IconMenu2 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
@@ -75,6 +75,7 @@ export function Layout({ children }: LayoutProps) {
   const [runningChatTabs, setRunningChatTabs] = useState<Set<string>>(
     () => new Set(),
   );
+  const wasChatRoute = useRef(isChatRoute);
   const [composerText, setComposerText] = useState("");
   const [slidesSelection, setSlidesSelection] =
     useState<SlidesAgentSelection | null>(() => readPublishedSlidesSelection());
@@ -82,6 +83,13 @@ export function Layout({ children }: LayoutProps) {
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
+  useEffect(() => {
+    if (wasChatRoute.current && !isChatRoute) {
+      setRunningChatTabs(new Set());
+    }
+    wasChatRoute.current = isChatRoute;
+  }, [isChatRoute]);
+
   useEffect(() => {
     const onChatRunning = (event: Event) => {
       const detail = (event as CustomEvent).detail;

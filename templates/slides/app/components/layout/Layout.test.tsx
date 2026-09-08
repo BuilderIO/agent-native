@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { agentSidebarMock, useDecksMock } = vi.hoisted(() => ({
@@ -72,7 +72,17 @@ function renderLayout(path: string) {
       <Layout>
         <div data-testid="page-content">Content</div>
       </Layout>
+      <NavigateAway />
     </MemoryRouter>,
+  );
+}
+
+function NavigateAway() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate("/")}>
+      Navigate away
+    </button>
   );
 }
 
@@ -123,6 +133,26 @@ describe("Slides Layout", () => {
         }),
       );
     });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ openOnChatRunning: false }),
+    );
+  });
+
+  it("clears running tabs when leaving full-page chat", () => {
+    renderLayout("/chat");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "chat-a" },
+        }),
+      );
+    });
+
+    act(() => {
+      screen.getByRole("button", { name: "Navigate away" }).click();
+    });
+
     expect(agentSidebarMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ openOnChatRunning: false }),
     );
