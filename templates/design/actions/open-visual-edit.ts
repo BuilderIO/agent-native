@@ -43,6 +43,7 @@ const connectionRouteSchema = z.object({
 
 const screenRouteSchema = z.object({
   routeId: z.string().optional(),
+  connectionId: z.string().optional(),
   path: z.string().optional(),
   url: z.string().optional(),
   title: z.string().optional(),
@@ -316,7 +317,7 @@ export default defineAction({
     routes: jsonArray(z.array(screenRouteSchema))
       .optional()
       .describe(
-        "Screens to place. Each route may include path, url, title, viewport width/height, and x/y/z.",
+        "Screens to place. Each route may include path, url, connectionId, title, viewport width/height, and x/y/z. Absolute URLs can target any registered loopback connection.",
       ),
     paths: jsonArray(z.array(z.string()))
       .optional()

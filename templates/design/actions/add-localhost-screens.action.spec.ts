@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   },
   state: {
     connection: {} as Record<string, unknown>,
+    scopedConnections: [] as Array<Record<string, unknown>>,
     designData: {} as Record<string, unknown>,
     files: [] as Array<{
       id: string;
@@ -82,45 +83,35 @@ vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     select: () => {
       mocks.state.selectCount += 1;
-      if (mocks.state.selectCount === 1) {
-        return {
-          from: () => ({
-            where: () => ({
-              orderBy: () => ({
-                limit: () => Promise.resolve([mocks.state.connection]),
-              }),
-            }),
-          }),
-        };
-      }
-      if (mocks.state.selectCount === 2) {
-        return {
-          from: () => ({
-            where: () => ({
-              limit: () =>
-                Promise.resolve([
-                  { data: JSON.stringify(mocks.state.designData) },
-                ]),
-            }),
-          }),
-        };
-      }
-      if (mocks.state.selectCount === 3) {
-        return {
-          from: () => ({ where: () => Promise.resolve(mocks.state.files) }),
-        };
-      }
-      // 4th+ select: the conflict-recovery lookup for whichever row won a
-      // simulated concurrent insert race (see insertConflictOnce/winnerFile).
       return {
-        from: () => ({
-          where: () => ({
+        from: (table: unknown) => {
+          if (table === mocks.schema.designLocalhostConnections) {
+            const ordered = Object.assign(
+              Promise.resolve(mocks.state.scopedConnections),
+              {
+                limit: () => Promise.resolve([mocks.state.connection]),
+              },
+            );
+            return { where: () => ({ orderBy: () => ordered }) };
+          }
+          if (table === mocks.schema.designs) {
+            return {
+              where: () => ({
+                limit: () =>
+                  Promise.resolve([
+                    { data: JSON.stringify(mocks.state.designData) },
+                  ]),
+              }),
+            };
+          }
+          const rows = Object.assign(Promise.resolve(mocks.state.files), {
             limit: () =>
               Promise.resolve(
                 mocks.state.winnerFile ? [mocks.state.winnerFile] : [],
               ),
-          }),
-        }),
+          });
+          return { where: () => rows };
+        },
       };
     },
     insert: () => ({
@@ -221,6 +212,7 @@ describe("add-localhost-screens refresh behavior", () => {
         generatedAt: "2026-07-09T00:00:00.000Z",
       }),
     };
+    mocks.state.scopedConnections = [mocks.state.connection];
     mocks.state.designData = {};
     mocks.state.files = [];
   });
@@ -381,6 +373,53 @@ describe("add-localhost-screens refresh behavior", () => {
 
     expect(mocks.state.insertedFiles).toHaveLength(2);
     expect(result.screens).toHaveLength(2);
+  });
+
+  it("routes an absolute URL to its registered loopback connection", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://localhost:4173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:4173",
+        routes: [],
+      }),
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ url: "http://localhost:4173/settings" }],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]).toMatchObject({
+      connectionId: "conn_2",
+      devServerUrl: "http://localhost:4173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      previewToken: "example-preview-token-2",
+      url: "http://localhost:4173/settings",
+    });
+    expect(mocks.state.insertedFile).toMatchObject({
+      filename: "localhost-localhost-4173-settings.html",
+    });
+    expect(mocks.state.updatedDesignData).toMatchObject({
+      screenMetadata: {
+        [result.screens[0]!.id]: {
+          connectionId: "conn_2",
+          bridgeUrl: "http://127.0.0.1:7332",
+          previewToken: "example-preview-token-2",
+        },
+      },
+    });
   });
 
   it("recovers when a concurrent request wins the insert race for the same route/filename", async () => {

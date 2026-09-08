@@ -36,12 +36,26 @@ describe("add-localhost-screens URL handling", () => {
     ).toBe("http://127.0.0.1:1234/onboarding/3?plan=team");
   });
 
-  it("rejects absolute screen URLs outside the connected dev server", () => {
+  it("rejects absolute screen URLs outside loopback origins", () => {
     expect(() =>
       routeUrl("http://localhost:1234", {
         url: "https://example.com/onboarding/3",
       }),
-    ).toThrow(/connected dev server origin/);
+    ).toThrow(/another loopback origin/);
+  });
+
+  it("accepts a URL on another loopback port for a separate connection", () => {
+    const url = routeUrl("http://localhost:1234", {
+      url: "http://127.0.0.1:5678/onboarding/3?plan=team",
+    });
+
+    expect(url).toBe("http://127.0.0.1:5678/onboarding/3?plan=team");
+    expect(pathFromUrl("http://localhost:1234", url)).toBe(
+      "/onboarding/3?plan=team",
+    );
+    expect(slugForPath(url, true)).toBe(
+      "127-0-0-1-5678-onboarding-3-plan-team",
+    );
   });
 
   it("uses viewport-specific filenames for duplicate responsive screens", () => {

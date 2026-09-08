@@ -32,6 +32,7 @@ import {
 
 const routeInputSchema = z.object({
   routeId: z.string().optional(),
+  connectionId: z.string().optional(),
   path: z.string().optional(),
   url: z.string().optional(),
   title: z.string().optional(),
@@ -153,6 +154,17 @@ function isLoopbackHostname(hostname: string): boolean {
   return /^127(?:\.\d{1,3}){3}$/.test(normalized);
 }
 
+function loopbackOriginsMatch(left: string, right: string): boolean {
+  const leftUrl = new URL(left);
+  const rightUrl = new URL(right);
+  return (
+    leftUrl.protocol === rightUrl.protocol &&
+    leftUrl.port === rightUrl.port &&
+    isLoopbackHostname(leftUrl.hostname) &&
+    isLoopbackHostname(rightUrl.hostname)
+  );
+}
+
 function withLocalhostProtocol(value: string): string {
   const raw = value.trim();
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
@@ -189,17 +201,21 @@ export function routeUrl(
       parsed.port === base.port &&
       isLoopbackHostname(parsed.hostname) &&
       isLoopbackHostname(base.hostname);
-    if (!equivalentLoopbackOrigin) {
+    const separateLoopbackOrigin =
+      isLoopbackHostname(parsed.hostname) && isLoopbackHostname(base.hostname);
+    if (!separateLoopbackOrigin) {
       throw new Error(
-        `Localhost screen URL must stay on the connected dev server origin (${base.origin}): ${raw}`,
+        `Localhost screen URL must stay on the connected dev server or another loopback origin (${base.origin}): ${raw}`,
       );
     }
-    // localhost / 127.0.0.1 / ::1 aliases can point at the same loopback
-    // server, but the bridge enforces exact same-origin fetches. Canonicalize
-    // the alias to the registered dev-server origin so live edit does not fail
-    // later with an opaque bridge 400.
-    parsed.protocol = base.protocol;
-    parsed.host = base.host;
+    if (equivalentLoopbackOrigin) {
+      // localhost / 127.0.0.1 / ::1 aliases can point at the same loopback
+      // server, but the bridge enforces exact same-origin fetches. Canonicalize
+      // the alias to the registered dev-server origin so live edit does not fail
+      // later with an opaque bridge 400.
+      parsed.protocol = base.protocol;
+      parsed.host = base.host;
+    }
   }
   parsed.hash = "";
   return parsed.toString();
@@ -209,7 +225,10 @@ export function pathFromUrl(baseUrl: string, url: string, fallback?: string) {
   try {
     const parsed = new URL(url);
     const base = new URL(baseUrl);
-    if (parsed.origin === base.origin) {
+    if (
+      parsed.origin === base.origin ||
+      (isLoopbackHostname(parsed.hostname) && isLoopbackHostname(base.hostname))
+    ) {
       return `${parsed.pathname}${parsed.search}` || "/";
     }
   } catch {
@@ -218,11 +237,13 @@ export function pathFromUrl(baseUrl: string, url: string, fallback?: string) {
   return fallback ?? "/";
 }
 
-export function slugForPath(pathOrUrl: string) {
+export function slugForPath(pathOrUrl: string, includeOrigin = false) {
   const parsed = (() => {
     try {
       const url = new URL(withLocalhostProtocol(pathOrUrl));
-      return url.pathname + url.search;
+      return includeOrigin
+        ? `${url.host}${url.pathname}${url.search}`
+        : url.pathname + url.search;
     } catch {
       return pathOrUrl;
     }
@@ -239,8 +260,10 @@ function uniqueFilename(
   pathOrUrl: string,
   used: Set<string>,
   preferred?: string,
+  includeOrigin = false,
 ) {
-  const base = preferred ?? `localhost-${slugForPath(pathOrUrl)}.html`;
+  const base =
+    preferred ?? `localhost-${slugForPath(pathOrUrl, includeOrigin)}.html`;
   const [stem, extension = "html"] = base.split(/\.(?=[^.]+$)/);
   let filename = `${stem}.${extension}`;
   let suffix = 2;
@@ -256,9 +279,10 @@ export function viewportFilename(
   pathOrUrl: string,
   width: number,
   height: number,
+  includeOrigin = false,
 ) {
   const viewport = `${Math.round(width)}x${Math.round(height)}`;
-  return `localhost-${slugForPath(pathOrUrl)}-${viewport}.html`;
+  return `localhost-${slugForPath(pathOrUrl, includeOrigin)}-${viewport}.html`;
 }
 
 function metadataNumber(
@@ -320,7 +344,7 @@ export default defineAction({
         z.array(routeInputSchema).optional(),
       )
       .describe(
-        "Routes or URL states to place. Each may include path, url, title, width, height, x/y/z.",
+        "Routes or localhost URL states to place. Each may include path, url, connectionId, title, width, height, x/y/z. Absolute URLs can target any registered loopback connection.",
       ),
     paths: z
       .preprocess(
@@ -371,12 +395,13 @@ export default defineAction({
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
     const db = getDb();
 
-    const connectionClauses = [
+    const scopeClauses = [
       eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
       orgId
         ? eq(schema.designLocalhostConnections.orgId, orgId)
         : isNull(schema.designLocalhostConnections.orgId),
     ];
+    const connectionClauses = [...scopeClauses];
     if (connectionId) {
       connectionClauses.push(
         eq(schema.designLocalhostConnections.id, connectionId),
@@ -398,29 +423,94 @@ export default defineAction({
       );
     }
 
-    const devServerUrl = normalizeBaseUrl(connection.devServerUrl);
-    const manifest = parseJson<LocalhostDesignRouteManifest>(
-      connection.routeManifest,
-      {
-        version: 1,
-        sourceType: "localhost",
-        devServerUrl,
-        rootPath: connection.rootPath ?? undefined,
-        routes: [],
-        generatedAt: connection.updatedAt ?? new Date(0).toISOString(),
-      },
-    );
-    const manifestByPath = new Map(
-      manifest.routes.map((route) => [route.path, route]),
-    );
-    const manifestById = new Map(
-      manifest.routes.map((route) => [route.id, route]),
-    );
+    const primaryDevServerUrl = normalizeBaseUrl(connection.devServerUrl);
+    let scopedConnections = [connection];
+    let allConnectionsLoaded = false;
+    const loadScopedConnections = async () => {
+      if (allConnectionsLoaded) return scopedConnections;
+      scopedConnections = await db
+        .select()
+        .from(schema.designLocalhostConnections)
+        .where(and(...scopeClauses))
+        .orderBy(desc(schema.designLocalhostConnections.updatedAt));
+      allConnectionsLoaded = true;
+      return scopedConnections;
+    };
+    const connectionOriginMatches = (left: string, right: string) => {
+      try {
+        const leftUrl = new URL(left);
+        const rightUrl = new URL(right);
+        return (
+          leftUrl.origin === rightUrl.origin ||
+          loopbackOriginsMatch(leftUrl.toString(), rightUrl.toString())
+        );
+      } catch {
+        // coercion-ok: malformed persisted connection URLs cannot match a route.
+        return false;
+      }
+    };
+    const resolveRouteConnection = async (
+      input: LocalhostScreenInput,
+      urlHint?: string,
+    ) => {
+      if (input.connectionId) {
+        const target = (await loadScopedConnections()).find(
+          (candidate) => candidate.id === input.connectionId,
+        );
+        if (!target) {
+          throw new Error(
+            `No localhost connection found for ${input.connectionId}.`,
+          );
+        }
+        if (
+          urlHint &&
+          !connectionOriginMatches(
+            urlHint,
+            normalizeBaseUrl(target.devServerUrl),
+          )
+        ) {
+          throw new Error(
+            `Route URL ${urlHint} does not match localhost connection ${input.connectionId} (${target.devServerUrl}).`,
+          );
+        }
+        return target;
+      }
+      if (!urlHint || connectionOriginMatches(urlHint, primaryDevServerUrl)) {
+        return connection;
+      }
+      const target = (await loadScopedConnections()).find((candidate) =>
+        connectionOriginMatches(
+          urlHint,
+          normalizeBaseUrl(candidate.devServerUrl),
+        ),
+      );
+      if (!target) {
+        throw new Error(
+          `No localhost connection is registered for ${new URL(urlHint).origin}. Connect that local app first, then add its URL again.`,
+        );
+      }
+      return target;
+    };
+    const manifestForConnection = (sourceConnection: typeof connection) => {
+      const devServerUrl = normalizeBaseUrl(sourceConnection.devServerUrl);
+      return parseJson<LocalhostDesignRouteManifest>(
+        sourceConnection.routeManifest,
+        {
+          version: 1,
+          sourceType: "localhost",
+          devServerUrl,
+          rootPath: sourceConnection.rootPath ?? undefined,
+          routes: [],
+          generatedAt: sourceConnection.updatedAt ?? new Date(0).toISOString(),
+        },
+      );
+    };
+    const primaryManifest = manifestForConnection(connection);
     const requestedRoutes: LocalhostScreenInput[] = routes?.length
       ? routes
       : paths?.length
         ? paths.map((path) => ({ path }))
-        : manifest.routes.map((route) => ({
+        : primaryManifest.routes.map((route) => ({
             routeId: route.id,
             path: route.path,
             title: route.title,
@@ -443,6 +533,8 @@ export default defineAction({
         "No routes were provided and the localhost manifest has no routes.",
       );
     }
+
+    const devServerUrl = primaryDevServerUrl;
 
     const [design] = await db
       .select({ data: schema.designs.data })
@@ -485,6 +577,10 @@ export default defineAction({
       sourceKind?: "react-router" | "html" | "manual";
       screenshotUrl?: string;
       routeMetadata?: Record<string, unknown>;
+      connectionId: string;
+      devServerUrl: string;
+      bridgeUrl?: string | null;
+      previewToken?: string | null;
       width: number;
       height: number;
     }> = [];
@@ -504,21 +600,44 @@ export default defineAction({
 
     for (let index = 0; index < requestedRoutes.length; index += 1) {
       const input = requestedRoutes[index]!;
+      const rawUrl = input.url ?? input.path;
+      const hintedUrl =
+        !input.connectionId && rawUrl
+          ? routeUrl(primaryDevServerUrl, { url: rawUrl })
+          : undefined;
+      const routeConnection = await resolveRouteConnection(input, hintedUrl);
+      const routeDevServerUrl = normalizeBaseUrl(routeConnection.devServerUrl);
+      const routeManifest = manifestForConnection(routeConnection);
+      const routeManifestByPath = new Map(
+        routeManifest.routes.map((route) => [route.path, route]),
+      );
+      const routeManifestById = new Map(
+        routeManifest.routes.map((route) => [route.id, route]),
+      );
       const manifestRoute =
-        (input.routeId ? manifestById.get(input.routeId) : undefined) ??
-        (input.path ? manifestByPath.get(input.path) : undefined);
-      const url = routeUrl(devServerUrl, {
+        (input.routeId ? routeManifestById.get(input.routeId) : undefined) ??
+        (input.path ? routeManifestByPath.get(input.path) : undefined);
+      const url = routeUrl(routeDevServerUrl, {
         path: input.path ?? manifestRoute?.path,
         url: input.url,
       });
+      if (!connectionOriginMatches(routeDevServerUrl, url)) {
+        throw new Error(
+          `Route URL ${url} does not match localhost connection ${routeConnection.id} (${routeConnection.devServerUrl}).`,
+        );
+      }
       const path = pathFromUrl(
-        devServerUrl,
+        routeDevServerUrl,
         url,
         input.path ?? manifestRoute?.path ?? "/",
       );
       const routeId =
-        input.routeId ?? manifestRoute?.id ?? makeLocalhostRouteId(path);
-      const routeRequestKey = `${routeId}::${input.width ?? ""}x${input.height ?? ""}`;
+        input.routeId ??
+        manifestRoute?.id ??
+        makeLocalhostRouteId(
+          connectionOriginMatches(primaryDevServerUrl, url) ? path : url,
+        );
+      const routeRequestKey = `${routeConnection.id}::${routeId}::${input.width ?? ""}x${input.height ?? ""}`;
       if (seenRouteRequestKeys.has(routeRequestKey)) continue;
       seenRouteRequestKeys.add(routeRequestKey);
       const title =
@@ -530,9 +649,14 @@ export default defineAction({
         ...(manifestRoute?.metadata ?? {}),
         ...(input.metadata ?? {}),
       };
-      const basePreferredFilename = `localhost-${slugForPath(path)}.html`;
+      const includeOriginInFilename = !connectionOriginMatches(
+        primaryDevServerUrl,
+        url,
+      );
+      const filenameKey = includeOriginInFilename ? url : path;
+      const basePreferredFilename = `localhost-${slugForPath(filenameKey, includeOriginInFilename)}.html`;
       const routeMatchArgs = {
-        connectionId: connection.id,
+        connectionId: routeConnection.id,
         routeId,
         path,
         url,
@@ -598,7 +722,12 @@ export default defineAction({
           existingBaseHeight !== requestedHeight);
       const preferredFilename =
         existingBase && requestedViewportExplicitly && viewportDiffersFromBase
-          ? viewportFilename(path, requestedWidth, requestedHeight)
+          ? viewportFilename(
+              filenameKey,
+              requestedWidth,
+              requestedHeight,
+              includeOriginInFilename,
+            )
           : basePreferredFilename;
       const preferredExisting = existingByFilename.get(preferredFilename);
       const matchingPreferredExisting =
@@ -634,7 +763,12 @@ export default defineAction({
         (!requestedViewportExplicitly ? routeCandidates[0] : undefined);
       const filename =
         existing?.filename ??
-        uniqueFilename(path, usedFilenames, preferredFilename);
+        uniqueFilename(
+          filenameKey,
+          usedFilenames,
+          preferredFilename,
+          includeOriginInFilename,
+        );
       // Reassigned below if a concurrent request wins the insert race for
       // this exact (designId, filename) pair — see the `else` branch.
       let fileId = existing?.id ?? nanoid();
@@ -731,6 +865,10 @@ export default defineAction({
         sourceKind,
         screenshotUrl,
         routeMetadata,
+        connectionId: routeConnection.id,
+        devServerUrl: routeDevServerUrl,
+        bridgeUrl: routeConnection.bridgeUrl,
+        previewToken: routeConnection.previewToken,
         width,
         height,
       });
@@ -809,11 +947,11 @@ export default defineAction({
             height: frame.height ?? screen.height,
             url: screen.url,
             previewUrl: screen.url,
-            connectionId: connection.id,
+            connectionId: screen.connectionId,
             routeId: screen.routeId,
             path: screen.path,
-            bridgeUrl: connection.bridgeUrl ?? undefined,
-            previewToken: connection.previewToken ?? undefined,
+            bridgeUrl: screen.bridgeUrl ?? undefined,
+            previewToken: screen.previewToken ?? undefined,
           };
           if (screen.sourceFile !== undefined) {
             ownedMetadata.sourceFile = screen.sourceFile;
