@@ -894,7 +894,7 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-num-glyph { flex-shrink: 0; color: var(--dm-fg-muted); }",
   ".design-mock .dm-num-label { flex-shrink: 0; overflow: hidden; color: var(--dm-fg-muted); font-size: 10px; line-height: 12px; text-overflow: ellipsis; white-space: nowrap; }",
   ".design-mock .dm-num-value { min-width: 0; overflow: hidden; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }",
-  ".design-mock .dm-num-unit { color: var(--dm-fg-muted); }",
+  ".design-mock .dm-num-unit { margin-left: 2px; color: var(--dm-fg-muted); }",
 
   ".design-mock .dm-seg-group { display: flex; flex: 1; min-width: 0; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: var(--dm-control-bg); }",
   ".design-mock .dm-seg-btn { display: flex; height: 24px; flex: 1; align-items: center; justify-content: center; border-radius: 5px; color: var(--dm-fg-muted); }",
