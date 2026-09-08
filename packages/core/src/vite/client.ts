@@ -3725,6 +3725,7 @@ const DEFAULT_VITE_WATCH_IGNORES = [
   "**/.generated/**",
   "**/.agents/**",
   "**/.claude/**",
+  "**/.data/**",
   "**/data/**",
   "**/dist/**",
   "**/build/**",

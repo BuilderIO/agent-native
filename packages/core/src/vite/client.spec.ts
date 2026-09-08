@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { createServer } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
@@ -1908,6 +1909,51 @@ describe("app changelog raw imports", () => {
       ).ignored ?? [];
 
     expect(ignored).not.toContain("**/changelog/**");
+  });
+});
+
+describe("Vite runtime data watcher", () => {
+  it("ignores database writes while continuing to watch source edits", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-watch-"));
+    const database = path.join(root, ".data", "base", "5", "16453");
+    const source = path.join(root, "app.ts");
+    fs.mkdirSync(path.dirname(database), { recursive: true });
+    fs.writeFileSync(database, "initial database page");
+    fs.writeFileSync(source, "export const value = 1;");
+    const server = await createServer({
+      root,
+      configFile: false,
+      server: {
+        middlewareMode: true,
+        ws: false,
+        watch: {
+          ...defineConfig().server?.watch,
+          usePolling: true,
+          interval: 20,
+        },
+      },
+      optimizeDeps: { noDiscovery: true, include: [] },
+    });
+    const changes: string[] = [];
+    server.watcher.on("all", (_event, file) => changes.push(file));
+    try {
+      await vi.waitFor(() => {
+        expect(server.watcher.getWatched()[root]).toContain("app.ts");
+      });
+      fs.writeFileSync(database, "updated database page");
+      fs.writeFileSync(path.join(path.dirname(database), "16454"), "new page");
+      fs.writeFileSync(source, "export const value = 2;");
+      await vi.waitFor(() => expect(changes).toContain(source));
+      expect(
+        changes.filter((file) => file.includes(`${path.sep}.data${path.sep}`)),
+      ).toEqual([]);
+      expect(Object.keys(server.watcher.getWatched())).not.toContain(
+        path.dirname(database),
+      );
+    } finally {
+      await server.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
