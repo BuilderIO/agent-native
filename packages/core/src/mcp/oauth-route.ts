@@ -596,9 +596,13 @@ const OAUTH_PAGE_BASE_STYLE = `
   .actions { display: flex; gap: 10px; justify-content: flex-end; }
   button, .btn { border: 0; border-radius: 6px; padding: 10px 14px; font: inherit; font-weight: 650; cursor: pointer; text-decoration: none; display: inline-block; }
   .primary { background: #f4f4f5; color: #09090b; }
+  /* guard:allow-raw-color — standalone OAuth page intentionally owns its dark palette */
   .secondary { background: #27272a; color: #f4f4f5; }
+  /* guard:allow-raw-color — standalone OAuth page intentionally owns its dark palette */
   .field-label { display: block; margin: 0 0 8px; color: #d4d4d8; font-weight: 650; }
+  /* guard:allow-raw-color — standalone OAuth page intentionally owns its dark palette */
   select { width: 100%; min-height: 42px; box-sizing: border-box; margin: 0 0 22px; border: 1px solid #3f3f46; border-radius: 6px; background: #18181b; color: #f4f4f5; padding: 10px 36px 10px 12px; font: inherit; line-height: 1.25; color-scheme: dark; appearance: auto; }
+  /* guard:allow-raw-color — standalone OAuth page intentionally owns its dark palette */
   option { background: #18181b; color: #f4f4f5; }`;
 
 function renderConsentPage(params: {
@@ -874,9 +878,12 @@ async function handleAuthorize(
     : organizations;
   const defaultOrganizationId = explicitPersonal
     ? ""
-    : session.orgId && organizations.some(({ id }) => id === session.orgId)
-      ? session.orgId
-      : organizations[0]?.id;
+    : activeOrgSetting?.orgId &&
+        organizations.some(({ id }) => id === activeOrgSetting.orgId)
+      ? activeOrgSetting.orgId
+      : session.orgId && organizations.some(({ id }) => id === session.orgId)
+        ? session.orgId
+        : organizations[0]?.id;
 
   if (method === "GET") {
     return html(
@@ -939,7 +946,9 @@ async function handleAuthorize(
   const selectedOrganization = organizations.find(
     ({ id }) => id === selectedOrganizationId,
   );
-  const selectedPersonal = selectedOrganizationId === "";
+  const selectedPersonal =
+    selectedOrganizationId === "" &&
+    (explicitPersonal || organizations.length === 0);
   if (organizations.length > 0 && !selectedPersonal && !selectedOrganization) {
     return oauthError(
       "invalid_request",
