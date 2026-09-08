@@ -1,0 +1,195 @@
+import { render, screen, cleanup } from "@testing-library/react";
+// @vitest-environment happy-dom
+import { describe, it, expect, vi, afterEach } from "vitest";
+
+afterEach(() => cleanup());
+import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+vi.mock("@agent-native/core", () => ({
+  cn: (...args: unknown[]) =>
+    args
+      .flat(Infinity)
+      .filter((v) => typeof v === "string" && v.length > 0)
+      .join(" "),
+}));
+vi.mock("@agent-native/core/client/api-path", () => ({
+  appPath: (path: string) => path,
+}));
+
+vi.mock("@agent-native/core/client/db-admin", () => ({
+  DevDatabaseLink: () => null,
+}));
+
+vi.mock("@agent-native/core/client/ui", () => ({
+  AgentNativeIcon: ({
+    size = 24,
+    ...props
+  }: React.SVGProps<SVGSVGElement> & { size?: number }) => (
+    <svg data-agent-native-icon width={size} height={size} {...props} />
+  ),
+  FeedbackButton: () => null,
+}));
+
+vi.mock("@agent-native/core/client/navigation", () => ({
+  openCommandMenu: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) =>
+    ({
+      "navigation.brand": "Slides",
+      "navigation.decks": "Decks",
+      "navigation.designSystems": "Design Systems",
+      "navigation.settings": "Settings",
+      "settings.agentTitle": "Manage agent",
+      "sidebar.search": "Search",
+      "sidebar.expandSidebar": "Expand sidebar",
+      "sidebar.collapseSidebar": "Collapse sidebar",
+    })[key] ?? key,
+}));
+vi.mock("@agent-native/toolkit/app-shell", () => ({
+  SidebarFooterActions: ({
+    feedback,
+    search,
+    collapse,
+  }: {
+    feedback?: ReactNode;
+    search?: ReactNode;
+    collapse?: ReactNode;
+  }) => (
+    <div>
+      {feedback}
+      {search}
+      {collapse}
+    </div>
+  ),
+}));
+vi.mock("@agent-native/core/client/org", () => ({
+  OrgSwitcher: () => null,
+}));
+
+import { Sidebar } from "./Sidebar";
+
+function renderAt(path: string, ui: ReactNode) {
+  return render(
+    <TooltipProvider>
+      <MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>
+    </TooltipProvider>,
+  );
+}
+
+describe("<Sidebar collapsed>", () => {
+  it("renders the icon-only rail (w-12) with an Expand button", () => {
+    const onToggle = vi.fn();
+    renderAt("/", <Sidebar collapsed={true} onToggleCollapsed={onToggle} />);
+
+    const aside = screen.getByRole("complementary");
+    expect(aside.className).toContain("w-12");
+
+    const expandBtn = screen.getAllByLabelText("Expand sidebar")[0];
+    expect(expandBtn).toBeDefined();
+    expandBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+
+    expect(screen.queryByText("Slides")).toBeNull();
+    expect(screen.queryByLabelText("Collapse sidebar")).toBeNull();
+  });
+
+  it("hides nav labels but keeps each nav item as a clickable icon with a tooltip", () => {
+    renderAt("/", <Sidebar collapsed={true} onToggleCollapsed={() => {}} />);
+    expect(screen.queryByText("Decks")).toBeNull();
+    expect(screen.queryByText("Design Systems")).toBeNull();
+    expect(screen.queryByText("Settings")).toBeNull();
+    expect(screen.queryByText("Manage agent")).toBeNull();
+
+    expect(screen.getByLabelText("Decks")).toBeDefined();
+    expect(screen.getByLabelText("Design Systems")).toBeDefined();
+    expect(screen.getByLabelText("Settings")).toBeDefined();
+  });
+});
+
+describe("<Sidebar expanded>", () => {
+  it("uses compact dimensions for the brand mark", () => {
+    const { container } = renderAt(
+      "/",
+      <Sidebar collapsed={false} onToggleCollapsed={() => {}} />,
+    );
+
+    const brandMark = container.querySelector(
+      'button[data-sidebar-brand-toggle] svg[aria-hidden="true"]',
+    );
+
+    expect(brandMark).not.toBeNull();
+    expect(brandMark?.getAttribute("width")).toBe("24");
+    expect(brandMark?.getAttribute("height")).toBe("24");
+    expect(brandMark?.className).toContain("w-6");
+    expect(brandMark?.className).toContain("h-3.5");
+    expect(brandMark?.className).toContain("text-sidebar-foreground");
+  });
+
+  it("renders the full sidebar (w-56) with the Collapse button and labelled nav", () => {
+    const onToggle = vi.fn();
+    renderAt("/", <Sidebar collapsed={false} onToggleCollapsed={onToggle} />);
+
+    const aside = screen.getByRole("complementary");
+    expect(aside.className).toContain("w-56");
+
+    expect(screen.getByText("Slides")).toBeDefined();
+    expect(screen.getByText("Decks")).toBeDefined();
+    expect(screen.getByText("Design Systems")).toBeDefined();
+    expect(screen.getByText("Settings")).toBeDefined();
+
+    const collapseBtn = screen.getAllByLabelText("Collapse sidebar")[0];
+    collapseBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+
+    expect(screen.queryByLabelText("Expand sidebar")).toBeNull();
+  });
+
+  it("highlights the active nav item based on the current route", () => {
+    renderAt(
+      "/design-systems",
+      <Sidebar collapsed={false} onToggleCollapsed={() => {}} />,
+    );
+
+    const designSystems = screen.getByText("Design Systems").closest("a")!;
+    const decks = screen.getByText("Decks").closest("a")!;
+
+    expect(designSystems.classList.contains("bg-sidebar-accent")).toBe(true);
+    expect(decks.classList.contains("bg-sidebar-accent")).toBe(false);
+  });
+});
+
+describe("<Sidebar> without onToggleCollapsed (mobile drawer)", () => {
+  it("hides the Collapse button in the expanded layout", () => {
+    renderAt("/", <Sidebar collapsed={false} />);
+    expect(screen.queryByLabelText("Collapse sidebar")).toBeNull();
+    // Nav still renders.
+    expect(screen.getByText("Decks")).toBeDefined();
+  });
+
+  it("hides the Expand button in the collapsed layout", () => {
+    renderAt("/", <Sidebar collapsed={true} />);
+    expect(screen.queryByLabelText("Expand sidebar")).toBeNull();
+    // Nav icons still render.
+    expect(screen.getByLabelText("Decks")).toBeDefined();
+  });
+});
+
+describe("<Sidebar> accessibility", () => {
+  it("gives icon-only controls aria-labels", () => {
+    renderAt("/", <Sidebar collapsed={true} onToggleCollapsed={() => {}} />);
+    expect(screen.getAllByLabelText("Expand sidebar")).toHaveLength(2);
+    expect(screen.getByLabelText("Decks")).toBeDefined();
+    expect(screen.getByLabelText("Design Systems")).toBeDefined();
+    expect(screen.getByLabelText("Settings")).toBeDefined();
+  });
+
+  it("labels the Collapse button in the expanded layout", () => {
+    renderAt("/", <Sidebar collapsed={false} onToggleCollapsed={() => {}} />);
+    expect(screen.getAllByLabelText("Collapse sidebar")).toHaveLength(2);
+  });
+});

@@ -1,0 +1,82 @@
+import { defineAction } from "@agent-native/core/action";
+import {
+  getRequestRunContext,
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
+import { notifyDeckComment } from "../server/lib/comment-notifications.js";
+import { serializeSlideCommentAnchor } from "../shared/slide-comment-anchor.js";
+
+function displayNameFromEmail(email: string): string {
+  const local = email.split("@")[0] || email;
+  return local.charAt(0).toUpperCase() + local.slice(1);
+}
+
+export default defineAction({
+  description:
+    "Add a comment to a slide. Inline Markdown supports emphasis, inline code, links, and line breaks; headings are flattened. Omit threadId to start a new thread; provide threadId to reply.",
+  schema: z.object({
+    deckId: z.string().describe("Deck ID"),
+    slideId: z.string().describe("Slide ID"),
+    content: z.string().describe("Comment text"),
+    quotedText: z
+      .string()
+      .optional()
+      .describe("Selected text this comment is anchored to"),
+    anchor: z
+      .object({
+        x: z.number().finite().min(0).max(100),
+        y: z.number().finite().min(0).max(100),
+        targetText: z.string().max(200).optional(),
+      })
+      .optional()
+      .describe("Point on the slide, in percentages from its top-left"),
+    threadId: z
+      .string()
+      .optional()
+      .describe("Thread ID — omit to start a new thread"),
+    parentId: z.string().optional().describe("Parent comment ID — for replies"),
+  }),
+  run: async (args) => {
+    const { deckId, slideId, content, quotedText, anchor, parentId } = args;
+    await assertAccess("deck", deckId, "commenter");
+
+    const id = Math.random().toString(36).slice(2, 14);
+    const threadId = args.threadId ?? id;
+    const authorEmail = getRequestUserEmail();
+    if (!authorEmail) throw new Error("no authenticated user");
+    const authorName = getRequestRunContext()
+      ? "AI Agent"
+      : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
+
+    const db = getDb();
+    await db.insert(schema.slideComments).values({
+      id,
+      deckId,
+      slideId,
+      threadId,
+      parentId: parentId ?? null,
+      content,
+      quotedText: quotedText ?? null,
+      anchor: serializeSlideCommentAnchor(anchor),
+      authorEmail,
+      authorName,
+    });
+
+    const notified = await notifyDeckComment({
+      deckId,
+      slideId,
+      threadId,
+      authorEmail,
+      authorName,
+      content,
+      isReply: Boolean(parentId ?? args.threadId),
+    });
+
+    return { id, threadId, notified };
+  },
+});

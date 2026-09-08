@@ -1,0 +1,2296 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+import * as captureErrorModule from "../../server/capture-error.js";
+import { CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
+import {
+  BUILDER_CAPABILITIES,
+  BUILDER_DEFAULT_MODEL,
+  createBuilderEngine,
+} from "./builder-engine.js";
+import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "./credential-errors.js";
+import { DEFAULT_BUILDER_MAX_OUTPUT_TOKENS } from "./output-tokens.js";
+import { SYSTEM_PROMPT_CACHE_SPLIT } from "./prompt-cache.js";
+import type { EngineStreamOptions } from "./types.js";
+
+const credentialState = vi.hoisted(() => ({
+  builderPrivateKey: "bpk-test" as string | null,
+  builderPublicKey: "space-test" as string | null,
+  builderUserId: "builder-user-123" as string | null,
+  builderOrgName: null as string | null,
+  lane: "identity" as "identity" | "gateway-deploy" | null,
+  recordBuilderGatewayAuthFailure: vi.fn(async () => {}),
+}));
+
+const oauthState = vi.hoisted(() => ({
+  ownerEmail: undefined as string | undefined,
+  orgId: undefined as string | undefined,
+  accessToken: null as string | null,
+  scope: undefined as "user" | "org" | undefined,
+  stored: false,
+  resolveAccess: vi.fn(),
+  hasSession: vi.fn(),
+  markReconnect: vi.fn(async () => {}),
+}));
+
+const AGENT_NATIVE_UPGRADE_URL =
+  "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=gateway_quota_upgrade";
+
+// Mock the credential provider so tests do not hit the DB (app_secrets table).
+vi.mock("../../server/credential-provider.js", async (importOriginal) => {
+  const original =
+    (await importOriginal()) as typeof import("../../server/credential-provider.js");
+  return {
+    ...original,
+    resolveBuilderCredential: vi.fn(async (key: string) => {
+      if (key === "BUILDER_PRIVATE_KEY")
+        return credentialState.builderPrivateKey;
+      if (key === "BUILDER_PUBLIC_KEY") return credentialState.builderPublicKey;
+      if (key === "BUILDER_USER_ID") return credentialState.builderUserId;
+      if (key === "BUILDER_ORG_NAME") return credentialState.builderOrgName;
+      return null;
+    }),
+    resolveBuilderGatewayCredentialsDetailed: vi.fn(async () => ({
+      privateKey: credentialState.builderPrivateKey,
+      publicKey: credentialState.builderPublicKey,
+      userId: credentialState.builderUserId,
+      orgName: credentialState.builderOrgName,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+      source: credentialState.builderPrivateKey ? ("user" as const) : null,
+      lookupFailed: false,
+      lane: credentialState.lane,
+    })),
+    clearBuilderGatewayAuthFailure: vi.fn(async () => {}),
+    resolveBuilderAuthHeader: vi.fn(async () => {
+      const key = credentialState.builderPrivateKey;
+      return key ? `Bearer ${key}` : null;
+    }),
+    recordBuilderGatewayAuthFailure:
+      credentialState.recordBuilderGatewayAuthFailure,
+    getBuilderGatewayBaseUrl: original.getBuilderGatewayBaseUrl,
+  };
+});
+
+vi.mock("../../server/builder-oauth.js", () => ({
+  BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
+  resolveBuilderOAuthRequestAccess: oauthState.resolveAccess,
+  hasBuilderOAuthSession: oauthState.hasSession,
+  markBuilderOAuthReconnectRequired: oauthState.markReconnect,
+}));
+
+vi.mock("../../server/request-context.js", () => ({
+  getRequestContext: vi.fn(() => undefined),
+  getRequestOrgId: vi.fn(() => oauthState.orgId),
+  getRequestUserEmail: vi.fn(() => oauthState.ownerEmail),
+}));
+
+async function collectEvents(iterable: AsyncIterable<any>) {
+  const events: any[] = [];
+  for await (const e of iterable) events.push(e);
+  return events;
+}
+
+function jsonlResponse(events: unknown[]): Response {
+  const body = events.map((e) => JSON.stringify(e)).join("\n") + "\n";
+  const encoded = new TextEncoder().encode(body);
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoded);
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "application/jsonl" },
+  });
+}
+
+function jsonErrorResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function makeTool(name: string) {
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object", properties: {} },
+  };
+}
+
+const BASE_OPTS: EngineStreamOptions = {
+  model: CLAUDE_SONNET_MODEL_ID,
+  systemPrompt: "You are helpful.",
+  messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+  tools: [],
+  abortSignal: new AbortController().signal,
+};
+
+describe("createBuilderEngine", () => {
+  beforeEach(() => {
+    credentialState.builderPrivateKey = "bpk-test";
+    credentialState.builderPublicKey = "space-test";
+    credentialState.builderUserId = "builder-user-123";
+    credentialState.builderOrgName = null;
+    credentialState.lane = "identity";
+    credentialState.recordBuilderGatewayAuthFailure.mockClear();
+    oauthState.ownerEmail = undefined;
+    oauthState.orgId = undefined;
+    oauthState.accessToken = null;
+    oauthState.scope = undefined;
+    oauthState.stored = false;
+    oauthState.resolveAccess.mockReset().mockImplementation(async () =>
+      oauthState.accessToken
+        ? {
+            accessToken: oauthState.accessToken,
+            ownerEmail: oauthState.ownerEmail,
+            scopes: ["builder:ai:invoke"],
+            scope: oauthState.scope,
+          }
+        : null,
+    );
+    oauthState.hasSession
+      .mockReset()
+      .mockImplementation(async () => oauthState.stored);
+    oauthState.markReconnect.mockClear();
+    vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
+    vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
+    vi.stubEnv("BUILDER_USER_ID", "builder-user-123");
+    vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
+    // The 1h stable-prefix TTL is opt-in (`stablePrefixCacheControl`); the
+    // breakpoint assertions below check the opted-in shape.
+    vi.stubEnv("AGENT_PROMPT_CACHE_TTL", "1h");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("exposes metadata matching the gateway catalog", () => {
+    const engine = createBuilderEngine();
+    expect(engine.name).toBe("builder");
+    expect(engine.defaultModel).toBe(BUILDER_DEFAULT_MODEL);
+    expect(engine.capabilities).toMatchObject(BUILDER_CAPABILITIES);
+    expect(engine.supportedModels).toContain(CLAUDE_SONNET_MODEL_ID);
+    expect(engine.supportedModels).toContain("auto");
+    expect(engine.supportedModels).toContain("claude-opus-4-8");
+    expect(engine.supportedModels).toContain("gpt-5-6-sol");
+    expect(engine.supportedModels).toContain("gpt-5-6-terra");
+    expect(engine.supportedModels).toContain("gpt-5-6-luna");
+    expect(engine.supportedModels).not.toContain("gpt-5-5");
+    expect(engine.supportedModels).not.toContain("claude-opus-4-7");
+    expect(engine.supportedModels).not.toContain("z-ai-glm-4-5");
+  });
+
+  it("emits a missing-credentials stop-error when BUILDER_PRIVATE_KEY is unset", async () => {
+    credentialState.builderPrivateKey = null;
+    vi.unstubAllEnvs();
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(stop?.error).toContain("Settings > Agent > AI providers");
+    expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
+  });
+
+  it("uses per-user Builder OAuth without legacy space credentials", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(oauthState.resolveAccess).toHaveBeenCalledWith({
+      ownerEmail: "person@example.com",
+      requiredScope: "builder:ai:invoke",
+      orgId: null,
+    });
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://test.example/gateway/v1/messages");
+    expect(init.headers.Authorization).toBe("Bearer oauth-access-token");
+    expect(init.headers["x-builder-api-key"]).toBeUndefined();
+    expect(init.headers["x-builder-user-id"]).toBeUndefined();
+  });
+
+  it("does not fall back to legacy credentials when Builder OAuth custody exists", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.stored = true;
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stop",
+        reason: "error",
+        errorCode: "missing_credentials",
+      }),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits with missing-credentials when resolved Builder credentials are incomplete", async () => {
+    const { resolveBuilderGatewayCredentialsDetailed } =
+      await import("../../server/credential-provider.js");
+    vi.mocked(resolveBuilderGatewayCredentialsDetailed).mockResolvedValueOnce({
+      privateKey: null,
+      publicKey: "space-test",
+      userId: null,
+      orgName: null,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+      source: null,
+      lookupFailed: false,
+      lane: null,
+    });
+
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses credentials captured during engine construction instead of ambient lookup", async () => {
+    const { resolveBuilderGatewayCredentialsDetailed } =
+      await import("../../server/credential-provider.js");
+    vi.mocked(resolveBuilderGatewayCredentialsDetailed).mockClear();
+
+    const fetchSpy = vi.fn().mockResolvedValue(
+      jsonlResponse([
+        { type: "text-delta", text: "Hi!" },
+        { type: "stop", reason: "end_turn" },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine({
+      credentials: {
+        privateKey: "bpk-captured",
+        publicKey: "space-captured",
+        userId: "captured-user",
+        orgName: "Captured Space",
+      },
+    });
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.some((event) => event.type === "text-delta")).toBe(true);
+    expect(resolveBuilderGatewayCredentialsDetailed).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(
+      "https://test.example/gateway/v1/messages?apiKey=space-captured",
+    );
+    expect(init.headers.Authorization).toBe("Bearer bpk-captured");
+    expect(init.headers["x-builder-user-id"]).toBe("captured-user");
+  });
+
+  it("short-circuits with missing-credentials when BUILDER_PUBLIC_KEY is unset", async () => {
+    credentialState.builderPublicKey = null;
+
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the gateway requestId on an error stop that also carries a message", async () => {
+    // The gateway's opaque "ERROR ID: <hex>" sentence is not a diagnostic, so
+    // the requestId has to survive alongside it — an outage where every failure
+    // reads as its own one-off is exactly what dropping it produced.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: a3f9c2d1e4b78065",
+            requestId: "req_outage_1",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toContain("ERROR ID:");
+    expect(stop?.requestId).toBe("req_outage_1");
+  });
+
+  it("POSTs to the gateway /messages endpoint with bearer auth and owner headers", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(
+      jsonlResponse([
+        { type: "text-delta", text: "Hi!" },
+        { type: "usage", inputTokens: 10, outputTokens: 2 },
+        { type: "stop", reason: "end_turn", requestId: "req_1" },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(
+      "https://test.example/gateway/v1/messages?apiKey=space-test",
+    );
+    expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe("Bearer bpk-test");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(init.headers["x-builder-api-key"]).toBe("space-test");
+    expect(init.headers["x-builder-user-id"]).toBe("builder-user-123");
+    expect(init.headers["x-client-name"]).toBe("@agent-native/core");
+    expect(String(init.headers["x-client-version"])).toMatch(/\d+\.\d+\.\d+/);
+
+    const body = JSON.parse(init.body);
+    expect(body.model).toBe(CLAUDE_SONNET_MODEL_ID);
+    expect(body.max_tokens).toBe(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS);
+    // With prompt caching enabled the system prompt is wrapped in an array
+    // with a cache_control block on the last element. The stable prefix takes
+    // the 1h TTL; the per-iteration message breakpoint stays on the default.
+    expect(body.system).toEqual([
+      {
+        type: "text",
+        text: "You are helpful.",
+        cache_control: { type: "ephemeral", ttl: "1h" },
+      },
+    ]);
+    // Message should have a cache_control block on its last content element.
+    expect(body.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Hi", cache_control: { type: "ephemeral" } },
+        ],
+      },
+    ]);
+  });
+
+  it("resolves auto to the Agent-Native default before posting to the gateway", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream({ ...BASE_OPTS, model: "auto" }));
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.model).toBe(BUILDER_DEFAULT_MODEL);
+    expect(body.model).not.toBe("auto");
+  });
+
+  it("splits the system prompt at the cache sentinel, keeping the breakpoint on the stable prefix", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        systemPrompt: `stable${SYSTEM_PROMPT_CACHE_SPLIT}volatile`,
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.system).toEqual([
+      {
+        type: "text",
+        text: "stable",
+        cache_control: { type: "ephemeral", ttl: "1h" },
+      },
+      { type: "text", text: "volatile" },
+    ]);
+  });
+
+  it("strips the cache sentinel when prompt caching is disabled", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        systemPrompt: `stable${SYSTEM_PROMPT_CACHE_SPLIT}volatile`,
+        providerOptions: { anthropic: { cacheControl: false } },
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.system).toBe("stablevolatile");
+  });
+
+  it("honors an explicit max output token override", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream({ ...BASE_OPTS, maxOutputTokens: 1024 }));
+
+    const [, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.max_tokens).toBe(1024);
+  });
+
+  it("streams text-delta events and emits assistant-content + stop(end_turn)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          { type: "text-delta", text: "Hello, " },
+          { type: "text-delta", text: "world!" },
+          {
+            type: "usage",
+            inputTokens: 5,
+            outputTokens: 3,
+            cacheInputTokens: 2,
+            cacheCreatedTokens: 1,
+          },
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const textDeltas = events
+      .filter((e) => e.type === "text-delta")
+      .map((e) => e.text)
+      .join("");
+    expect(textDeltas).toBe("Hello, world!");
+
+    const usage = events.find((e) => e.type === "usage");
+    expect(usage).toMatchObject({
+      inputTokens: 5,
+      outputTokens: 3,
+      cacheReadTokens: 2,
+      cacheWriteTokens: 1,
+    });
+
+    const assistantContent = events.find((e) => e.type === "assistant-content");
+    expect(assistantContent?.parts).toEqual([
+      { type: "text", text: "Hello, world!" },
+    ]);
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("end_turn");
+  });
+
+  it("assembles interleaved text and tool-call into assistant-content in order", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          { type: "text-delta", text: "Let me look." },
+          {
+            type: "tool-call",
+            id: "toolu_01",
+            name: "list_events",
+            input: { from: "2026-04-22" },
+          },
+          { type: "stop", reason: "tool_use", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const toolCall = events.find((e) => e.type === "tool-call");
+    expect(toolCall).toMatchObject({
+      id: "toolu_01",
+      name: "list_events",
+      input: { from: "2026-04-22" },
+    });
+
+    const assistantContent = events.find((e) => e.type === "assistant-content");
+    expect(assistantContent?.parts).toEqual([
+      { type: "text", text: "Let me look." },
+      {
+        type: "tool-call",
+        id: "toolu_01",
+        name: "list_events",
+        input: { from: "2026-04-22" },
+      },
+    ]);
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("tool_use");
+  });
+
+  it("maps tool-call-delta events to tool input progress", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "x",
+            argsTextDelta: "{",
+          },
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "x",
+            argsTextDelta: '"id":"ext"}',
+          },
+          { type: "tool-call", id: "toolu_01", name: "x", input: {} },
+          { type: "stop", reason: "tool_use", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.filter((e) => e.type === "tool-input-delta")).toEqual([
+      {
+        type: "tool-input-delta",
+        id: "toolu_01",
+        name: "x",
+        text: "{",
+      },
+      {
+        type: "tool-input-delta",
+        id: "toolu_01",
+        name: "x",
+        text: '"id":"ext"}',
+      },
+    ]);
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "toolu_01",
+      name: "x",
+      input: { id: "ext" },
+    });
+  });
+
+  it("aliases oversized tool names on the gateway wire and restores them", async () => {
+    const longName = `mcp__${"server_".repeat(8)}__get_meetings`;
+    let providerName = "";
+    const fetchSpy = vi.fn().mockImplementation(async (_url, init) => {
+      const body = JSON.parse(init.body as string);
+      providerName = body.tools[0].name;
+      return jsonlResponse([
+        { type: "tool-call", id: "toolu_01", name: providerName, input: {} },
+        { type: "stop", reason: "tool_use", requestId: "req_1" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const events = await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: longName,
+            description: "Get meetings",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    expect(providerName).not.toBe(longName);
+    expect(providerName.length).toBeLessThanOrEqual(64);
+    expect(events.find((event) => event.type === "tool-call")).toMatchObject({
+      name: longName,
+    });
+  });
+
+  it("assembles a tool call whose arguments arrive across multiple deltas without a terminal tool-call frame", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: '{"title":"Q',
+          },
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: '3 plan"',
+          },
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: "}",
+          },
+          { type: "stop", reason: "tool_use", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "toolu_01",
+      name: "create_document",
+      input: { title: "Q3 plan" },
+    });
+    const assistantContent = events.find((e) => e.type === "assistant-content");
+    expect(assistantContent?.parts).toEqual([
+      {
+        type: "tool-call",
+        id: "toolu_01",
+        name: "create_document",
+        input: { title: "Q3 plan" },
+      },
+    ]);
+    expect(events.some((e) => e.type === "tool-call-error")).toBe(false);
+  });
+
+  it("reports a tool call truncated mid-arguments as an in-band tool-call error instead of dropping it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: '{"title":"Q',
+          },
+          { type: "stop", reason: "tool_use", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const toolCallError = events.find((e) => e.type === "tool-call-error");
+    expect(toolCallError).toMatchObject({
+      id: "toolu_01",
+      name: "create_document",
+      input: '{"title":"Q',
+    });
+    expect(toolCallError?.error).toMatch(/never finished streaming/i);
+    expect(events.some((e) => e.type === "tool-call")).toBe(false);
+    expect(events.find((e) => e.type === "assistant-content")?.parts).toEqual(
+      [],
+    );
+  });
+
+  it("does not re-emit a tool call the gateway already delivered", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "x",
+            argsTextDelta: '{"a":1}',
+          },
+          { type: "tool-call", id: "toolu_01", name: "x", input: { a: 1 } },
+          { type: "stop", reason: "tool_use", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.filter((e) => e.type === "tool-call")).toHaveLength(1);
+    expect(events.some((e) => e.type === "tool-call-error")).toBe(false);
+  });
+
+  it("maps gateway heartbeat frames to gateway-heartbeat engine events", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "heartbeat",
+            requestId: "req_1",
+            timestamp: 1_700_000_000_000,
+          },
+          { type: "text-delta", text: "Hi" },
+          { type: "usage", inputTokens: 10, outputTokens: 2 },
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.filter((e) => e.type === "gateway-heartbeat")).toEqual([
+      { type: "gateway-heartbeat" },
+    ]);
+    expect(events.some((e) => e.type === "text-delta" && e.text === "Hi")).toBe(
+      true,
+    );
+  });
+
+  it("maps 402 credits-limit-monthly to stop-error with errorCode + upgradeUrl", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(402, {
+          code: "credits-limit-monthly",
+          message:
+            "You've reached the monthly AI credits limit for your current plan.",
+          usageInfo: {
+            plan: "free",
+            limitExceeded: "monthly",
+            isEnterprise: false,
+          },
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("credits-limit-monthly");
+    expect(stop?.upgradeUrl).toContain("builder.io");
+    expect(stop?.error).toContain("monthly AI credits");
+  });
+
+  it("routes upgradeUrl to the org-agnostic subscription page with Agent-Native attribution", async () => {
+    credentialState.builderOrgName = "Acme Corp";
+    vi.stubEnv("BUILDER_ORG_NAME", "Acme Corp");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(402, {
+          code: "credits-limit-daily",
+          message: "Daily limit reached.",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.upgradeUrl).toBe(AGENT_NATIVE_UPGRADE_URL);
+  });
+
+  it("maps 401 unauthorized to Builder auth stop-error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(401, {
+          code: "unauthorized",
+          message: "Invalid key",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_auth_error");
+    expect(stop?.error).toContain("Builder authentication failed");
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).toHaveBeenCalledWith({
+      status: 401,
+      code: "unauthorized",
+      message: "Invalid key",
+    });
+    expect(oauthState.markReconnect).not.toHaveBeenCalled();
+  });
+
+  it("marks OAuth custody for reconnect on gateway 401 instead of the legacy key fingerprint", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(401, {
+          code: "unauthorized",
+          message: "Invalid token",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events.find((e) => e.type === "stop")?.errorCode).toBe(
+      "builder_auth_error",
+    );
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+    expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
+  });
+
+  it("marks the OAuth grant in the request organization", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.orgId = "org-request";
+    oauthState.scope = "org";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(401, {
+          code: "unauthorized",
+          message: "Invalid token",
+        }),
+      ),
+    );
+
+    await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(oauthState.hasSession).toHaveBeenCalledWith(
+      "person@example.com",
+      "org-request",
+    );
+    expect(oauthState.resolveAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-request" }),
+    );
+    expect(oauthState.markReconnect).toHaveBeenCalledWith(
+      "person@example.com",
+      "org",
+      "org-request",
+    );
+  });
+
+  it("maps 403 invalid token to Builder auth stop-error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(403, {
+          message: "Invalid token",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_auth_error");
+    expect(stop?.error).toContain("Builder authentication failed");
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).toHaveBeenCalledWith({
+      status: 403,
+      code: "http_403",
+      message: "Invalid token",
+    });
+  });
+
+  describe("Builder-credits lane", () => {
+    beforeEach(() => {
+      credentialState.lane = "gateway-deploy";
+      vi.stubEnv("BUILDER_GATEWAY_TOKEN", "btk-site-token");
+      // `isBuilderCreditsLane()` also evaluates the real deploy-runtime
+      // predicate, which these flags turn off. Setting the lane alone is not
+      // enough: an inherited preview value makes the suite assert visitor copy
+      // against the owner path.
+      vi.stubEnv("FUSION_ENVIRONMENT", undefined);
+      vi.stubEnv("FUSION_ENV_ORIGIN", undefined);
+      vi.stubEnv("VITE_FUSION_ENV_ORIGIN", undefined);
+    });
+
+    const rejections: Array<{ label: string; response: () => Response }> = [
+      {
+        label: "credits-limit",
+        response: () =>
+          jsonErrorResponse(402, {
+            code: "credits-limit-reached",
+            message: "You have used all AI credits for this month",
+          }),
+      },
+      {
+        label: "gateway_not_enabled",
+        response: () =>
+          jsonErrorResponse(403, {
+            code: "gateway_not_enabled",
+            message: "Gateway is not enabled for this space",
+          }),
+      },
+      {
+        label: "unauthorized",
+        response: () =>
+          jsonErrorResponse(401, {
+            code: "unauthorized",
+            message: "Invalid key",
+          }),
+      },
+      {
+        label: "rate_limit_exceeded",
+        response: () =>
+          jsonErrorResponse(429, {
+            code: "rate_limit_exceeded",
+            message: "Daily cap reached for this creator",
+          }),
+      },
+      {
+        label: "too_many_concurrent_requests",
+        response: () =>
+          jsonErrorResponse(429, {
+            code: "too_many_concurrent_requests",
+            message: "Too many concurrent requests",
+          }),
+      },
+      {
+        label: "http_502",
+        response: () =>
+          new Response("<html>bad gateway</html>", {
+            status: 502,
+            headers: { "Content-Type": "text/html" },
+          }),
+      },
+    ];
+
+    for (const rejection of rejections) {
+      it(`shows one visitor line for ${rejection.label}`, async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(rejection.response()));
+
+        const engine = createBuilderEngine();
+        const events = await collectEvents(engine.stream(BASE_OPTS));
+
+        const stop = events.find((e) => e.type === "stop");
+        expect(stop?.reason).toBe("error");
+        expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
+        expect(stop?.errorCode).toBeTruthy();
+        expect(stop?.upgradeUrl).toBeUndefined();
+      });
+    }
+
+    it("shows one visitor line when the site has no usable credentials", async () => {
+      credentialState.builderPrivateKey = null;
+      credentialState.lane = null;
+      vi.stubEnv("BUILDER_GATEWAY_TOKEN", "btk-site-token");
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const engine = createBuilderEngine();
+      const events = await collectEvents(engine.stream(BASE_OPTS));
+
+      const stop = events.find((e) => e.type === "stop");
+      expect(stop?.errorCode).toBe("missing_credentials");
+      expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("shows one visitor line for an in-stream gateway error", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "error",
+              error: "You have used all AI credits for this month",
+              code: "credits-limit-reached",
+            },
+          ]),
+        ),
+      );
+
+      const engine = createBuilderEngine();
+      const events = await collectEvents(engine.stream(BASE_OPTS));
+
+      const stop = events.find((e) => e.type === "stop");
+      expect(stop?.reason).toBe("error");
+      expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
+      expect(stop?.errorCode).toBe("credits-limit-reached");
+    });
+
+    it("shows one visitor line for an in-stream invalid_request", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "invalid_request",
+              error:
+                "messages.3: tool_use block must have a corresponding tool_result",
+            },
+          ]),
+        ),
+      );
+
+      const engine = createBuilderEngine();
+      const events = await collectEvents(engine.stream(BASE_OPTS));
+
+      const stop = events.find((e) => e.type === "stop");
+      expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
+      expect(stop?.errorCode).toBe("invalid_request");
+    });
+
+    it("shows one visitor line for an unknown in-stream stop reason", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            jsonlResponse([{ type: "stop", reason: "provider_exploded" }]),
+          ),
+      );
+
+      const engine = createBuilderEngine();
+      const events = await collectEvents(engine.stream(BASE_OPTS));
+
+      const stop = events.find((e) => e.type === "stop");
+      expect(stop?.reason).toBe("error");
+      expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
+    });
+
+    // The dev-preview pod is injected with the published site's credits token
+    // and resolves the same `gateway-deploy` lane, but the person chatting there
+    // is the project owner in the Fusion editor — the only party who can act on
+    // a revoked token or a disabled gateway.
+    it("keeps owner copy in the workspace preview runtime", async () => {
+      vi.stubEnv("FUSION_ENVIRONMENT", "preview");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonErrorResponse(403, {
+            code: "gateway_not_enabled",
+            message: "Gateway is not enabled for this space",
+          }),
+        ),
+      );
+
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+
+      const stop = events.find((e) => e.type === "stop");
+      expect(stop?.errorCode).toBe("gateway_not_enabled");
+      expect(stop?.error).toBe("Gateway is not enabled for this space");
+    });
+  });
+
+  it("maps inactive personal access token errors to Builder auth stop-error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("Invalid or inactive personal access token", {
+          status: 403,
+          headers: { "Content-Type": "text/plain" },
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_auth_error");
+    expect(stop?.error).toContain("Builder authentication failed");
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).toHaveBeenCalledWith({
+      status: 403,
+      code: "http_403",
+      message: "Invalid or inactive personal access token",
+    });
+  });
+
+  it("maps streamed personal access token errors to Builder auth stop-error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "Invalid or inactive personal access token",
+            requestId: "req_1",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_auth_error");
+    expect(stop?.error).toBe("Invalid or inactive personal access token");
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).toHaveBeenCalledWith({
+      code: "builder_auth_error",
+      message: "Invalid or inactive personal access token",
+    });
+  });
+
+  it("treats a bare streamed 'Unauthorized' as a model rejection, not a broken connection", async () => {
+    // The gateway authenticated the request before streaming, so this means
+    // the account cannot use this model. Recording a credential failure here
+    // disconnected Builder for every model, including working ones.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "Unauthorized",
+            requestId: "req_1",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_model_unauthorized");
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a non-JSON 4xx body (e.g. proxy HTML) in the error message", async () => {
+    // A reverse proxy returning a bare HTML 502/504 should not swallow the
+    // body silently. Before the fix, `.json()` would throw and the
+    // `.text()` fallback would fail because the body stream was already
+    // consumed — leaving only the generic "Builder gateway returned N" message.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("<html><body>Bad Gateway</body></html>", {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("http_502");
+    expect(stop?.error).toContain("Bad Gateway");
+  });
+
+  it("treats bare 402 (no structured code) as a credits-limit with upgrade CTA", async () => {
+    credentialState.builderOrgName = "acme";
+    vi.stubEnv("BUILDER_ORG_NAME", "acme");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("Payment Required", {
+          status: 402,
+          headers: { "Content-Type": "text/plain" },
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.upgradeUrl).toBe(AGENT_NATIVE_UPGRADE_URL);
+  });
+
+  it("maps 429 concurrency to a retryable stop event, message unchanged", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(429, {
+          code: "too_many_concurrent_requests",
+          message: "Too many concurrent gateway requests.",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("too_many_concurrent_requests");
+    expect(stop?.error).toBe("Too many concurrent gateway requests.");
+    expect(stop?.statusCode).toBe(429);
+    expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("maps daily gateway caps to a non-retryable error message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(429, {
+          code: "rate_limit_exceeded",
+          message:
+            "Daily gateway request cap reached (cap: 5000). Please try again tomorrow.",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("rate_limit_exceeded");
+    expect(stop?.error).toBe(
+      "Daily gateway request cap reached (cap: 5000). Please try again tomorrow.",
+    );
+  });
+
+  it("aborts hung gateway requests before the host function timeout", async () => {
+    vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "1");
+    const fetchSpy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("Builder gateway timed out");
+  });
+
+  it("marks socket hangups as retryable gateway network errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("socket hang up")),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_network_error");
+    expect(stop?.error).toContain("Builder gateway network error");
+    expect(stop?.error).toContain("socket hang up");
+  });
+
+  it("tags Anthropic bare Connection error. stop events as gateway network errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "Connection error.",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toBe("Connection error.");
+    expect(stop?.errorCode).toBe("builder_gateway_network_error");
+  });
+
+  it("tags retry-wrapped OpenAI TLS connection failures as gateway network errors", async () => {
+    const error =
+      "Failed after 2 attempts. Last error: Cannot connect to API: " +
+      "0029217D3D7F0000:error:0A000438:SSL routines:ssl3_read_bytes:" +
+      "tlsv1 alert internal error";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error,
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(
+      engine.stream({ ...BASE_OPTS, model: "gpt-5-6-terra" }),
+    );
+
+    const stop = events.find((event) => event.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toBe(error);
+    expect(stop?.errorCode).toBe("builder_gateway_network_error");
+  });
+
+  it("keeps the hard timeout active while reading the gateway stream", async () => {
+    vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "1");
+    const fetchSpy = vi.fn((_url: string, init?: RequestInit) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => {
+            controller.error(init.signal?.reason ?? new Error("aborted"));
+          });
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("Builder gateway timed out");
+  });
+
+  it("times out keepalive streams that do not honor fetch abort", async () => {
+    vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "25");
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(() => {
+      let interval: ReturnType<typeof setInterval> | undefined;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          interval = setInterval(() => {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `${JSON.stringify({ type: "heartbeat" })}\n`,
+              ),
+            );
+          }, 5);
+        },
+        cancel() {
+          if (interval) clearInterval(interval);
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(30);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(events.some((e) => e.type === "gateway-heartbeat")).toBe(true);
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("Builder gateway timed out");
+  });
+
+  it("aborts at the 120s first-event deadline when nothing ever streams, even under the long local timeout cap", async () => {
+    // With no events at all, the two-stage deadline is
+    // min(totalTimeoutMs, FIRST_STREAM_EVENT_TIMEOUT_MS) — here
+    // min(840_000, 120_000) — so a fully wedged request is cut off in 2
+    // minutes instead of riding the full 14-minute local cap.
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("120s");
+  });
+
+  it("still enforces the full local total deadline once the stream produces a real event", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn((_url: string, init?: RequestInit) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `${JSON.stringify({ type: "text-delta", text: "hi" })}\n`,
+            ),
+          );
+          init?.signal?.addEventListener("abort", () => {
+            controller.error(init.signal?.reason ?? new Error("aborted"));
+          });
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+
+    // The 120s first-event window passes uneventfully — a real event already
+    // streamed, so it must not abort here.
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(settledEarly).toBe(false);
+
+    // The original 840s total deadline (measured from request start) still
+    // governs the rest of the request.
+    await vi.advanceTimersByTimeAsync(720_000);
+    const events = await eventsPromise;
+
+    expect(events.some((e) => e.type === "text-delta")).toBe(true);
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("840s");
+  });
+
+  it("keeps the pre-first-event deadline at the hosted foreground cap (45s) instead of extending it to 120s", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(45_000);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("45s");
+  });
+
+  it("does not let heartbeat frames extend the first-event deadline past 120s", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(() => {
+      let interval: ReturnType<typeof setInterval> | undefined;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          interval = setInterval(() => {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `${JSON.stringify({ type: "heartbeat" })}\n`,
+              ),
+            );
+          }, 5_000);
+        },
+        cancel() {
+          if (interval) clearInterval(interval);
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(120_000);
+    const events = await eventsPromise;
+
+    expect(events.some((e) => e.type === "gateway-heartbeat")).toBe(true);
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("120s");
+  });
+
+  it("caps configured gateway timeouts with room before the 60s serverless function limit", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "60000");
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(45_000);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("45s");
+  });
+
+  it("allows background function gateway timeouts above the foreground cap", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "server-agent-background");
+    vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "60000");
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("60s");
+  });
+
+  it("maps mid-stream rate_limited into a retryable error stop", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          { type: "text-delta", text: "partial..." },
+          {
+            type: "stop",
+            reason: "rate_limited",
+            requestId: "req_1",
+            error: "retries exhausted",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("rate_limited");
+    expect(stop?.error?.toLowerCase()).toContain("rate_limit");
+  });
+
+  it("canonicalizes coded Builder internal-error envelopes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "provider_internal_error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("canonicalizes coded Builder internal-error HTTP responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(500, {
+          code: "provider_internal_error",
+          message:
+            "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+    expect(stop?.statusCode).toBe(500);
+  });
+
+  it("canonicalizes message-only Builder internal-error HTTP responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(500, {
+          message:
+            "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+    expect(stop?.statusCode).toBe(500);
+  });
+
+  it("preserves provider_internal_error for non-envelope messages", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "provider_internal_error",
+            error: "upstream provider failed",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("provider_internal_error");
+    expect(stop?.providerRetryable).toBeUndefined();
+  });
+
+  it("maps invalid_request stops into a non-retryable error stop preserving the gateway message and code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_bad_history",
+            error:
+              "messages.87: `tool_use` ids were found without `tool_result` blocks immediately after: history_tc_80.",
+            errorCode: "tool_message_shape_invalid",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("tool_message_shape_invalid");
+    expect(stop?.error).toContain("history_tc_80");
+    // No retry-trigger keywords (see production-agent's isRetryableError).
+    expect(stop?.error?.toLowerCase()).not.toMatch(
+      /rate_limit|overloaded|503|504|gateway error|socket hang up|connection reset|too many requests|timeout/,
+    );
+  });
+
+  it("marks no-detail gateway stop errors as retryable gateway errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            requestId: "req_no_detail",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_error");
+    expect(stop?.error).toContain("Gateway error (no detail");
+  });
+
+  it("captures no-detail gateway stop errors to Sentry with model + requestId tags", async () => {
+    const captureSpy = vi
+      .spyOn(captureErrorModule, "captureError")
+      .mockReturnValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            requestId: "req_no_detail",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(captureSpy).toHaveBeenCalledTimes(1);
+    const [capturedErr, capturedCtx] = captureSpy.mock.calls[0];
+    expect((capturedErr as Error).name).toBe("BuilderGatewayNoDetailError");
+    expect((capturedErr as Error).message).toContain("req_no_detail");
+    expect(capturedCtx?.tags?.errorCode).toBe("builder_gateway_error");
+    expect(capturedCtx?.tags?.model).toBe(BASE_OPTS.model);
+    expect(capturedCtx?.tags?.gatewayRequestId).toBe("req_no_detail");
+    expect(capturedCtx?.tags?.source).toBe("builder-engine");
+    expect(capturedCtx?.extra?.gatewayOrigin).toBe("https://test.example");
+    expect(capturedCtx?.contexts?.builderGateway?.requestId).toBe(
+      "req_no_detail",
+    );
+  });
+
+  // A gateway 500 says nothing about the request behind it. Without these
+  // counts on the stop event, an oversized payload and an upstream outage are
+  // the same capture — which is exactly how one analytics turn burned a night.
+  it("carries the request shape on a gateway 500", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            requestId: "req_shape",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: 044be17f44d546c7875a4df879e6749f",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: "list-dashboards",
+            description: "List dashboards",
+            inputSchema: { type: "object", properties: {}, required: [] },
+          },
+        ],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Hi" }] },
+          { role: "assistant", content: [{ type: "text", text: "Hello" }] },
+        ],
+      }),
+    );
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    // The raw envelope rides through untouched: `normalizeChatError` names the
+    // layer from the CODE and keeps this sentence as the `details` line, which
+    // is the only place the error id reaches the reader.
+    expect(stop?.error).toBe(
+      "Sorry, we ran into an issue processing your request. ERROR ID: 044be17f44d546c7875a4df879e6749f",
+    );
+    expect(stop?.requestShape).toMatchObject({
+      model: BASE_OPTS.model,
+      toolCount: 1,
+      messageCount: 2,
+    });
+    // Measured against the string actually sent, not re-derived here.
+    const sentBody = (globalThis.fetch as any).mock.calls[0][1].body as string;
+    expect(stop?.requestShape?.payloadBytes).toBe(
+      new TextEncoder().encode(sentBody).length,
+    );
+  });
+
+  it("caps Builder provider tools at 128 and keeps tool-search", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        tools: Array.from({ length: 129 }, (_, index) =>
+          makeTool(index === 128 ? "tool-search" : `tool-${index}`),
+        ),
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.tools).toHaveLength(128);
+    expect(body.tools.map((tool: { name: string }) => tool.name)).toContain(
+      "tool-search",
+    );
+    expect(body.tools.map((tool: { name: string }) => tool.name)).not.toContain(
+      "tool-127",
+    );
+  });
+
+  // Nothing was sent, so there is no shape to report. A zero-byte payload here
+  // would read as "we sent an empty request", which is a different failure.
+  it("omits the request shape when the run failed before the request", async () => {
+    credentialState.builderPrivateKey = null;
+    vi.unstubAllEnvs();
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(stop?.requestShape).toBeUndefined();
+  });
+
+  it("does not capture to Sentry when the gateway provides an explicit error detail", async () => {
+    const captureSpy = vi
+      .spyOn(captureErrorModule, "captureError")
+      .mockReturnValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            requestId: "req_with_detail",
+            error: "upstream provider rejected the model",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toContain("upstream provider rejected the model");
+    // Errors with explicit detail are handled by the existing run-manager
+    // capture; no need to also capture from builder-engine.
+    expect(captureSpy).not.toHaveBeenCalled();
+  });
+
+  it("processes a final event without a trailing newline", async () => {
+    // Some gateway proxies end the stream with a complete JSONL line that
+    // lacks a terminating `\n`. The parser must flush that tail through the
+    // same event-handling path, otherwise the stop event is silently
+    // dropped and the consumer gets the synthetic
+    // "stream ended without a stop event" error instead.
+    const body =
+      JSON.stringify({ type: "text-delta", text: "hi" }) +
+      "\n" +
+      JSON.stringify({ type: "stop", reason: "end_turn" }); // no trailing \n
+    const encoded = new TextEncoder().encode(body);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoded);
+        controller.close();
+      },
+    });
+    const response = new Response(stream, {
+      status: 200,
+      headers: { "Content-Type": "application/jsonl" },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("end_turn");
+    expect(stop?.error).toBeUndefined();
+    // Text-delta before the stop should still have been yielded.
+    expect(events.some((e) => e.type === "text-delta" && e.text === "hi")).toBe(
+      true,
+    );
+  });
+
+  it("normalizes gateway reasoning deltas into thinking events and final content", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          { type: "reasoning-delta", text: "Check the schema. " },
+          { type: "reasoning-delta", text: "Then answer.", signature: "sig-1" },
+          { type: "text-delta", text: "Done." },
+          { type: "stop", reason: "end_turn" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.filter((e) => e.type === "thinking-delta")).toEqual([
+      { type: "thinking-delta", text: "Check the schema. " },
+      { type: "thinking-delta", text: "Then answer.", signature: "sig-1" },
+    ]);
+    expect(events).toContainEqual({
+      type: "assistant-content",
+      parts: [
+        {
+          type: "thinking",
+          text: "Check the schema. Then answer.",
+          signature: "sig-1",
+        },
+        { type: "text", text: "Done." },
+      ],
+    });
+  });
+
+  it("surfaces invalid JSONL lines as a stop-error", async () => {
+    const body = "not a json\n";
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(body));
+        controller.close();
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toContain("invalid JSONL");
+  });
+
+  it("forwards reasoning_effort mapped from Anthropic thinking.budgetTokens", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        providerOptions: {
+          anthropic: { thinking: { type: "enabled", budgetTokens: 10000 } },
+        },
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("high");
+  });
+
+  it("forwards explicit reasoning_effort without budget mapping", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        model: "claude-opus-4-8",
+        reasoningEffort: "xhigh",
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("xhigh");
+  });
+
+  it("sends reasoning_effort high by default for an effort-capable Claude model", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({ ...BASE_OPTS, model: "claude-fable-5" }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("high");
+  });
+
+  it("sends reasoning_effort high by default for Luna", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream({ ...BASE_OPTS, model: "gpt-5-6-luna" }));
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("high");
+  });
+
+  // OpenAI rejects reasoning_effort + function tools on Chat Completions,
+  // where the gateway routes GPT models — every gpt-5.x chat WITH TOOLS (i.e.
+  // every real agent turn) failed deterministically until this sent "none".
+  it("sends reasoning_effort none for a GPT model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        model: "gpt-5-6-luna",
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("none");
+    expect(body.tools).toHaveLength(1);
+  });
+
+  it("preserves explicit none for a GPT model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        model: "gpt-5-6-luna",
+        reasoningEffort: "none",
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("none");
+  });
+
+  it("keeps full reasoning_effort for a Claude model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("high");
+  });
+
+  it("omits reasoning_effort by default for a non-reasoning model", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({ ...BASE_OPTS, model: "llama-3.3-70b-versatile" }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+
+  it("omits reasoning_effort when explicit effort is none", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({ ...BASE_OPTS, reasoningEffort: "none" }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+});

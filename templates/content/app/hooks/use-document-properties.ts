@@ -1,0 +1,309 @@
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import type {
+  ConfigureDocumentPropertyRequest,
+  ContentDatabaseResponse,
+  DeleteDocumentPropertyRequest,
+  DocumentPropertiesResponse,
+  DocumentPropertyValue,
+  DuplicateDocumentPropertyRequest,
+  ReorderDocumentPropertyRequest,
+  SetDocumentPropertyRequest,
+  UpdateDatabaseItemsRequest,
+  UpdateDatabaseItemsResponse,
+} from "@shared/api";
+import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+
+import {
+  applyDocumentPropertiesToDatabaseResponse,
+  applyDocumentPropertyValueToDatabaseResponse,
+  contentDatabaseQueryFilter,
+  contentDatabaseConstrainedQueryFilter,
+  contentDatabaseQueryKey,
+  removeDocumentPropertyFromDatabaseResponse,
+} from "./use-content-database";
+import {
+  documentPropertiesQueryKey,
+  documentQueryFilter,
+} from "./use-documents";
+
+type DatabaseScopedRequest = { databaseId: string };
+
+export function documentPropertiesResponseMatchesScope(
+  documentId: string,
+  databaseId: string | null,
+  data: DocumentPropertiesResponse | undefined,
+): data is DocumentPropertiesResponse {
+  return data?.documentId === documentId && data.databaseId === databaseId;
+}
+
+function withDatabaseScope<
+  TData,
+  TVariables extends DatabaseScopedRequest,
+  TContext,
+>(
+  mutation: UseMutationResult<TData, Error, TVariables, TContext>,
+  databaseId: string,
+) {
+  type ScopedVariables = Omit<TVariables, "databaseId">;
+  return {
+    ...mutation,
+    mutate: (variables: ScopedVariables, options?: unknown) =>
+      mutation.mutate(
+        { ...variables, databaseId } as TVariables,
+        options as never,
+      ),
+    mutateAsync: (variables: ScopedVariables, options?: unknown) =>
+      mutation.mutateAsync(
+        { ...variables, databaseId } as TVariables,
+        options as never,
+      ),
+  } as UseMutationResult<TData, Error, ScopedVariables, TContext>;
+}
+
+export function useDocumentProperties(
+  documentId: string | null,
+  databaseId: string | null,
+) {
+  return useActionQuery<DocumentPropertiesResponse>(
+    "list-document-properties",
+    documentId
+      ? { documentId, ...(databaseId ? { databaseId } : {}) }
+      : undefined,
+    {
+      enabled: !!documentId,
+      placeholderData: (prev) => prev,
+    },
+  );
+}
+
+export function useConfigureDocumentProperty(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId = documentId,
+) {
+  const queryClient = useQueryClient();
+  const mutation = useActionMutation<
+    DocumentPropertiesResponse,
+    ConfigureDocumentPropertyRequest
+  >("configure-document-property", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (data) => {
+      queryClient.setQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(databaseDocumentId),
+        (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: documentPropertiesQueryKey(documentId, databaseId),
+      });
+      void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      void queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+      );
+    },
+  });
+  return withDatabaseScope(mutation, databaseId);
+}
+
+export function useSetDocumentProperty(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId = documentId,
+) {
+  const queryClient = useQueryClient();
+  const mutation = useActionMutation<
+    DocumentPropertiesResponse,
+    SetDocumentPropertyRequest
+  >("set-document-property", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+      const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+      queryClient.setQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(databaseDocumentId),
+        (current) =>
+          applyDocumentPropertyValueToDatabaseResponse(current, {
+            documentId: variables.documentId,
+            propertyId: variables.propertyId,
+            value: variables.value,
+          }),
+      );
+      return { previous };
+    },
+    onError: (_error, variables, context) => {
+      const rollback = context as
+        | {
+            previous?: Array<[readonly unknown[], unknown]>;
+          }
+        | undefined;
+      for (const [queryKey, data] of rollback?.previous ?? []) {
+        queryClient.setQueryData(queryKey, data);
+      }
+      void queryClient.invalidateQueries({
+        queryKey: documentPropertiesQueryKey(variables.documentId, databaseId),
+      });
+    },
+    onSuccess: (data, variables) => {
+      const savedValue =
+        data.properties.find(
+          (property) => property.definition.id === variables.propertyId,
+        )?.value ?? variables.value;
+      queryClient.setQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(databaseDocumentId),
+        (current) =>
+          applyDocumentPropertyValueToDatabaseResponse(current, {
+            documentId: variables.documentId,
+            propertyId: variables.propertyId,
+            value: savedValue as DocumentPropertyValue,
+          }),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: documentPropertiesQueryKey(variables.documentId, databaseId),
+      });
+      void queryClient.invalidateQueries(
+        documentQueryFilter(variables.documentId),
+      );
+      void queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: [
+          "action",
+          "get-content-database-source",
+          { documentId: databaseDocumentId },
+        ],
+      });
+    },
+  });
+  return withDatabaseScope(mutation, databaseId);
+}
+
+export function useUpdateDatabaseItems(databaseDocumentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    UpdateDatabaseItemsResponse,
+    UpdateDatabaseItemsRequest
+  >("update-database-items", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () => {
+      void queryClient.invalidateQueries(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+    },
+  });
+}
+
+export function useDuplicateDocumentProperty(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId = documentId,
+) {
+  const queryClient = useQueryClient();
+  const mutation = useActionMutation<
+    DocumentPropertiesResponse,
+    DuplicateDocumentPropertyRequest
+  >("duplicate-document-property", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (data) => {
+      queryClient.setQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(databaseDocumentId),
+        (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: documentPropertiesQueryKey(documentId, databaseId),
+      });
+      void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      void queryClient.invalidateQueries({
+        ...contentDatabaseQueryFilter(databaseDocumentId),
+      });
+    },
+  });
+  return withDatabaseScope(mutation, databaseId);
+}
+
+export function useReorderDocumentProperty(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId = documentId,
+) {
+  const queryClient = useQueryClient();
+  const mutation = useActionMutation<
+    DocumentPropertiesResponse,
+    ReorderDocumentPropertyRequest
+  >("reorder-document-property", {
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: documentPropertiesQueryKey(documentId, databaseId),
+      });
+      void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      void queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(databaseDocumentId),
+      });
+    },
+  });
+  return withDatabaseScope(mutation, databaseId);
+}
+
+export function useDeleteDocumentProperty(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId = documentId,
+) {
+  const queryClient = useQueryClient();
+  const mutation = useActionMutation<
+    DocumentPropertiesResponse,
+    DeleteDocumentPropertyRequest
+  >("delete-document-property", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+      const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+      queryClient.setQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(databaseDocumentId),
+        (current) =>
+          removeDocumentPropertyFromDatabaseResponse(
+            current,
+            variables.propertyId,
+          ),
+      );
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      const rollback = context as
+        | {
+            previous?: Array<[readonly unknown[], unknown]>;
+          }
+        | undefined;
+      for (const [queryKey, data] of rollback?.previous ?? []) {
+        queryClient.setQueryData(queryKey, data);
+      }
+    },
+    onSuccess: (data) => {
+      queryClient.setQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(databaseDocumentId),
+        (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: documentPropertiesQueryKey(documentId, databaseId),
+      });
+      void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      void queryClient.invalidateQueries({
+        ...contentDatabaseQueryFilter(databaseDocumentId),
+      });
+    },
+  });
+  return withDatabaseScope(mutation, databaseId);
+}

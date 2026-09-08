@@ -1,0 +1,151 @@
+---
+title: "अंतर्राष्ट्रीयकरण"
+description: "साझा locale catalogs, एक language picker, और browser-language fallback के साथ Agent-Native ऐप्स को localize करें।"
+---
+
+# अंतर्राष्ट्रीयकरण
+
+Agent-Native ऐप्स साझा `@agent-native/core/client/i18n` रनटाइम के माध्यम से फ्रेमवर्क
+और टेम्पलेट UI को localize कर सकते हैं। फ्रेमवर्क उपयोगकर्ता की भाषा के चयन को SQL
+settings में संग्रहीत करता है, इसे actions के रूप में उजागर करता है, और जब किसी ऐप ने
+अभी तक किसी string का अनुवाद नहीं किया हो तो अंग्रेज़ी पर वापस आ जाता है।
+
+## रनटाइम
+
+`AppProviders` के माध्यम से provider का उपयोग करें:
+
+```tsx
+import { AppProviders } from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+`getLocaleInitScript()` React के hydrate होने से पहले प्रारंभिक `lang`, `dir`, और
+`window.__AGENT_NATIVE_LOCALE__` सेट करता है। सार्वजनिक SSR routes hydration
+mismatch से बचने के लिए `@agent-native/core/server` से `resolveLocaleFromRequest()`
+को कॉल कर सकते हैं और resolved locale/catalog को उस script में पास कर सकते हैं।
+
+## कैटलॉग
+
+प्रत्येक localized टेम्पलेट catalogs को `app/i18n/` के अंतर्गत रखता है:
+
+```ts filename="app/i18n/index.ts"
+import { createAgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
+import enUS from "./en-US";
+
+export const i18nCatalog = createAgentNativeI18nCatalog({
+  messages: enUS,
+  localeLoaders: {
+    "zh-CN": () => import("./zh-CN"),
+    "zh-TW": () => import("./zh-TW"),
+    "es-ES": () => import("./es-ES"),
+    "fr-FR": () => import("./fr-FR"),
+    "de-DE": () => import("./de-DE"),
+    "ja-JP": () => import("./ja-JP"),
+    "ko-KR": () => import("./ko-KR"),
+    "pt-BR": () => import("./pt-BR"),
+    "hi-IN": () => import("./hi-IN"),
+    "ar-SA": () => import("./ar-SA"),
+  },
+});
+```
+
+`messages` सीधे `en-US` को bundle करता है ताकि किसी भी locale के load होने से पहले वह
+हमेशा उपलब्ध रहे। `localeLoaders` बाकी हर catalog को dynamic-import करता है ताकि
+उपयोगकर्ता केवल सक्रिय locale ही डाउनलोड करें। समर्थित locale codes हैं `en-US`,
+`zh-CN`, `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN`,
+और `ar-SA`।
+
+यह सूची फ्रेमवर्क द्वारा तय की गई है। यह केवल इस उदाहरण में bundle किए गए locales तक
+सीमित नहीं है। `LocaleCode` ठीक इन्हीं codes का एक TypeScript union है, और
+`set-localization-preference` runtime पर इनके अलावा किसी भी अन्य मान को अस्वीकार कर
+देता है। प्रत्येक locale को framework-curated metadata की भी आवश्यकता होती है, जैसे
+right-to-left भाषाओं के लिए text direction। एक नया locale जोड़ने का मतलब है फ्रेमवर्क
+को स्वयं विस्तारित करना, न कि अपने ऐप में केवल एक catalog फ़ाइल जोड़ना।
+
+`createAgentNativeI18nCatalog` एक वैकल्पिक `sourceLocale` भी स्वीकार करता है, जो
+डिफ़ॉल्ट रूप से `en-US` होता है, और एक वैकल्पिक `supportedLocales` array भी।
+`supportedLocales` तब सेट करें जब कोई ऐप फ्रेमवर्क के सभी दस locales के बजाय केवल
+कुछ के लिए ही अनुवाद प्रदान करता हो। यह डिफ़ॉल्ट रूप से फ्रेमवर्क द्वारा समर्थित हर
+locale को शामिल करता है। `LanguagePicker` केवल इसी सेट में मौजूद locales को
+सूचीबद्ध करता है, और इसके बाहर पहचाना गया या अनुरोधित कोई भी locale `sourceLocale`
+पर वापस आ जाता है।
+
+## UI
+
+इंटरफ़ेस strings का अनुवाद करने के लिए `useT()` का उपयोग करें:
+
+```tsx
+import { useT } from "@agent-native/core/client/i18n";
+
+function Greeting({ name }: { name: string }) {
+  const t = useT();
+  return <p>{t("greeting.hello", { name })}</p>;
+}
+```
+
+तारीखों, संख्याओं, relative time, और सूचियों के लिए `useFormatters()` का उपयोग करें।
+locale-sensitive date/number formatting को translation strings के अंदर मत डालें।
+
+जहाँ भी ऐप उपयोगकर्ता को अपनी भाषा बदलने देता है, वहाँ `<LanguagePicker />` लगाएँ।
+मानक settings page pattern के लिए [Toolkit: सेटिंग्स](/docs/toolkit-settings) देखें,
+जिसमें यह भी शामिल है कि `openAgentSettings()` कहाँ फिट बैठता है।
+
+## Actions और दृढ़ता
+
+हर ऐप को ये विरासत में मिलते हैं:
+
+- `get-localization-preference` — वर्तमान उपयोगकर्ता का `{ locale, timezone }` पढ़ें
+- `set-localization-preference` — `locale` और/या `timezone` सेट करें, प्रत्येक वैकल्पिक है
+
+`locale` या तो `"system"` होता है या एक समर्थित BCP-47 locale। `timezone` या तो
+`"system"` होता है या `America/New_York` जैसा कोई IANA zone। यह इसलिए मौजूद है ताकि
+scheduled और automation कार्य host के बजाय उपयोगकर्ता के zone में चलें। केवल एक
+फ़ील्ड सेट करने पर दूसरी फ़ील्ड अपरिवर्तित रहती है, क्योंकि
+`set-localization-preference` मौजूदा संग्रहीत मान को overwrite करने के बजाय उस पर
+merge करता है।
+
+टिकाऊ मान `localization` के अंतर्गत user-scoped SQL settings में रहता है।
+`localStorage` का उपयोग केवल pre-hydration और anonymous fallback के लिए किया जाता
+है। सक्रिय locale को ambient context के रूप में application state में प्रतिबिंबित
+किया जाता है ताकि agents वर्तमान इंटरफ़ेस भाषा देख सकें।
+
+## रक्षक
+
+चलाएँ:
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+ऐप और टेम्पलेट catalogs के लिए, गार्ड निम्नलिखित की जाँच करता है:
+
+- Locale फ़ाइलनामों, key parity, placeholder parity, और stale keys की जाँच
+- Duplicate keys और बचे हुए development-only markers
+- गलत-script वाला contamination, उदाहरण के लिए किसी Arabic catalog के अंदर Chinese टेक्स्ट
+- `Intl.PluralRules` के माध्यम से CLDR plural categories
+- ऐप source में `t()` कॉल्स जिनकी key अंग्रेज़ी catalog में मौजूद नहीं है
+
+गार्ड संरचना की जाँच करता है, अनुवाद की गुणवत्ता की नहीं। उच्च-दृश्यता वाली strings
+को अभी भी मानव समीक्षा की आवश्यकता होती है।
+
+action names, routes, enum values, app-state keys, database values, protocol
+fields, env var names, या provider names जैसे स्थिर पहचानकर्ताओं (stable
+identifiers) का अनुवाद न करें।
+
+## आगे क्या है
+
+- [**अवलोकन**](/docs/client-overview#app-shell) — वह `AppProviders` wrapper और अन्य browser hooks जिन पर i18n आधारित है
+- [**Toolkit: सेटिंग्स**](/docs/toolkit-settings) — मानक settings page पर `<LanguagePicker>` लगाएँ
+- [**आरंभ करना**](/docs/getting-started) — ऐसे टेम्पलेट पर अपना पहला ऐप बनाएं जो पहले से ही localized catalogs के साथ आता है

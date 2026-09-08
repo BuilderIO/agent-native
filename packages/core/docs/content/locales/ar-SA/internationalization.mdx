@@ -1,0 +1,150 @@
+---
+title: "التدويل"
+description: "قم بترجمة تطبيقات Agent-Native باستخدام كتالوجات محلية مشتركة، ومنتقي اللغة، ولغة احتياطية للمتصفح."
+---
+
+# التدويل
+
+يمكن لتطبيقات Agent-Native توطين إطار العمل والنموذج UI من خلال
+وقت تشغيل `@agent-native/core/client/i18n` المشترك. يقوم الإطار بتخزين
+اختيار اللغة الخاص بالمستخدم في إعدادات SQL، ويعرضه كـ actions، ويعود إلى
+الإنجليزية عندما لا يكون التطبيق قد ترجم سلسلة نصية بعد.
+
+## وقت التشغيل
+
+استخدم الموفر من خلال `AppProviders`:
+
+```tsx
+import { AppProviders } from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+يقوم `getLocaleInitScript()` بتعيين `lang` و`dir` الأوليين، وكذلك
+`window.__AGENT_NATIVE_LOCALE__`، قبل أن يقوم React بعملية الـ hydrate. يمكن لمسارات SSR
+العامة استدعاء `resolveLocaleFromRequest()` من `@agent-native/core/server` وتمرير
+اللغة المحلية/الكتالوج الناتجين إلى هذا البرنامج النصي لتجنب أي تعارض في الـ hydration.
+
+## الكتالوجات
+
+يحتفظ كل قالب مترجم بالكتالوجات ضمن `app/i18n/`:
+
+```ts filename="app/i18n/index.ts"
+import { createAgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
+import enUS from "./en-US";
+
+export const i18nCatalog = createAgentNativeI18nCatalog({
+  messages: enUS,
+  localeLoaders: {
+    "zh-CN": () => import("./zh-CN"),
+    "zh-TW": () => import("./zh-TW"),
+    "es-ES": () => import("./es-ES"),
+    "fr-FR": () => import("./fr-FR"),
+    "de-DE": () => import("./de-DE"),
+    "ja-JP": () => import("./ja-JP"),
+    "ko-KR": () => import("./ko-KR"),
+    "pt-BR": () => import("./pt-BR"),
+    "hi-IN": () => import("./hi-IN"),
+    "ar-SA": () => import("./ar-SA"),
+  },
+});
+```
+
+يقوم `messages` بحزم `en-US` مباشرة بحيث تكون متاحة دائمًا قبل تحميل أي
+لغة أخرى. يقوم `localeLoaders` باستيراد كل كتالوج آخر بشكل ديناميكي حتى لا يقوم
+المستخدمون بتنزيل سوى اللغة النشطة. رموز اللغات المدعومة هي `en-US`،
+و`zh-CN`، و`zh-TW`، و`es-ES`، و`fr-FR`، و`de-DE`، و`ja-JP`، و`ko-KR`، و`pt-BR`،
+و`hi-IN`، و`ar-SA`.
+
+هذه القائمة ثابتة من قبل إطار العمل. إنها ليست مجرد ما يصادف أن يحزمه هذا
+المثال. `LocaleCode` هو اتحاد TypeScript يضم هذه الرموز بالضبط، ويرفض
+`set-localization-preference` أي رمز آخر أثناء التشغيل. تحتاج كل لغة أيضًا إلى
+بيانات وصفية منسّقة من قبل إطار العمل، مثل اتجاه النص للغات التي تُكتب من اليمين
+إلى اليسار. إضافة لغة جديدة تعني توسيع إطار العمل نفسه، وليس إضافة ملف كتالوج
+إلى التطبيق.
+
+يقبل `createAgentNativeI18nCatalog` أيضًا معامل `sourceLocale` اختياريًا،
+والذي تكون قيمته الافتراضية `en-US`، ومصفوفة `supportedLocales` اختيارية. اضبط
+`supportedLocales` عندما يشحن التطبيق ترجمات لبعض لغات إطار العمل فقط بدلاً
+من العشر لغات كلها. تكون قيمته الافتراضية كل لغة يدعمها إطار العمل. لا يسرد
+`LanguagePicker` سوى اللغات ضمن هذه المجموعة، وأي لغة مكتشفة أو مطلوبة خارج
+هذه المجموعة تعود إلى `sourceLocale`.
+
+## UI
+
+استخدم `useT()` لترجمة سلاسل الواجهة:
+
+```tsx
+import { useT } from "@agent-native/core/client/i18n";
+
+function Greeting({ name }: { name: string }) {
+  const t = useT();
+  return <p>{t("greeting.hello", { name })}</p>;
+}
+```
+
+استخدم `useFormatters()` للتواريخ والأرقام والوقت النسبي والقوائم. لا تضع
+تنسيق التاريخ/الأرقام الحساس للغة المحلية داخل سلاسل الترجمة.
+
+ضع `<LanguagePicker />` في أي مكان يتيح فيه التطبيق للمستخدم تغيير لغته.
+راجع [Toolkit: Settings](/docs/toolkit-settings) لمعرفة نمط صفحة الإعدادات
+القياسي، بما في ذلك المكان الذي يناسب فيه `openAgentSettings()`.
+
+## Actions والإصرار
+
+يرث كل تطبيق:
+
+- `get-localization-preference` — اقرأ `{ locale, timezone }` الخاصين بالمستخدم الحالي
+- `set-localization-preference` — عيّن `locale` و/أو `timezone`، وكل منهما اختياري
+
+`locale` إما `"system"` أو لغة محلية مدعومة بمعيار BCP-47. `timezone` إما
+`"system"` أو منطقة زمنية IANA مثل `America/New_York`. يوجد هذا الحقل حتى
+تعمل المهام المجدولة والتلقائية في المنطقة الزمنية للمستخدم بدلاً من منطقة
+المضيف. ترك حقل واحد فقط عند التعيين يُبقي الحقل الآخر دون تغيير، لأن
+`set-localization-preference` يدمج القيمة الجديدة مع القيمة المخزنة الحالية
+بدلاً من الكتابة فوقها.
+
+تتواجد القيمة الدائمة في إعدادات SQL على نطاق المستخدم ضمن `localization`.
+يُستخدم `localStorage` فقط قبل عملية الـ hydrate وكاحتياط للمستخدمين المجهولين.
+يتم عكس اللغة النشطة في حالة التطبيق كسياق محيط حتى يتمكن الوكلاء من رؤية
+لغة الواجهة الحالية.
+
+## حارس
+
+شغّل:
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+بالنسبة لكتالوجات التطبيقات والقوالب، يتحقق الحارس من:
+
+- أسماء ملفات اللغات، وتكافؤ المفاتيح، وتكافؤ العناصر النائبة، والمفاتيح القديمة
+- المفاتيح المكررة والعلامات المتبقية من مرحلة التطوير فقط
+- تلوث اللغة الخاطئة، على سبيل المثال نص صيني داخل كتالوج عربي
+- فئات الجمع الخاصة بـ CLDR من خلال `Intl.PluralRules`
+- استدعاءات `t()` في مصدر التطبيق التي يكون مفتاحها مفقودًا من الكتالوج الإنجليزي
+
+يتحقق الحارس من البنية، وليس من جودة الترجمة. لا تزال السلاسل عالية
+الظهور بحاجة إلى مراجعة بشرية.
+
+لا تترجم المعرّفات الثابتة مثل أسماء actions، والمسارات، وقيم التعداد،
+ومفاتيح حالة التطبيق، وقيم قاعدة البيانات، وحقول البروتوكول، وأسماء متغيرات
+env، وأسماء الموفرين.
+
+## الخطوات التالية
+
+- [**نظرة عامة**](/docs/client-overview#app-shell) — غلاف `AppProviders` وخطافات المتصفح الأخرى التي يُبنى عليها i18n
+- [**Toolkit: Settings**](/docs/toolkit-settings) — ضع `<LanguagePicker>` في صفحة الإعدادات القياسية
+- [**البدء**](/docs/getting-started) — ابنِ تطبيقك الأول على قالب يشحن بالفعل كتالوجات مترجمة
