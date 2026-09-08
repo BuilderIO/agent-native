@@ -104,6 +104,8 @@ export default defineAction({
 
 Mantén `link` como el respaldo para la CLI y para hosts MCP sin UI. También es el destino de lanzamiento de la incrustación. El puente de incrustación (la sesión firmada de embed-start, el renderizado transplant frente a controlled-frame, el puente de host `ui/*`, la CSP y el ajuste de altura) pertenece a [Agentes externos](/docs/external-agents#mcp-app-bridge).
 
+No existe una comprobación automática de que una plantilla tenga `view-screen`, `navigate`, o un conjunto de create/read/update/list para su recurso principal; el scaffold incluye `view-screen` y `navigate`, y `pnpm guard:external-result-contract` rechaza el lenguaje de "esperar a que el usuario" en el `description` o `nextRequiredAction` de una acción expuesta externamente, y exige un enlace profundo en una nueva acción `create-*` expuesta externamente. Su presencia es un punto de revisión.
+
 ## Acciones estándar {#standard-actions}
 
 Toda plantilla debería incluir estas dos para la [conciencia del contexto](/docs/context-awareness).

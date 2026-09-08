@@ -27,6 +27,13 @@ export interface ReviewCommentObservation {
   isResolved?: boolean;
 }
 
+export interface HumanReviewObservation {
+  author: string;
+  state: string;
+  body?: string | null;
+  htmlUrl?: string | null;
+}
+
 export interface BabysitInput {
   comments: readonly ReviewCommentObservation[];
   checks: readonly PullRequestCheckObservation[];
@@ -34,6 +41,8 @@ export interface BabysitInput {
   failingJobLog?: string;
   botAuthors?: readonly string[];
   commentsTruncated?: boolean;
+  reviews?: readonly HumanReviewObservation[];
+  reviewsTruncated?: boolean;
 }
 
 export interface BabysitProposal {
@@ -43,6 +52,8 @@ export interface BabysitProposal {
   pendingChecks: PullRequestCheckObservation[];
   checksCoverage: TriageCoverage;
   commentsTruncated: boolean;
+  reviewsTruncated: boolean;
+  humanReviewBodyKeys: string[];
   isClean: boolean;
 }
 
@@ -78,28 +89,190 @@ export function hasCompletePassingChecks(input: {
   );
 }
 
+export const DEFAULT_BABYSIT_PR_COMMENT =
+  "@builderio-bot look at the latest PR feedback and fix anything you agree with. Be skeptical. Reply on each comment thread whether you fixed it and why. Get CI green and keep the branch mergeable.";
+
+/** First unfinished episode, or new human feedback / real conflict. SHA and CI flicker are not a new episode. */
+export function shouldPostBabysitComment(input: {
+  previousFingerprint: string | null | undefined;
+  fingerprint: string;
+  previousState: string | null | undefined;
+  lastCommentAtMs: number | null;
+  nowMs: number;
+  minCommentIntervalMs: number;
+}): boolean {
+  const intervalOk =
+    input.lastCommentAtMs === null ||
+    input.nowMs - input.lastCommentAtMs >= input.minCommentIntervalMs;
+  if (!intervalOk) return false;
+  const firstPokeForThisWork =
+    input.lastCommentAtMs === null || input.previousState === "clean";
+  return (
+    firstPokeForThisWork || input.previousFingerprint !== input.fingerprint
+  );
+}
+
+export const PARKED_BABYSIT_STATES = ["waiting", "quiet", "clean"] as const;
+
+export function babysitLeavesReviewWindow(
+  state: string | null | undefined,
+): boolean {
+  return state === "waiting" || state === "quiet" || state === "clean";
+}
+
+export function hasChangesRequested(
+  reviewStates: readonly string[] | undefined,
+): boolean {
+  return (reviewStates ?? []).includes("changes_requested");
+}
+
+/** Record inbox/audit only when babysit state changes or a comment is posted. */
+export function shouldRecordBabysitAudit(input: {
+  previousState: string | null | undefined;
+  nextState: string;
+  posted: boolean;
+}): boolean {
+  return input.posted || input.previousState !== input.nextState;
+}
+
+export function isBabysitBotAuthor(
+  author: string | null | undefined,
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): boolean {
+  const login = author?.trim().toLowerCase();
+  if (!login) return false;
+  return botAuthors.some((bot) => bot.toLowerCase() === login);
+}
+
+export function countHumanReviewComments(
+  comments: readonly { author: string; inReplyToId?: string | null }[],
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): number {
+  return comments.filter(
+    (comment) =>
+      comment.inReplyToId == null &&
+      !isBabysitBotAuthor(comment.author, botAuthors),
+  ).length;
+}
+
+export function hasHumanChangesRequested(
+  reviews: readonly { author: string; state: string }[],
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): boolean {
+  return reviews.some(
+    (review) =>
+      review.state === "changes_requested" &&
+      !isBabysitBotAuthor(review.author, botAuthors),
+  );
+}
+
+function isHumanReviewFeedback(
+  review: HumanReviewObservation,
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): boolean {
+  if (isBabysitBotAuthor(review.author, botAuthors)) return false;
+  if (review.state === "changes_requested" || review.state === "pending") {
+    return true;
+  }
+  return review.state === "commented" && Boolean(review.body?.trim());
+}
+
+export function humanReviewBodyKeys(
+  reviews: readonly HumanReviewObservation[],
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): string[] {
+  return reviews
+    .filter(
+      (review) =>
+        (review.state === "commented" ||
+          review.state === "changes_requested") &&
+        Boolean(review.body?.trim()) &&
+        !isBabysitBotAuthor(review.author, botAuthors),
+    )
+    .map(
+      (review) => review.htmlUrl?.trim() || `${review.author}:${review.body}`,
+    )
+    .sort();
+}
+
+export function countHumanReviewBodies(
+  reviews: readonly HumanReviewObservation[],
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): number {
+  return humanReviewBodyKeys(reviews, botAuthors).length;
+}
+
+export function hasHumanReviewWork(
+  reviews: readonly HumanReviewObservation[] | undefined,
+  reviewsTruncated: boolean,
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): boolean {
+  if (reviewsTruncated) return true;
+  return (reviews ?? []).some((review) =>
+    isHumanReviewFeedback(review, botAuthors),
+  );
+}
+
+/** New top-level human review work or a real conflict. Author replies, bot replies, and truncated totals do not reopen. */
+export function shouldReopenParkedBabysit(input: {
+  parked: boolean;
+  storedMergeConflict: boolean;
+  nextMergeConflict: boolean;
+  storedChangesRequested: boolean;
+  nextChangesRequested: boolean;
+  storedCommentsTruncated: boolean;
+  storedHumanReviewCommentCount: number | null | undefined;
+  nextHumanReviewCommentCount: number | null | undefined;
+  storedHumanReviewBodyCount?: number | null | undefined;
+  nextHumanReviewBodyCount?: number | null | undefined;
+  storedReviewsTruncated?: boolean;
+  nextReviewsTruncated?: boolean;
+}): boolean {
+  if (!input.parked) return false;
+  if (input.nextMergeConflict && !input.storedMergeConflict) return true;
+  if (input.nextChangesRequested && !input.storedChangesRequested) return true;
+  if (
+    !input.storedReviewsTruncated &&
+    !input.nextReviewsTruncated &&
+    typeof input.nextHumanReviewBodyCount === "number" &&
+    typeof input.storedHumanReviewBodyCount === "number" &&
+    input.nextHumanReviewBodyCount > input.storedHumanReviewBodyCount
+  ) {
+    return true;
+  }
+  if (input.storedCommentsTruncated) return false;
+  if (
+    typeof input.nextHumanReviewCommentCount === "number" &&
+    typeof input.storedHumanReviewCommentCount === "number" &&
+    input.nextHumanReviewCommentCount > input.storedHumanReviewCommentCount
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Work that may start another GitHub poke. SHA, CI flicker, and uncomputed mergeability do not. */
 export function babysitFingerprint(input: {
-  headSha: string;
+  headSha?: string;
   mergeable: boolean | null;
   mergeableState: string | null;
   snapshot: BabysitProposal;
   reviewStates?: readonly string[];
 }): string {
   return JSON.stringify({
-    headSha: input.headSha,
-    mergeable: input.mergeable,
-    mergeableState: input.mergeableState,
     unansweredComments: input.snapshot.unansweredComments.map((comment) => ({
       id: comment.id,
       body: comment.body,
       isResolved: comment.isResolved ?? null,
     })),
-    failingChecks: input.snapshot.failingChecks.map((check) => check.name),
-    pendingChecks: input.snapshot.pendingChecks.map((check) => check.name),
-    checksCoverage: input.snapshot.checksCoverage,
-    missingChangesetPackages: input.snapshot.missingChangesetPackages,
+    mergeConflict: hasMergeConflict({
+      mergeable: input.mergeable,
+      mergeableState: input.mergeableState,
+    }),
     commentsTruncated: input.snapshot.commentsTruncated,
-    reviewStates: input.reviewStates ?? [],
+    reviewsTruncated: input.snapshot.reviewsTruncated,
+    humanReviewBodyKeys: input.snapshot.humanReviewBodyKeys,
+    changesRequested: hasChangesRequested(input.reviewStates),
   });
 }
 
@@ -157,6 +330,9 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
   // A capped comment page hides unanswered threads beyond it, which reads as
   // clean — the same false all-clear a "since" filter produces.
   const commentsTruncated = input.commentsTruncated === true;
+  const reviewsTruncated = input.reviewsTruncated === true;
+  const reviewBots = input.botAuthors ?? [...DEFAULT_BABYSIT_BOT_AUTHORS];
+  const reviewBodyKeys = humanReviewBodyKeys(input.reviews ?? [], reviewBots);
 
   return {
     unansweredComments,
@@ -165,9 +341,12 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
     pendingChecks,
     checksCoverage,
     commentsTruncated,
+    reviewsTruncated,
+    humanReviewBodyKeys: reviewBodyKeys,
     isClean:
       hasCompletePassingChecks(input) &&
       !commentsTruncated &&
+      !hasHumanReviewWork(input.reviews, reviewsTruncated, reviewBots) &&
       unansweredComments.length === 0 &&
       failingChecks.length === 0 &&
       missingChangesetPackages.length === 0 &&

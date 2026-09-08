@@ -260,6 +260,28 @@ export function parentFlexDirection(
   return isParentFlex(element) ? "horizontal" : null;
 }
 
+/** Drawn vector primitives — an `<svg>` wrapper around one shape child. */
+const VECTOR_PRIMITIVE_KINDS = new Set([
+  "path",
+  "line",
+  "arrow",
+  "polygon",
+  "star",
+]);
+
+/**
+ * True for a pen path, line, arrow, polygon, or star. Their paint is SVG
+ * `fill`/`stroke` on the shape child, not `background`/`border` on the box —
+ * see `vectorPaintTarget` (bridge) and `vectorPaintChild` (code-layer).
+ */
+export function isVectorShapeElement(element: ElementInfo): boolean {
+  // The board's migrated polygons and stars are plain divs carrying the same
+  // primitiveKind, and their paint really is background/border — only an
+  // <svg> has a shape child for `vectorPaintTarget` to redirect to.
+  if ((element.tagName || "").toLowerCase() !== "svg") return false;
+  return VECTOR_PRIMITIVE_KINDS.has(element.primitiveKind ?? "");
+}
+
 export function isTextElement(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
   if (TEXT_TAGS.has(tag)) return true;

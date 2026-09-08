@@ -1,5 +1,4 @@
 import { resolveCredential } from "@agent-native/core/credentials";
-import { isLocalDatabase } from "@agent-native/core/db";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { resolveWorkspaceConnectionCredentialForApp } from "@agent-native/core/workspace-connections";
@@ -20,23 +19,24 @@ const WORKSPACE_PROVIDER_BY_KEY: Record<string, string> = {
   SLACK_BOT_TOKEN: "slack",
   SLACK_BOT_TOKEN_2: "slack",
 };
+const GITHUB_APP_KEYS = [
+  "GITHUB_APP_ID",
+  "GITHUB_APP_INSTALLATION_ID",
+  "GITHUB_APP_PRIVATE_KEY",
+] as const;
 const VAULT_ONLY_KEYS = new Set([
   ...Object.keys(WORKSPACE_PROVIDER_BY_KEY),
+  ...GITHUB_APP_KEYS,
   "SENTRY_ORG_SLUG",
 ]);
 
 function isMissingTableError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  return (
-    /no such table/i.test(message) ||
-    /relation .* does not exist/i.test(message)
-  );
+  return /relation .* does not exist/i.test(message);
 }
 
 function isExplicitLocalNodeEnv(): boolean {
-  return (
-    process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
-  );
+  return process.env.NODE_ENV === "development";
 }
 
 function isNetlifyCliLocalRuntime(): boolean {
@@ -50,8 +50,8 @@ function isNetlifyHostedRuntime(): boolean {
   if (isNetlifyCliLocalRuntime()) return false;
   if (/^(1|true)$/i.test(process.env.NETLIFY ?? "")) return true;
   // NETLIFY is a build-only variable. Deployed Functions document SITE_ID as
-  // the runtime host marker. `netlify dev` also injects SITE_ID, so local
-  // sqlite keeps the .env fallback only when a CLI-local signal is present.
+  // the runtime host marker. `netlify dev` also injects SITE_ID, so the
+  // explicit CLI-local signal above keeps its development fallback available.
   return Boolean(process.env.SITE_ID); // guard:allow-env-credential — Netlify's read-only public site identifier is a runtime host marker, not a user credential.
 }
 
@@ -88,10 +88,9 @@ function isHostedWorkspaceRuntime(): boolean {
 }
 
 function canUseLocalProviderEnvFallback(): boolean {
-  // Allowlist: sqlite `pnpm dev` / vitest. A file: URL on an unnamed hosted
-  // runtime is not local development, even when NODE_ENV is unset.
+  // Allow the fallback only for explicit local development. Hosted runtimes
+  // must resolve provider credentials through shared connections or the vault.
   return (
-    isLocalDatabase() &&
     isExplicitLocalNodeEnv() &&
     !isHostedPlatformRuntime() &&
     !isHostedWorkspaceRuntime()
@@ -196,10 +195,8 @@ export async function resolveConnectorSecret(
     if (legacySecret?.trim()) return legacySecret.trim();
   }
 
-  // Hosted Factory keeps Slack/GitHub/Sentry vault-only. Local `pnpm dev`
-  // sqlite may still read `.env` so polling works without a Dispatch connection.
   if (!VAULT_ONLY_KEYS.has(key) || canUseLocalProviderEnvFallback()) {
-    const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - local sqlite and generic deploy-level connector fallback
+    const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - explicit local development or generic deploy-level connector fallback
     if (environmentSecret) return environmentSecret;
   }
 
@@ -235,6 +232,19 @@ export async function hasConnectorSecret(
   return false;
 }
 
+async function hasGitHubConnectorSecret(
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions,
+): Promise<boolean> {
+  if (await hasConnectorSecret("GITHUB_TOKEN", ownerEmail, options)) {
+    return true;
+  }
+  const appSecrets = await Promise.all(
+    GITHUB_APP_KEYS.map((key) => hasConnectorSecret(key, ownerEmail, options)),
+  );
+  return appSecrets.every(Boolean);
+}
+
 export async function resolveFactoryConnectorReadiness(
   ownerEmail: string,
   options: ResolveConnectorSecretOptions = {},
@@ -248,7 +258,7 @@ export async function resolveFactoryConnectorReadiness(
   const [slack, slackSecondary, github, sentry] = await Promise.all([
     hasConnectorSecret("SLACK_BOT_TOKEN", ownerEmail, readinessOptions),
     hasConnectorSecret("SLACK_BOT_TOKEN_2", ownerEmail, readinessOptions),
-    hasConnectorSecret("GITHUB_TOKEN", ownerEmail, readinessOptions),
+    hasGitHubConnectorSecret(ownerEmail, readinessOptions),
     hasConnectorSecret(
       ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"],
       ownerEmail,
@@ -269,11 +279,14 @@ export async function assertFactoryConnectorReady(
   const verb = options.verb ?? "creating";
   const label =
     source === "slack" ? "Slack" : source === "github" ? "GitHub" : "Sentry";
-  const ready = await hasConnectorSecret(
-    connectorKeysForSource(source, options.slackWorkspace),
-    ownerEmail,
-    options,
-  );
+  const ready =
+    source === "github"
+      ? await hasGitHubConnectorSecret(ownerEmail, options)
+      : await hasConnectorSecret(
+          connectorKeysForSource(source, options.slackWorkspace),
+          ownerEmail,
+          options,
+        );
   if (!ready) {
     throw new Error(
       `Connect ${label} in Dispatch or add a vault token before ${verb} this job.`,

@@ -1,6 +1,11 @@
 import {
   AgentSidebar,
+  focusAgentChat,
+  isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
+  navigateWithAgentChatViewTransition,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
   useGuidedQuestionFlow,
   type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
@@ -19,7 +24,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
@@ -77,7 +82,10 @@ function resolveDesignLayoutMode(input: {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const t = useT();
+  const isChatRoute =
+    location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
   const builderHostEmbed = isBuilderHostEmbed();
@@ -139,6 +147,20 @@ export function Layout({ children }: LayoutProps) {
       },
     };
   }, [designScope]);
+  const chatHomeHandoffActive = useAgentChatHomeHandoff({
+    storageKey: DESIGN_CHAT_STORAGE_KEY,
+    activePath: location.pathname,
+    enabled: !isChatRoute,
+  });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive(
+    DESIGN_CHAT_STORAGE_KEY,
+  );
+  useAgentChatHomeHandoffLinks({
+    storageKey: DESIGN_CHAT_STORAGE_KEY,
+    isChatPath: (pathname) =>
+      pathname === "/chat" || pathname.startsWith("/chat/"),
+    requireActiveHandoff: true,
+  });
   const designQuestionStateKey = designScope
     ? `show-questions:${designScope.id}`
     : "show-questions";
@@ -166,7 +188,16 @@ export function Layout({ children }: LayoutProps) {
   }
 
   const hideHeader =
-    !embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p));
+    isChatRoute ||
+    (!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p)));
+
+  function openAgentChatFullscreen() {
+    focusAgentChat();
+    const designQuery = designScope
+      ? `?designId=${encodeURIComponent(designScope.id)}`
+      : "";
+    navigateWithAgentChatViewTransition(navigate, `/chat${designQuery}`);
+  }
 
   if (layoutMode === "host-bare") {
     return (
@@ -203,88 +234,102 @@ export function Layout({ children }: LayoutProps) {
     );
   }
 
+  const shell = (
+    <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
+      {!standaloneEditor && mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-foreground/50 md:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+      {!standaloneEditor && (
+        <div
+          className={cn(
+            "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none motion-reduce:transition-none",
+            mobileSidebarOpen
+              ? "translate-x-0"
+              : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
+          )}
+        >
+          <Sidebar />
+        </div>
+      )}
+      <div className="agent-layout-main-surface flex h-full flex-1 flex-col overflow-hidden">
+        {/* Mobile-only top bar with hamburger */}
+        {showMobileTopBar && (
+          <div className="flex h-12 shrink-0 items-center border-b border-border bg-sidebar px-4 md:hidden">
+            <button
+              onClick={openMobileSidebar}
+              className="-ms-1 me-3 cursor-pointer rounded-md p-2.5 hover:bg-sidebar-accent/50"
+              aria-label={t("navigation.openNavigation")}
+            >
+              <IconMenu2 className="h-5 w-5 text-foreground" />
+            </button>
+            <span className="text-base font-bold tracking-tight">
+              {t("navigation.brand")}
+            </span>
+          </div>
+        )}
+        {!hideHeader && (
+          <>
+            <MobileHeaderActions />
+            <Header />
+          </>
+        )}
+        <main
+          className={cn(
+            "agent-native-app-main min-h-0 flex-1",
+            isDesignEditor || isChatRoute
+              ? "overflow-hidden"
+              : "overflow-y-auto",
+          )}
+        >
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+
   return (
     <HeaderActionsProvider>
       <MobileSidebarContext.Provider
         value={standaloneEditor ? null : openMobileSidebar}
       >
-        <AgentSidebar
-          position="right"
-          storageKey={DESIGN_CHAT_STORAGE_KEY}
-          agentPageHref="/settings/agent"
-          emptyStateText={t("chat.emptyState")}
-          suggestions={[
-            t("chat.suggestionLandingPage"),
-            t("chat.suggestionBrandMatch"),
-            t("chat.suggestionMobile"),
-          ]}
-          scope={designScope}
-          chatHistory={designChatHistory}
-          showScopeBadge={false}
-          browserTabId={browserTabId}
-          threadFooterSlot={designQuestionsWaitingSlot}
-          onComposerTextChange={handleComposerTextChange}
-          composerSlot={
-            <>
-              <CreativeContextComposerChip />
-              {detectedFigmaComposerLink ? (
-                <FigmaLinkComposerBubble link={detectedFigmaComposerLink} />
-              ) : null}
-            </>
-          }
-        >
-          <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
-            {!standaloneEditor && mobileSidebarOpen && (
-              <div
-                className="fixed inset-0 z-40 bg-black/50 md:hidden"
-                onClick={() => setMobileSidebarOpen(false)}
-              />
-            )}
-            {!standaloneEditor && (
-              <div
-                className={cn(
-                  "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none motion-reduce:transition-none",
-                  mobileSidebarOpen
-                    ? "translate-x-0"
-                    : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
-                )}
-              >
-                <Sidebar />
-              </div>
-            )}
-            <div className="agent-layout-main-surface flex h-full flex-1 flex-col overflow-hidden">
-              {/* Mobile-only top bar with hamburger */}
-              {showMobileTopBar && (
-                <div className="flex h-12 shrink-0 items-center border-b border-border bg-sidebar px-4 md:hidden">
-                  <button
-                    onClick={openMobileSidebar}
-                    className="-ms-1 me-3 cursor-pointer rounded-md p-2.5 hover:bg-sidebar-accent/50"
-                    aria-label={t("navigation.openNavigation")}
-                  >
-                    <IconMenu2 className="h-5 w-5 text-foreground" />
-                  </button>
-                  <span className="text-base font-bold tracking-tight">
-                    {t("navigation.brand")}
-                  </span>
-                </div>
-              )}
-              {!hideHeader && (
-                <>
-                  <MobileHeaderActions />
-                  <Header />
-                </>
-              )}
-              <main
-                className={cn(
-                  "agent-native-app-main flex-1",
-                  isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
-                )}
-              >
-                {children}
-              </main>
-            </div>
-          </div>
-        </AgentSidebar>
+        {isChatRoute ? (
+          shell
+        ) : (
+          <AgentSidebar
+            position="right"
+            chatViewTransition
+            chatViewTransitionHandoff={chatHomeHandoffPending}
+            openOnChatRunning={chatHomeHandoffActive}
+            onFullscreenRequest={openAgentChatFullscreen}
+            storageKey={DESIGN_CHAT_STORAGE_KEY}
+            agentPageHref="/settings/agent"
+            emptyStateText={t("chat.emptyState")}
+            suggestions={[
+              t("chat.suggestionLandingPage"),
+              t("chat.suggestionBrandMatch"),
+              t("chat.suggestionMobile"),
+            ]}
+            scope={designScope}
+            chatHistory={designChatHistory}
+            showScopeBadge={false}
+            browserTabId={browserTabId}
+            threadFooterSlot={designQuestionsWaitingSlot}
+            onComposerTextChange={handleComposerTextChange}
+            composerSlot={
+              <>
+                <CreativeContextComposerChip />
+                {detectedFigmaComposerLink ? (
+                  <FigmaLinkComposerBubble link={detectedFigmaComposerLink} />
+                ) : null}
+              </>
+            }
+          >
+            {shell}
+          </AgentSidebar>
+        )}
       </MobileSidebarContext.Provider>
     </HeaderActionsProvider>
   );

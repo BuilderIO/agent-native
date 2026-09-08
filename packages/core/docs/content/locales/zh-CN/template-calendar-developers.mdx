@@ -470,7 +470,7 @@ action 都会直接调用 Google Calendar API，本地并没有活动表。只�
 
 - `templates/calendar/actions/`：添加一个包含 `defineAction` 的新文件，即可将新功能同时暴露给代理和前端。
 - `templates/calendar/app/routes/`：界面部分，如上文列出。
-- `templates/calendar/server/db/schema.ts`：使用 Drizzle 添加列或表。请保持代码与具体数据库方言无关，以便模板能够在 SQLite、Postgres、Turso、D1 和 Neon 上运行。
+- `templates/calendar/server/db/schema.ts`：使用 Drizzle 添加列或表。保持代码兼容 PostgreSQL，让模板能够在 PGlite 和 Postgres 上运行。
 - `templates/calendar/server/lib/`：provider 集成代码，包括 `google-calendar.ts`、`zoom.ts`、`people-search.ts`、`ical-fetcher.ts`、`find-time.ts`、`provider-api.ts`。
 - `templates/calendar/AGENTS.md`：代理指令。当您为代理教授新功能或新约定时，请更新此文件。
 - `templates/calendar/.agents/skills/`：代理遵循的详细模式。相关 skills：`event-management`、`availability-booking`、`real-time-sync`、`storing-data`、`delegate-to-agent`、`frontend-design`。

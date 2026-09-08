@@ -1011,6 +1011,9 @@ const enUS = {
     recentDrafts: "Recent Drafts",
     viewAllDrafts: "View all drafts",
     draftAsset: "Draft asset",
+    draftsOnly: "Drafts only",
+    draftsOnlyHint:
+      "You can generate drafts in this kit. Ask an editor to save them into it.",
     noReusableAssets:
       "No reusable assets yet. Select a kit to upload references or generate assets.",
     noNewAssetsUploaded: "No new assets were uploaded.",
@@ -3733,6 +3736,9 @@ export const messagesByLocale = {
       recentDrafts: "最近草稿",
       viewAllDrafts: "查看所有草稿",
       draftAsset: "草稿资产",
+      draftsOnly: "仅草稿",
+      draftsOnlyHint:
+        "您可以在此套件中生成草稿。请让编辑者将它们保存到套件中。",
       addAssets: "添加资产",
       addAssetsDescription:
         "上传源素材或生成候选项，然后只将应指导未来生成的资产标记为参考。",
@@ -4607,6 +4613,9 @@ export const messagesByLocale = {
       recentDrafts: "Borradores recientes",
       viewAllDrafts: "Ver todos los borradores",
       draftAsset: "Borrador",
+      draftsOnly: "Solo borradores",
+      draftsOnlyHint:
+        "Puedes generar borradores en este kit. Pide a un editor que los guarde en él.",
       addAssets: "Agregar activos",
       addAssetsDescription:
         "Cargue material fuente o genere candidatos, luego marque solo los activos que deberían guiar a las generaciones futuras como referencias.",
@@ -5123,6 +5132,9 @@ export const messagesByLocale = {
       recentDrafts: "Brouillons récents",
       viewAllDrafts: "Voir tous les brouillons",
       draftAsset: "Brouillon",
+      draftsOnly: "Brouillons uniquement",
+      draftsOnlyHint:
+        "Vous pouvez générer des brouillons dans ce kit. Demandez à un éditeur de les y enregistrer.",
       addAssets: "Ajouter des éléments",
       addAssetsDescription:
         "Téléchargez le matériel source ou générez des candidats, puis marquez uniquement les atouts qui devraient guider les générations futures comme références.",
@@ -5617,6 +5629,9 @@ export const messagesByLocale = {
       recentDrafts: "Letzte Entwürfe",
       viewAllDrafts: "Alle Entwürfe anzeigen",
       draftAsset: "Entwurf",
+      draftsOnly: "Nur Entwürfe",
+      draftsOnlyHint:
+        "Sie können in diesem Kit Entwürfe generieren. Bitten Sie einen Bearbeiter, sie im Kit zu speichern.",
       addAssets: "Assets hinzufügen",
       addAssetsDescription:
         "Laden Sie Quellmaterial hoch oder generieren Sie Kandidaten und markieren Sie dann nur die Assets, die künftigen Generationen als Referenz dienen sollen.",
@@ -6019,6 +6034,9 @@ export const messagesByLocale = {
       recentDrafts: "最近の下書き",
       viewAllDrafts: "すべての下書きを表示",
       draftAsset: "下書きアセット",
+      draftsOnly: "下書きのみ",
+      draftsOnlyHint:
+        "このキットで下書きを生成できます。キットに保存するには編集者に依頼してください。",
       addAssets: "アセットの追加",
       addAssetsDescription:
         "ソース素材をアップロードするか候補を生成し、将来の世代を導く必要がある資産のみを参照としてマークします。",
@@ -6410,6 +6428,9 @@ export const messagesByLocale = {
       recentDrafts: "최근 초안",
       viewAllDrafts: "모든 초안 보기",
       draftAsset: "초안 자산",
+      draftsOnly: "초안만 가능",
+      draftsOnlyHint:
+        "이 키트에서 초안을 생성할 수 있습니다. 키트에 저장하려면 편집자에게 요청하세요.",
       addAssets: "자산 추가",
       addAssetsDescription:
         "원본 자료를 업로드하거나 후보를 생성한 후, 미래 세대를 이끌어야 할 자산만 참고 자료로 표시하세요.",
@@ -6799,6 +6820,9 @@ export const messagesByLocale = {
       recentDrafts: "Rascunhos recentes",
       viewAllDrafts: "Ver todos os rascunhos",
       draftAsset: "Rascunho",
+      draftsOnly: "Somente rascunhos",
+      draftsOnlyHint:
+        "Você pode gerar rascunhos neste kit. Peça a um editor para salvá-los nele.",
       addAssets: "Adicionar recursos",
       addAssetsDescription:
         "Carregue o material de origem ou gere candidatos e marque apenas os ativos que devem orientar as gerações futuras como referências.",
@@ -7292,6 +7316,9 @@ export const messagesByLocale = {
       recentDrafts: "हाल के ड्राफ़्ट",
       viewAllDrafts: "सभी ड्राफ़्ट देखें",
       draftAsset: "ड्राफ़्ट एसेट",
+      draftsOnly: "केवल ड्राफ़्ट",
+      draftsOnlyHint:
+        "आप इस किट में ड्राफ़्ट बना सकते हैं। उन्हें किट में सहेजने के लिए किसी एडिटर से कहें।",
       addAssets: "संपत्तियां जोड़ें",
       addAssetsDescription:
         "स्रोत सामग्री अपलोड करें या उम्मीदवार तैयार करें, फिर केवल उन संपत्तियों को चिह्नित करें जो भविष्य की पीढ़ियों को संदर्भ के रूप में मार्गदर्शन करें।",
@@ -7678,6 +7705,9 @@ export const messagesByLocale = {
       recentDrafts: "المسودات الأخيرة",
       viewAllDrafts: "عرض جميع المسودات",
       draftAsset: "مسودة",
+      draftsOnly: "المسودات فقط",
+      draftsOnlyHint:
+        "يمكنك إنشاء مسودات في هذه المجموعة. اطلب من محرِّر حفظها فيها.",
       addAssets: "أضف الأصول",
       addAssetsDescription:
         "قم بتحميل المواد المصدرية أو قم بإنشاء مرشحين، ثم حدد فقط الأصول التي يجب أن توجه الأجيال القادمة كمراجع.",

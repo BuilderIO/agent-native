@@ -13,7 +13,7 @@ describe("recorder browser diagnostics boundary", () => {
     const stopEnd = route.indexOf("// Keep the ref current", stopStart);
     const stopFlow = route.slice(stopStart, stopEnd);
     const diagnosticsStop = stopFlow.indexOf(
-      "const browserDiagnosticsSave = saveBrowserDiagnostics(pending.id);",
+      "const diagnosticsSave = saveBrowserDiagnostics(pending.id)",
     );
     const transcriptStop = stopFlow.indexOf("liveTranscription.stopAndWait()");
     const mediaStop = stopFlow.indexOf("await engine.stop()");
@@ -22,6 +22,6 @@ describe("recorder browser diagnostics boundary", () => {
     expect(diagnosticsStop).toBeGreaterThan(-1);
     expect(diagnosticsStop).toBeLessThan(transcriptStop);
     expect(diagnosticsStop).toBeLessThan(mediaStop);
-    expect(stopFlow.match(/await browserDiagnosticsSave;/g)).toHaveLength(2);
+    expect(stopFlow.match(/await diagnosticsSave;/g)).toHaveLength(2);
   });
 });

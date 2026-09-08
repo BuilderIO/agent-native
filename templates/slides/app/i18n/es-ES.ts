@@ -87,10 +87,8 @@ const messages = {
     cloudConnectedReloading: "Conectado correctamente. Recargando...",
     cloudConnectionFailed: "Error de conexión",
     cloudTestConnect: "Probar y conectar",
-    cloudSqliteEdge: "SQLite en el edge",
     cloudServerlessPostgres: "Postgres sin servidor",
     cloudOpenSourceFirebaseAlternative: "Alternativa open source a Firebase",
-    cloudCloudflareSqliteEdge: "SQLite en el edge de Cloudflare",
     designSlidePreview: "Vista previa de diapositiva",
     designSlideTitle: "Título de diapositiva",
     designSupportingText:
@@ -148,6 +146,8 @@ const messages = {
     clearSelection: "Borrar selección",
     sendToAgent: "Enviar al agente",
     saveReconnect: "Los cambios se guardarán al reconectar",
+    saveFailedDescription:
+      "Tus cambios más recientes solo están en este dispositivo. Descarga una copia de seguridad antes de salir.",
     offline: "Sin conexión",
     selected: "seleccionado",
     chooseDesignSystem: "Elige un sistema de diseño",
@@ -211,6 +211,9 @@ const messages = {
     usingDesignSystem: "Usando {{title}}",
     usingLinkedDesignSystem: "Usando un sistema de diseño vinculado",
     viewOnly: "Solo lectura",
+    sourcePreserving: "Edición limitada",
+    sourcePreservingDescription:
+      "Puedes editar texto y objetos. Añadir, eliminar o reordenar diapositivas está desactivado para este deck importado.",
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Puede ver y añadir comentarios",
     slideSettings: "Ajustes de diapositiva",
@@ -267,6 +270,12 @@ const messages = {
     more: "Más",
     importing: "Importando...",
     importFile: "Importar archivo",
+    downloadBackup: "Descargar copia de seguridad",
+    importBackup: "Importar copia de seguridad",
+    backupDownloaded: "Copia de seguridad descargada",
+    backupDownloadFailed: "No se pudo descargar la copia de seguridad",
+    invalidBackup:
+      "Elige un archivo JSON de copia de seguridad de Slides válido.",
     savedVersions: "Versiones guardadas",
     lightTheme: "Tema claro",
     darkTheme: "Tema oscuro",
@@ -274,6 +283,7 @@ const messages = {
   editorExport: {
     pptxFailed: "No se pudo generar el archivo PPTX.",
     exportFailed: "Error al exportar",
+    exporting: "Exportando...",
     exportPptxError: "Algo salió mal al exportar como PPTX.",
     googleSlidesDownloaded: "Descargado para Google Slides",
     googleSlidesImportHint:

@@ -1,8 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import {
-  listAutomationDefinitions,
-  listAutomationRuns,
-} from "@agent-native/core/triggers";
+import { listAutomationRuns } from "@agent-native/core/triggers";
 import { z } from "zod";
 
 import { readFactoryDefinition } from "../server/factory-graph/store.js";
@@ -12,8 +9,10 @@ import {
   readFactoryAutomationConfig,
   stripInjectedAutomationBlocks,
 } from "../server/lib/factory-automation-config.js";
+import { listFactoryAutomationDefinitions } from "../server/lib/factory-automation-resources.js";
 import {
   DEFAULT_FACTORY_ID,
+  factoryAutomationRunHistoryKey,
   factoryIdSchema,
   readAutomationFactoryId,
   resolveAutomationDisplayName,
@@ -23,10 +22,6 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 
-function automationRunHistoryKey(path: string): string {
-  return path.replace(/^jobs\//, "").replace(/\.md$/, "");
-}
-
 export default defineAction({
   description:
     "List the organization-scoped Factory automations with their trigger, editable prompt, model, schedule, enabled state, and recent runs.",
@@ -35,28 +30,19 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async ({ factoryId }, context) => {
-    const { userEmail, orgId } = await requireWorkspaceMember(
+    const { orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
     const factory = await readFactoryDefinition(orgId, factoryId);
     if (!factory && factoryId !== DEFAULT_FACTORY_ID) {
       throw new Error("Factory not found.");
     }
-    const definitions = await listAutomationDefinitions(
-      { userEmail, orgId, appId: "factory" },
-      "organization",
-    );
-    const scoped = definitions.filter(
-      ({ meta, resource }) =>
-        meta.domain === "factory" &&
-        readAutomationFactoryId(meta, resource.content, resource.path) ===
-          factoryId,
-    );
+    const scoped = await listFactoryAutomationDefinitions(orgId, factoryId);
     return Promise.all(
-      scoped.map(async ({ resource, name, meta, body }) => {
+      scoped.map(async ({ resource, name, meta }) => {
         const runs = await listAutomationRuns({
           owners: [resource.owner],
-          automation: automationRunHistoryKey(resource.path),
+          automation: factoryAutomationRunHistoryKey(resource.path),
           appId: "factory",
           limit: 20,
         });

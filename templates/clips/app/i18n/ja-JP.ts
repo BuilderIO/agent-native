@@ -158,14 +158,20 @@ const messages = {
     tryAgainMoment: "しばらくしてからもう一度試してください。",
     aiRequestFailed: "AI リクエストが失敗しました",
     titleUpdated: "タイトルを更新しました",
+    descriptionUpdated: "説明を更新しました",
+    chaptersGenerated: "チャプターを生成しました",
+    fillerCompleted: "フィラーワードの削除が完了しました",
+    workflowReady: "ワークフローの準備ができました",
+    workflowFailed: "ワークフローの生成に失敗しました",
+    transcriptionCompleted: "文字起こしが完了しました",
     transcriptNotReady: "トランスクリプトはまだ準備ができていません",
     tryAfterTranscription: "文字起こしが完了してからもう一度お試しください。",
-    titleGenerationQueued: "タイトル生成がキューに入れられました",
-    descriptionQueued: "説明リクエストがキューに入れられました",
-    chapterQueued: "チャプターリクエストがキューに入れられました",
-    fillerQueued: "フィラーワードの削除がキューに入れられています",
-    silenceQueued: "沈黙の削除が待機中です",
-    workflowQueued: "ワークフローリクエストがキューに入れられました",
+    titleGenerationQueued: "タイトルを生成中…",
+    descriptionQueued: "説明を生成中…",
+    chapterQueued: "チャプターを生成中…",
+    fillerQueued: "フィラーワードを削除中…",
+    silenceQueued: "無音部分を削除中…",
+    workflowQueued: "ワークフローを生成中…",
     pageTitle: "クリップ録画・Clips",
     loomMissingUrl: "この Loom 録音にはソース URL がありません。",
     finalizeFailed: "ファイナライズに失敗しました ({{status}})",
@@ -354,11 +360,10 @@ const messages = {
     downloadForWindows: "Windows 用のダウンロード",
     downloadForLinux: "Linux 用のダウンロード",
     downloadDesktopApp: "デスクトップアプリをダウンロード",
-    agentNativeClips: "Agent-Native Clips",
-    agentNativeClipsIntro: "は無料の",
-    openSource: "オープンソース",
-    agentFriendly: "エージェント対応",
-    loomAlternative: "Loom 代替です",
+    agentEmptyTitle: "会話に参加する",
+    agentEmptyDescription:
+      "無料の Clips アカウントを作成して、このクリップにコメント、リアクション、質問を追加できます。",
+    agentEmptySignInPrompt: "アカウントをお持ちですか？",
     signUp: "登録",
     ownerInsights: "所有者インサイト",
     ownerInsightsDescription:
@@ -742,6 +747,7 @@ const messages = {
     transcriptCleanupDescription:
       "まずネイティブの文字起こしを表示し、利用可能になったらバックグラウンドで整形します。",
     notifications: "通知",
+    monthlyRecap: "月次まとめ",
     sharing: "共有",
     defaultVisibility: "新しい録画のデフォルトの公開範囲",
     defaultVisibilityDescription:
@@ -751,7 +757,7 @@ const messages = {
     visibilityPublic: "公開 - リンクを知っている全員",
     emailNotifications: "メール通知",
     emailNotificationsDescription:
-      "誰かがあなたの録画にコメントまたはリアクションしたときにメールを受け取ります。",
+      "受け取る Clips の任意メール通知を選択します。",
     saved: "設定を保存しました",
     saveFailed: "保存に失敗しました",
     builderConnectedToast: "Builder.io に接続しました",
@@ -923,6 +929,12 @@ const messages = {
     totalVideoViews: "動画の合計視聴数",
     averageCompletionRate: "平均完了率",
     moreInsights: "インサイトをもっと見る",
+    connectAnalytics: "Agent-Native Analytics に接続",
+    connectAnalyticsTitle: "Agent-Native Analytics で続ける",
+    exploreWithAgent: "エージェントと詳しく見る",
+    startChatAction: "チャットを開始",
+    trackInDashboard: "ダッシュボードで追跡",
+    chooseDashboardAction: "ダッシュボードを選択",
   },
   libraryGrid: {
     spaceRoot: "スペースのルート",
@@ -1032,6 +1044,13 @@ const messages = {
     editComment: "コメントを編集",
     commentButton: "コメント",
     composerPlaceholder: "コメントを追加…",
+    resolved: "解決済み",
+    reply: "返信",
+    react: "リアクション",
+    resolve: "解決",
+    unresolve: "再開",
+    delete: "削除",
+    moreActions: "{{author}}のコメントのその他の操作",
   },
   shareMeeting: {
     pageTitle: "会議メモ · Clips",
@@ -1224,13 +1243,23 @@ const messages = {
     deleting: "削除中...",
   },
   signInPrompt: {
-    title: "{{intent}}するにはアカウントを作成",
-    description: "無料で作成できます。完了後、このクリップに戻ります。",
+    title: "{{intent}}するには無料の Clips アカウントを作成",
+    agentTitle: "会話に参加するには無料の Clips アカウントを作成",
+    genericTitle: "続行するには無料の Clips アカウントを作成",
+    description: "完了すると、このクリップに戻ります。",
+    passwordsMismatch: "パスワードが一致しません。",
     commentIntent: "コメント",
-    reactIntent: "リアクション",
+    reactIntent: "リアクションを追加",
     createAccount: "無料アカウントを作成",
     notNow: "後で",
     signIn: "ログイン",
+    google: "Google で登録",
+    or: "または",
+    legalPrefix: "登録すると、以下に同意したものとみなされます：",
+    legalTerms: "利用規約",
+    legalConnector: "および",
+    legalPrivacy: "プライバシーポリシー",
+    legalSuffix: "。",
   },
   embedRoute: {
     passwordRequired: "パスワードが必要です",
@@ -1247,6 +1276,50 @@ const messages = {
     selectedPreview: "選択したカメラのプレビュー",
     preview: "カメラプレビュー",
     setBubbleSize: "カメラバブルサイズ {{size}} を設定",
+    needsAttention: "カメラを確認",
+    unsupported: "このブラウザはカメラのライブテストに対応していません。",
+    policyBlocked:
+      "このページでカメラへのアクセスがブロックされています。Clips を直接開いて、もう一度お試しください。",
+    secureContextRequired:
+      "カメラのテストには HTTPS または localhost が必要です。",
+    permissionBlocked:
+      "カメラへのアクセスがブロックされています。このサイトの設定で許可してから、ページを再読み込みしてください。",
+    permissionDenied:
+      "カメラへのアクセスが拒否されました。サイトのカメラ設定とシステムのプライバシー設定を確認してから、ページを再読み込みしてください。",
+    notFound:
+      "カメラが見つかりません。カメラを接続するか、別のカメラを選択してください。",
+    inUse:
+      "カメラは別のアプリで使用中です。そのアプリを閉じるか、別のカメラを選択してください。",
+    startFailed: "カメラのテストを開始できませんでした。",
+    disconnected: "カメラが切断されました。",
+    noVideo: "カメラ映像を検出できませんでした。",
+  },
+  microphoneVisualizer: {
+    off: "オフ",
+    needsAttention: "マイクを確認",
+    signal: "入力あり",
+    listening: "待機中",
+    opening: "開いています",
+    openingEllipsis: "開いています...",
+    stop: "停止",
+    test: "マイクをテスト",
+    unsupported: "このブラウザはマイクのライブテストに対応していません。",
+    policyBlocked:
+      "このページでマイクへのアクセスがブロックされています。Clips を直接開いて、もう一度お試しください。",
+    secureContextRequired:
+      "マイクのテストには HTTPS または localhost が必要です。",
+    permissionBlockedBrowser:
+      "マイクへのアクセスがブロックされています。このサイトの設定で許可してから、ページを再読み込みしてください。",
+    permissionBlockedDesktop:
+      "マイクへのアクセスがブロックされています。システムのプライバシー設定で許可してから、レコーダーを開き直してください。",
+    permissionDenied:
+      "マイクへのアクセスが拒否されました。サイトのマイク設定とシステムのプライバシー設定を確認してから、ページを再読み込みしてください。",
+    notFound:
+      "マイクが見つかりません。マイクを接続するか、別の入力を選択してください。",
+    inUse:
+      "マイクは別のアプリで使用中です。そのアプリを閉じるか、別の入力を選択してください。",
+    startFailed: "マイクのテストを開始できませんでした。",
+    disconnected: "マイクが切断されました。",
   },
   storageSetup: {
     builderTimeout:
@@ -1366,6 +1439,11 @@ const messages = {
     shortMicLabel: "Mic {{id}} (ローカライズ済み)",
     defaultCamera: "Default camera (ローカライズ済み)",
     shortCameraLabel: "Camera {{id}} (ローカライズ済み)",
+    moreCameras: "その他のカメラ…",
+    cameraPickerTitle: "カメラを選択",
+    moreMicrophones: "その他のマイク…",
+    microphonePickerTitle: "マイクを選択",
+    closeDevicePicker: "デバイス選択を閉じる",
     noAudio: "No audio (ローカライズ済み)",
     noCamera: "No camera (ローカライズ済み)",
     loomImportFailed: "Could not import that Loom. (ローカライズ済み)",
@@ -1388,10 +1466,11 @@ const messages = {
     cameraOff: "Camera off (ローカライズ済み)",
     includeCameraAria: "Include camera in this recording (ローカライズ済み)",
     startRecording: "Start recording (ローカライズ済み)",
+    startCameraRecording: "カメラ録画を開始",
     micOffConfirmTitle: "マイクがミュートされています",
     micOffConfirmDescription:
       "動画に音声を入れるには、マイクのミュートを解除してください。",
-    startWithoutMic: "続ける",
+    startWithoutMic: "音声なしで録画",
     unmuteMicrophone: "ミュートを解除",
     uploadVideo: "Upload video (ローカライズ済み)",
     importLoom: "Import Loom (ローカライズ済み)",
@@ -1431,6 +1510,7 @@ const messages = {
     placementThroughout: "Throughout (ローカライズ済み)",
     placementEnd: "At end (ローカライズ済み)",
     delete: "Delete (ローカライズ済み)",
+    validWebUrl: "有効な http:// または https:// アドレスを入力してください。",
   },
   recordRoute: {
     pageTitle: "New recording — Clips (ローカライズ済み)",
@@ -1462,6 +1542,7 @@ const messages = {
       "Recording your screen — switch to the window you want to capture (ローカライズ済み)",
     largeClipsNeedReencode:
       "Large clips need a quick re-encode before upload. (ローカライズ済み)",
+    compressingRecording: "録画を圧縮しています…",
     savingRecording: "Saving your recording… (ローカライズ済み)",
     sessionExpired: "Session expired (ローカライズ済み)",
     sessionExpiredDescription:
@@ -1475,6 +1556,10 @@ const messages = {
     whatToCheck: "What to check (ローカライズ済み)",
     downloadRecording: "Download (ローカライズ済み)",
     openRecorderInTab: "Open recorder in tab (ローカライズ済み)",
+    retryUpload: "アップロードを再試行",
+    tryAgain: "もう一度試す",
+    storageConnectedReopeningRecorder:
+      "ストレージに接続しました。レコーダーを再度開いています...",
     connectStorageToFinish:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
     connectStorageToRetryLoom:
@@ -1537,6 +1622,7 @@ const messages = {
     emptyWebDescription:
       "Dictation runs through the desktop app for global shortcuts that work in any app — Slack, your editor, anywhere. (ローカライズ済み)",
     downloadDesktopApp: "Download Clips desktop app (ローカライズ済み)",
+    tryInBrowser: "ブラウザで試す",
     holdToDictate: "hold to dictate (ローカライズ済み)",
     toggle: "toggle (ローカライズ済み)",
     desktopCtaTitle:
@@ -1549,19 +1635,34 @@ const messages = {
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut. (ローカライズ済み)",
     loadFailed: "Couldn't load dictations. (ローカライズ済み)",
     noFilterMatches: "No dictations matching this filter. (ローカライズ済み)",
-    dictionaryTitle: "Dictionary (ローカライズ済み)",
+    dictionaryTitle: "辞書",
+    dictionaryAutoLearn: "デスクトップ版は修正から学習します",
+    dictionaryAddTerms: "用語を追加",
+    dictionaryImport: "読み込む",
+    dictionaryExport: "CSVを書き出す",
+    dictionaryImportFailed:
+      "有効な用語を含むCSV、TSV、またはテキストファイルを選択してください。",
+    dictionaryExported: "辞書を書き出しました",
+    dictionaryTermsPlaceholder:
+      "Agent-Native\nエージェントネイティブ → Agent-Native",
+    dictionaryTermsRequired: "用語を1つ以上入力してください。",
+    dictionarySearch: "辞書を検索",
+    dictionaryNoMatches: "一致する用語はありません。",
+    dictionaryRemoveTitle: "「{{term}}」を削除しますか？",
+    dictionaryRemoveDescription:
+      "今後の音声入力ではこの修正が使われなくなります。",
     dictionaryDescription:
-      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own. (ローカライズ済み)",
+      "音声認識で優先したい表記をこれらの用語から学習します。",
     dictionaryTermPlaceholder: "Term (ローカライズ済み)",
     dictionaryReplacementPlaceholder:
       "Replacement (optional) (ローカライズ済み)",
     dictionaryAdd: "Add (ローカライズ済み)",
     dictionaryLoading: "Loading dictionary... (ローカライズ済み)",
-    dictionaryEmpty: "No learned terms yet. (ローカライズ済み)",
-    dictionaryUsesCount: "Used {{count}}x (ローカライズ済み)",
-    dictionaryRemove: "Remove (ローカライズ済み)",
-    vocabularyAddFailed: "Couldn't add term (ローカライズ済み)",
-    vocabularyRemoveFailed: "Couldn't remove term (ローカライズ済み)",
+    dictionaryEmpty: "学習した用語はまだありません。",
+    dictionaryUsesCount: "{{count}}回使用",
+    dictionaryRemove: "削除",
+    vocabularyAddFailed: "用語を追加できませんでした",
+    vocabularyRemoveFailed: "用語を削除できませんでした",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "再生位置で分割 (S)",

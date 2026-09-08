@@ -1,5 +1,35 @@
 # @agent-native/toolkit
 
+## 0.19.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 58d9dc3: Allow callers to keep the AI presence avatar display-only.
+
+## 0.19.4
+
+### Patch Changes
+
+- e29fee8: Add a shared hook for browser-persisted sidebar collapse preferences.
+- cef8c06: Route Clips' shadcn UI primitives through the shared Toolkit while preserving its intentional line-tab variant.
+- Release all public npm packages with a patch version bump.
+- 73c36ce: Preserve non-overlapping local edits when a newer authoritative rich-document revision arrives, and report overlapping changes without replacing the local draft.
+
+## 0.19.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 760d108: Add an opt-in DataGrid edge affordance that reveals horizontally scrollable content without replacing the native scroll surface.
+
+## 0.19.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0566ce9: Expose resolved composer model selections so hosts can preserve them during attachment and recovery flows.
+
 ## 0.19.1
 
 ### Patch Changes
@@ -513,7 +543,7 @@
 
 ### Patch Changes
 
-- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add complete MUI and Ant Design Chat examples that exercise the public conformance contract, and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
+- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add public conformance coverage and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
 - f0da2e0: Preserve normalized core control icon sizing and semantic button styling while keeping settings defaults and sharing overlays consistent.
 - f0da2e0: Serialize realtime voice responses and recover from overlapping response requests without ending the voice session.
 - f0da2e0: Make the Dispatch chat composer recover from unavailable AI status checks and keep its Add menu clickable.

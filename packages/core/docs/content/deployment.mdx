@@ -1,6 +1,6 @@
 ---
 title: "Deployment"
-description: "Deploy an Agent-Native app or workspace to a Nitro-compatible platform with a persistent SQL database."
+description: "Deploy an Agent-Native app or workspace to a Nitro-compatible platform with a persistent PostgreSQL database."
 search: "deployment deploy app workspace hosting database Nitro Node.js Docker Vercel Netlify Cloudflare AWS Amplify AWS Lambda Deno Deploy Azure Static Web Apps Koyeb Render"
 ---
 
@@ -26,23 +26,21 @@ app communication.
 
 ## Before you deploy: choose a persistent database {#persistent-database}
 
-Every deployed app needs a persistent SQL database. Local development can use
-the SQLite file at `data/app.db`, but container, preview, and serverless
+Every deployed app needs a persistent PostgreSQL database. Local development can use
+the PGlite database at `data/pglite`, but container, preview, and serverless
 filesystems can be reset at any time.
 
 <Steps>
 
 ### Choose a provider
 
-Use any Drizzle-compatible SQL backend, such as Postgres, Neon, Supabase,
-Railway, RDS, Turso, or libSQL. The framework detects the database dialect from
-the connection URL.
+Use a hosted PostgreSQL provider such as Neon, Supabase, Railway, or RDS. The
+framework configures PostgreSQL from the connection URL.
 
 ### Set the connection string
 
 Set `DATABASE_URL` in the deployment environment before the first production
-deploy. Use `DATABASE_AUTH_TOKEN` too when the provider requires a separate
-token, such as Turso or libSQL.
+deploy.
 
 ### Add production secrets
 

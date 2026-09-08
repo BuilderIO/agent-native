@@ -239,7 +239,7 @@ export default defineAction({
         whereClauses.push(eq(schema.recordings.organizationId, orgId));
       }
       // Match recordings where spaceIds JSON array contains spaceId.
-      // Use a LIKE check — works across SQLite/Postgres without JSON ops.
+      // Use a LIKE check - works across Postgres and PGlite without JSON ops.
       const needle = `%"${args.spaceId.replace(/%/g, "")}"%`;
       whereClauses.push(sql`${schema.recordings.spaceIds} LIKE ${needle}`);
     }
@@ -284,8 +284,8 @@ export default defineAction({
     )`;
     // Same floor as `countRecordingViews`: `recording_views` only exists from
     // migration v46, so pre-migration clips have no log rows and must fall back
-    // to the counted-viewer count instead of sorting as zero. CASE rather than
-    // MAX()/GREATEST() — the two-argument spelling differs across dialects.
+    // to the counted-viewer count instead of sorting as zero. CASE keeps the
+    // ordering expression explicit about which count wins.
     const viewCountOrder = sql<number>`(
       CASE WHEN ${viewLogCount} > ${countedViewerCount}
         THEN ${viewLogCount}

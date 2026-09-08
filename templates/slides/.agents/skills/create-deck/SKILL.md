@@ -20,9 +20,11 @@ Context, reference deck, or source material that the app already provides.
    `get-workspace-defaults` and use what it returns. See "Workspace Defaults".
 3. Plan the slides (deck title, title slide, section dividers, content slides).
 4. Call `create-deck --title "..." --slides '[]'` with a concise, specific
-   title derived from the user's request and source material. Never use
-   `Untitled Deck` or another placeholder title for a generated deck.
-5. Navigate to the new deck.
+   title derived from the user's request and source material. The action opens
+   the new empty deck through application state. Never use `Untitled Deck` or
+   another placeholder title for a generated deck.
+5. If the connected browser does not consume the navigation command, call
+   `navigate` with the new deck id.
 6. Call `add-slide` once per slide in slide order, waiting for each result.
 
 When speaker notes are requested, put presenter-only text in each slide's
@@ -136,7 +138,9 @@ the URL alone.
 pnpm action create-deck --title "My Deck" --slides '[]'
 ```
 
-Then navigate:
+`create-deck` also writes the navigation command. If the connected browser did
+not consume it, navigate explicitly:
+
 ```bash
 pnpm action navigate --deckId=<id from create-deck output>
 ```

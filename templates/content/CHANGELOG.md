@@ -3,10 +3,17 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-03
+
+### Fixed
+
+- Database records can be added even when older rows use legacy positions.
+
 ## 2026-08-28
 
 ### Fixed
 
+- Builder Publish connections made in Settings can now discover, attach, and refresh read-only database sources without separate legacy keys or Builder write access.
 - Delegated Content requests now stay on Content's own actions for every authorized caller, including managed Slack channels.
 
 ## 2026-08-26

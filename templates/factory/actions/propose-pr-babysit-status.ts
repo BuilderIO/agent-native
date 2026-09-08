@@ -11,8 +11,9 @@ import { triageCoverageSchema } from "../server/triage/contracts.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import { reconcileBabysitState } from "../server/triage/pr-babysit.js";
 import type {
-  ReviewCommentObservation,
   BabysitProposal,
+  HumanReviewObservation,
+  ReviewCommentObservation,
 } from "../server/triage/pr-babysit.js";
 import type { PullRequestCheckObservation } from "../server/triage/pr-monitor.js";
 
@@ -32,6 +33,8 @@ export interface FetchReviewCommentsInput {
 export type FetchReviewComments = (input: FetchReviewCommentsInput) => Promise<{
   comments: readonly ReviewCommentObservation[];
   truncated: boolean;
+  reviews?: readonly HumanReviewObservation[];
+  reviewsTruncated?: boolean;
 }>;
 
 const fetchReviewCommentsFromGitHub: FetchReviewComments = async ({
@@ -41,13 +44,16 @@ const fetchReviewCommentsFromGitHub: FetchReviewComments = async ({
   orgId,
 }) => {
   const github = createGitHubClient({ ownerEmail, orgId });
-  const snapshot = await github.listPullRequestReviewComments(
-    parseGitHubRepositoryRef(repo),
-    pullRequestNumber,
-  );
+  const repository = parseGitHubRepositoryRef(repo);
+  const [snapshot, reviewPage] = await Promise.all([
+    github.listPullRequestReviewComments(repository, pullRequestNumber),
+    github.listPullRequestReviews(repository, pullRequestNumber),
+  ]);
   return {
     comments: snapshot.comments,
     truncated: snapshot.commentsTruncated,
+    reviews: reviewPage.reviews,
+    reviewsTruncated: reviewPage.reviewsTruncated,
   };
 };
 
@@ -56,7 +62,7 @@ export function createBabysitPullRequestAction(
 ) {
   return defineAction({
     description:
-      "Propose babysit status for one pull request (unanswered review comments, failing or pending checks). Read-only: never replies, pushes, merges, or posts. Use babysit-factory-pull-request when this factory should write the feedback-fix comment.",
+      "Propose babysit status for one pull request (unanswered review comments, review bodies, failing or pending checks). Read-only: never replies, pushes, merges, or posts. Use babysit-factory-pull-request when this factory should write the feedback-fix comment.",
     schema: z.object({
       repo: z.string().trim().min(1).max(256),
       pullRequestNumber: z.number().int().positive(),
@@ -67,6 +73,10 @@ export function createBabysitPullRequestAction(
     }),
     http: false,
     readOnly: true,
+    // No configured-repository gate, unlike the babysit twin that writes. That
+    // gate exists to keep a comment from landing on an unconfigured repository;
+    // this action only reads, takes no factoryId to resolve one against, and is
+    // already bounded by workspace membership and the prBabysit grant.
     run: async (input, context): Promise<BabysitProposal> => {
       const { userEmail, orgId } = await requireWorkspaceMember(
         workspaceMemberIdentityFromContext(context),
@@ -76,12 +86,13 @@ export function createBabysitPullRequestAction(
         { userEmail, orgId },
         "prBabysit",
       );
-      const { comments, truncated } = await fetchComments({
-        repo: input.repo,
-        pullRequestNumber: input.pullRequestNumber,
-        ownerEmail: userEmail,
-        orgId,
-      });
+      const { comments, truncated, reviews, reviewsTruncated } =
+        await fetchComments({
+          repo: input.repo,
+          pullRequestNumber: input.pullRequestNumber,
+          ownerEmail: userEmail,
+          orgId,
+        });
       return reconcileBabysitState({
         comments,
         checks: input.checks,
@@ -89,6 +100,8 @@ export function createBabysitPullRequestAction(
         failingJobLog: input.failingJobLog,
         botAuthors: input.botAuthors,
         commentsTruncated: truncated,
+        reviews,
+        reviewsTruncated,
       });
     },
   });

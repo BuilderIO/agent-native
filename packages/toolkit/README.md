@@ -56,6 +56,7 @@ import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { useToast } from "@agent-native/toolkit/hooks/use-toast";
 import {
   SidebarFooterActions,
+  usePersistentSidebarCollapsed,
   useSetHeaderActions,
 } from "@agent-native/toolkit/app-shell";
 ```
@@ -85,6 +86,14 @@ Core.
 Use `SidebarFooterActions` for the shared left-sidebar utility row. Provide the
 app-owned controls through its slots; the rendered order is feedback, search,
 then collapse, with the same order stacked in collapsed sidebars.
+
+Use `usePersistentSidebarCollapsed` for a collapsible desktop navigation
+sidebar that should remember a person's choice after refresh. Each app supplies
+its own stable storage key and first-use default. The hook restores valid
+browser state immediately after hydration, keeps explicit changes responsive
+when storage is unavailable, and exposes `persistenceStatus` so unavailable or
+malformed storage is distinguishable from a saved preference. Keep temporary
+mobile drawer state separate.
 
 Inside template apps, prefer local adapters such as `@/components/ui/button` so
 apps can replace their primitives without changing every callsite.

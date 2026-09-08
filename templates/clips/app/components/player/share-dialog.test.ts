@@ -44,7 +44,10 @@ describe("recording share popover", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
     const shareTriggerSource = readSource("./clips-share-trigger.tsx");
 
-    expect(shareDialogSource).toContain("<ButtonGroup");
+    expect(shareDialogSource).toContain("<PageHeaderActionGroup>");
+    expect(shareDialogSource).not.toContain(
+      '<ButtonGroup className="clips-share-trigger',
+    );
     expect(shareDialogSource).toContain("<PopoverAnchor");
     expect(shareDialogSource).toContain("<IconLink");
     expect(shareDialogSource).toContain("<IconCheck");
@@ -57,6 +60,9 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("showHeaderCopy");
     expect(shareDialogSource).toContain("value={shareUrl}");
     expect(shareDialogSource).not.toContain('defaultValue="link"');
+    expect(shareTriggerSource).toContain("<PageHeaderPrimaryAction asChild>");
+    expect(shareTriggerSource).not.toContain("h-8");
+    expect(shareTriggerSource).not.toContain("text-xs");
   });
 
   it("keeps recording access controls in Share instead of viewer settings", () => {

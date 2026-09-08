@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -18,7 +18,11 @@ export default defineAction({
       .select({ formId: schema.responses.formId })
       .from(schema.responses)
       .where(eq(schema.responses.id, responseId));
-    if (!response) throw new Error(`Response ${responseId} not found`);
+    if (!response)
+      fail(`Response ${responseId} not found`, {
+        errorCode: "response_not_found",
+        statusCode: 404,
+      });
 
     await assertAccess("form", response.formId, "editor");
     return reconcileResponseDeliveries(responseId);

@@ -1,8 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { createClient } from "@libsql/client";
+import { createDbExec } from "@agent-native/core/db";
 import { chromium, type FullConfig } from "@playwright/test";
+
+import { e2eBaseURL } from "./base-url";
 
 /**
  * Global setup: authenticate a test user (email/password; there is no dev auth
@@ -24,7 +26,7 @@ const SEED_PATH = path.join(AUTH_DIR, "seed.json");
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
-  `file:${path.join(import.meta.dirname, "..", "data", "e2e.db")}`;
+  `pglite:${path.join(import.meta.dirname, "..", "data", "e2e-pglite")}`;
 
 /**
  * Fixture HTML with distinct, text-identifiable elements. Plain inline styles
@@ -113,7 +115,7 @@ function componentIndexId(designId: string, name: string): string {
 export async function seedComponentVariantMetadata(
   designId: string,
 ): Promise<void> {
-  const client = createClient({ url: E2E_DATABASE_URL });
+  const client = await createDbExec({ url: E2E_DATABASE_URL });
   const name = "E2EButton";
   const now = new Date().toISOString();
   const variants = JSON.stringify({
@@ -159,14 +161,13 @@ export async function seedComponentVariantMetadata(
       ],
     });
   } finally {
-    client.close();
+    await client.close?.();
   }
 }
 
 export default async function globalSetup(config: FullConfig) {
   const baseURL =
-    (config.projects[0]?.use?.baseURL as string | undefined) ??
-    "http://127.0.0.1:9333";
+    (config.projects[0]?.use?.baseURL as string | undefined) ?? e2eBaseURL();
   await mkdir(AUTH_DIR, { recursive: true });
 
   const browser = await chromium.launch(
@@ -233,11 +234,36 @@ export default async function globalSetup(config: FullConfig) {
     await postAction(context.request, baseURL, "index-components", {
       designId,
     });
-    await seedComponentVariantMetadata(designId);
 
     await writeFile(SEED_PATH, JSON.stringify({ designId }, null, 2));
     // eslint-disable-next-line no-console
     console.log(`[e2e] seeded design ${designId} for ${E2E_EMAIL}`);
+
+    // Compile the editor once, here, instead of inside the first test's 30s
+    // budget. DesignEditor.tsx is past Babel's 500KB deopt threshold, so a
+    // cold dev server can take ~40s to first paint — which is why the first
+    // spec in a shard was the one that flaked.
+    const warmupPage = await context.newPage();
+    try {
+      await warmupPage.goto(`${baseURL}/design/${designId}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await warmupPage
+        .getByRole("button", { name: "Move", exact: true })
+        .waitFor({ timeout: 180_000 });
+      // eslint-disable-next-line no-console
+      console.log("[e2e] editor warm");
+    } catch (error) {
+      // Not fatal — the suite still runs, the first test just pays the
+      // compile again. Say so out loud rather than reporting a warm editor.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
+          "the first test will pay the compile.",
+      );
+    } finally {
+      await warmupPage.close();
+    }
   } finally {
     await browser.close();
   }

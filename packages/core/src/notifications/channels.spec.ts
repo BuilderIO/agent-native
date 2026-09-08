@@ -439,6 +439,7 @@ describe("Slack notification channel", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("https://hooks.slack.example.com/services/T/B/C");
     expect(init.method).toBe("POST");
+    expect(init.signal).toBeInstanceOf(AbortSignal);
     const payload = JSON.parse(init.body);
     expect(payload.text).toContain("[critical] Clip uploads failing");
     expect(payload.blocks[0].text.text).toBe("*Clip uploads failing*");

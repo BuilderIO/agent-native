@@ -16,7 +16,11 @@ import {
 } from "h3";
 
 import { estimateMarkdownTokens } from "../../../core/src/agent-web/index";
-import { applyDocsSsrCacheKeyHeaders } from "../../lib/ssr-cache";
+import {
+  applyCommunityAppSsrCacheHeaders,
+  applyDocsSsrCacheKeyHeaders,
+  isCloudGettingStartedPath,
+} from "../../lib/ssr-cache";
 import { acceptsMarkdown, appendVary } from "../lib/agent-web-responses";
 import { fetchMarkdownMirror } from "../lib/markdown-mirror";
 
@@ -52,10 +56,18 @@ export default async function docsHeadHandler(event: H3Event) {
 
   const response = await ssrHandler(event);
   const headers = new Headers(response.headers);
+  const requestUrl = getRequestURL(event);
   appendVary(headers, ["Accept", "Accept-Encoding"]);
   // Preserve the stronger full-query key emitted by core for query-preserving
   // redirects; the normal Docs key is only for ordinary public SSR pages.
-  applyDocsSsrCacheKeyHeaders(headers);
+  applyDocsSsrCacheKeyHeaders(headers, {
+    varyByQuery: isCloudGettingStartedPath(requestUrl),
+  });
+  applyCommunityAppSsrCacheHeaders(
+    headers,
+    getRequestURL(event).pathname,
+    response.status,
+  );
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

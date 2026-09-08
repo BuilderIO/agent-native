@@ -15,6 +15,7 @@ import {
   McpIntegrationDialog,
   McpIntegrationLogo,
   getDefaultMcpIntegrations,
+  isCustomMcpIntegrationEnabled,
   useCreateMcpServer,
   type DefaultMcpIntegration,
 } from "@agent-native/core/client/resources";
@@ -2692,6 +2693,7 @@ export default function WorkspaceIntegrationsRoute() {
   const [personalIntegrationId, setPersonalIntegrationId] = useState<
     string | null
   >(null);
+  const [customMcpOpen, setCustomMcpOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceConnection | null>(
     null,
   );
@@ -3193,23 +3195,40 @@ export default function WorkspaceIntegrationsRoute() {
                     )}
                   </p>
                 </div>
-                <div className="relative w-full sm:max-w-xs">
-                  <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={providerQuery}
-                    onChange={(event) => setProviderQuery(event.target.value)}
-                    placeholder={t(
-                      /* i18n-key-ignore */
-                      "integrations.searchWorkspacePlaceholder",
-                      { defaultValue: "Search integrations" },
-                    )}
-                    aria-label={t(
-                      /* i18n-key-ignore */
-                      "integrations.searchWorkspaceLabel",
-                      { defaultValue: "Search workspace integrations" },
-                    )}
-                    className="h-9 ps-9"
-                  />
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  <div className="relative w-full sm:w-64">
+                    <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={providerQuery}
+                      onChange={(event) => setProviderQuery(event.target.value)}
+                      placeholder={t(
+                        /* i18n-key-ignore */
+                        "integrations.searchWorkspacePlaceholder",
+                        { defaultValue: "Search integrations" },
+                      )}
+                      aria-label={t(
+                        /* i18n-key-ignore */
+                        "integrations.searchWorkspaceLabel",
+                        { defaultValue: "Search workspace integrations" },
+                      )}
+                      className="h-9"
+                    />
+                  </div>
+                  {isCustomMcpIntegrationEnabled() ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => setCustomMcpOpen(true)}
+                    >
+                      <IconPlus size={14} />
+                      {t(
+                        /* i18n-key-ignore: shared core localization key */
+                        "mcpIntegrations.addYourOwn",
+                      )}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
               <IntegrationGrid
@@ -3493,6 +3512,17 @@ export default function WorkspaceIntegrationsRoute() {
           onOpenChange={(open) => {
             if (!open) setPersonalIntegrationId(null);
           }}
+          onCreateMcpServer={createPersonalMcpServer.mutateAsync}
+        />
+      ) : null}
+      {customMcpOpen ? (
+        <McpIntegrationDialog
+          open
+          integrations={[]}
+          defaultScope="user"
+          canCreateOrgMcp={canManageOrg}
+          hasOrg={canManageOrg}
+          onOpenChange={setCustomMcpOpen}
           onCreateMcpServer={createPersonalMcpServer.mutateAsync}
         />
       ) : null}

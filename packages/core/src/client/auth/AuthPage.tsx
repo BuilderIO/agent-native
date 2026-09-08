@@ -28,7 +28,6 @@ export interface AuthMarketingProps {
   screenshotWidth?: number;
   screenshotHeight?: number;
   learnMoreUrl?: string;
-  learnMorePlacement?: "top-right" | "bottom-right";
 }
 
 export interface AuthLocaleOption {
@@ -65,11 +64,13 @@ export interface AuthPageProps {
   brandMarkSrc: string;
   githubUrl: string;
   showGoogle: boolean;
+  /** @deprecated Browser SSO entry points were removed. */
+  identitySsoEnabled?: boolean;
+  /** @deprecated Automatic browser SSO handoff was removed. */
+  identitySsoAuto?: boolean;
   signupLegalNotice?: AuthLegalNotice;
   signupLocalModeNote?: { text: string; command: string };
-  connectionLabel: string;
   docsAuthUrl: string;
-  identitySsoEnabled: boolean;
   publicOAuthOrigin: string;
   workspaceGatewayReturnOrigin: string;
   googleAuthMode: "popup" | "redirect" | "auto";
@@ -218,6 +219,26 @@ export function shouldRetryAuthSessionProbe(
   readable: boolean,
 ): boolean {
   return !readable || response.status === 429 || response.status >= 500;
+}
+
+export function isConfirmedAnonymousAuthSession(
+  response: Pick<Response, "ok" | "status">,
+  data: Record<string, unknown>,
+  readable: boolean,
+): boolean {
+  return (
+    response.ok &&
+    response.status === 200 &&
+    readable &&
+    data.error === "Not authenticated"
+  );
+}
+
+export function isAuthenticatedAuthSession(
+  response: Pick<Response, "ok">,
+  data: Record<string, unknown>,
+): boolean {
+  return response.ok && typeof data.email === "string" && !data.error;
 }
 
 async function requestJson(
@@ -630,9 +651,7 @@ export function AuthPage(props: AuthPageProps) {
     showGoogle,
     signupLegalNotice,
     signupLocalModeNote,
-    connectionLabel,
     docsAuthUrl,
-    identitySsoEnabled,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -648,7 +667,6 @@ export function AuthPage(props: AuthPageProps) {
   const [localDevBusy, setLocalDevBusy] = React.useState(false);
   const [fullAuthOptionsVisible, setFullAuthOptionsVisible] =
     React.useState(true);
-  const [localNoteVisible, setLocalNoteVisible] = React.useState(false);
   const [upgradeVisible, setUpgradeVisible] = React.useState(false);
   const [magicLinkEmail, setMagicLinkEmail] = React.useState("");
   const [signupEmail, setSignupEmail] = React.useState("");
@@ -680,6 +698,7 @@ export function AuthPage(props: AuthPageProps) {
   const nativeOAuthAbandonTimer = React.useRef<number | null>(null);
   const verificationCheckInFlight = React.useRef(false);
   const verifiedReturnHandled = React.useRef(false);
+  const verificationStepStartedRef = React.useRef(false);
 
   const [runtimeAppBasePath, setRuntimeAppBasePath] =
     React.useState(appBasePath);
@@ -842,6 +861,10 @@ export function AuthPage(props: AuthPageProps) {
       setView("magicLink");
       return;
     }
+    if (params.get("c")) {
+      setView("login");
+      return;
+    }
     const storedTab = readStorage(TAB_STORAGE_KEY);
     if (storedTab === "login" || storedTab === "signup") setView(storedTab);
   }, [authMode, googleOnly, readPendingSignupEmail, setNotice, t]);
@@ -859,8 +882,11 @@ export function AuthPage(props: AuthPageProps) {
               cache: "no-store",
             },
           );
-          if (response.ok && typeof data.email === "string" && !data.error) {
+          if (isAuthenticatedAuthSession(response, data)) {
             redirectToSignedInApp();
+            return;
+          }
+          if (isConfirmedAnonymousAuthSession(response, data, readable)) {
             return;
           }
           retry = shouldRetryAuthSessionProbe(response, readable);
@@ -875,6 +901,49 @@ export function AuthPage(props: AuthPageProps) {
     };
     void probe();
   }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved]);
+
+  React.useEffect(() => {
+    if (!runtimeBasePathResolved || view !== "magicLinkSent") return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const probe = async () => {
+      if (cancelled || inFlight || document.visibilityState === "hidden") {
+        return;
+      }
+      inFlight = true;
+      try {
+        const { response, data } = await requestJson(
+          apiPath("/_agent-native/auth/session"),
+          {
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          },
+        );
+        if (!cancelled && isAuthenticatedAuthSession(response, data)) {
+          redirectToSignedInApp();
+        }
+      } catch {
+        // coercion-ok: a transient probe failure leaves the completion view in place; the
+        // next visibility event or interval retries it.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const probeOnReturn = () => {
+      if (document.visibilityState === "visible") void probe();
+    };
+    const timer = window.setInterval(() => void probe(), 1000);
+    window.addEventListener("focus", probeOnReturn);
+    document.addEventListener("visibilitychange", probeOnReturn);
+    void probe();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", probeOnReturn);
+      document.removeEventListener("visibilitychange", probeOnReturn);
+    };
+  }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved, view]);
 
   React.useEffect(() => {
     let anonymousId = readStorage(ANALYTICS_ANONYMOUS_ID_KEY);
@@ -941,16 +1010,6 @@ export function AuthPage(props: AuthPageProps) {
     });
   }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
 
-  React.useEffect(() => {
-    const hostname = window.location.hostname.toLowerCase();
-    setLocalNoteVisible(
-      hostname === "localhost" ||
-        hostname === "127.0.0.1" ||
-        hostname === "::1" ||
-        hostname.endsWith(".local"),
-    );
-  }, []);
-
   const localDevAllowed = React.useMemo(
     () =>
       isLoopbackHostname() ||
@@ -975,6 +1034,10 @@ export function AuthPage(props: AuthPageProps) {
         const available = response.ok && data.available === true;
         setLocalDevAvailable(available);
         if (!available) {
+          setFullAuthOptionsVisible(true);
+          return;
+        }
+        if (verificationStepStartedRef.current) {
           setFullAuthOptionsVisible(true);
           return;
         }
@@ -1480,6 +1543,8 @@ export function AuthPage(props: AuthPageProps) {
       setVerificationEmail(normalized);
       rememberPendingSignupEmail(normalized);
       setNotice("verification", null);
+      verificationStepStartedRef.current = true;
+      setFullAuthOptionsVisible(true);
       setView("verification");
       writeStorage(TAB_STORAGE_KEY, "signup");
     },
@@ -2088,7 +2153,6 @@ export function AuthPage(props: AuthPageProps) {
       message={messages.signup?.text}
     />
   );
-  const identityHref = apiPath("/_agent-native/identity/login");
   const authCard = (
     <div className={cardClassName}>
       <h1 id="heading" data-i18n={keys.heading}>
@@ -2105,20 +2169,6 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
-      {identitySsoEnabled ? (
-        <a
-          className="btn-identity-sso"
-          id="identity-sso-btn"
-          href={identityHref}
-          onClick={(event) => {
-            event.preventDefault();
-            const params = new URLSearchParams({ return: resumeHref() });
-            window.location.href = `${identityHref}?${params.toString()}`;
-          }}
-        >
-          Sign in with Agent-Native
-        </a>
-      ) : null}
       <div
         className="local-dev-signin"
         id="local-dev-signin"
@@ -2519,16 +2569,6 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
-  const localNote = (
-    <p
-      className={`local-note ${localNoteVisible ? "show" : ""}`}
-      id="local-note"
-    >
-      <span data-i18n="localNotePrefix">{t("localNotePrefix")}</span> (
-      <strong>{connectionLabel}</strong>)
-      <span data-i18n="localNoteSuffix">{t("localNoteSuffix")}</span>
-    </p>
-  );
   const localePicker = (
     <div className="locale-picker">
       <button
@@ -2656,6 +2696,7 @@ export function AuthPage(props: AuthPageProps) {
         marketingCopy.learnMoreUrl ? (
           <a
             className="auth-marketing-learn-more"
+            data-auth-marketing-learn-more="true"
             href={marketingCopy.learnMoreUrl}
             target="_blank"
             rel="noreferrer"
@@ -2673,24 +2714,21 @@ export function AuthPage(props: AuthPageProps) {
           </a>
         ) : null
       }
-      auth={
-        <>
-          {authCard}
-          {localNote}
-        </>
-      }
+      auth={authCard}
       className={[
         "auth-marketing-home",
         marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
-        marketingCopy.learnMorePlacement === "bottom-right"
-          ? "has-bottom-right-learn-more"
-          : "",
       ]
         .filter(Boolean)
         .join(" ")}
     >
       {marketingCopy.screenshotSrc ? (
-        <div className="auth-marketing-screenshot-wrap">
+        <div
+          className="auth-marketing-screenshot-wrap"
+          style={{
+            aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
+          }}
+        >
           <img
             className="auth-marketing-screenshot"
             src={marketingCopy.screenshotSrc}
@@ -2754,10 +2792,7 @@ export function AuthPage(props: AuthPageProps) {
       )}
     </MarketingHome>
   ) : (
-    <>
-      <div className="auth-centered">{authCard}</div>
-      {localNote}
-    </>
+    <div className="auth-centered">{authCard}</div>
   );
 
   return (

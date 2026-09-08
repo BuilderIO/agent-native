@@ -17,6 +17,7 @@ import { Kbd } from "./ds/kbd";
 import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
 import { NavLink } from "./ds/nav-link";
+import { LogoContextMenu } from "./logo-context-menu";
 
 // Pulls in the docs search index, so it stays out of the initial header chunk.
 const SearchModal = lazy(() =>
@@ -163,13 +164,15 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
     >
       <div className="mx-auto flex h-full w-full max-w-site items-center justify-between">
         <div className="flex items-center gap-[var(--spacing-8)]">
-          <Link
-            to={localizedPath("/")}
-            aria-label="Agent-Native"
-            className="flex text-[var(--b-text-primary)]"
-          >
-            <Logo />
-          </Link>
+          <LogoContextMenu brandHref={localizedPath("/brand")}>
+            <Link
+              to={localizedPath("/")}
+              aria-label="Agent-Native"
+              className="flex text-[var(--b-text-primary)]"
+            >
+              <Logo />
+            </Link>
+          </LogoContextMenu>
 
           <nav className="hidden items-center gap-1 lg:flex">
             {navLinks.map((link) => (

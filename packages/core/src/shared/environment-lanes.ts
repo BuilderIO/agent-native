@@ -1,6 +1,10 @@
 export const BETA_OPT_OUT_QUERY_PARAM = "agentNativeBetaOptOut";
 export const BETA_OPT_OUT_DURATION_MS = 8 * 60 * 60 * 1000;
 export const BETA_OPT_OUT_STORAGE_KEY = "agent-native:beta-opt-out-until";
+export const BETA_REDIRECT_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+export const BETA_REDIRECT_STORAGE_KEY = "agent-native:beta-redirect-until";
+export const BETA_REDIRECT_SIGN_OUT_STORAGE_KEY =
+  "agent-native:beta-redirect-signing-out";
 export const BETA_FORCE_QUERY_PARAM = "force";
 export const BETA_FORCE_SESSION_STORAGE_KEY = "agent-native:force-production";
 

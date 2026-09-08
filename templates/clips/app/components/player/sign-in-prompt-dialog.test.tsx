@@ -60,4 +60,34 @@ describe("SignInPromptDialog", () => {
       "signInPrompt.title:signInPrompt.commentIntent",
     );
   });
+
+  it("uses the modal callback instead of navigating for account creation", () => {
+    const onCreateAccount = vi.fn();
+    const onSignUp = vi.fn();
+
+    act(() => {
+      root.render(
+        <SignInPromptDialog
+          open
+          onOpenChange={vi.fn()}
+          intent="react"
+          onCreateAccount={onCreateAccount}
+          onSignUp={onSignUp}
+        />,
+      );
+    });
+
+    const createButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) =>
+      button.textContent?.includes("signInPrompt.createAccount"),
+    );
+    expect(createButton).not.toBeUndefined();
+    expect(createButton?.closest("a")).toBeNull();
+
+    act(() => createButton?.click());
+
+    expect(onSignUp).toHaveBeenCalledOnce();
+    expect(onCreateAccount).toHaveBeenCalledOnce();
+  });
 });

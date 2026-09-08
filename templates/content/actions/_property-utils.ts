@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
@@ -50,6 +51,7 @@ import {
 import { chunks } from "./_batch-utils.js";
 import { readBlocksFieldIdentities } from "./_blocks-field-identity.js";
 import {
+  nextAppendPosition,
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
@@ -218,12 +220,13 @@ export function parseDatabaseViewConfig(
   value: string | null | undefined,
 ): ContentDatabaseViewConfig {
   if (!value) return defaultDatabaseViewConfig();
+  let parsed: Partial<ContentDatabaseViewConfig>;
   try {
-    const parsed = JSON.parse(value) as Partial<ContentDatabaseViewConfig>;
-    return normalizeDatabaseViewConfig(parsed);
+    parsed = JSON.parse(value) as Partial<ContentDatabaseViewConfig>;
   } catch {
     return defaultDatabaseViewConfig();
   }
+  return normalizeDatabaseViewConfig(parsed);
 }
 
 export function serializeDatabaseViewConfig(
@@ -319,10 +322,17 @@ function defaultDatabaseView(
     endDatePropertyId: values.endDatePropertyId ?? null,
     hiddenPropertyIds: values.hiddenPropertyIds ?? [],
     propertyOrderIds: values.propertyOrderIds ?? [],
+    tableColumnOrderIds: values.tableColumnOrderIds ?? [],
     collapsedGroupIds: values.collapsedGroupIds ?? [],
     hideEmptyGroups: values.hideEmptyGroups === true,
     calculations: values.calculations ?? {},
     wrapCells: values.wrapCells === true,
+    columnWrapOverrides: normalizeColumnWrapOverrides(
+      values.columnWrapOverrides,
+    ),
+    frozenThroughColumnId: normalizeFrozenThroughColumnId(
+      values.frozenThroughColumnId,
+    ),
     rowDensity: normalizeDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(values.formQuestions),
@@ -372,10 +382,15 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
         : null,
     hiddenPropertyIds: normalizeStringList(view.hiddenPropertyIds),
     propertyOrderIds: normalizeStringList(view.propertyOrderIds),
+    tableColumnOrderIds: normalizeStringList(view.tableColumnOrderIds),
     collapsedGroupIds: normalizeStringList(view.collapsedGroupIds),
     hideEmptyGroups: view.hideEmptyGroups === true,
     calculations: normalizeCalculations(view.calculations),
     wrapCells: view.wrapCells === true,
+    columnWrapOverrides: normalizeColumnWrapOverrides(view.columnWrapOverrides),
+    frozenThroughColumnId: normalizeFrozenThroughColumnId(
+      view.frozenThroughColumnId,
+    ),
     rowDensity: normalizeDatabaseRowDensity(view.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(view.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(view.formQuestions),
@@ -431,6 +446,31 @@ function normalizeCalculations(value: unknown) {
       typeof entry[0] === "string" && isDatabaseColumnCalculation(entry[1]),
   );
   return Object.fromEntries(entries);
+}
+
+function normalizeColumnWrapOverrides(value: unknown) {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Database column wrap overrides must be a boolean map.");
+  }
+  const entries = Object.entries(value);
+  if (
+    entries.some(
+      ([columnId, wrap]) => columnId.length === 0 || typeof wrap !== "boolean",
+    )
+  ) {
+    throw new Error("Database column wrap overrides must be a boolean map.");
+  }
+  return Object.fromEntries(entries) as Record<string, boolean>;
+}
+
+function normalizeFrozenThroughColumnId(value: unknown) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new Error(
+    "Database frozen-through column must be a non-empty column ID or null.",
+  );
 }
 
 function isDatabaseColumnCalculation(
@@ -526,6 +566,7 @@ export async function listPropertiesForDocument(
 
 export async function listPropertiesForAllDocumentDatabases(
   document: DocumentRow,
+  options: { requireDatabaseAccess?: boolean } = {},
 ) {
   const db = getDb();
   const memberships = await db
@@ -554,9 +595,16 @@ export async function listPropertiesForAllDocumentDatabases(
 
   const properties = [];
   for (const database of databases) {
-    if (!(await resolveAccess("document", database.documentId))) continue;
+    if (
+      options.requireDatabaseAccess !== false &&
+      !(await resolveAccess("document", database.documentId))
+    ) {
+      continue;
+    }
     properties.push(
-      ...(await listPropertiesForDatabase(database.id, document)),
+      ...(await listPropertiesForDatabase(database.id, document, {
+        includeContainerDerivedValues: options.requireDatabaseAccess !== false,
+      })),
     );
   }
   return properties;
@@ -1202,7 +1250,11 @@ export async function writePrimaryBlocksContent(args: {
   const db = getDb();
   await db
     .update(schema.documents)
-    .set({ content: args.content, updatedAt: args.now })
+    .set({
+      content: args.content,
+      bodyRevision: bodyRevisionForContent(args.content),
+      updatedAt: args.now,
+    })
     .where(eq(schema.documents.id, args.documentId));
 }
 
@@ -1330,7 +1382,7 @@ export async function seedDefaultBlocksField(args: {
     propertyDefinitionsPositionScope(args.databaseId),
     async () => {
       const [maxPos] = await db
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
         .from(schema.documentPropertyDefinitions)
         .where(
           eq(schema.documentPropertyDefinitions.databaseId, args.databaseId),
@@ -1347,7 +1399,7 @@ export async function seedDefaultBlocksField(args: {
           type: "blocks",
           visibility: "always_show",
           optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
-          position: (maxPos?.max ?? -1) + 1,
+          position: nextAppendPosition(maxPos?.max),
           createdAt: args.now,
           updatedAt: args.now,
         })

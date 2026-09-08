@@ -244,6 +244,19 @@ describe("handleMcpConnect", () => {
       expect(body).toContain('<html lang="es-ES" dir="ltr">');
     });
 
+    it("selects the guide requested by the integrations handoff", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({ path: "/?guide=xAI" }), "/");
+      const body = await res.text();
+
+      expect(body).toContain(
+        'id="mcp-guide-tab-grok" data-tab="grok" aria-controls="mcp-guide-panel-grok" aria-selected="true"',
+      );
+      expect(body).toContain(
+        'class="tab-panel is-active" role="tabpanel" id="mcp-guide-panel-grok"',
+      );
+    });
+
     it("shows the device user_code when present and well-formed", async () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(

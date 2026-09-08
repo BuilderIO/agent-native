@@ -1,8 +1,10 @@
 import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     whatsNew: "What's new",
   },
@@ -493,7 +495,6 @@ const enUS = {
     connectionAppId: "App ID",
     connectionAppUrl: "App URL",
     connectionDatabaseUrl: "Database URL",
-    connectionAuthToken: "Auth token (optional)",
     saveConnection: "Save connection",
     deleteConnection: "Delete connection",
     deleteConnectionTitle: "Delete database connection?",
@@ -4960,6 +4961,10 @@ function mergeMessages(overrides: {
     dialogs: { ...enUS.dialogs, ...overrides.dialogs },
     commandPalette: { ...enUS.commandPalette, ...overrides.commandPalette },
     common: { ...enUS.common, ...overrides.common },
+    creativeContext: {
+      ...enUS.creativeContext,
+      ...overrides.creativeContext,
+    },
     dataDictionary: { ...enUS.dataDictionary, ...overrides.dataDictionary },
     dataSources: { ...enUS.dataSources, ...overrides.dataSources },
     analyticsBackend: {
@@ -6972,6 +6977,13 @@ export const messagesByLocale = {
   }),
 } satisfies Record<LocaleCode, Messages>;
 
+for (const locale of Object.keys(creativeContextMessagesByLocale) as Array<
+  keyof typeof creativeContextMessagesByLocale
+>) {
+  messagesByLocale[locale].creativeContext =
+    creativeContextMessagesByLocale[locale];
+}
+
 type AnalyticsPartialMessages = {
   [K in Section]?: Partial<Messages[K]>;
 };
@@ -7139,7 +7151,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "应用 ID",
       connectionAppUrl: "应用 URL",
       connectionDatabaseUrl: "数据库 URL",
-      connectionAuthToken: "认证令牌（可选）",
       saveConnection: "保存连接",
       deleteConnection: "删除连接",
       deleteConnectionTitle: "删除数据库连接？",
@@ -7386,7 +7397,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ID de app",
       connectionAppUrl: "URL de app",
       connectionDatabaseUrl: "URL de base de datos",
-      connectionAuthToken: "Token de autenticación (opcional)",
       saveConnection: "Guardar conexión",
       deleteConnection: "Eliminar conexión",
       deleteConnectionTitle: "¿Eliminar conexión de base de datos?",
@@ -7640,7 +7650,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ID de l'app",
       connectionAppUrl: "URL de l'app",
       connectionDatabaseUrl: "URL de la base de données",
-      connectionAuthToken: "Jeton d'authentification (facultatif)",
       saveConnection: "Enregistrer la connexion",
       deleteConnection: "Supprimer la connexion",
       deleteConnectionTitle: "Supprimer la connexion à la base de données ?",
@@ -7896,7 +7905,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "App-ID",
       connectionAppUrl: "App-URL",
       connectionDatabaseUrl: "Datenbank-URL",
-      connectionAuthToken: "Authentifizierungstoken (optional)",
       saveConnection: "Verbindung speichern",
       deleteConnection: "Verbindung löschen",
       deleteConnectionTitle: "Datenbankverbindung löschen?",
@@ -8145,7 +8153,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "アプリ ID",
       connectionAppUrl: "アプリ URL",
       connectionDatabaseUrl: "データベース URL",
-      connectionAuthToken: "認証トークン（任意）",
       saveConnection: "接続を保存",
       deleteConnection: "接続を削除",
       deleteConnectionTitle: "データベース接続を削除しますか？",
@@ -8393,7 +8400,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "앱 ID",
       connectionAppUrl: "앱 URL",
       connectionDatabaseUrl: "데이터베이스 URL",
-      connectionAuthToken: "인증 토큰(선택 사항)",
       saveConnection: "연결 저장",
       deleteConnection: "연결 삭제",
       deleteConnectionTitle: "데이터베이스 연결을 삭제할까요?",
@@ -8645,7 +8651,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ID do app",
       connectionAppUrl: "URL do app",
       connectionDatabaseUrl: "URL do banco de dados",
-      connectionAuthToken: "Token de autenticação (opcional)",
       saveConnection: "Salvar conexão",
       deleteConnection: "Excluir conexão",
       deleteConnectionTitle: "Excluir conexão de banco de dados?",
@@ -8894,7 +8899,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ऐप ID",
       connectionAppUrl: "ऐप URL",
       connectionDatabaseUrl: "डेटाबेस URL",
-      connectionAuthToken: "Auth token (वैकल्पिक)",
       saveConnection: "कनेक्शन सहेजें",
       deleteConnection: "कनेक्शन हटाएं",
       deleteConnectionTitle: "डेटाबेस कनेक्शन हटाएं?",
@@ -9141,7 +9145,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "معرّف التطبيق",
       connectionAppUrl: "رابط التطبيق",
       connectionDatabaseUrl: "رابط قاعدة البيانات",
-      connectionAuthToken: "رمز المصادقة (اختياري)",
       saveConnection: "حفظ الاتصال",
       deleteConnection: "حذف الاتصال",
       deleteConnectionTitle: "هل تريد حذف اتصال قاعدة البيانات؟",

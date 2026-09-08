@@ -236,11 +236,13 @@ export interface LocalOpUndoEntry<TOp> {
   /** Optional label for UI ("Delete slide 3"). */
   label?: string;
   /**
-   * Coalescing key: consecutive pushes with the same non-empty key within
-   * `coalesceMs` merge into one entry (keeps the FIRST undo ops and the
-   * LATEST redo ops) — e.g. per-keystroke text patches on one field.
+   * Coalescing key: consecutive pushes with the same non-empty key within the
+   * controller's coalescing window merge into one entry (keeps the FIRST undo
+   * ops and the LATEST redo ops) - e.g. per-keystroke text patches on one field.
    */
   coalesceKey?: string;
+  /** Override the controller window for long-lived operation groups. */
+  coalesceWindowMs?: number;
 }
 
 export interface LocalOpUndoController<TOp> {
@@ -308,11 +310,12 @@ export function createLocalOpUndoController<TOp>(
 
       const at = now();
       const top = undoStack[undoStack.length - 1];
+      const coalesceWindowMs = entry.coalesceWindowMs ?? coalesceMs;
       if (
         top &&
         entry.coalesceKey &&
         top.coalesceKey === entry.coalesceKey &&
-        at - top.at <= coalesceMs
+        at - top.at <= coalesceWindowMs
       ) {
         // Merge: first undo wins (restores the pre-burst state), latest redo
         // wins (re-applies the final state).

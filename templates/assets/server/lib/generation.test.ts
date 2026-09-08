@@ -18,7 +18,7 @@ const requestUrl = (input: string | URL | Request): string =>
 const requestBodyText = (body: BodyInit | null | undefined): string =>
   typeof body === "string" ? body : "";
 
-const resolveBuilderGatewayCredentialsMock = vi.hoisted(() => vi.fn());
+const resolveBuilderGatewayAuthMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const resolveHasBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 const googleGenerateContentMock = vi.hoisted(() => vi.fn());
@@ -48,7 +48,7 @@ vi.mock("@agent-native/core/server", () => {
     getBuilderImageGenerationBaseUrl: vi.fn(
       () => "https://builder.test/agent-native/images/v1",
     ),
-    resolveBuilderGatewayCredentials: resolveBuilderGatewayCredentialsMock,
+    resolveBuilderGatewayAuth: resolveBuilderGatewayAuthMock,
     resolveHasBuilderPrivateKey: resolveHasBuilderPrivateKeyMock,
     resolveSecret: resolveSecretMock,
   };
@@ -134,12 +134,10 @@ describe("generateWithManagedImageProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "true");
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: "bpk-builder-key",
-      publicKey: "space-test",
+    resolveBuilderGatewayAuthMock.mockResolvedValue({
+      authorization: "Bearer bpk-builder-key",
+      spaceId: "space-test",
       userId: null,
-      orgName: null,
-      orgKind: null,
     });
     resolveHasBuilderPrivateKeyMock.mockResolvedValue(true);
     resolveSecretMock.mockResolvedValue(null);
@@ -173,13 +171,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("keeps missing Builder credentials on reconnect guidance", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
 
     await expect(generateWithManagedImageProvider(baseInput)).rejects.toEqual(
       expect.objectContaining({
@@ -190,16 +182,11 @@ describe("generateWithManagedImageProvider", () => {
     );
   });
 
-  // The gateway lane resolves a space id into `publicKey`, so the copy names the
-  // credential rather than the legacy env var it used to be read from.
-  it("fails before calling Builder when the space id is missing", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: "bpk-builder-key",
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+  // resolveBuilderGatewayAuth() itself requires a complete token+space-id pair
+  // and returns null for a partial one, so generation.ts never sees "which half
+  // is missing" -- it only has to stop before calling Builder on a null auth.
+  it("fails before calling Builder when the gateway auth is unusable", async () => {
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -207,20 +194,14 @@ describe("generateWithManagedImageProvider", () => {
       expect.objectContaining({
         name: "FeatureNotConfiguredError",
         requiredCredential: "BUILDER_PRIVATE_KEY",
-        message: expect.stringContaining("Builder space id is missing"),
+        message: expect.stringContaining("connected or reconnected"),
       }),
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("uses OpenAI as a manual image fallback when Builder is unavailable", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
@@ -255,13 +236,7 @@ describe("generateWithManagedImageProvider", () => {
 
   it("fails loudly when board references would use manual OpenAI fallback", async () => {
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "false");
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
@@ -294,13 +269,7 @@ describe("generateWithManagedImageProvider", () => {
 
   it("refuses to reroute gpt board-reference runs into the manual Gemini fallback", async () => {
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "false");
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "GEMINI_API_KEY" ? "gemini-test" : null,
     );
@@ -330,13 +299,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("passes board references through the manual Gemini fallback", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "GEMINI_API_KEY" ? "gemini-test" : null,
     );
@@ -391,13 +354,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("preserves gpt-image-1 for transparent OpenAI fallback requests", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
@@ -577,13 +534,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("guards restyle and edit runs when only OpenAI fallback is available", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
@@ -611,13 +562,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("guards mask edit mode from plain manual fallback generation", async () => {
-    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-      orgName: null,
-      orgKind: null,
-    });
+    resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );

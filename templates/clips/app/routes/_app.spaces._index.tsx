@@ -4,9 +4,19 @@ import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { CreateSpaceDialog } from "@/components/library/create-space-dialog";
-import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
+import {
+  PageBreadcrumb,
+  PageHeader,
+  PageHeaderPrimaryAction,
+} from "@/components/library/page-header";
 import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
-import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { useSpaces, useOrganizations } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 
@@ -51,18 +61,15 @@ export default function SpacesIndexRoute() {
         <PageBreadcrumb label={t("navigation.spaces")} />
         {canManageOrg && (
           <div className="ml-auto">
-            <Button
-              size="sm"
-              className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
-              onClick={() => setCreateOpen(true)}
-            >
-              <IconPlus className="h-4 w-4" /> {t("createSpaceDialog.newSpace")}
-            </Button>
+            <PageHeaderPrimaryAction onClick={() => setCreateOpen(true)}>
+              <IconPlus />
+              {t("createSpaceDialog.newSpace")}
+            </PageHeaderPrimaryAction>
           </div>
         )}
       </PageHeader>
 
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
         {isLoading ? (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -70,18 +77,19 @@ export default function SpacesIndexRoute() {
             ))}
           </div>
         ) : spaces.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-            <IconUsersGroup className="size-10 text-muted-foreground" />
-            <h2 className="text-base font-semibold">
-              {t("navigation.noSpaces")}
-            </h2>
-            {canManageOrg ? (
-              <Button size="sm" onClick={() => setCreateOpen(true)}>
-                <IconPlus />
-                {t("createSpaceDialog.newSpace")}
-              </Button>
-            ) : null}
-          </div>
+          <Empty className="min-h-full rounded-none">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconUsersGroup />
+              </EmptyMedia>
+              <EmptyTitle>{t("navigation.noSpaces")}</EmptyTitle>
+              {canManageOrg ? (
+                <EmptyDescription>
+                  {t("createSpaceDialog.description")}
+                </EmptyDescription>
+              ) : null}
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
             {spaces.map((s) => (

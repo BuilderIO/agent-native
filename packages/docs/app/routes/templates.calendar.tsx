@@ -8,6 +8,7 @@ import {
 } from "@tabler/icons-react";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
@@ -120,7 +121,7 @@ export default function CalendarTemplate() {
         }
         headingAction={
           <a
-            href="https://calendar.agent-native.com"
+            href={firstPartyAppUrl("https://calendar.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
             className={primaryLinkClassName}

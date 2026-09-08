@@ -54,10 +54,13 @@ evidence, screenshots, or exact logos.
   Use `generate-image-batch` with stable `slotId`s so the shared generation tray
   can show live slots.
 - `generate-image` and `generate-image-batch` are synchronous for images. One
-  batch call should produce the requested candidates and return their asset
-  IDs/URLs; do not follow it with `get-generation-run`,
+  batch call should produce the requested candidates and return compact asset
+  summaries with IDs and URLs; do not follow it with `get-generation-run`,
   `refresh-generation-run`, or more generation unless the user asks for another
   direction or the returned slot has `ok: false`.
+- Use `get-asset` when full asset details are needed. Use `get-audit-run` or
+  `list-audit-runs` for the prompt, compiled prompt, references, and generation
+  settings.
 - For repeatable deliverables, honor a `template` @mention as `templateId` or
   call `list-templates` when choosing one. Pass the template through
   `generate-image`, `generate-image-batch`, `refine-image`, or

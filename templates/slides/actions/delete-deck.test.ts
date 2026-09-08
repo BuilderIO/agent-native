@@ -90,6 +90,10 @@ describe("deleteDeck", () => {
     });
   });
 
+  it("is available to the agent as the same guarded delete action", () => {
+    expect(deleteDeck.agentTool).not.toBe(false);
+  });
+
   it("targets the owner and pre-delete share audience without leaking private org scope", async () => {
     shareRows = [
       { principalType: "user", principalId: "Sharee@Example.com" },

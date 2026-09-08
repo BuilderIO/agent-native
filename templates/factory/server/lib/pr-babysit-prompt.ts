@@ -9,10 +9,17 @@ export const BABYSIT_SCOPE_INSTRUCTION =
 const OBSOLETE_BUILDER_BOT_ONLY_BOUND =
   "Runtime safety bound: call list-triage-items with needsReview true, source github, builderBotOnly true, and limit 3; process at most three builder-bot pull-request items.";
 
+const OBSOLETE_COMMIT_RETRIGGER =
+  /A changed commit,\s*new unresolved\s*feedback, failing or pending CI, or merge conflict starts a new bounded\s*request; twenty minutes without new work to address ends that babysitting\s*window\./g;
+
+export const BABYSIT_WORK_RETRIGGER =
+  "A new commit, pending CI, or GitHub finishing mergeability does not start another comment. New unanswered human review feedback or a real merge conflict can. Do not ask the bot to poll or loop; Factory re-checks on its schedule.";
+
 export function repairPrBabysitPrompt(content: string): string {
   let next = renameFactoryActionMentions(content)
     .split(OBSOLETE_BUILDER_BOT_ONLY_BOUND)
     .join(BABYSIT_LIST_BOUND);
+  next = next.replace(OBSOLETE_COMMIT_RETRIGGER, BABYSIT_WORK_RETRIGGER);
   next = next.split("builderBotOnly true, ").join("");
   next = next.split("builderBotOnly true").join("");
   next = next.replace(/\s+,/g, ",");

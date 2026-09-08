@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "DATABASE_URL=${ANALYTICS_DATABASE_URL:-file:./data/app.db} agent-native dev",
+    "dev": "DATABASE_URL=${ANALYTICS_DATABASE_URL:-pglite:./data/pglite} agent-native dev",
     "build": "agent-native build && tsx scripts/emit-netlify-dashboard-report-cron.ts",
     "start": "agent-native start",
     "test": "vitest --run",
@@ -24,7 +24,6 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource-variable/inter": "^5.2.8",
-    "@libsql/client": "^0.15.8",
     "@resvg/resvg-js": "^2.6.2",
     "@rrweb/replay": "2.1.0",
     "@tabler/icons-react": "catalog:",

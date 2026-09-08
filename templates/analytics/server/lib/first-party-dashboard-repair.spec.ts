@@ -272,6 +272,37 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     });
   });
 
+  it("normalizes nested panel fields before applying the canonical repair", async () => {
+    const daily = requiredFirstPartyPanel("recurring-users-by-template");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          {
+            ...daily,
+            sql: "SELECT stale_top_level_sql()",
+            config: {
+              ...(daily.config ?? {}),
+              sql: LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
+            },
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    const panel = JSON.parse(updateCalls[0]![0].config).panels[0];
+    expect(panel.sql).toBe(daily.sql);
+    expect(panel.config?.sql).toBeUndefined();
+  });
+
   it("repairs the previously deployed bounded monolithic recurring SQL", async () => {
     const daily = requiredFirstPartyPanel("recurring-users-by-template");
     const row = legacyRow({

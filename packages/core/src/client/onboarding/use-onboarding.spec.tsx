@@ -4,6 +4,13 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const trackEventMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../analytics.js", () => ({
+  getAnalyticsIdentityKey: () => null,
+  trackEvent: trackEventMock,
+}));
+
 import { useOnboarding, type UseOnboardingResult } from "./use-onboarding.js";
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
@@ -54,6 +61,7 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    trackEventMock.mockReset();
     latest = null;
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -86,6 +94,12 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
     // Never falsely advance past a failed completion.
     expect(latest?.firstRun).toBe(true);
     expect(latest?.completeFirstRunError).toBeTruthy();
+    expect(trackEventMock).toHaveBeenCalledWith("onboarding_failed", {
+      flow: "first_run",
+      stage: "complete",
+      reason: "http_error",
+      status_code: 500,
+    });
   });
 
   it("preserves gate-granted first-run state while loading onboarding data", async () => {
@@ -112,6 +126,11 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
 
     expect(latest?.firstRun).toBe(true);
     expect(latest?.completeFirstRunError).toBe("network down");
+    expect(trackEventMock).toHaveBeenCalledWith("onboarding_failed", {
+      flow: "first_run",
+      stage: "complete",
+      reason: "network_error",
+    });
   });
 
   it("clears the error and completes on a successful retry", async () => {

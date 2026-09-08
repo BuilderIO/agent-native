@@ -35,7 +35,8 @@ const agentSchema = schema
 
 export default defineAction({
   description:
-    "Create or sparsely update one Content database row by that database's explicitly configured natural key. Requires schema and row compare-and-swap revisions and returns a verified idempotent receipt.",
+    "Create or sparsely update one Content database row by its configured natural key using the mutation target and schema revision from a fresh get-content-database read. Use expectedRowRevision null only to assert the key is absent and create; copy the matching item's fresh rowRevision to update. Preserves omitted properties and returns a verified idempotent receipt.",
+  mcpTool: true,
   agentInputSchema: agentSchema,
   schema,
   audit: {

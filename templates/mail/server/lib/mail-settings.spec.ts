@@ -65,6 +65,16 @@ describe("mergePinnedLabels", () => {
 });
 
 describe("normalizeMailSettings", () => {
+  it("defaults to split inboxes and preserves the combined-inbox preference", () => {
+    expect(normalizeMailSettings(null, "owner@example.com").combineInbox).toBe(
+      false,
+    );
+    expect(
+      normalizeMailSettings({ combineInbox: true }, "owner@example.com")
+        .combineInbox,
+    ).toBe(true);
+  });
+
   it("keeps only bounded, usable saved filters", () => {
     const settings = normalizeMailSettings(
       {

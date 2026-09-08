@@ -401,6 +401,8 @@ export function useNavigationState() {
 }
 ```
 
+Le `TAB_ID` importé depuis `app/lib/tab-id.ts` est la valeur `getBrowserTabId()` du framework. Les appels WebMCP locaux à la page envoient le même identifiant dans `X-Agent-Native-Browser-Tab`, de sorte que le serveur résout l'état `navigation`/`selection` propre à l'onglet vers l'onglet exact que l'agent ou l'utilisateur pilote — il n'existe pas de second schéma d'onglets à garder synchronisé.
+
 | Vous écrivez                                                      | Le framework gère                                                                                                                      |
 | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `getNavigationState` — mappe le URL à l'état sémantique           | `navigation` écrit, au niveau des tabulations plus une clé de secours globale                                                          |

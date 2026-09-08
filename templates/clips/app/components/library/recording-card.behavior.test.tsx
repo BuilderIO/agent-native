@@ -294,7 +294,7 @@ describe("RecordingCard behavior", () => {
 
     const deleteItem = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("folderTree.delete"));
+    ).find((item) => item.textContent?.includes("navigation.trash"));
     expect(deleteItem).not.toBeUndefined();
 
     act(() => deleteItem?.click());

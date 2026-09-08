@@ -38,9 +38,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Kbd } from "@/components/ui/kbd";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -464,7 +464,9 @@ export function EditorToolbar({
           <DropdownMenuItem disabled={split.isPending} onSelect={handleSplit}>
             <IconCut className="mr-2 h-4 w-4" />
             {t("editorToolbar.splitAtPlayhead")}
-            <DropdownMenuShortcut>S</DropdownMenuShortcut>
+            <Kbd className="ms-auto h-auto min-w-0 px-1 py-0 text-[10px]">
+              S
+            </Kbd>
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={trim.isPending || playheadMs < 500}

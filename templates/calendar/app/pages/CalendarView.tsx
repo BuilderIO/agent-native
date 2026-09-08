@@ -76,6 +76,7 @@ import {
   shouldShowEventsSkeleton,
 } from "@/hooks/use-events";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useGoogleCalendars } from "@/hooks/use-google-calendars";
 import { useMeetingStartNotifications } from "@/hooks/use-meeting-start-notifications";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
@@ -83,6 +84,7 @@ import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import {
+  buildAllDayEventDraft,
   buildWorkingLocationDraft,
   resolveDraftWorkingLocation,
 } from "@/lib/calendar-drafts";
@@ -439,6 +441,7 @@ export default function CalendarView() {
 
   const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
+  const googleCalendars = useGoogleCalendars();
   const defaultAccountEmail = googleStatus.data?.accounts?.[0]?.email;
   const settingsQuery = useSettings();
   const { data: settings } = settingsQuery;
@@ -455,6 +458,24 @@ export default function CalendarView() {
     () => overlayPeople.map((p) => p.email),
     [overlayPeople],
   );
+  const enabledGoogleCalendarSourceKeys = useMemo(() => {
+    if (!googleCalendars.enabled || !googleCalendars.data) return undefined;
+    return googleCalendars.data
+      .filter((source) => {
+        if (source.accessRole === "freeBusyReader") {
+          return false;
+        }
+        return (
+          viewPrefs.googleCalendarVisibility[source.canonicalKey] ??
+          (source.primary || source.selected)
+        );
+      })
+      .map((source) => source.sourceKey);
+  }, [
+    googleCalendars.data,
+    googleCalendars.enabled,
+    viewPrefs.googleCalendarVisibility,
+  ]);
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
@@ -551,7 +572,7 @@ export default function CalendarView() {
     isLoading,
     isFetching,
     isPlaceholderData,
-  } = useEvents(from, to, overlayEmails);
+  } = useEvents(from, to, overlayEmails, enabledGoogleCalendarSourceKeys);
   const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
   const draftEvent = useMemo(
     () => (eventDraft ? draftToCalendarEvent(eventDraft, selectedDate) : null),
@@ -619,10 +640,17 @@ export default function CalendarView() {
       }
     })();
     for (const range of ranges) {
-      void prefetchEvents(queryClient, range.from, range.to, overlayEmails);
+      void prefetchEvents(
+        queryClient,
+        range.from,
+        range.to,
+        overlayEmails,
+        enabledGoogleCalendarSourceKeys,
+      );
     }
   }, [
     displayTimezone,
+    enabledGoogleCalendarSourceKeys,
     isLoading,
     overlayEmails,
     queryClient,
@@ -681,13 +709,13 @@ export default function CalendarView() {
         // Hide events from hidden people overlays
         if (e.overlayEmail && hiddenCalendars.people.includes(e.overlayEmail))
           return false;
-        // Hide events from hidden Google accounts
         if (
-          e.accountEmail &&
-          !e.overlayEmail &&
-          hiddenCalendars.accounts.includes(e.accountEmail)
-        )
+          e.source === "google" &&
+          e.canonicalKey &&
+          viewPrefs.googleCalendarVisibility[e.canonicalKey] === false
+        ) {
           return false;
+        }
         // Hide events from hidden external calendars
         if (e.source === "ical") {
           const hiddenMatch = hiddenCalendars.external.some((calId) =>
@@ -697,7 +725,14 @@ export default function CalendarView() {
         }
         return true;
       });
-  }, [rawEvents, draftEvent, overlayPeople, hiddenCalendars, quickEditTempIds]);
+  }, [
+    rawEvents,
+    draftEvent,
+    overlayPeople,
+    hiddenCalendars,
+    quickEditTempIds,
+    viewPrefs.googleCalendarVisibility,
+  ]);
 
   // Filter events for day view — use overlap check so multi-day continuation
   // events (started on a prior day) still appear on the selected day.
@@ -1085,6 +1120,7 @@ export default function CalendarView() {
         notificationMessage?: string;
       },
     ) => {
+      if (ev.calendarPrimary === false || ev.calendarReadOnly) return;
       const isOrganizer = isCalendarEventOrganizer(ev);
       const hasOtherAttendees =
         ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
@@ -1167,7 +1203,7 @@ export default function CalendarView() {
         return;
       }
       const ev = events.find((e) => e.id === eventId);
-      if (!ev) return;
+      if (!ev || ev.calendarPrimary === false || ev.calendarReadOnly) return;
       const isRecurring = !!(ev.recurringEventId || ev.recurrence?.length);
       const isOrganizer = isCalendarEventOrganizer(ev);
       const hasOtherAttendees =
@@ -1185,7 +1221,13 @@ export default function CalendarView() {
   // Move event to a new date (drag-and-drop from MonthView)
   async function handleEventDrop(eventId: string, newDate: Date) {
     const event = events.find((e) => e.id === eventId);
-    if (!event || !isCalendarEventOrganizer(event) || updateEvent.isPending)
+    if (
+      !event ||
+      event.calendarPrimary === false ||
+      event.calendarReadOnly ||
+      !isCalendarEventOrganizer(event) ||
+      updateEvent.isPending
+    )
       return;
 
     const moved = moveEventToCalendarDate(event, newDate, displayTimezone);
@@ -1258,7 +1300,13 @@ export default function CalendarView() {
     async (eventId: string, newStart: Date, newEnd: Date) => {
       // Skip no-op drags (dropped back in same spot)
       const event = events.find((e) => e.id === eventId);
-      if (!event || !isCalendarEventOrganizer(event) || updateEvent.isPending)
+      if (
+        !event ||
+        event.calendarPrimary === false ||
+        event.calendarReadOnly ||
+        !isCalendarEventOrganizer(event) ||
+        updateEvent.isPending
+      )
         return;
 
       // Guard against a zero/negative duration reaching the server —
@@ -1352,7 +1400,7 @@ export default function CalendarView() {
       clickedDate: Date,
       startTime: string,
       endTime: string,
-      options?: { explicitDuration?: boolean },
+      options?: { allDay?: boolean; explicitDuration?: boolean },
     ) => {
       let activeSettings = settings;
       if (!activeSettings) {
@@ -1370,10 +1418,29 @@ export default function CalendarView() {
         activeSettings.defaultEventDuration ?? 30,
       );
       const timezone = activeSettings.timezone;
-      setCreateDefaultStart(startTime);
+      const dateStr = dateToCalendarDateKey(clickedDate);
+      const now = new Date().toISOString();
+      const draftId = `slot-${Date.now()}`;
       setCreateDialogOpen(false);
 
-      const dateStr = dateToCalendarDateKey(clickedDate);
+      if (options?.allDay) {
+        setCreateDefaultStart(undefined);
+        setCreateDefaultEnd(undefined);
+        const draft = buildAllDayEventDraft({
+          id: draftId,
+          date: clickedDate,
+          accountEmail: defaultAccountEmail,
+          now,
+        });
+
+        persistCalendarDraft(draft);
+        setEventDraft(draft);
+        setQuickEditEventId(calendarDraftEventId(draftId));
+        return;
+      }
+
+      setCreateDefaultStart(startTime);
+
       // A drag-to-create gesture already computed the exact dragged range;
       // a plain click falls back to the user's configured default duration.
       const end = options?.explicitDuration
@@ -1382,8 +1449,6 @@ export default function CalendarView() {
       setCreateDefaultEnd(end.time);
       const startISO = dateTimeInTimezoneToIso(dateStr, startTime, timezone);
       const endISO = dateTimeInTimezoneToIso(end.date, end.time, timezone);
-      const now = new Date().toISOString();
-      const draftId = `slot-${Date.now()}`;
       const draft: CalendarEventDraft = {
         id: draftId,
         title: "",

@@ -9,6 +9,7 @@ import { ensureDocumentFilesMembership } from "../../actions/_content-files.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
 import { canonicalizeNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
+import { bodyRevisionForContent } from "./document-body-revision.js";
 import { getCurrentOwnerEmail } from "./documents.js";
 import {
   createNotionPageWithMarkdown,
@@ -52,6 +53,7 @@ async function replaceDocumentFromExternal(args: {
       .set({
         title: args.title,
         content: args.content,
+        bodyRevision: bodyRevisionForContent(args.content),
         icon: args.icon,
         updatedAt: args.updatedAt,
       })

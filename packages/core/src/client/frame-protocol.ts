@@ -57,7 +57,7 @@ export interface DevModeChangeMessage {
 
 export interface ToggleSidebarMessage {
   type: "agentNative.toggleSidebar";
-  data?: { open?: boolean };
+  data?: { open?: boolean; focus?: boolean };
 }
 
 /** The host chat rail asks the embedded app to compact its own navigation. */

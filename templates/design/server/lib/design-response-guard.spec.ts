@@ -1,6 +1,7 @@
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { describe, expect, it } from "vitest";
 
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "../../shared/mutation-turn.js";
 import {
   designFinalResponseGuard,
   looksLikeDesignMutationRequest,
@@ -359,6 +360,68 @@ describe("Design final response guard", () => {
     );
 
     expect(result).not.toBeNull();
+  });
+
+  it("judges the user's words, not the context the app attached to them", () => {
+    const intakeContext = [
+      "The user just created a new empty design.",
+      'Design id: "design-1"',
+      'User request: "hi"',
+      'This is a new UI-started design for design id "design-1". The design shell already exists - DO NOT call create-design.',
+      "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
+    ].join("\n");
+
+    expect(
+      designFinalResponseGuard(
+        guardContext(`hi\n\n<context>\n${intakeContext}\n</context>`),
+      ),
+    ).toBeNull();
+    expect(
+      designFinalResponseGuard(
+        guardContext(
+          `make it darker\n\n<context>\nDesign "Portfolio" is open.\n</context>`,
+        ),
+      ),
+    ).not.toBeNull();
+  });
+
+  it("leaves a preview or question turn alone when only its context says so", () => {
+    const repromptContext = [
+      "[Reprompt selection]",
+      "repromptId: reprompt-1",
+      "designId: design-1",
+      "baseVersionHash: hash-1",
+    ].join("\n");
+    const questionContext = [
+      "[Selection question]",
+      "designId: design-1",
+      "fileId: file-1",
+    ].join("\n");
+
+    expect(
+      designFinalResponseGuard(
+        guardContext(
+          `make the card darker\n\n<context>\n${repromptContext}\n</context>`,
+        ),
+      ),
+    ).toBeNull();
+    expect(
+      designFinalResponseGuard(
+        guardContext(
+          `make the card darker\n\n<context>\n${questionContext}\n</context>`,
+        ),
+      ),
+    ).toBeNull();
+  });
+
+  it("guards a generation turn whose intent lives only in the attached context", () => {
+    expect(
+      designFinalResponseGuard(
+        guardContext(
+          `Here are my answers — go ahead.\n\n<context>\nAnswers: dark, minimal.\n${DESIGN_MUTATION_REQUIRED_DIRECTIVE}\n</context>`,
+        ),
+      ),
+    ).not.toBeNull();
   });
 
   it("does not guard read-only or plan turns", () => {

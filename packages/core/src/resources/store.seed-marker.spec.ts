@@ -1,30 +1,30 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => sharedClient,
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let writes: string[] = [];
 
 const sharedClient = {
   async execute(arg: string | { sql: string; args?: unknown[] }) {
     const sql = typeof arg === "string" ? arg : arg.sql;
     const args = typeof arg === "string" ? [] : (arg.args ?? []);
-    if (!/^\s*(select|create|pragma)/i.test(sql)) writes.push(sql);
+    if (!/^\s*(select|create)/i.test(sql)) writes.push(sql);
     if (/^\s*create/i.test(sql)) {
-      sqlite.exec(sql);
+      await pglite.exec(sql);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(sql);
+    const stmt = await pglite.prepare(sql);
     if (/^\s*select/i.test(sql)) {
-      return { rows: stmt.all(...(args as any[])), rowsAffected: 0 };
+      return { rows: await stmt.all(...(args as any[])), rowsAffected: 0 };
     }
-    const result = stmt.run(...(args as any[]));
+    const result = await stmt.run(...(args as any[]));
     return { rows: [], rowsAffected: Number(result.changes ?? 0) };
   },
 };
@@ -35,14 +35,14 @@ function seedInserts(): string[] {
   );
 }
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
+beforeEach(async () => {
+  pglite = await createTestPglite();
   writes = [];
   vi.resetModules();
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
 });
 
 describe("default resource seeding is once per database, not per process", () => {

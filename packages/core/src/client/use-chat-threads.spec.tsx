@@ -120,6 +120,55 @@ describe("useChatThreads", () => {
     ]);
   });
 
+  it("seeds a new tab from the legacy active chat and persists its own pointer", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:shared-chat",
+      "old-thread",
+    );
+    const oldThread: ChatThreadSummary = {
+      id: "old-thread",
+      title: "Old chat",
+      preview: "continue this conversation",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [oldThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "shared-chat", null, {
+        browserTabId: "tab-b",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("old-thread");
+    expect(
+      window.localStorage.getItem(
+        "agent-chat-active-thread:shared-chat:tab:tab-b",
+      ),
+    ).toBe("old-thread");
+    expect(
+      window.localStorage.getItem("agent-chat-active-thread:shared-chat"),
+    ).toBe("old-thread");
+  });
+
   it("loads thread history independently for each chat consumer", async () => {
     const existingThread: ChatThreadSummary = {
       id: "existing-thread",
@@ -932,8 +981,13 @@ describe("useChatThreads", () => {
     expect(hook!.activeThreadId).toBe("forked-thread");
     expect(hook!.isNewThread("forked-thread")).toBe(true);
     expect(
-      window.localStorage.getItem("agent-chat-active-thread:route-create-test"),
+      window.localStorage.getItem(
+        "agent-chat-active-thread:route-create-test:tab:forked-thread",
+      ),
     ).toBeNull();
+    expect(
+      window.localStorage.getItem("agent-chat-active-thread:route-create-test"),
+    ).toBe("saved-thread");
   });
 
   it("keeps the active general chat visible when entering a scoped surface", async () => {

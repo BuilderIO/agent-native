@@ -83,8 +83,9 @@ export const ViewerTabsList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsList
     ref={ref}
+    variant="line"
     className={cn(
-      "h-10 w-full shrink-0 justify-start overflow-x-auto rounded-none border-b border-border bg-background px-2 py-0",
+      "h-10 w-full shrink-0 justify-start overflow-x-auto rounded-none p-0",
       className,
     )}
     {...props}
@@ -95,14 +96,16 @@ ViewerTabsList.displayName = "ViewerTabsList";
 export const ViewerTabsTrigger = React.forwardRef<
   React.ElementRef<typeof TabsTrigger>,
   ViewerTabsTriggerProps
->(({ className, ...props }, ref) => (
+>(({ children, className, ...props }, ref) => (
   <TabsTrigger
     ref={ref}
     className={cn(
-      "h-10 min-w-0 flex-1 rounded-none border-b-2 border-transparent px-2 text-xs font-medium shadow-none data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none",
+      "h-10 min-w-0 rounded-none px-2 py-0 text-xs after:bottom-0",
       className,
     )}
     {...props}
-  />
+  >
+    {children}
+  </TabsTrigger>
 ));
 ViewerTabsTrigger.displayName = "ViewerTabsTrigger";

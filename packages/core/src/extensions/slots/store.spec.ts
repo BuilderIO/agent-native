@@ -2,10 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../../a2a/test-pglite.js";
 import { runWithRequestContext } from "../../server/request-context.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { registerShareableResource } from "../../sharing/registry.js";
@@ -20,34 +20,32 @@ import {
   EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL,
 } from "./schema.js";
 
-// One real in-memory sqlite DB shared between the slot store's drizzle handle
+// One real in-memory PGlite DB shared between the slot store's drizzle handle
 // (createGetDb is mocked to return it) and the raw getDbExec client used by
 // ensureSlotTables for DDL, plus the registered "extension" shareable resource
 // so access scoping is exercised for real (not mocked away).
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: ReturnType<typeof drizzle>;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     if (/^\s*select/i.test(input.sql)) {
-      const rows = stmt.all(...((input.args ?? []) as unknown[]));
+      const rows = await stmt.all(...((input.args ?? []) as unknown[]));
       return { rows, rowsAffected: 0 };
     }
-    const info = stmt.run(...((input.args ?? []) as unknown[]));
+    const info = await stmt.run(...((input.args ?? []) as unknown[]));
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
-  isPostgres: () => false,
-  getDialect: () => "sqlite",
-  intType: () => "INTEGER",
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 vi.mock("../../db/create-get-db.js", () => ({
@@ -102,28 +100,28 @@ function shareToUser(resourceId: string, email: string, role = "viewer") {
 }
 
 let memberSeq = 0;
-function addOrgMember(orgId: string, email: string) {
-  sqlite
-    .prepare(
+async function addOrgMember(orgId: string, email: string) {
+  await (
+    await pglite.prepare(
       `INSERT INTO org_members (id, org_id, email, role, joined_at)
        VALUES (?, ?, ?, ?, ?)`,
     )
-    .run(`member-${++memberSeq}`, orgId, email, "member", Date.now());
+  ).run(`member-${++memberSeq}`, orgId, email, "member", Date.now());
 }
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
+beforeEach(async () => {
+  pglite = await createTestPglite();
   // Mirror the real extensions/extension_shares tables so accessFilter and
   // resolveAccess run against genuine rows.
-  sqlite.exec(`
+  await pglite.exec(`
     CREATE TABLE tools (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       content TEXT NOT NULL DEFAULT '',
       icon TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT now(),
+      updated_at TEXT NOT NULL DEFAULT now(),
       archived_at TEXT,
       hidden_at TEXT,
       hidden_by TEXT,
@@ -138,24 +136,33 @@ beforeEach(() => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT now()
     );
     CREATE TABLE org_members (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at INTEGER NOT NULL
+      joined_at BIGINT NOT NULL,
+      federation_removal_pending_at INTEGER
+    );
+    CREATE TABLE organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      identity_authority TEXT,
+      identity_id TEXT
     );
   `);
-  sqlite.exec(EXTENSION_SLOTS_CREATE_SQL);
-  sqlite.exec(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
-  sqlite.exec(EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL);
-  sqlite.exec(EXTENSION_SLOTS_UNIQUE_INDEX_SQL);
-  sqlite.exec(EXTENSION_SLOT_INSTALLS_CREATE_SQL);
-  sqlite.exec(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
-  sqlite.exec(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
-  db = drizzle(sqlite);
+  await pglite.exec(EXTENSION_SLOTS_CREATE_SQL);
+  await pglite.exec(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
+  await pglite.exec(EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL);
+  await pglite.exec(EXTENSION_SLOTS_UNIQUE_INDEX_SQL);
+  await pglite.exec(EXTENSION_SLOT_INSTALLS_CREATE_SQL);
+  await pglite.exec(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
+  await pglite.exec(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
+  db = drizzle(pglite.db);
 
   registerShareableResource({
     type: "extension",
@@ -169,8 +176,8 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
   vi.clearAllMocks();
 });
 
@@ -346,7 +353,7 @@ describe("extension slots: listExtensionsForSlot scoping", () => {
     // Declare all three in the same slot (declaration auth is checked when
     // adding; insert directly to bypass and focus on the read-side scoping).
     for (const id of ["mine", "theirs", "shared"]) {
-      sqlite
+      await pglite
         .prepare(
           `INSERT INTO tool_slots (id, tool_id, slot_id, config, created_at)
            VALUES (?, ?, 'calendar.panel', NULL, '2026-04-30T00:00:00.000Z')`,
@@ -367,7 +374,7 @@ describe("extension slots: listExtensionsForSlot scoping", () => {
 
   it("returns an empty list when the caller can see no extensions", async () => {
     await insertExtension({ id: "theirs", ownerEmail: OUTSIDER });
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO tool_slots (id, tool_id, slot_id, config, created_at)
          VALUES ('d1', 'theirs', 'calendar.panel', NULL, '2026-04-30T00:00:00.000Z')`,
@@ -443,7 +450,7 @@ describe("extension slots: install / uninstall", () => {
       ownerEmail: OWNER,
       visibility: "org",
     });
-    addOrgMember(ORG, VIEWER);
+    await addOrgMember(ORG, VIEWER);
 
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, () =>
       installExtensionSlot("ext-a", "mail.sidebar"),
@@ -475,7 +482,7 @@ describe("extension slots: install / uninstall", () => {
       ownerEmail: OWNER,
       visibility: "org",
     });
-    addOrgMember(ORG, VIEWER);
+    await addOrgMember(ORG, VIEWER);
 
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, () =>
       installExtensionSlot("ext-a", "mail.sidebar"),
@@ -532,7 +539,7 @@ describe("extension slots: listSlotInstallsForUser", () => {
     // Directly insert an install row for ext-gone owned by OWNER (simulating a
     // stale install), so listSlotInstallsForUser must filter it out because
     // accessFilter no longer admits ext-gone.
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO tool_slot_installs
           (id, tool_id, slot_id, owner_email, org_id, position, config, created_at, updated_at)
@@ -563,14 +570,16 @@ describe("extension slots: cascadeDeleteExtensionSlots", () => {
 
     await cascadeDeleteExtensionSlots("ext-a");
 
-    const slotRows = sqlite
-      .prepare(`SELECT COUNT(*) AS c FROM tool_slots WHERE tool_id = 'ext-a'`)
-      .get() as { c: number };
-    const installRows = sqlite
-      .prepare(
+    const slotRows = (await (
+      await pglite.prepare(
+        `SELECT COUNT(*) AS c FROM tool_slots WHERE tool_id = 'ext-a'`,
+      )
+    ).get()) as { c: number };
+    const installRows = (await (
+      await pglite.prepare(
         `SELECT COUNT(*) AS c FROM tool_slot_installs WHERE tool_id = 'ext-a'`,
       )
-      .get() as { c: number };
+    ).get()) as { c: number };
     expect(slotRows.c).toBe(0);
     expect(installRows.c).toBe(0);
   });

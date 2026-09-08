@@ -68,18 +68,6 @@ const enUS = {
     testAndConnect: "Test & Connect",
     testingConnection: "Testing connection...",
     providers: {
-      turso: {
-        description: "SQLite at the edge",
-        steps: {
-          step1: "Install CLI: curl -sSfL https://get.tur.so/install.sh | bash",
-          step2: "Sign up / login: turso auth login (opens browser)",
-          step3: "Create a database: turso db create my-app",
-          step4:
-            "Copy the URL: turso db show my-app --url → starts with libsql://",
-          step5:
-            "Create an auth token: turso db tokens create my-app → paste below",
-        },
-      },
       neon: {
         description: "Serverless Postgres",
         steps: {
@@ -100,20 +88,6 @@ const enUS = {
           step4: "Go to Project Settings → Database → Connection string",
           step5:
             'Select "URI" tab → copy the postgres://... string (replace [YOUR-PASSWORD] with your DB password)',
-        },
-      },
-      d1: {
-        description: "SQLite on Cloudflare's edge",
-        steps: {
-          step1:
-            "Go to dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-          step2: 'Click "Create" → name your database → click Create',
-          step3: "Copy the Database ID from the database overview page",
-          step4:
-            "For the auth token: go to My Profile → API Tokens → Create Token",
-          step5:
-            'Select "Edit Cloudflare Workers" template → Create Token → copy it',
-          step6: "Paste as: d1://<database-id> with the API token below",
         },
       },
     },
@@ -181,6 +155,7 @@ const enUS = {
     otherCalendars: "Other Calendars",
     otherCalendarsDescription:
       "Add a teammate's calendar or subscribe to a public calendar URL",
+    overlayCalendarUnavailable: "Couldn't load {{email}}'s calendar right now",
     previousYear: "Previous year",
     showCalendar: "Show calendar",
   },
@@ -616,6 +591,20 @@ const enUS = {
     requiredHostsDescription:
       "You are included automatically. Add teammates who must also be free.",
     removeHost: "Remove {{email}}",
+    overlayHostsLabel: "From your calendar",
+    overlayHostsPlaceholder: "Select people you've added to your calendar",
+    overlayHostsEmpty: "No one found.",
+    noOverlayPeopleYet: "You haven't added any peers to your calendar yet.",
+    addOverlayPersonCta: "Add a peer's calendar",
+    addOtherEmail: "Add another email",
+    overlayHostsHint:
+      "People from your calendar get working-hours-aware scheduling. Other emails are only checked for conflicts.",
+    showTimeZones: "Show time zones",
+    hideTimeZones: "Hide time zones",
+    youLabel: "You",
+    hostLabel: "Host",
+    addTimeZone: "Add time zone",
+    removeTimeZone: "Remove {{timezone}}",
     saveAvailability: "Save Availability",
     saved: "Saved",
     selectDate: "Select a Date",
@@ -6386,16 +6375,6 @@ const translatedCalendarRemainingRaw = {
       testAndConnect: "测试并连接",
       testingConnection: "正在测试连接...",
       providers: {
-        turso: {
-          description: "边缘 SQLite",
-          steps: {
-            step1: "安装 CLI：curl -sSfL https://get.tur.so/install.sh | bash",
-            step2: "注册/登录：turso auth login（打开浏览器）",
-            step3: "创建数据库：turso db create my-app",
-            step4: "复制 URL：turso db show my-app --url → 以 libsql:// 开头",
-            step5: "创建认证令牌：turso db tokens create my-app → 粘贴到下方",
-          },
-        },
         neon: {
           description: "Serverless Postgres",
           steps: {
@@ -6415,18 +6394,6 @@ const translatedCalendarRemainingRaw = {
             step4: "前往 Project Settings → Database → Connection string",
             step5:
               '选择 "URI" 标签 → 复制 postgres://... 字符串（将 [YOUR-PASSWORD] 替换为数据库密码）',
-          },
-        },
-        d1: {
-          description: "Cloudflare 边缘 SQLite",
-          steps: {
-            step1:
-              "前往 dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2: '点击 "Create" → 为数据库命名 → 点击 Create',
-            step3: "从数据库概览页复制 Database ID",
-            step4: "认证令牌：前往 My Profile → API Tokens → Create Token",
-            step5: '选择 "Edit Cloudflare Workers" 模板 → Create Token → 复制',
-            step6: "按 d1://<database-id> 填写，并在下方提供 API token",
           },
         },
       },
@@ -6541,13 +6508,11 @@ const translatedCalendarRemainingRaw = {
       testAndConnect: "Probar y conectar",
       testingConnection: "Probando conexión...",
       providers: {
-        turso: { description: "SQLite en el edge", steps: {} },
         neon: { description: "Postgres serverless", steps: {} },
         supabase: {
           description: "Alternativa open source a Firebase",
           steps: {},
         },
-        d1: { description: "SQLite en el edge de Cloudflare", steps: {} },
       },
     },
     apollo: {
@@ -6748,19 +6713,6 @@ const translatedCalendarExactCleanup = {
   "es-ES": {
     cloudUpgrade: {
       providers: {
-        turso: {
-          steps: {
-            step1:
-              "Instala la CLI: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2:
-              "Regístrate o inicia sesión: turso auth login (abre el navegador)",
-            step3: "Crea una base de datos: turso db create my-app",
-            step4:
-              "Copia la URL: turso db show my-app --url → empieza por libsql://",
-            step5:
-              "Crea un token de autenticación: turso db tokens create my-app → pégalo abajo",
-          },
-        },
         neon: {
           steps: {
             step1: "Ve a console.neon.tech y regístrate o inicia sesión",
@@ -6783,21 +6735,6 @@ const translatedCalendarExactCleanup = {
             step4: "Ve a Project Settings → Database → Connection string",
             step5:
               'Selecciona la pestaña "URI" → copia la cadena postgres://... (sustituye [YOUR-PASSWORD] por tu contraseña)',
-          },
-        },
-        d1: {
-          steps: {
-            step1:
-              "Ve a dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2:
-              'Haz clic en "Create" → pon nombre a la base de datos → haz clic en Create',
-            step3:
-              "Copia el Database ID desde la página de resumen de la base de datos",
-            step4:
-              "Para el token de autenticación: ve a My Profile → API Tokens → Create Token",
-            step5:
-              'Selecciona la plantilla "Edit Cloudflare Workers" → Create Token → cópialo',
-            step6: "Usa d1://<database-id> y pega el API token abajo",
           },
         },
       },
@@ -6834,20 +6771,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "Tester et connecter",
       testingConnection: "Test de la connexion...",
       providers: {
-        turso: {
-          description: "SQLite en périphérie",
-          steps: {
-            step1:
-              "Installez la CLI : curl -sSfL https://get.tur.so/install.sh | bash",
-            step2:
-              "Inscrivez-vous ou connectez-vous : turso auth login (ouvre le navigateur)",
-            step3: "Créez une base de données : turso db create my-app",
-            step4:
-              "Copiez l’URL : turso db show my-app --url → commence par libsql://",
-            step5:
-              "Créez un jeton d’authentification : turso db tokens create my-app → collez-le ci-dessous",
-          },
-        },
         neon: {
           description: "Postgres sans serveur",
           steps: {
@@ -6875,23 +6798,6 @@ const translatedCalendarExactCleanup = {
             step4: "Accédez à Project Settings → Database → Connection string",
             step5:
               'Sélectionnez l’onglet "URI" → copiez la chaîne postgres://... (remplacez [YOUR-PASSWORD] par votre mot de passe)',
-          },
-        },
-        d1: {
-          description: "SQLite sur l’edge de Cloudflare",
-          steps: {
-            step1:
-              "Accédez à dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2:
-              'Cliquez sur "Create" → nommez votre base de données → cliquez sur Create',
-            step3:
-              "Copiez le Database ID depuis la page de synthèse de la base de données",
-            step4:
-              "Pour le jeton d’authentification : accédez à My Profile → API Tokens → Create Token",
-            step5:
-              'Sélectionnez le modèle "Edit Cloudflare Workers" → Create Token → copiez-le',
-            step6:
-              "Utilisez d1://<database-id> et collez le API token ci-dessous",
           },
         },
       },
@@ -7027,20 +6933,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "Testen und verbinden",
       testingConnection: "Verbindung wird getestet...",
       providers: {
-        turso: {
-          description: "SQLite am Edge",
-          steps: {
-            step1:
-              "CLI installieren: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2:
-              "Registrieren/anmelden: turso auth login (öffnet den Browser)",
-            step3: "Datenbank erstellen: turso db create my-app",
-            step4:
-              "URL kopieren: turso db show my-app --url → beginnt mit libsql://",
-            step5:
-              "Authentifizierungstoken erstellen: turso db tokens create my-app → unten einfügen",
-          },
-        },
         neon: {
           description: "Serverloses Postgres",
           steps: {
@@ -7067,23 +6959,6 @@ const translatedCalendarExactCleanup = {
             step4: "Gehe zu Project Settings → Database → Connection string",
             step5:
               'Wähle den Tab "URI" → kopiere die postgres://... Zeichenfolge (ersetze [YOUR-PASSWORD] durch dein Datenbankpasswort)',
-          },
-        },
-        d1: {
-          description: "SQLite am Edge von Cloudflare",
-          steps: {
-            step1:
-              "Gehe zu dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2:
-              'Klicke auf "Create" → benenne deine Datenbank → klicke auf Create',
-            step3:
-              "Kopiere die Database ID von der Übersichtsseite der Datenbank",
-            step4:
-              "Für das Authentifizierungstoken: gehe zu My Profile → API Tokens → Create Token",
-            step5:
-              'Wähle die Vorlage "Edit Cloudflare Workers" → Create Token → kopiere es',
-            step6:
-              "Verwende d1://<database-id> und füge unten den API token ein",
           },
         },
       },
@@ -7215,19 +7090,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "テストして接続",
       testingConnection: "接続をテストしています...",
       providers: {
-        turso: {
-          description: "エッジの SQLite",
-          steps: {
-            step1:
-              "CLI をインストール: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2: "登録/ログイン: turso auth login (ブラウザが開きます)",
-            step3: "データベースを作成: turso db create my-app",
-            step4:
-              "URL をコピー: turso db show my-app --url → libsql:// で始まります",
-            step5:
-              "認証トークンを作成: turso db tokens create my-app → 下に貼り付けます",
-          },
-        },
         neon: {
           description: "サーバーレス Postgres",
           steps: {
@@ -7252,21 +7114,6 @@ const translatedCalendarExactCleanup = {
               "Project Settings → Database → Connection string に移動します",
             step5:
               '"URI" タブを選択 → postgres://... 文字列をコピーします ([YOUR-PASSWORD] をデータベースパスワードに置き換えます)',
-          },
-        },
-        d1: {
-          description: "Cloudflare エッジの SQLite",
-          steps: {
-            step1:
-              "dash.cloudflare.com → Workers & Pages → D1 SQL Database に移動します",
-            step2:
-              '"Create" をクリック → データベース名を入力 → Create をクリック',
-            step3: "データベース概要ページから Database ID をコピーします",
-            step4:
-              "認証トークン: My Profile → API Tokens → Create Token に移動します",
-            step5:
-              '"Edit Cloudflare Workers" テンプレートを選択 → Create Token → コピーします',
-            step6: "d1://<database-id> を使い、下に API token を貼り付けます",
           },
         },
       },
@@ -7392,17 +7239,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "테스트 및 연결",
       testingConnection: "연결을 테스트하는 중...",
       providers: {
-        turso: {
-          description: "엣지의 SQLite",
-          steps: {
-            step1: "CLI 설치: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2: "가입/로그인: turso auth login (브라우저가 열림)",
-            step3: "데이터베이스 만들기: turso db create my-app",
-            step4: "URL 복사: turso db show my-app --url → libsql:// 로 시작",
-            step5:
-              "인증 토큰 만들기: turso db tokens create my-app → 아래에 붙여넣기",
-          },
-        },
         neon: {
           description: "서버리스 Postgres",
           steps: {
@@ -7424,21 +7260,6 @@ const translatedCalendarExactCleanup = {
               "Project Settings → Database → Connection string으로 이동하세요",
             step5:
               '"URI" 탭 선택 → postgres://... 문자열 복사([YOUR-PASSWORD]를 데이터베이스 비밀번호로 교체)',
-          },
-        },
-        d1: {
-          description: "Cloudflare 엣지의 SQLite",
-          steps: {
-            step1:
-              "dash.cloudflare.com → Workers & Pages → D1 SQL Database로 이동하세요",
-            step2: '"Create" 클릭 → 데이터베이스 이름 지정 → Create 클릭',
-            step3: "데이터베이스 개요 페이지에서 Database ID를 복사하세요",
-            step4:
-              "인증 토큰: My Profile → API Tokens → Create Token으로 이동하세요",
-            step5:
-              '"Edit Cloudflare Workers" 템플릿 선택 → Create Token → 복사',
-            step6:
-              "d1://<database-id>를 사용하고 아래에 API token을 붙여넣으세요",
           },
         },
       },
@@ -7564,20 +7385,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "Testar e conectar",
       testingConnection: "Testando conexão...",
       providers: {
-        turso: {
-          description: "SQLite na borda",
-          steps: {
-            step1:
-              "Instale a CLI: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2:
-              "Cadastre-se/faça login: turso auth login (abre o navegador)",
-            step3: "Crie um banco de dados: turso db create my-app",
-            step4:
-              "Copie a URL: turso db show my-app --url → começa com libsql://",
-            step5:
-              "Crie um token de autenticação: turso db tokens create my-app → cole abaixo",
-          },
-        },
         neon: {
           description: "Postgres serverless",
           steps: {
@@ -7602,21 +7409,6 @@ const translatedCalendarExactCleanup = {
             step4: "Acesse Project Settings → Database → Connection string",
             step5:
               'Selecione a aba "URI" → copie a string postgres://... (troque [YOUR-PASSWORD] pela senha do banco)',
-          },
-        },
-        d1: {
-          description: "SQLite na borda da Cloudflare",
-          steps: {
-            step1:
-              "Acesse dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2:
-              'Clique em "Create" → dê um nome ao banco → clique em Create',
-            step3: "Copie o Database ID na página de visão geral do banco",
-            step4:
-              "Para o token de autenticação: acesse My Profile → API Tokens → Create Token",
-            step5:
-              'Selecione o modelo "Edit Cloudflare Workers" → Create Token → copie-o',
-            step6: "Use d1://<database-id> e cole o API token abaixo",
           },
         },
       },
@@ -7752,19 +7544,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "जांचें और कनेक्ट करें",
       testingConnection: "कनेक्शन जांचा जा रहा है...",
       providers: {
-        turso: {
-          description: "एज पर SQLite",
-          steps: {
-            step1:
-              "CLI इंस्टॉल करें: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2: "साइन अप/लॉग इन करें: turso auth login (ब्राउज़र खुलता है)",
-            step3: "डेटाबेस बनाएं: turso db create my-app",
-            step4:
-              "URL कॉपी करें: turso db show my-app --url → libsql:// से शुरू होता है",
-            step5:
-              "प्रमाणीकरण टोकन बनाएं: turso db tokens create my-app → नीचे पेस्ट करें",
-          },
-        },
         neon: {
           description: "सर्वरलेस Postgres",
           steps: {
@@ -7786,20 +7565,6 @@ const translatedCalendarExactCleanup = {
             step4: "Project Settings → Database → Connection string पर जाएं",
             step5:
               '"URI" टैब चुनें → postgres://... स्ट्रिंग कॉपी करें ([YOUR-PASSWORD] को डेटाबेस पासवर्ड से बदलें)',
-          },
-        },
-        d1: {
-          description: "Cloudflare के एज पर SQLite",
-          steps: {
-            step1:
-              "dash.cloudflare.com → Workers & Pages → D1 SQL Database पर जाएं",
-            step2: '"Create" पर क्लिक करें → डेटाबेस का नाम दें → Create पर क्लिक करें',
-            step3: "डेटाबेस अवलोकन पेज से Database ID कॉपी करें",
-            step4:
-              "प्रमाणीकरण टोकन के लिए: My Profile → API Tokens → Create Token पर जाएं",
-            step5:
-              '"Edit Cloudflare Workers" टेम्पलेट चुनें → Create Token → इसे कॉपी करें',
-            step6: "d1://<database-id> का उपयोग करें और नीचे API token पेस्ट करें",
           },
         },
       },
@@ -7926,17 +7691,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "اختبار والاتصال",
       testingConnection: "جارٍ اختبار الاتصال...",
       providers: {
-        turso: {
-          description: "SQLite على الحافة",
-          steps: {
-            step1: "ثبّت CLI: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2: "سجّل أو ادخل: turso auth login (يفتح المتصفح)",
-            step3: "أنشئ قاعدة بيانات: turso db create my-app",
-            step4: "انسخ URL: turso db show my-app --url → يبدأ بـ libsql://",
-            step5:
-              "أنشئ رمز مصادقة: turso db tokens create my-app → الصقه أدناه",
-          },
-        },
         neon: {
           description: "Postgres بلا خادم",
           steps: {
@@ -7959,19 +7713,6 @@ const translatedCalendarExactCleanup = {
             step4: "انتقل إلى Project Settings → Database → Connection string",
             step5:
               'حدد تبويب "URI" → انسخ سلسلة postgres://... (استبدل [YOUR-PASSWORD] بكلمة مرور قاعدة البيانات)',
-          },
-        },
-        d1: {
-          description: "SQLite على حافة Cloudflare",
-          steps: {
-            step1:
-              "انتقل إلى dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2: 'انقر على "Create" → سمّ قاعدة البيانات → انقر على Create',
-            step3: "انسخ Database ID من صفحة نظرة عامة على قاعدة البيانات",
-            step4:
-              "لرمز المصادقة: انتقل إلى My Profile → API Tokens → Create Token",
-            step5: 'حدد قالب "Edit Cloudflare Workers" → Create Token → انسخه',
-            step6: "استخدم d1://<database-id> والصق API token أدناه",
           },
         },
       },
@@ -9971,6 +9712,178 @@ function applyTranslatedCalendarOverrides(
   }
 }
 
+const translatedBookingHostAvailability = {
+  "es-ES": {
+    bookingLinks: {
+      overlayHostsLabel: "Desde tu calendario",
+      overlayHostsPlaceholder:
+        "Selecciona personas que hayas añadido a tu calendario",
+      overlayHostsEmpty: "No se encontró a nadie.",
+      noOverlayPeopleYet:
+        "Aún no has añadido a ningún compañero a tu calendario.",
+      addOverlayPersonCta: "Añadir el calendario de un compañero",
+      addOtherEmail: "Añadir otro correo",
+      overlayHostsHint:
+        "Las personas de tu calendario obtienen una programación que respeta su horario laboral. Otros correos solo se verifican por conflictos.",
+      showTimeZones: "Mostrar zonas horarias",
+      hideTimeZones: "Ocultar zonas horarias",
+      youLabel: "Tú",
+      hostLabel: "Anfitrión",
+      addTimeZone: "Añadir zona horaria",
+      removeTimeZone: "Eliminar {{timezone}}",
+    },
+  },
+  "fr-FR": {
+    bookingLinks: {
+      overlayHostsLabel: "Depuis votre calendrier",
+      overlayHostsPlaceholder:
+        "Sélectionnez des personnes ajoutées à votre calendrier",
+      overlayHostsEmpty: "Aucun résultat.",
+      noOverlayPeopleYet:
+        "Vous n'avez pas encore ajouté de collègues à votre calendrier.",
+      addOverlayPersonCta: "Ajouter le calendrier d'un collègue",
+      addOtherEmail: "Ajouter un autre e-mail",
+      overlayHostsHint:
+        "Les personnes de votre calendrier bénéficient d'une planification tenant compte de leurs horaires. Les autres e-mails ne sont vérifiés que pour les conflits.",
+      showTimeZones: "Afficher les fuseaux horaires",
+      hideTimeZones: "Masquer les fuseaux horaires",
+      youLabel: "Vous",
+      hostLabel: "Hôte",
+      addTimeZone: "Ajouter un fuseau horaire",
+      removeTimeZone: "Supprimer {{timezone}}",
+    },
+  },
+  "de-DE": {
+    bookingLinks: {
+      overlayHostsLabel: "Aus deinem Kalender",
+      overlayHostsPlaceholder:
+        "Wähle Personen aus, die du zu deinem Kalender hinzugefügt hast",
+      overlayHostsEmpty: "Niemand gefunden.",
+      noOverlayPeopleYet:
+        "Du hast deinem Kalender noch keine Kolleg:innen hinzugefügt.",
+      addOverlayPersonCta: "Kalender einer Kollegin/eines Kollegen hinzufügen",
+      addOtherEmail: "Weitere E-Mail hinzufügen",
+      overlayHostsHint:
+        "Personen aus deinem Kalender erhalten eine Terminplanung, die ihre Arbeitszeiten berücksichtigt. Andere E-Mails werden nur auf Konflikte geprüft.",
+      showTimeZones: "Zeitzonen anzeigen",
+      hideTimeZones: "Zeitzonen ausblenden",
+      youLabel: "Du",
+      hostLabel: "Gastgeber",
+      addTimeZone: "Zeitzone hinzufügen",
+      removeTimeZone: "{{timezone}} entfernen",
+    },
+  },
+  "pt-BR": {
+    bookingLinks: {
+      overlayHostsLabel: "Do seu calendário",
+      overlayHostsPlaceholder:
+        "Selecione pessoas que você adicionou ao seu calendário",
+      overlayHostsEmpty: "Ninguém encontrado.",
+      noOverlayPeopleYet: "Você ainda não adicionou colegas ao seu calendário.",
+      addOverlayPersonCta: "Adicionar o calendário de um colega",
+      addOtherEmail: "Adicionar outro e-mail",
+      overlayHostsHint:
+        "Pessoas do seu calendário recebem agendamento que respeita o horário de trabalho delas. Outros e-mails são verificados apenas quanto a conflitos.",
+      showTimeZones: "Mostrar fusos horários",
+      hideTimeZones: "Ocultar fusos horários",
+      youLabel: "Você",
+      hostLabel: "Anfitrião",
+      addTimeZone: "Adicionar fuso horário",
+      removeTimeZone: "Remover {{timezone}}",
+    },
+  },
+  "zh-CN": {
+    bookingLinks: {
+      overlayHostsLabel: "来自你的日历",
+      overlayHostsPlaceholder: "选择你已添加到日历中的人",
+      overlayHostsEmpty: "未找到任何人。",
+      noOverlayPeopleYet: "你还没有向日历添加任何同事。",
+      addOverlayPersonCta: "添加同事的日历",
+      addOtherEmail: "添加其他邮箱",
+      overlayHostsHint:
+        "来自你日历的联系人会按照他们的工作时间安排日程。其他邮箱仅用于检查冲突。",
+      showTimeZones: "显示时区",
+      hideTimeZones: "隐藏时区",
+      youLabel: "你",
+      hostLabel: "主持人",
+      addTimeZone: "添加时区",
+      removeTimeZone: "移除 {{timezone}}",
+    },
+  },
+  "ja-JP": {
+    bookingLinks: {
+      overlayHostsLabel: "カレンダーから",
+      overlayHostsPlaceholder: "カレンダーに追加した人を選択",
+      overlayHostsEmpty: "見つかりませんでした。",
+      noOverlayPeopleYet: "まだカレンダーに同僚を追加していません。",
+      addOverlayPersonCta: "同僚のカレンダーを追加",
+      addOtherEmail: "別のメールアドレスを追加",
+      overlayHostsHint:
+        "カレンダーに登録された人には勤務時間を考慮したスケジュールが適用されます。それ以外のメールアドレスは競合の確認のみに使用されます。",
+      showTimeZones: "タイムゾーンを表示",
+      hideTimeZones: "タイムゾーンを非表示",
+      youLabel: "あなた",
+      hostLabel: "ホスト",
+      addTimeZone: "タイムゾーンを追加",
+      removeTimeZone: "{{timezone}} を削除",
+    },
+  },
+  "ko-KR": {
+    bookingLinks: {
+      overlayHostsLabel: "캘린더에서 가져오기",
+      overlayHostsPlaceholder: "캘린더에 추가한 사람을 선택하세요",
+      overlayHostsEmpty: "찾을 수 없습니다.",
+      noOverlayPeopleYet: "아직 캘린더에 동료를 추가하지 않았습니다.",
+      addOverlayPersonCta: "동료의 캘린더 추가",
+      addOtherEmail: "다른 이메일 추가",
+      overlayHostsHint:
+        "캘린더에 있는 사람은 근무 시간을 반영한 일정이 적용됩니다. 다른 이메일은 일정 충돌만 확인합니다.",
+      showTimeZones: "시간대 표시",
+      hideTimeZones: "시간대 숨기기",
+      youLabel: "나",
+      hostLabel: "호스트",
+      addTimeZone: "시간대 추가",
+      removeTimeZone: "{{timezone}} 제거",
+    },
+  },
+  "hi-IN": {
+    bookingLinks: {
+      overlayHostsLabel: "आपके कैलेंडर से",
+      overlayHostsPlaceholder: "उन लोगों को चुनें जिन्हें आपने अपने कैलेंडर में जोड़ा है",
+      overlayHostsEmpty: "कोई नहीं मिला।",
+      noOverlayPeopleYet: "आपने अभी तक अपने कैलेंडर में कोई सहकर्मी नहीं जोड़ा है।",
+      addOverlayPersonCta: "किसी सहकर्मी का कैलेंडर जोड़ें",
+      addOtherEmail: "एक और ईमेल जोड़ें",
+      overlayHostsHint:
+        "आपके कैलेंडर के लोगों के लिए scheduling उनके काम के घंटों को ध्यान में रखती है। अन्य ईमेल केवल conflicts के लिए जाँचे जाते हैं।",
+      showTimeZones: "समय क्षेत्र दिखाएं",
+      hideTimeZones: "समय क्षेत्र छिपाएं",
+      youLabel: "आप",
+      hostLabel: "होस्ट",
+      addTimeZone: "समय क्षेत्र जोड़ें",
+      removeTimeZone: "{{timezone}} हटाएं",
+    },
+  },
+  "ar-SA": {
+    bookingLinks: {
+      overlayHostsLabel: "من تقويمك",
+      overlayHostsPlaceholder: "اختر الأشخاص الذين أضفتهم إلى تقويمك",
+      overlayHostsEmpty: "لم يتم العثور على أحد.",
+      noOverlayPeopleYet: "لم تقم بإضافة أي زملاء إلى تقويمك بعد.",
+      addOverlayPersonCta: "إضافة تقويم زميل",
+      addOtherEmail: "إضافة بريد إلكتروني آخر",
+      overlayHostsHint:
+        "يحصل الأشخاص من تقويمك على جدولة تراعي ساعات عملهم. يتم التحقق من رسائل البريد الإلكتروني الأخرى بحثًا عن التعارضات فقط.",
+      showTimeZones: "إظهار المناطق الزمنية",
+      hideTimeZones: "إخفاء المناطق الزمنية",
+      youLabel: "أنت",
+      hostLabel: "المضيف",
+      addTimeZone: "إضافة منطقة زمنية",
+      removeTimeZone: "إزالة {{timezone}}",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, PartialMessages>>;
+
 applyTranslatedCalendarOverrides(translatedCalendarExtras);
 applyTranslatedCalendarOverrides(translatedCalendarDebtTranslations);
 applyTranslatedCalendarOverrides(translatedCalendarInlineEditorLabels);
@@ -9978,4 +9891,5 @@ applyTranslatedCalendarOverrides(translatedCalendarRemainingRaw);
 applyTranslatedCalendarOverrides(translatedCalendarRawBurnDown);
 applyTranslatedCalendarOverrides(translatedCalendarExactCleanup);
 applyTranslatedCalendarOverrides(translatedCalendarAvailabilityFix);
+applyTranslatedCalendarOverrides(translatedBookingHostAvailability);
 applyTranslatedCalendarOverrides(translatedCalendarNotificationSettings);

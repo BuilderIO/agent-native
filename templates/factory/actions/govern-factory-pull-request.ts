@@ -9,12 +9,12 @@ import {
   triageRuns,
 } from "../server/db/schema.js";
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import { resolveFactoryRepository } from "../server/lib/factory-repository-scope.js";
 import {
   factoryIdSchema,
   orgFactoryItemFilter,
   orgFactoryRunFilter,
   orgFactoryScopedItemWhere,
-  readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
 import {
@@ -154,9 +154,12 @@ export default defineAction({
       factoryId,
     );
     const repository = parseGitHubRepositoryRef(repo);
-    const configuredRepository = (
-      await readTriageConfigRow(getDb(), orgId, factoryId)
-    )?.repository;
+    const configuredRepository = await resolveFactoryRepository(
+      getDb(),
+      context,
+      { userEmail, orgId },
+      factoryId,
+    );
     if (
       !configuredRepository ||
       !gitHubRepositoriesEqual(configuredRepository, repo)
@@ -253,6 +256,7 @@ export default defineAction({
     );
     const safetyFindingsClean =
       !snapshot.commentsTruncated &&
+      !snapshot.reviewsTruncated &&
       !hasActiveCredibleSafetyFinding(snapshot.reviews, snapshot.comments);
     let currentApprovals;
     try {
@@ -515,6 +519,8 @@ export default defineAction({
       checks: snapshot.checks,
       checksCoverage: snapshot.checksCoverage,
       commentsTruncated: snapshot.commentsTruncated,
+      reviews: snapshot.reviews,
+      reviewsTruncated: snapshot.reviewsTruncated,
       botAuthors: [
         "github-actions",
         "github-actions[bot]",
@@ -749,6 +755,7 @@ export default defineAction({
         );
       const postClaimSafetyFindingsClean =
         !postClaimSnapshot.commentsTruncated &&
+        !postClaimSnapshot.reviewsTruncated &&
         !hasActiveCredibleSafetyFinding(
           postClaimSnapshot.reviews,
           postClaimSnapshot.comments,
@@ -771,6 +778,8 @@ export default defineAction({
         checks: postClaimSnapshot.checks,
         checksCoverage: postClaimSnapshot.checksCoverage,
         commentsTruncated: postClaimSnapshot.commentsTruncated,
+        reviews: postClaimSnapshot.reviews,
+        reviewsTruncated: postClaimSnapshot.reviewsTruncated,
         botAuthors: [
           "github-actions",
           "github-actions[bot]",
@@ -973,6 +982,7 @@ export default defineAction({
           ) ||
           !hasCompletePassingChecks(finalReviewSnapshot) ||
           finalReviewSnapshot.commentsTruncated ||
+          finalReviewSnapshot.reviewsTruncated ||
           hasActiveCredibleSafetyFinding(
             finalReviewSnapshot.reviews,
             finalReviewSnapshot.comments,

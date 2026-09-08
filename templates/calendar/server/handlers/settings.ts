@@ -18,7 +18,9 @@ async function uEmail(event: H3Event): Promise<string> {
 
 export const getSettings = defineEventHandler(async (event: H3Event) => {
   try {
-    return await readCalendarSettings(await uEmail(event));
+    return await readCalendarSettings(await uEmail(event), {
+      persistDetected: true,
+    });
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };

@@ -75,6 +75,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "智能体",
   "agentPanel.mode": "模式",
   "agentPanel.uiMode": "界面",
+  "agentHostNudge.sidebarTitle": "使用 {{agent}} 的聊天",
+  "agentHostNudge.sidebarDescription":
+    "你已经在与 {{agent}} 聊天。可以直接让它操作此应用。",
+  "agentHostNudge.promptTitle": "改为询问 {{agent}}",
+  "agentHostNudge.promptDescription":
+    "你可以让 {{agent}} 在这里创建或修改内容。",
+  "agentHostNudge.useThisChat": "使用此聊天",
+  "agentHostNudge.useThisPrompt": "使用此提示",
   "common.cancel": "取消",
   "common.collapse": "收起",
   "common.connect": "连接",

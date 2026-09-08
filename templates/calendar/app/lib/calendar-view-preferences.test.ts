@@ -183,4 +183,53 @@ describe("calendar view preferences", () => {
       getEventDisplayColor(googleEvent),
     );
   });
+
+  it("uses a canonical calendar override before account and provider colors", () => {
+    const event = {
+      ...googleEvent,
+      canonicalKey: "google-calendar-canonical:friends",
+      color: "#D4A053",
+    };
+    const preferences = normalizeCalendarViewPreferences({
+      accountColorModes: { "steve@builder.io": "single" },
+      accountColors: { "steve@builder.io": "#4ECDC4" },
+      googleCalendarColors: {
+        "google-calendar-canonical:friends": "#CD6B6B",
+      },
+    });
+
+    expect(getEventDisplayColor(event, preferences)).toBe("#CD6B6B");
+    expect(
+      getEventDisplayColor(event, {
+        ...preferences,
+        googleCalendarColors: {},
+      }),
+    ).toBe("#4ECDC4");
+  });
+
+  it("uses the provider calendar color before meeting-type colors", () => {
+    expect(
+      getEventDisplayColor({
+        ...googleEvent,
+        calendarColor: "#B07CC6",
+      }),
+    ).toBe("#B07CC6");
+  });
+
+  it("uses local calendar overrides before provider calendar colors", () => {
+    expect(
+      getEventDisplayColor(
+        {
+          ...googleEvent,
+          canonicalKey: "google-calendar-canonical:friends",
+          calendarColor: "#B07CC6",
+        },
+        normalizeCalendarViewPreferences({
+          googleCalendarColors: {
+            "google-calendar-canonical:friends": "#D4A053",
+          },
+        }),
+      ),
+    ).toBe("#D4A053");
+  });
 });

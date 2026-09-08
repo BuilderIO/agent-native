@@ -58,6 +58,13 @@ interface RendererOptions {
   readonly onError?: (error: unknown) => void;
 }
 
+type PointerTarget = readonly [number, number, number];
+
+// The lag is intentional: a 30fps hero should feel like the field is drifting
+// toward the cursor, not that it is pinned to it.
+const POINTER_POSITION_EASING = 0.22;
+const POINTER_STRENGTH_EASING = 0.16;
+
 const SIM_FORMAT: GPUTextureFormat = "rgba32float";
 const HDR_FORMAT: GPUTextureFormat = "rgba16float";
 const TRANSPARENT = [0, 0, 0, 0] as const;
@@ -70,6 +77,8 @@ export function createRenderer({
 }: RendererOptions) {
   let disposed = false;
   let currentColors: OceanColors = colors ?? DEFAULT_OCEAN_COLORS;
+  let pointer: [number, number, number] = [0, 0, 0];
+  let pointerTarget: [number, number, number] = [0, 0, 0];
   let loop: FrameLoopHandle | undefined;
   let paused = false;
   let failed = false;
@@ -120,7 +129,9 @@ export function createRenderer({
       // The original failure is rethrown or handed to onError immediately
       // below; a teardown error raised here would replace that real cause.
       // coercion-ok: the caller still receives the failure that started this.
-    } catch {}
+    } catch {
+      // coercion-ok: teardown errors must not replace the original renderer failure.
+    }
     // Never resolves after a failure: fulfilling it would let a caller fade in
     // a dead canvas at the same moment onError demotes to the fallback.
     if (first) signalFirstFrameFailed(error);
@@ -197,8 +208,21 @@ export function createRenderer({
 
     gpu = nextGpu;
     output = surface(gpu, canvas, { dpr: [1, 1.6] });
-    graph = await createGraph(gpu, output, "fft-ocean-live", currentColors);
-    if (disposed) return;
+    const nextGraph = await createGraph(
+      gpu,
+      output,
+      "fft-ocean-live",
+      currentColors,
+    );
+    if (disposed) {
+      try {
+        destroyGraph(nextGraph);
+      } catch {
+        // coercion-ok: Cleanup is best-effort after the renderer device is disposed.
+      }
+      return;
+    }
+    graph = nextGraph;
 
     unsubscribeResize = output.onResize(scheduleResize);
 
@@ -220,6 +244,7 @@ export function createRenderer({
         if (disposed || paused || !graph || !output) return;
         try {
           setDynamics(graph, time.time * OCEAN_TUNING.simulation.timeScale);
+          updatePointer(graph.particles, time.time);
           renderGraph(currentFrame, graph, output);
           if (!drewOnce) {
             drewOnce = true;
@@ -251,13 +276,29 @@ export function createRenderer({
     paused = next;
   }
 
+  function updatePointer(particles: Draw, timeSeconds: number): void {
+    pointer[0] += (pointerTarget[0] - pointer[0]) * POINTER_POSITION_EASING;
+    pointer[1] += (pointerTarget[1] - pointer[1]) * POINTER_POSITION_EASING;
+    pointer[2] += (pointerTarget[2] - pointer[2]) * POINTER_STRENGTH_EASING;
+    if (pointer[2] < 0.001 && pointerTarget[2] === 0) pointer[2] = 0;
+
+    particles.set({
+      u: { cursor: [pointer[0], pointer[1], pointer[2], timeSeconds] },
+    });
+  }
+
+  function setPointer(next: PointerTarget): void {
+    if (disposed) return;
+    pointerTarget = [next[0], next[1], next[2]];
+  }
+
   function setColors(next: OceanColors): void {
     if (disposed) return;
     currentColors = next;
     if (graph) setPresentColors(graph, next);
   }
 
-  return { ready, firstFrame, dispose, setColors, setPaused };
+  return { ready, firstFrame, dispose, setColors, setPaused, setPointer };
 }
 
 export type OceanRenderer = ReturnType<typeof createRenderer>;
@@ -588,6 +629,7 @@ function setParticleConstants(particles: Draw, output: Output): void {
       oceanColor: tuning.particles.oceanColor,
       neonColor: tuning.particles.neonColor,
       foamColor: tuning.particles.foamColor,
+      cursor: [0, 0, 0, 0],
     },
   });
 }

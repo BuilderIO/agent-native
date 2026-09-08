@@ -39,6 +39,7 @@ const patchSchema = z.object({
   density: z.enum(["compact", "comfortable", "spacious"]).optional(),
   previewPane: z.enum(["right", "bottom", "off"]).optional(),
   sendAndArchive: z.boolean().optional(),
+  combineInbox: z.boolean().optional(),
   undoSendDelay: z.coerce.number().optional(),
   pinnedLabels: z.array(z.string()).optional(),
   pinnedLabelsBase: z.array(z.string()).optional(),

@@ -1638,6 +1638,69 @@ describe("slackAdapter", () => {
     );
   });
 
+  it("reconciles a completed native stream before retrying its strict target", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryMethods: string[] = [];
+    let terminalBlocks: Array<{ block_id?: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = new URL(url).pathname.split("/").at(-1)!;
+        deliveryMethods.push(method);
+        if (method === "chat.stopStream") {
+          const body = JSON.parse(String(init?.body ?? "{}"));
+          terminalBlocks = body.blocks ?? [];
+          return new Response(JSON.stringify({ ok: true }));
+        }
+        if (method === "conversations.replies") {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              messages: [{ ts: "999.003", blocks: terminalBlocks }],
+            }),
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, ts: "999.003" }));
+      }),
+    );
+    const adapter = slackAdapter();
+    const incoming = {
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      text: "make a design ask",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "123.456" },
+    };
+    const progress = await adapter.resumeRunProgress?.(incoming, {
+      kind: "slack-stream",
+      streamTs: "999.003",
+    });
+
+    await progress?.complete(
+      { text: "done", platformContext: {} },
+      { idempotencyKey: "integration-response:task-qa" },
+    );
+    const receipt = await adapter.sendResponse(
+      { text: "done", platformContext: {} },
+      incoming,
+      {
+        idempotencyKey: "integration-response:task-qa",
+        placeholderRef: "999.003",
+        strictTargetRef: true,
+      },
+    );
+
+    expect(terminalBlocks[0]?.block_id).toMatch(
+      /^agent_native_terminal_[0-9a-f]{32}$/,
+    );
+    expect(receipt).toEqual({
+      status: "delivered",
+      messageRefs: ["999.003"],
+    });
+    expect(deliveryMethods).toContain("conversations.replies");
+    expect(deliveryMethods).not.toContain("chat.update");
+  });
+
   it("fails delivery when no Slack bot token is configured", async () => {
     await expect(
       slackAdapter().sendResponse(

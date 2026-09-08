@@ -90,6 +90,7 @@ vi.mock("@agent-native/core/client/org", () => ({
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({
+  getClientSurface: () => "web",
   isInBuilderFrame: () => clientState.inBuilderFrame,
 }));
 

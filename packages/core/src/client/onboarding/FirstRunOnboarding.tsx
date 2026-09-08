@@ -8,6 +8,7 @@ import {
   IconKey,
   IconLoader2,
   IconSearch,
+  IconX,
 } from "@tabler/icons-react";
 import React, {
   useCallback,
@@ -24,6 +25,11 @@ import type {
 import { docsUrl } from "../../shared/docs-url.js";
 import { appPath } from "../api-path.js";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -34,6 +40,7 @@ import {
   buildMcpOAuthStartUrl,
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
+  isMcpIntegrationUrl,
   navigateToMcpOAuthStart,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
@@ -126,6 +133,7 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
+  const builderMoreServicesTitleId = React.useId();
   const previewMode = useOnboardingPreviewMode();
   const {
     firstRun,
@@ -215,17 +223,13 @@ export function FirstRunOnboarding({
     profile,
     screen,
   ]);
-  const connectedUrls = useMemo(() => {
-    if (previewMode) return new Set<string>();
+  const connectedServers = useMemo(() => {
+    if (previewMode) return [];
     const servers = [
       ...(mcpServersQuery.data?.user ?? []),
       ...(mcpServersQuery.data?.org ?? []),
     ];
-    return new Set(
-      servers
-        .filter((server) => server.status.state === "connected")
-        .map((server) => compareUrl(server.url)),
-    );
+    return servers.filter((server) => server.status.state === "connected");
   }, [mcpServersQuery.data, previewMode]);
   const hasOrg = Boolean(mcpServersQuery.data?.orgId);
   const canCreateOrgMcp = Boolean(
@@ -253,12 +257,31 @@ export function FirstRunOnboarding({
   });
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
+  const dismissOnboarding = useCallback(() => {
+    void finishOnboarding(null);
+  }, [finishOnboarding]);
+  const retryOnboardingCompletion = useCallback(() => {
+    const attempt = completionAttemptRef.current;
+    void finishOnboarding(
+      attempt?.screen ?? null,
+      attempt?.extensionIndex ?? extensionIndex,
+    );
+  }, [extensionIndex, finishOnboarding]);
+  const completionErrorProps = {
+    completionError: completeFirstRunError,
+    onRetry: retryOnboardingCompletion,
+  };
 
   if (!firstRun) return null;
 
   if (error) {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-md flex-col items-center gap-4 text-center">
           <h1 className="text-xl font-semibold tracking-[-0.03em]">
             Setup is almost ready.
@@ -361,7 +384,9 @@ export function FirstRunOnboarding({
     setConnectError(null);
 
     if (
-      connectedUrls.has(compareUrl(integration.url)) ||
+      connectedServers.some((server) =>
+        isMcpIntegrationUrl(integration, server.url),
+      ) ||
       connectingIntegrationId === integration.id
     ) {
       return;
@@ -370,6 +395,11 @@ export function FirstRunOnboarding({
     if (!mcpServersQuery.isSuccess) return;
 
     if (hasOrg) {
+      setIntegrationDialogId(integration.id);
+      return;
+    }
+
+    if (!integration.url.trim()) {
       setIntegrationDialogId(integration.id);
       return;
     }
@@ -436,30 +466,28 @@ export function FirstRunOnboarding({
       void finishOnboarding("extension", extensionIndex);
     };
     return (
-      <>
+      <OnboardingShell
+        profile={profile}
+        screen="extension"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <Extension
           onComplete={advanceExtension}
           onSkip={() => void finishOnboarding(null)}
         />
-        {completeFirstRunError && (
-          <FirstRunCompletionError
-            message={completeFirstRunError}
-            onRetry={() => {
-              const attempt = completionAttemptRef.current;
-              void finishOnboarding(
-                attempt?.screen ?? null,
-                attempt?.extensionIndex ?? extensionIndex,
-              );
-            }}
-          />
-        )}
-      </>
+      </OnboardingShell>
     );
   }
 
   if (screen === "intro") {
     return (
-      <OnboardingShell profile={profile} screen="intro">
+      <OnboardingShell
+        profile={profile}
+        screen="intro"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-lg flex-col items-center text-center">
           <h1 className="text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
             Free forever.
@@ -514,7 +542,12 @@ export function FirstRunOnboarding({
 
   if (screen === "choice") {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
           <h1 className="text-center text-xl font-semibold tracking-[-0.04em] sm:text-2xl">
             Choose your setup.
@@ -580,8 +613,8 @@ export function FirstRunOnboarding({
                   <span aria-hidden="true" className="text-muted-foreground">
                     ·
                   </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+                  <Popover>
+                    <PopoverTrigger asChild>
                       <button
                         type="button"
                         className="text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -589,16 +622,25 @@ export function FirstRunOnboarding({
                       >
                         +{BUILDER_MORE_SERVICES.length} more
                       </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-sm text-xs">
-                      <p className="font-medium">
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="top"
+                      align="start"
+                      sideOffset={6}
+                      aria-labelledby={builderMoreServicesTitleId}
+                      className="w-[min(24rem,calc(100vw-2rem))] text-xs"
+                    >
+                      <p
+                        id={builderMoreServicesTitleId}
+                        className="font-medium"
+                      >
                         Also included with Builder.io free credits
                       </p>
                       <p className="mt-1 leading-5">
                         {BUILDER_MORE_SERVICES.join(" · ")}
                       </p>
-                    </TooltipContent>
-                  </Tooltip>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
               <BuilderConnectPopover
@@ -623,6 +665,15 @@ export function FirstRunOnboarding({
                   <IconArrowRight size={15} />
                 </button>
               </BuilderConnectPopover>
+              {connectFlow.error && !connectFlow.statusResolved && (
+                <p
+                  role="status"
+                  data-testid="first-run-builder-status-error"
+                  className="mt-2 text-center text-xs text-destructive"
+                >
+                  {connectFlow.error}
+                </p>
+              )}
             </section>
 
             <div
@@ -686,7 +737,12 @@ export function FirstRunOnboarding({
 
   if (screen === "manual") {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
           <div>
             <button
@@ -740,6 +796,8 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="tools"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
         footer={
           <div
             data-testid="onboarding-tools-footer"
@@ -823,8 +881,8 @@ export function FirstRunOnboarding({
 
             <IntegrationGrid
               items={mcpIntegrations.map((integration) => {
-                const connected = connectedUrls.has(
-                  compareUrl(integration.url),
+                const connected = connectedServers.some((server) =>
+                  isMcpIntegrationUrl(integration, server.url),
                 );
                 return {
                   id: integration.id,
@@ -872,7 +930,12 @@ export function FirstRunOnboarding({
 
   if (screen === "role") {
     return (
-      <OnboardingShell profile={profile} screen="role">
+      <OnboardingShell
+        profile={profile}
+        screen="role"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div
           className="mx-auto flex w-full max-w-md flex-col"
           data-testid="first-run-role"
@@ -944,12 +1007,6 @@ export function FirstRunOnboarding({
             </button>
           </div>
         </div>
-        {completeFirstRunError && (
-          <FirstRunCompletionError
-            message={completeFirstRunError}
-            onRetry={() => void finishOnboarding("role")}
-          />
-        )}
       </OnboardingShell>
     );
   }
@@ -959,7 +1016,12 @@ export function FirstRunOnboarding({
     const provisioning =
       builderConnectionMode === "provision" && !accountExists;
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div
           className="mx-auto flex w-full max-w-md flex-col items-center text-center"
           role="status"
@@ -1033,7 +1095,12 @@ export function FirstRunOnboarding({
   }
 
   return (
-    <OnboardingShell profile={profile} screen="ready">
+    <OnboardingShell
+      profile={profile}
+      screen="ready"
+      onDismiss={dismissOnboarding}
+      {...completionErrorProps}
+    >
       <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
         <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           <IconCheck size={20} />
@@ -1090,12 +1157,6 @@ export function FirstRunOnboarding({
           <IconArrowRight size={15} />
         </button>
       </div>
-      {completeFirstRunError && (
-        <FirstRunCompletionError
-          message={completeFirstRunError}
-          onRetry={() => void finishOnboarding("ready")}
-        />
-      )}
     </OnboardingShell>
   );
 }
@@ -1104,13 +1165,20 @@ function OnboardingShell({
   profile,
   screen,
   footer,
+  onDismiss,
+  completionError,
+  onRetry,
   children,
 }: {
   profile: OnboardingAppProfile | null;
-  screen: "intro" | "choice" | "tools" | "role" | "ready";
+  screen: FirstRunScreen;
   footer?: React.ReactNode;
+  onDismiss?: () => void;
+  completionError?: string | null;
+  onRetry?: () => void;
   children: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <div
       className="fixed inset-0 z-[100] flex h-full min-h-0 flex-col bg-background text-foreground"
@@ -1119,6 +1187,17 @@ function OnboardingShell({
       aria-modal="true"
       aria-label={`${profile?.appName ?? "Your app"} setup`}
     >
+      {onDismiss ? (
+        <button
+          type="button"
+          data-testid="first-run-dismiss"
+          aria-label={t("agentChat.common.dismiss")}
+          onClick={onDismiss}
+          className="absolute end-4 top-4 z-10 flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconX size={17} />
+        </button>
+      ) : null}
       <div
         className="h-0.5 shrink-0 bg-muted"
         data-testid="onboarding-progress"
@@ -1129,7 +1208,10 @@ function OnboardingShell({
             width:
               screen === "intro"
                 ? "33.33%"
-                : screen === "tools" || screen === "role" || screen === "ready"
+                : screen === "tools" ||
+                    screen === "role" ||
+                    screen === "ready" ||
+                    screen === "extension"
                   ? "100%"
                   : "66.66%",
           }}
@@ -1148,6 +1230,9 @@ function OnboardingShell({
           {footer}
         </footer>
       )}
+      {completionError && onRetry ? (
+        <FirstRunCompletionError message={completionError} onRetry={onRetry} />
+      ) : null}
     </div>
   );
 }
@@ -1284,8 +1369,12 @@ function CapabilityInfoButton({
   );
 }
 
+// `aria-disabled` (not `disabled`) is what BuilderConnectPopover sets while the
+// Builder status is still in flight, so the `disabled:` styles never engage and
+// a pending CTA is pixel-identical to a live one — which is why this class of
+// dead button survives screenshot review.
 const primaryButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-60";
 
 /** Inline failure signal for a failed completeFirstRun() call — keeps the
  *  user on their current screen with a way forward, instead of swapping to
@@ -1314,13 +1403,3 @@ function FirstRunCompletionError({
 
 const secondaryButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
-
-function compareUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
-}

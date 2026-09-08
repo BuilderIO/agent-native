@@ -5,75 +5,39 @@ import {
 } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
 import { IconSend } from "@tabler/icons-react";
-import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 export interface ReviewCommentsPanelProps {
   designId: string;
-  activeFileId?: string | null;
-  commentAnchor?: unknown;
-  commentMetadata?: Record<string, unknown>;
-  commentContextLabel?: string;
   canComment: boolean;
   /** Caller-derived editor capability for resolving threads. */
   canResolve?: boolean;
   /** Caller authorization for deleting a specific root comment. */
   canDeleteComment?: (comment: ReviewComment, thread: ReviewThread) => boolean;
-  showComposer?: boolean;
   signInHref?: string;
   onSelectThread?: (thread: ReviewThread) => void;
   canDispatchToAgent?: boolean;
   sendingThreadId?: string | null;
-  onDispatchCommentToAgent?: (comment: ReviewComment) => void;
   onSendThreadToAgent?: (thread: ReviewThread) => void;
   className?: string;
 }
 
-type ReviewCommentsScope = "screen" | "all";
-
-export function resolveReviewComposerTargetId({
-  scope,
-  activeFileId,
-  commentAnchor,
-}: {
-  scope: ReviewCommentsScope;
-  activeFileId?: string | null;
-  commentAnchor?: unknown;
-}): string | null | undefined {
-  if (commentAnchor != null) return activeFileId;
-  return scope === "screen" ? activeFileId : undefined;
-}
-
 export function ReviewCommentsPanel({
   designId,
-  activeFileId,
-  commentAnchor,
-  commentMetadata,
-  commentContextLabel,
   canComment,
   canResolve,
   canDeleteComment,
-  showComposer = true,
   signInHref,
   onSelectThread,
   canDispatchToAgent = false,
   sendingThreadId,
-  onDispatchCommentToAgent,
   onSendThreadToAgent,
   className,
 }: ReviewCommentsPanelProps) {
   const t = useT();
-  const [scope, setScope] = useState<ReviewCommentsScope>("screen");
-  const targetId = scope === "screen" ? activeFileId : undefined;
-  const composerTargetId = resolveReviewComposerTargetId({
-    scope,
-    activeFileId,
-    commentAnchor,
-  });
 
   return (
     <div
@@ -83,29 +47,6 @@ export function ReviewCommentsPanel({
         className,
       )}
     >
-      <div className="shrink-0 px-2 py-2 shadow-[inset_0_-1px_var(--design-editor-control-border)]">
-        <Tabs
-          value={scope}
-          onValueChange={(value) => setScope(value as "screen" | "all")}
-          className="w-full"
-        >
-          <TabsList className="grid min-h-[var(--design-control-height)] w-full grid-cols-2 rounded-md bg-muted p-0.5">
-            <TabsTrigger
-              value="screen"
-              className="design-sidebar-section-title min-h-[var(--design-control-height)] px-2"
-            >
-              {t("review.thisScreen")}
-            </TabsTrigger>
-            <TabsTrigger
-              value="all"
-              className="design-sidebar-section-title min-h-[var(--design-control-height)] px-2"
-            >
-              {t("review.allScreens")}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-
       {!canComment && signInHref ? (
         <Button
           asChild
@@ -121,13 +62,7 @@ export function ReviewCommentsPanel({
         <ReviewThreadPanel
           resourceType="design"
           resourceId={designId}
-          targetId={targetId}
-          composerTargetId={composerTargetId}
-          composerAnchor={commentAnchor}
-          composerMetadata={commentMetadata}
-          composerContextLabel={commentContextLabel}
           title={t("review.panelTitle")}
-          placeholder={t("review.placeholder")}
           emptyState={t("review.emptyState")}
           loadingLabel={t("review.loading")}
           replyLabel={t("review.reply")}
@@ -142,20 +77,11 @@ export function ReviewCommentsPanel({
           showHeader={false}
           variant="plain"
           className="design-sidebar-comments"
-          showComposer={canComment && showComposer}
+          showComposer={false}
           canReply={canComment}
           canResolve={canResolve ?? false}
           canDeleteComment={canDeleteComment}
-          showComposerTargetPicker={
-            canComment && showComposer && canDispatchToAgent
-          }
-          composerCommentLabel={t("review.commentMode")}
-          composerAgentLabel={t("review.sendToAgent")}
-          onCommentCreated={(comment) => {
-            if (canDispatchToAgent && comment.resolutionTarget === "agent") {
-              onDispatchCommentToAgent?.(comment);
-            }
-          }}
+          showComposerTargetPicker={false}
           onSelectThread={onSelectThread}
           renderThreadActions={
             canDispatchToAgent && onSendThreadToAgent

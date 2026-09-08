@@ -15,9 +15,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import { CloudUpgrade } from "@/components/CloudUpgrade";
 import type { Deck } from "@/context/DeckContext";
-import { useDbStatus } from "@/hooks/use-db-status";
 import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 
 interface ShareDialogProps {
@@ -51,7 +49,6 @@ export default function ShareDialog({
   onOpenChange,
 }: ShareDialogProps) {
   const t = useT();
-  const { isLocal } = useDbStatus();
   const [open, setOpen] = useState(false);
   const [shareLink, setShareLink] = useState<{
     deckId: string;
@@ -77,10 +74,6 @@ export default function ShareDialog({
   const secondaryShareLink = shareUrls[shareLinkOrder.secondary];
 
   const openShareDialog = useCallback(async () => {
-    if (isLocal) {
-      setDialogOpen(true);
-      return;
-    }
     if (shareToken) {
       setDialogOpen(true);
       return;
@@ -123,7 +116,7 @@ export default function ShareDialog({
     } finally {
       setCreatingLink(false);
     }
-  }, [creatingLink, deck, isLocal, setDialogOpen, shareToken, t]);
+  }, [creatingLink, deck, setDialogOpen, shareToken, t]);
 
   useEffect(() => {
     if (requestedOpen === undefined) return;
@@ -152,15 +145,8 @@ export default function ShareDialog({
   return (
     <>
       {trigger}
-      {open && isLocal ? (
-        <CloudUpgrade
-          title={t("share.title")}
-          description={t("share.cloudUpgradeDescription")}
-          onClose={() => setDialogOpen(false)}
-        />
-      ) : null}
       <CoreShareDialog
-        open={open && !isLocal}
+        open={open}
         onClose={() => setDialogOpen(false)}
         resourceType="deck"
         resourceId={deck.id}

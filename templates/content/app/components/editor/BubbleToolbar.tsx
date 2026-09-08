@@ -237,6 +237,43 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     activeTextStyle(editor),
   );
 
+  const createCommentFromSelection = useCallback(() => {
+    if (!onComment) return false;
+    const { from, to } = editor.state.selection;
+    const text = editor.state.doc.textBetween(from, to, " ");
+    if (!text.trim()) return false;
+    const anchor = captureAnchor(editor.state.doc, from, to);
+    const coords = editor.view.coordsAtPos(from);
+    const scrollContainer = editor.view.dom.closest(
+      ".flex-1.min-h-0.overflow-auto",
+    );
+    const containerTop = scrollContainer
+      ? scrollContainer.getBoundingClientRect().top
+      : 0;
+    const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+    const offsetTop = coords.top - containerTop + scrollTop;
+    editor.commands.setTextSelection(from);
+    onComment(text.trim(), offsetTop, anchor, { from, to });
+    return true;
+  }, [editor, onComment]);
+
+  useEffect(() => {
+    if (!onComment) return;
+    const dom = editor.view.dom;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() !== "m" ||
+        !event.shiftKey ||
+        (!event.metaKey && !event.ctrlKey)
+      ) {
+        return;
+      }
+      if (createCommentFromSelection()) event.preventDefault();
+    };
+    dom.addEventListener("keydown", handleKeyDown);
+    return () => dom.removeEventListener("keydown", handleKeyDown);
+  }, [createCommentFromSelection, editor, onComment]);
+
   useEffect(() => {
     const syncTextStyle = () => {
       setTextStyle(activeTextStyle(editor));
@@ -555,29 +592,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           {
             icon: IconMessageCircle,
             title: t("editor.comment"),
-            action: () => {
-              const { from, to } = editor.state.selection;
-              const text = editor.state.doc.textBetween(from, to, " ");
-              if (!text.trim()) return;
-              // Capture a robust anchor (quote + surrounding context + offset)
-              // for the exact selection before we collapse it.
-              const anchor = captureAnchor(editor.state.doc, from, to);
-              // Get the Y position of the selection relative to the scroll container
-              const coords = editor.view.coordsAtPos(from);
-              const scrollContainer = editor.view.dom.closest(
-                ".flex-1.min-h-0.overflow-auto",
-              );
-              const containerTop = scrollContainer
-                ? scrollContainer.getBoundingClientRect().top
-                : 0;
-              const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
-              const offsetTop = coords.top - containerTop + scrollTop;
-              // Collapse the selection so the bubble toolbar hides — the pending
-              // highlight (rendered by the CommentHighlight plugin) keeps the
-              // range visible while the comment is composed.
-              editor.commands.setTextSelection(from);
-              onComment(text.trim(), offsetTop, anchor, { from, to });
-            },
+            action: createCommentFromSelection,
             isActive: () => false,
           },
         ]

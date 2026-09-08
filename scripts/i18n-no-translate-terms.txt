@@ -40,7 +40,6 @@ Claude Code · Codex · Pi — own tools, sandbox, compaction
 Claude Code / Codex
 Claude web
 CLI
-Cloudflare D1
 create-form · update-form
 createSession.resumeState
 CRUD
@@ -64,7 +63,6 @@ HTTP · MCP · A2A
 iframe / MCP App
 isAvailable · execute
 JWT
-libSQL / Turso
 Leave blank to use the workspace default, if configured.
 list-emails · get-thread · manage-draft · send
 list-events · check-availability · create-event
@@ -121,7 +119,6 @@ SQL + application_state
 SQL row scoping
 SQL rows via Drizzle
 SQL via Drizzle
-SQLite file
 SSE push
 startFrame / easing / animatedProps
 Streamable HTTP

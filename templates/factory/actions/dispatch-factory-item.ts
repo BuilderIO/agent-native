@@ -8,6 +8,7 @@ import {
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
+import { resolveFactoryRepository } from "../server/lib/factory-repository-scope.js";
 import {
   DEFAULT_FACTORY_ID,
   factoryStillPresent,
@@ -16,7 +17,10 @@ import {
   readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
-import { parseGitHubRepositoryRef } from "../server/lib/github-repository.js";
+import {
+  gitHubRepositoriesEqual,
+  parseGitHubRepositoryRef,
+} from "../server/lib/github-repository.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -26,7 +30,10 @@ import {
   githubIssueReaction,
   parseOptionalReaction,
 } from "../server/lib/source-reaction.js";
-import { recordFactoryAudit } from "../server/triage/audit.js";
+import {
+  recordFactoryAudit,
+  recordFactoryAuditIfChanged,
+} from "../server/triage/audit.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import { stableId } from "../server/triage/ids.js";
 import {
@@ -101,6 +108,40 @@ export function hasFeedbackCluster(metadata: Record<string, unknown>): boolean {
 
 export function isStartedTriageRunStatus(status: string): boolean {
   return startedTriageRunStatuses.has(status);
+}
+
+/**
+ * The repository a GitHub dispatch would post to. A GitHub issue carries its
+ * own repository and that wins, because the number in its external id is only
+ * meaningful there.
+ */
+export function dispatchRepositoryForItem(
+  item: {
+    source: string;
+    repository?: string | null;
+    externalId?: string | null;
+  },
+  authorizedRepository: string,
+): string {
+  if (item.source !== "github_issue") return authorizedRepository;
+  if (item.repository) return item.repository;
+  if (item.externalId?.includes("#")) {
+    return item.externalId.slice(0, item.externalId.lastIndexOf("#"));
+  }
+  return authorizedRepository;
+}
+
+/**
+ * Tagging @builderio-bot is an irreversible write, so an item pointing outside
+ * the factory's authorized repository is a stop rather than a preference.
+ * Without this the item's own repository silently won over the factory's.
+ */
+export function dispatchRepositoryConflictReason(
+  repositoryRef: string,
+  authorizedRepository: string,
+): string | null {
+  if (gitHubRepositoriesEqual(repositoryRef, authorizedRepository)) return null;
+  return `Factory item belongs to ${repositoryRef}, but this factory is configured for ${authorizedRepository}.`;
 }
 
 export function relatedDispatchConflictReason(
@@ -463,7 +504,7 @@ export default defineAction({
       reason,
       guardResults,
     });
-    await recordFactoryAudit(
+    await recordFactoryAuditIfChanged(
       context,
       { userEmail, orgId },
       {
@@ -786,18 +827,26 @@ export default defineAction({
           `Factory can only tag Builder from Slack, a GitHub issue, or Sentry. Received ${item.source}.`,
         );
       }
-      const config = await readTriageConfigRow(db, orgId, factoryId);
-      if (!config?.repository) {
+      const authorizedRepository = await resolveFactoryRepository(
+        db,
+        context,
+        { userEmail, orgId },
+        factoryId,
+      );
+      if (!authorizedRepository) {
         throw new Error(
           "Configure a Factory GitHub repository before tagging @builderio-bot.",
         );
       }
-      const repositoryRef =
-        item.source === "github_issue" && item.repository
-          ? item.repository
-          : item.source === "github_issue" && item.externalId?.includes("#")
-            ? item.externalId.slice(0, item.externalId.lastIndexOf("#"))
-            : config.repository;
+      const repositoryRef = dispatchRepositoryForItem(
+        item,
+        authorizedRepository,
+      );
+      const repositoryConflict = dispatchRepositoryConflictReason(
+        repositoryRef,
+        authorizedRepository,
+      );
+      if (repositoryConflict) throw new Error(repositoryConflict);
       const repository = parseGitHubRepositoryRef(repositoryRef);
       const github = createGitHubClient({ ownerEmail: userEmail, orgId });
       const dispatchBody = githubBotDispatchText({

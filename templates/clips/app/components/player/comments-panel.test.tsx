@@ -5,7 +5,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type Comment, CommentsPanel } from "./comments-panel";
+import { type Comment, CommentsPanel, relativeTime } from "./comments-panel";
 
 const actionMocks = vi.hoisted(() => ({
   addComment: vi.fn(),
@@ -29,6 +29,17 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({
+    formatRelativeTime: (
+      value: number,
+      unit: Intl.RelativeTimeFormatUnit,
+      options?: Intl.RelativeTimeFormatOptions,
+    ) => {
+      if (options?.numeric === "auto" && value === 0) return "now";
+      const amount = Math.abs(value);
+      return `${amount} ${unit}${amount === 1 ? "" : "s"} ${value < 0 ? "ago" : "from now"}`;
+    },
+  }),
 }));
 
 vi.mock("../../hooks/use-mention-members", () => ({
@@ -52,6 +63,21 @@ const rootComment: Comment = {
   updatedAt: "2026-07-10T12:00:00.000Z",
 };
 
+let notifyResize: (() => void) | undefined;
+
+class MockResizeObserver implements ResizeObserver {
+  constructor(callback: ResizeObserverCallback) {
+    notifyResize = () => callback([], this as unknown as ResizeObserver);
+  }
+
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords() {
+    return [];
+  }
+}
+
 function setTextareaValue(element: HTMLTextAreaElement, value: string) {
   const valueSetter = Object.getOwnPropertyDescriptor(
     HTMLTextAreaElement.prototype,
@@ -62,6 +88,66 @@ function setTextareaValue(element: HTMLTextAreaElement, value: string) {
     new InputEvent("input", { bubbles: true, data: value }),
   );
 }
+
+describe("comment timestamps", () => {
+  const now = Date.parse("2026-09-04T12:00:00.000Z");
+  const formatRelativeTime = (
+    value: number,
+    unit: Intl.RelativeTimeFormatUnit,
+  ) => {
+    const amount = Math.abs(value);
+    return `${amount} ${unit}${amount === 1 ? "" : "s"} ago`;
+  };
+
+  it.each([
+    [45 * 60 * 1000, "45 minutes ago"],
+    [18 * 60 * 60 * 1000, "18 hours ago"],
+    [3 * 24 * 60 * 60 * 1000, "3 days ago"],
+    [2 * 30 * 24 * 60 * 60 * 1000, "2 months ago"],
+    [365 * 24 * 60 * 60 * 1000, "1 year ago"],
+  ])(
+    "uses full relative units for an elapsed timestamp",
+    (elapsed, expected) => {
+      const createdAt = new Date(now - elapsed).toISOString();
+      expect(relativeTime(createdAt, formatRelativeTime, now)).toBe(expected);
+    },
+  );
+
+  it("uses a localized near-now value for a just-created comment", () => {
+    const formatter = vi.fn(
+      (
+        _value: number,
+        _unit: Intl.RelativeTimeFormatUnit,
+        options?: Intl.RelativeTimeFormatOptions,
+      ) => (options?.numeric === "auto" ? "now" : "unexpected"),
+    );
+    expect(
+      relativeTime(new Date(now - 30_000).toISOString(), formatter, now),
+    ).toBe("now");
+    expect(formatter).toHaveBeenCalledWith(0, "second", { numeric: "auto" });
+  });
+
+  it("does not round into the next unit before its boundary", () => {
+    expect(
+      relativeTime(
+        new Date(now - 59.9 * 60_000).toISOString(),
+        formatRelativeTime,
+        now,
+      ),
+    ).toBe("59 minutes ago");
+    expect(
+      relativeTime(
+        new Date(now - 23.9 * 3_600_000).toISOString(),
+        formatRelativeTime,
+        now,
+      ),
+    ).toBe("23 hours ago");
+  });
+
+  it("returns an empty value for an invalid timestamp", () => {
+    expect(relativeTime("not-a-date", formatRelativeTime, now)).toBe("");
+  });
+});
 
 async function openMenu(trigger: HTMLButtonElement | null) {
   expect(trigger).not.toBeNull();
@@ -109,6 +195,7 @@ describe("CommentsPanel reply composer", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -122,6 +209,7 @@ describe("CommentsPanel reply composer", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    notifyResize = undefined;
     vi.clearAllMocks();
   });
 
@@ -175,6 +263,7 @@ describe("CommentsPanel reply composer", () => {
     });
 
     expect(container.textContent).toContain("commentsPanel.commentButton");
+    expect(container.querySelector("kbd")?.textContent).toBe("Enter");
   });
 
   it("opens account creation when a signed-out viewer activates the composer", () => {
@@ -203,8 +292,81 @@ describe("CommentsPanel reply composer", () => {
     );
 
     expect(composer).toBeDefined();
+    expect(composer?.className).not.toContain("border-input");
+    expect(composer?.querySelector(".border-b")?.className).toContain(
+      "border-border",
+    );
+    expect(container.textContent).not.toContain("commentsPanel.beFirst");
     act(() => composer?.click());
     expect(onUnauthenticated).toHaveBeenCalledWith("comment");
+  });
+
+  it("keeps reply and reaction affordances visible before the account gate", () => {
+    const onUnauthenticated = vi.fn();
+
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <CommentsPanel
+            recordingId="recording-1"
+            comments={[rootComment]}
+            currentMs={34_000}
+            enableComments
+            canComment={false}
+            onSeek={vi.fn()}
+            onUnauthenticated={onUnauthenticated}
+            queryKey={["recording", "recording-1"]}
+            presentation="inline"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const reply = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("commentsPanel.reply"),
+    );
+    const react = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("commentsPanel.react"),
+    );
+
+    expect(reply).toBeDefined();
+    expect(react).toBeDefined();
+    act(() => reply?.click());
+    expect(onUnauthenticated).toHaveBeenCalledWith("comment");
+  });
+
+  it("grows comment textareas to fit their content without scrolling", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: 144,
+    });
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "A comment long enough to wrap");
+    });
+
+    expect(composer?.style.height).toBe("144px");
+    expect(composer?.className).toContain("overflow-y-hidden");
+  });
+
+  it("regrows comment textareas when their width changes wrapping", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: 192,
+    });
+
+    act(() => notifyResize?.());
+
+    expect(composer?.style.height).toBe("192px");
   });
 
   it("renders inline Markdown while flattening headings", () => {
@@ -257,7 +419,7 @@ describe("CommentsPanel reply composer", () => {
     });
 
     const replyButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Reply",
+      (button) => button.textContent?.trim() === "commentsPanel.reply",
     );
     expect(replyButton).toBeDefined();
 
@@ -322,7 +484,7 @@ describe("CommentsPanel reply composer", () => {
 
   it("submits the inline reply to the selected thread", async () => {
     const replyButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Reply",
+      (button) => button.textContent?.trim() === "commentsPanel.reply",
     );
 
     await act(async () => {
@@ -454,5 +616,99 @@ describe("CommentsPanel reply composer", () => {
       content: "Viewer note",
       videoTimestampMs: 34_000,
     });
+  });
+
+  it("captures the player's live timestamp when the rendered time is stale", () => {
+    const getCurrentMs = vi.fn(() => 72_000);
+
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <CommentsPanel
+            recordingId="recording-1"
+            comments={[rootComment]}
+            currentMs={0}
+            getCurrentMs={getCurrentMs}
+            currentUserEmail="viewer@example.com"
+            enableComments
+            canComment
+            onSeek={vi.fn()}
+            queryKey={["recording", "recording-1"]}
+            presentation="inline"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const newComment = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(newComment).not.toBeNull();
+
+    act(() => {
+      if (!newComment) return;
+      setTextareaValue(newComment, "Live timestamp note");
+      newComment.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    });
+
+    expect(getCurrentMs).toHaveBeenCalledTimes(1);
+    expect(actionMocks.addComment).toHaveBeenCalledWith({
+      recordingId: "recording-1",
+      content: "Live timestamp note",
+      videoTimestampMs: 72_000,
+    });
+  });
+
+  it("submits a new comment with Enter while keeping Shift+Enter for newlines", () => {
+    const newComment = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(newComment).not.toBeNull();
+
+    act(() => {
+      if (!newComment) return;
+      setTextareaValue(newComment, "Viewer note");
+      newComment.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    });
+
+    expect(actionMocks.addComment).toHaveBeenCalledWith({
+      recordingId: "recording-1",
+      content: "Viewer note",
+      videoTimestampMs: 34_000,
+    });
+
+    actionMocks.addComment.mockClear();
+    renderPanel();
+    const multilineComment = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(multilineComment).not.toBeNull();
+
+    act(() => {
+      if (!multilineComment) return;
+      setTextareaValue(multilineComment, "Viewer note");
+      multilineComment.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+          shiftKey: true,
+        }),
+      );
+    });
+
+    expect(actionMocks.addComment).not.toHaveBeenCalled();
   });
 });

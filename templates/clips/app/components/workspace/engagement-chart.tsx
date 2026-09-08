@@ -1,13 +1,15 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+
 import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 
 export interface TrendPoint {
   date: string;
@@ -40,75 +42,105 @@ export function EngagementChart({
   const t = useT();
   if (!data || data.length === 0) {
     return (
-      <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">
-        {t("clipsFinalRaw.noEngagementData")}
-      </div>
+      <Empty className="h-64 gap-2 rounded-none">
+        <EmptyHeader>
+          <EmptyTitle className="text-sm font-medium text-muted-foreground">
+            {t("clipsFinalRaw.noEngagementData")}
+          </EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
+  const chartConfig = {
+    views: {
+      label: t("insightsHub.views"),
+      color: brandColor,
+    },
+    reactions: {
+      label: t("insightsHub.reactions"),
+      color: "hsl(var(--success))",
+    },
+    comments: {
+      label: t("insightsHub.comments"),
+      color: "hsl(var(--highlight))",
+    },
+  } satisfies ChartConfig;
+
   return (
-    <div className="h-64 w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart
-          data={data}
-          margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
-        >
-          <CartesianGrid
-            stroke="#e5e7eb"
-            strokeDasharray="3 3"
-            vertical={false}
-          />
-          <XAxis
-            dataKey="date"
-            tickFormatter={formatDate}
-            tickLine={false}
-            axisLine={false}
-            fontSize={12}
-            minTickGap={24}
-          />
-          <YAxis
-            tickLine={false}
-            axisLine={false}
-            fontSize={12}
-            allowDecimals={false}
-            width={32}
-          />
-          <Tooltip
-            cursor={{ stroke: brandColor, strokeOpacity: 0.2 }}
-            contentStyle={{
-              background: "white",
-              border: "1px solid #e5e7eb",
-              borderRadius: 8,
-              fontSize: 12,
-            }}
-            labelFormatter={(value) => formatDate(String(value))}
-          />
-          <Line
-            type="monotone"
-            dataKey="views"
-            stroke={brandColor}
-            strokeWidth={2}
-            dot={false}
-            name={t("insightsHub.views")}
-          />
-          <Line
-            type="monotone"
-            dataKey="reactions"
-            stroke="#22c55e"
-            strokeWidth={2}
-            dot={false}
-            name={t("insightsHub.reactions")}
-          />
-          <Line
-            type="monotone"
-            dataKey="comments"
-            stroke="#f97316"
-            strokeWidth={2}
-            dot={false}
-            name={t("insightsHub.comments")}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+    <ChartContainer config={chartConfig} className="h-64 w-full aspect-auto">
+      <LineChart
+        accessibilityLayer
+        data={data}
+        margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
+      >
+        <CartesianGrid
+          stroke="hsl(var(--border))"
+          strokeDasharray="3 3"
+          vertical={false}
+        />
+        <XAxis
+          dataKey="date"
+          tickFormatter={formatDate}
+          tickLine={false}
+          axisLine={false}
+          tickMargin={8}
+          fontSize={12}
+          minTickGap={24}
+        />
+        <YAxis
+          tickLine={false}
+          axisLine={false}
+          tickMargin={8}
+          fontSize={12}
+          allowDecimals={false}
+          width={32}
+        />
+        <ChartTooltip
+          cursor={false}
+          content={
+            <ChartTooltipContent
+              labelFormatter={(value) => formatDate(String(value))}
+              formatter={(value, name) => [
+                Number(value).toLocaleString(),
+                chartConfig[String(name) as keyof typeof chartConfig]?.label ??
+                  String(name),
+              ]}
+            />
+          }
+        />
+        <ChartLegend
+          verticalAlign="top"
+          content={<ChartLegendContent verticalAlign="top" />}
+        />
+        <Line
+          type="monotone"
+          dataKey="views"
+          stroke="var(--color-views)"
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4, strokeWidth: 2 }}
+          isAnimationActive={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="reactions"
+          stroke="var(--color-reactions)"
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4, strokeWidth: 2 }}
+          isAnimationActive={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="comments"
+          stroke="var(--color-comments)"
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4, strokeWidth: 2 }}
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </ChartContainer>
   );
 }

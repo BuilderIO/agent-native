@@ -11,17 +11,16 @@ import {
   type FormEvent,
 } from "react";
 
+import {
+  submitCommunityApp,
+  uploadCommunityScreenshot,
+} from "../lib/community-form-client";
 import { sitePathForLocale } from "./docs-locale";
 import { Button } from "./website-redesign/ds/button";
+import { IconButton } from "./website-redesign/ds/icon-button";
 
 export const COMMUNITY_FORM_NAME = "community-app-submission";
-export const SCREENSHOT_FIELDS = [
-  "screenshot_1",
-  "screenshot_2",
-  "screenshot_3",
-  "screenshot_4",
-  "screenshot_5",
-] as const;
+const SCREENSHOT_MAX_COUNT = 5;
 const SCREENSHOT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_SCREENSHOT_BYTES = 1.5 * 1024 * 1024;
 
@@ -41,6 +40,10 @@ export type CommunitySubmissionDraft = {
 type CommunitySubmissionValues = Omit<
   CommunitySubmissionDraft,
   "screenshotFiles"
+>;
+type CommunitySubmissionField = keyof CommunitySubmissionValues | "screenshots";
+type CommunitySubmissionErrors = Partial<
+  Record<CommunitySubmissionField, string>
 >;
 
 function createSelectedScreenshots(files: File[]) {
@@ -82,23 +85,22 @@ function isValidScreenshot(file: File) {
   );
 }
 
-function createScreenshotDataTransfer(): DataTransfer | null {
-  if (typeof DataTransfer !== "undefined") return new DataTransfer();
-
-  if (typeof ClipboardEvent !== "undefined") {
-    try {
-      return new ClipboardEvent("").clipboardData;
-    } catch {
-      // coercion-ok: null explicitly distinguishes an unavailable fallback from a transfer.
-      return null;
-    }
-  }
-
-  return null;
-}
-
 const fieldClassName =
   "w-full rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-inset)] px-3 py-2.5 font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-primary)] outline-none transition-[border-color,box-shadow] placeholder:text-[var(--b-text-muted)] focus:border-[var(--b-action-primary-bg)] focus:ring-2 focus:ring-[var(--b-action-primary-effect)]";
+
+function InlineError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null;
+
+  return (
+    <p
+      id={id}
+      role="alert"
+      className="m-0 font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--c-red-400)]"
+    >
+      {message}
+    </p>
+  );
+}
 
 type CommunityAppSubmissionFormProps = {
   draft?: CommunitySubmissionDraft;
@@ -113,8 +115,9 @@ export function CommunityAppSubmissionForm({
   const { locale } = useLocale();
   const formId = useId();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const hiddenInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const previewUrlsRef = useRef<Set<string>>(new Set());
+  const pageLoadTimeRef = useRef(Date.now());
+  const idempotencyKeyRef = useRef<string | undefined>(undefined);
   const [values, setValues] = useState<CommunitySubmissionValues>(() => ({
     name: draft?.name ?? "",
     appUrl: draft?.appUrl ?? "",
@@ -125,7 +128,9 @@ export function CommunityAppSubmissionForm({
     createSelectedScreenshots(draft?.screenshotFiles ?? []),
   );
   const [isDragActive, setIsDragActive] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<CommunitySubmissionErrors>({});
+  const [submitError, setSubmitError] = useState<string>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const activePreviewUrls = new Set(
@@ -153,27 +158,82 @@ export function CommunityAppSubmissionForm({
     };
   }, []);
 
-  useEffect(() => {
-    for (const index of SCREENSHOT_FIELDS.keys()) {
-      const input = hiddenInputRefs.current[index];
-      if (!input) continue;
-
-      const dataTransfer = createScreenshotDataTransfer();
-      if (!dataTransfer) return;
-      const screenshot = screenshots[index];
-      if (screenshot) dataTransfer.items.add(screenshot.file);
-      input.files = dataTransfer.files;
-    }
-  }, [screenshots]);
-
   function updateValue(field: keyof CommunitySubmissionValues, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
-    setError(null);
+    setErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+    setSubmitError(undefined);
+  }
+
+  function setFieldError(field: CommunitySubmissionField, message?: string) {
+    setErrors((current) => {
+      if (!message && !current[field]) return current;
+      const next = { ...current };
+      if (message) next[field] = message;
+      else delete next[field];
+      return next;
+    });
   }
 
   function normalizeUrlField(field: "appUrl" | "repositoryUrl") {
     const normalized = normalizeHttpUrl(values[field]);
     if (normalized !== values[field]) updateValue(field, normalized);
+    validateField(field, { ...values, [field]: normalized });
+  }
+
+  function validateField(
+    field: CommunitySubmissionField,
+    currentValues = values,
+    currentScreenshots = screenshots,
+  ) {
+    let message: string | undefined;
+
+    if (field === "name" && !currentValues.name.trim()) {
+      message = t("templatesPage.communitySubmissionNameError");
+    } else if (field === "description" && !currentValues.description.trim()) {
+      message = t("templatesPage.communitySubmissionDescriptionError");
+    } else if (field === "appUrl" && !isHttpUrl(currentValues.appUrl)) {
+      message = t("templatesPage.communitySubmissionUrlError");
+    } else if (
+      field === "repositoryUrl" &&
+      currentValues.repositoryUrl.trim() &&
+      !isGitHubRepositoryUrl(currentValues.repositoryUrl)
+    ) {
+      message = t("templatesPage.communitySubmissionRepositoryError");
+    } else if (
+      field === "screenshots" &&
+      currentScreenshots.some(({ file }) => !isValidScreenshot(file))
+    ) {
+      message = t("templatesPage.communitySubmissionScreenshotsError");
+    }
+
+    setFieldError(field, message);
+    return message;
+  }
+
+  function validateSubmission(
+    currentValues: CommunitySubmissionValues,
+    currentScreenshots: SelectedScreenshot[],
+  ) {
+    const nextErrors: CommunitySubmissionErrors = {};
+    const fields: CommunitySubmissionField[] = [
+      "name",
+      "description",
+      "appUrl",
+      "repositoryUrl",
+      "screenshots",
+    ];
+
+    for (const field of fields) {
+      const message = validateField(field, currentValues, currentScreenshots);
+      if (message) nextErrors[field] = message;
+    }
+
+    return nextErrors;
   }
 
   function handleScreenshotChange(event: ChangeEvent<HTMLInputElement>) {
@@ -185,8 +245,8 @@ export function CommunityAppSubmissionForm({
   function addScreenshots(files: FileList | File[]) {
     const incomingFiles = Array.from(files);
     const validFiles = incomingFiles.filter(isValidScreenshot);
-    const availableSlots = SCREENSHOT_FIELDS.length - screenshots.length;
-    const filesToAdd = validFiles.slice(0, availableSlots);
+    const availableSlots = SCREENSHOT_MAX_COUNT - screenshots.length;
+    const filesToAdd = validFiles.slice(0, Math.max(availableSlots, 0));
 
     if (filesToAdd.length > 0) {
       setScreenshots((current) => [
@@ -196,15 +256,19 @@ export function CommunityAppSubmissionForm({
           previewUrl: URL.createObjectURL(file),
         })),
       ]);
+      setSubmitError(undefined);
     }
 
     if (
       validFiles.length > availableSlots ||
       validFiles.length !== incomingFiles.length
     ) {
-      setError(t("templatesPage.communitySubmissionValidation"));
-    } else {
-      setError(null);
+      setFieldError(
+        "screenshots",
+        t("templatesPage.communitySubmissionScreenshotsError"),
+      );
+    } else if (filesToAdd.length > 0) {
+      setFieldError("screenshots");
     }
   }
 
@@ -212,7 +276,8 @@ export function CommunityAppSubmissionForm({
     setScreenshots((current) =>
       current.filter((_, currentIndex) => currentIndex !== index),
     );
-    setError(null);
+    setFieldError("screenshots");
+    setSubmitError(undefined);
   }
 
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
@@ -234,63 +299,100 @@ export function CommunityAppSubmissionForm({
     addScreenshots(event.dataTransfer.files);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    const formData = new FormData(event.currentTarget);
-    const rawAppUrl = String(formData.get("app_url") ?? "");
-    const rawRepositoryUrl = String(formData.get("repository_url") ?? "");
-    const appUrl = normalizeHttpUrl(rawAppUrl);
-    const repositoryUrl = normalizeHttpUrl(rawRepositoryUrl);
+  function focusFirstError(
+    form: HTMLFormElement,
+    nextErrors: CommunitySubmissionErrors,
+  ) {
+    const field = Object.keys(nextErrors)[0] as
+      | CommunitySubmissionField
+      | undefined;
+    if (!field) return;
 
-    if (appUrl !== rawAppUrl || repositoryUrl !== rawRepositoryUrl) {
-      setValues((current) => ({ ...current, appUrl, repositoryUrl }));
-      const appUrlInput = event.currentTarget.elements.namedItem("app_url");
-      const repositoryUrlInput =
-        event.currentTarget.elements.namedItem("repository_url");
-      if (appUrlInput instanceof HTMLInputElement) appUrlInput.value = appUrl;
-      if (repositoryUrlInput instanceof HTMLInputElement) {
-        repositoryUrlInput.value = repositoryUrl;
-      }
-    }
-    const uploadedFiles = SCREENSHOT_FIELDS.map((field) =>
-      formData.get(field),
-    ).filter((value): value is File => value instanceof File && value.size > 0);
+    const element =
+      field === "screenshots"
+        ? fileInputRef.current
+        : form.elements.namedItem(
+            field === "appUrl"
+              ? "app_url"
+              : field === "repositoryUrl"
+                ? "repository_url"
+                : field,
+          );
+    if (element instanceof HTMLElement) element.focus();
+  }
 
-    if (
-      !String(formData.get("name") ?? "").trim() ||
-      !String(formData.get("description") ?? "").trim() ||
-      !isHttpUrl(appUrl) ||
-      (repositoryUrl && !isGitHubRepositoryUrl(repositoryUrl)) ||
-      uploadedFiles.some((file) => !isValidScreenshot(file))
-    ) {
-      event.preventDefault();
-      setError(t("templatesPage.communitySubmissionValidation"));
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSubmitting) return;
+
+    const submissionValues = {
+      ...values,
+      name: values.name.trim(),
+      appUrl: normalizeHttpUrl(values.appUrl),
+      description: values.description.trim(),
+      repositoryUrl: values.repositoryUrl.trim()
+        ? normalizeHttpUrl(values.repositoryUrl)
+        : "",
+    };
+    setValues(submissionValues);
+    const nextErrors = validateSubmission(submissionValues, screenshots);
+    setErrors(nextErrors);
+    setSubmitError(undefined);
+    if (Object.keys(nextErrors).length > 0) {
+      focusFirstError(event.currentTarget, nextErrors);
       return;
     }
 
-    trackEvent("submit community app", {
-      location: "community_submission_form",
-      hasRepository: Boolean(repositoryUrl),
-      screenshotCount: uploadedFiles.length,
-    });
+    setIsSubmitting(true);
+    try {
+      const uploadedScreenshots = await Promise.all(
+        screenshots.map(({ file }) => uploadCommunityScreenshot(file)),
+      );
+      await submitCommunityApp({
+        data: {
+          name: submissionValues.name,
+          app_url: submissionValues.appUrl,
+          description: submissionValues.description,
+          ...(submissionValues.repositoryUrl
+            ? { repository_url: submissionValues.repositoryUrl }
+            : {}),
+          screenshots: uploadedScreenshots,
+        },
+        pageUrl: window.location.href,
+        idempotencyKey: (idempotencyKeyRef.current ??= crypto.randomUUID()),
+        pageLoadTime: pageLoadTimeRef.current,
+      });
+      trackEvent("submit community app", {
+        location: "community_submission_form",
+        hasRepository: Boolean(submissionValues.repositoryUrl),
+        screenshotCount: uploadedScreenshots.length,
+      });
+      window.location.assign(
+        `${sitePathForLocale("/apps", locale)}?community-submission=received`,
+      );
+    } catch {
+      setSubmitError(t("templatesPage.communitySubmissionSubmitError"));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function inputClassName(field: CommunitySubmissionField) {
+    return `${fieldClassName}${errors[field] ? " border-[var(--c-red-400)] focus:border-[var(--c-red-400)] focus:ring-[var(--c-red-400)]" : ""}`;
+  }
+
+  function errorId(field: CommunitySubmissionField) {
+    return `${formId}-${field}-error`;
   }
 
   return (
     <form
       name={COMMUNITY_FORM_NAME}
-      method="post"
-      action={`${sitePathForLocale("/apps", locale)}?community-submission=received`}
-      encType="multipart/form-data"
-      data-netlify="true"
-      data-netlify-honeypot="bot-field"
       className="grid gap-5"
       onSubmit={handleSubmit}
-      aria-describedby={error ? `${formId}-error` : undefined}
+      noValidate
+      aria-describedby={submitError ? `${formId}-submit-error` : undefined}
     >
-      <input type="hidden" name="form-name" value={COMMUNITY_FORM_NAME} />
-      <div className="sr-only" aria-hidden="true">
-        <input name="bot-field" tabIndex={-1} autoComplete="off" />
-      </div>
-
       <div className="grid gap-1.5">
         <label
           htmlFor={`${formId}-name`}
@@ -302,11 +404,16 @@ export function CommunityAppSubmissionForm({
           id={`${formId}-name`}
           name="name"
           required
+          aria-required="true"
+          aria-invalid={Boolean(errors.name)}
+          aria-describedby={errors.name ? errorId("name") : undefined}
           value={values.name}
           onChange={(event) => updateValue("name", event.target.value)}
+          onBlur={() => validateField("name")}
           placeholder={t("templatesPage.communitySubmissionNamePlaceholder")}
-          className={fieldClassName}
+          className={inputClassName("name")}
         />
+        <InlineError id={errorId("name")} message={errors.name} />
       </div>
 
       <div className="grid gap-1.5">
@@ -320,6 +427,9 @@ export function CommunityAppSubmissionForm({
           id={`${formId}-url`}
           name="app_url"
           required
+          aria-required="true"
+          aria-invalid={Boolean(errors.appUrl)}
+          aria-describedby={errors.appUrl ? errorId("appUrl") : undefined}
           type="text"
           inputMode="url"
           autoComplete="url"
@@ -328,8 +438,9 @@ export function CommunityAppSubmissionForm({
           onChange={(event) => updateValue("appUrl", event.target.value)}
           onBlur={() => normalizeUrlField("appUrl")}
           placeholder={t("templatesPage.communitySubmissionUrlPlaceholder")}
-          className={fieldClassName}
+          className={inputClassName("appUrl")}
         />
+        <InlineError id={errorId("appUrl")} message={errors.appUrl} />
       </div>
 
       <div className="grid gap-1.5">
@@ -343,14 +454,21 @@ export function CommunityAppSubmissionForm({
           id={`${formId}-description`}
           name="description"
           required
+          aria-required="true"
+          aria-invalid={Boolean(errors.description)}
+          aria-describedby={
+            errors.description ? errorId("description") : undefined
+          }
           rows={4}
           value={values.description}
           onChange={(event) => updateValue("description", event.target.value)}
+          onBlur={() => validateField("description")}
           placeholder={t(
             "templatesPage.communitySubmissionDescriptionPlaceholder",
           )}
-          className={fieldClassName}
+          className={inputClassName("description")}
         />
+        <InlineError id={errorId("description")} message={errors.description} />
       </div>
 
       <div className="grid gap-1.5">
@@ -363,6 +481,10 @@ export function CommunityAppSubmissionForm({
         <input
           id={`${formId}-repository`}
           name="repository_url"
+          aria-invalid={Boolean(errors.repositoryUrl)}
+          aria-describedby={
+            errors.repositoryUrl ? errorId("repositoryUrl") : undefined
+          }
           type="text"
           inputMode="url"
           autoComplete="url"
@@ -373,7 +495,11 @@ export function CommunityAppSubmissionForm({
           placeholder={t(
             "templatesPage.communitySubmissionRepositoryPlaceholder",
           )}
-          className={fieldClassName}
+          className={inputClassName("repositoryUrl")}
+        />
+        <InlineError
+          id={errorId("repositoryUrl")}
+          message={errors.repositoryUrl}
         />
       </div>
 
@@ -399,10 +525,14 @@ export function CommunityAppSubmissionForm({
           data-community-screenshot-dropzone="true"
           role="group"
           aria-labelledby={`${formId}-screenshots-label`}
+          aria-invalid={Boolean(errors.screenshots)}
+          aria-describedby={`${formId}-screenshots-help${errors.screenshots ? ` ${errorId("screenshots")}` : ""}`}
           className={`rounded-[var(--b-radius)] border border-dashed p-4 transition-[background,border-color] duration-150 sm:p-5 ${
             isDragActive
               ? "border-[var(--b-text-primary)] bg-[var(--b-action-secondary-hover)]"
-              : "border-[var(--b-border-default)] bg-[var(--b-bg-inset)] hover:border-[var(--b-text-primary)]"
+              : errors.screenshots
+                ? "border-[var(--c-red-400)] bg-[var(--b-bg-inset)]"
+                : "border-[var(--b-border-default)] bg-[var(--b-bg-inset)] hover:border-[var(--b-text-primary)]"
           }`}
           onDragOver={handleDragOver}
           onDragEnter={() => setIsDragActive(true)}
@@ -418,7 +548,6 @@ export function CommunityAppSubmissionForm({
             className="sr-only"
             onChange={handleScreenshotChange}
             aria-label={t("templatesPage.communitySubmissionScreenshotsAdd")}
-            aria-describedby={`${formId}-screenshots-help`}
           />
           <div className="flex flex-col items-center justify-between gap-4 text-center sm:flex-row sm:text-left">
             <div className="flex items-center gap-3">
@@ -441,13 +570,15 @@ export function CommunityAppSubmissionForm({
               type="button"
               variant="secondary"
               icon={IconPlus}
-              disabled={screenshots.length === SCREENSHOT_FIELDS.length}
+              disabled={screenshots.length === SCREENSHOT_MAX_COUNT}
               onClick={() => fileInputRef.current?.click()}
             >
               {t("templatesPage.communitySubmissionScreenshotsAdd")}
             </Button>
           </div>
         </div>
+
+        <InlineError id={errorId("screenshots")} message={errors.screenshots} />
 
         {screenshots.length > 0 ? (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -465,10 +596,8 @@ export function CommunityAppSubmissionForm({
                   loading="lazy"
                   decoding="async"
                 />
-                <Button
+                <IconButton
                   type="button"
-                  variant="secondary-icon"
-                  icon={IconX}
                   aria-label={t(
                     "templatesPage.communitySubmissionScreenshotRemove",
                     { index: index + 1 },
@@ -477,11 +606,11 @@ export function CommunityAppSubmissionForm({
                     "templatesPage.communitySubmissionScreenshotRemove",
                     { index: index + 1 },
                   )}
-                  className="absolute top-2 right-2 size-8 p-0"
+                  className="absolute top-2 right-2 size-8 bg-[var(--b-bg-page)]/90"
                   onClick={() => removeScreenshot(index)}
                 >
-                  {null}
-                </Button>
+                  <IconX size={16} />
+                </IconButton>
                 <p className="m-0 truncate border-t border-solid border-[var(--b-border-default)] px-2.5 py-2 font-[family-name:var(--b-font-sans)] text-xs text-[var(--b-text-secondary)]">
                   {screenshot.file.name}
                 </p>
@@ -489,71 +618,21 @@ export function CommunityAppSubmissionForm({
             ))}
           </div>
         ) : null}
-
-        <div className="hidden" aria-hidden="true">
-          {SCREENSHOT_FIELDS.map((field, index) => (
-            <input
-              key={field}
-              ref={(element) => {
-                hiddenInputRefs.current[index] = element;
-              }}
-              name={field}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              tabIndex={-1}
-            />
-          ))}
-        </div>
       </div>
-
-      {error ? (
-        <p
-          id={`${formId}-error`}
-          role="alert"
-          className="m-0 font-[family-name:var(--b-font-sans)] text-sm text-[var(--c-red-400)]"
-        >
-          {error}
-        </p>
-      ) : null}
 
       <div className="flex flex-wrap items-center gap-4">
-        <Button variant="cta" type="submit" icon={IconUpload}>
-          {t("templatesPage.communitySubmissionSubmit")}
+        <Button
+          variant="cta"
+          type="submit"
+          icon={IconUpload}
+          disabled={isSubmitting}
+        >
+          {isSubmitting
+            ? t("templatesPage.communitySubmissionSubmitting")
+            : t("templatesPage.communitySubmissionSubmit")}
         </Button>
+        <InlineError id={`${formId}-submit-error`} message={submitError} />
       </div>
-    </form>
-  );
-}
-
-export function CommunityAppSubmissionNetlifyDetectionForm() {
-  const { locale } = useLocale();
-
-  return (
-    <form
-      name={COMMUNITY_FORM_NAME}
-      method="post"
-      action={`${sitePathForLocale("/apps", locale)}?community-submission=received`}
-      encType="multipart/form-data"
-      data-netlify="true"
-      data-netlify-honeypot="bot-field"
-      className="hidden"
-      aria-hidden="true"
-    >
-      <input type="hidden" name="form-name" value={COMMUNITY_FORM_NAME} />
-      <input name="bot-field" tabIndex={-1} autoComplete="off" />
-      <input name="name" tabIndex={-1} />
-      <input name="app_url" tabIndex={-1} />
-      <textarea name="description" tabIndex={-1} />
-      <input name="repository_url" tabIndex={-1} />
-      {SCREENSHOT_FIELDS.map((field) => (
-        <input
-          key={field}
-          name={field}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          tabIndex={-1}
-        />
-      ))}
     </form>
   );
 }

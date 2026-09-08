@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck } from "@tabler/icons-react";
 
-import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
@@ -15,8 +15,21 @@ import {
   TemplateStatOrStepsGrid,
   TemplateStatOrStepsGridItem,
 } from "../components/template-landing";
+import { DesignOverviewMock } from "../components/template-landing/DesignOverviewMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
 import { withTemplateSocialImage } from "../seo";
+
+function DesignWordmark() {
+  return (
+    <span className="flex items-center gap-2 text-[var(--fg)]">
+      <LogoMark className="h-[15px] w-[26px]" />
+      <span className="font-sans text-[20px] font-semibold tracking-tight">
+        Design
+      </span>
+    </span>
+  );
+}
 
 export const meta = () =>
   withTemplateSocialImage(
@@ -93,17 +106,21 @@ export default function DesignTemplate() {
   return (
     <TemplateLandingShell>
       <TemplateHero
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
+        eyebrow={<DesignWordmark />}
         title={t("templateLanding.design.s006")}
         customizeTemplate={template}
-        description={<p className="m-0">{t("templateLanding.design.s007")}</p>}
+        description={
+          <p className="m-0">
+            {t("templateLanding.design.s007") +
+              " " +
+              t("templateLanding.design.s061")}
+          </p>
+        }
+        descriptionPlacement="below-title"
+        mediaOverlapsHeader
         headingAction={
           <a
-            href="https://design.agent-native.com"
+            href={firstPartyAppUrl("https://design.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
             className="primary-button"
@@ -119,18 +136,12 @@ export default function DesignTemplate() {
           </a>
         }
         media={
-          <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F91a780695c114be6b4686d04385b982e"
-            crossOrigin="anonymous"
-            alt={t("templateLanding.design.s001")}
-            loading="lazy"
-            decoding="async"
-            className="h-auto max-h-[640px] w-full object-cover object-top"
+          <DesignOverviewMock
+            label={t("templateLanding.design.s001")}
+            className="h-[340px] sm:h-[540px] lg:h-[640px]"
           />
         }
       />
-
-      <SectionDivider showOnSmallScreens={false} />
 
       <section className="border-t border-[var(--docs-border)]">
         <div className="border-x border-[var(--docs-border)] px-6 pb-8 pt-12 sm:px-8 sm:pt-16">
@@ -157,10 +168,7 @@ export default function DesignTemplate() {
             },
           ].map((item) => (
             <TemplateStatOrStepsGridItem key={item.step}>
-              <div
-                className="font-mono text-sm font-semibold"
-                style={{ color: template.color }}
-              >
+              <div className="font-mono text-sm font-semibold text-[var(--fg)]">
                 {item.step}
               </div>
               <h3 className="m-0 text-xl font-medium leading-tight text-[var(--fg)]">
@@ -224,8 +232,7 @@ export default function DesignTemplate() {
                   <IconCheck
                     aria-hidden="true"
                     size={18}
-                    className="mt-0.5 shrink-0"
-                    style={{ color: template.color }}
+                    className="mt-0.5 shrink-0 text-[var(--fg)]"
                   />
                   <span>{item}</span>
                 </li>
@@ -273,7 +280,7 @@ export default function DesignTemplate() {
             },
             {
               id: "design",
-              agentNative: { color: template.color, name: template.name },
+              agentNative: { color: "var(--fg)", name: template.name },
               emphasized: true,
             },
           ]}
@@ -341,7 +348,7 @@ export default function DesignTemplate() {
       <TemplateLandingFaq
         idPrefix="design-faq"
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg)]">
             {t("templateLanding.faq.eyebrow")}
           </span>
         }

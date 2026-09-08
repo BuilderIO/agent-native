@@ -97,15 +97,17 @@ export function BuiltInFeatures() {
                   />
                 </div>
               ) : pillar.image ? (
-                <BuilderImage
-                  className="block aspect-[104/75] w-full max-w-[433px] object-cover mobile:hidden"
-                  src={pillar.image}
-                  alt=""
-                  crossOrigin="anonymous"
-                  sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1300px) 33vw, 433px"
-                  loading="lazy"
-                  decoding="async"
-                />
+                <div className="relative w-full max-w-[433px] mobile:hidden">
+                  <BuilderImage
+                    className="block aspect-[104/75] w-full object-cover"
+                    src={pillar.image}
+                    alt=""
+                    crossOrigin="anonymous"
+                    sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1300px) 33vw, 433px"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </div>
               ) : null}
               <div className="flex flex-col gap-[var(--spacing-2)] p-[var(--spacing-8)]">
                 <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-6)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">

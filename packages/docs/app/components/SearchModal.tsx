@@ -416,7 +416,7 @@ export function SearchModal({
               </button>
             </div>
           ) : query.trim() === "" ? (
-            <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
+            <div className="px-4 pt-8 text-center text-sm text-[var(--fg-secondary)]">
               {t("search.empty")}
               <div className="-mx-4 mt-6 border-t border-[var(--docs-border)] py-2">
                 {actionButtons}

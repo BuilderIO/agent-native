@@ -77,7 +77,7 @@ async function getL2(
     const db = getDbExec();
     const nowIso = new Date().toISOString();
     const { rows } = await db.execute({
-      sql: "SELECT result FROM first_party_analytics_cache WHERE key = ? AND expires_at > ?",
+      sql: "SELECT result FROM first_party_analytics_cache WHERE key = $1 AND expires_at > $2",
       args: [key, nowIso],
       timeoutMs: cacheIoTimeoutMs(deadlineAt),
       maxAttempts: 1,
@@ -104,7 +104,7 @@ async function setL2(
     const serialized = JSON.stringify(result);
     await db.execute({
       sql: `INSERT INTO first_party_analytics_cache (key, sql, result, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT(key) DO UPDATE SET
           sql = excluded.sql,
           result = excluded.result,
@@ -119,7 +119,7 @@ async function setL2(
     // combination. Run ~1% of the time to avoid thrashing on every write.
     if (Math.random() < 0.01) {
       await db.execute({
-        sql: "DELETE FROM first_party_analytics_cache WHERE expires_at <= ?",
+        sql: "DELETE FROM first_party_analytics_cache WHERE expires_at <= $1",
         args: [now.toISOString()],
         timeoutMs: cacheIoTimeoutMs(deadlineAt),
         maxAttempts: 1,

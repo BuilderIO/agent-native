@@ -21,6 +21,7 @@ export interface BetaSite {
   id: string;
   siteId: string;
   host: string;
+  e2e?: boolean;
 }
 
 /**
@@ -61,7 +62,12 @@ function readSites(): BetaSite[] {
         `${file}[${index}] host ${site.host} is not a beta host. This suite must never be pointed at production.`,
       );
     }
-    return { id: site.id, siteId: site.siteId, host: site.host };
+    return {
+      id: site.id,
+      siteId: site.siteId,
+      host: site.host,
+      e2e: site.e2e,
+    };
   });
 }
 
@@ -75,7 +81,8 @@ export const ALL_SITES: BetaSite[] = readSites();
  */
 export function selectedSites(): BetaSite[] {
   const raw = process.env.BETA_E2E_APPS?.trim();
-  if (!raw || raw === "all") return ALL_SITES;
+  const selectableSites = ALL_SITES.filter((site) => site.e2e !== false);
+  if (!raw || raw === "all") return selectableSites;
   const wanted = raw
     .split(",")
     .map((value) => value.trim().toLowerCase())
@@ -87,7 +94,7 @@ export function selectedSites(): BetaSite[] {
       `BETA_E2E_APPS=${JSON.stringify(raw)} names no app. Use "all" or a comma-separated list of app ids.`,
     );
   }
-  const known = new Map(ALL_SITES.map((site) => [site.id, site]));
+  const known = new Map(selectableSites.map((site) => [site.id, site]));
   const unknown = wanted.filter((id) => !known.has(id));
   if (unknown.length > 0) {
     throw new Error(

@@ -402,7 +402,9 @@ function useSlideAutofit(
     // thumbnails are left unmeasured until they scroll into view. Without an
     // IntersectionObserver there is nothing to defer against, so measure
     // eagerly as before.
-    const canDefer = typeof IntersectionObserver !== "undefined";
+    const canDefer =
+      typeof IntersectionObserver !== "undefined" &&
+      !root.closest("[data-pdf-export-stage]");
     // Resolved synchronously rather than waiting for the observer's first
     // callback: a slide that is already on screen must be measured on this
     // pass, and nothing may depend on a callback that a given environment
@@ -579,6 +581,7 @@ function AutoFitContent({
   canvasHeight,
   fitKey,
   className = "",
+  contentScope,
   children,
   onOverflowChange,
   onAutofitSettled,
@@ -587,6 +590,8 @@ function AutoFitContent({
   canvasHeight: number;
   fitKey: string;
   className?: string;
+  /** Stamps `data-slide-content-scope`; see {@link slideDeclaresTextColor}. */
+  contentScope?: string;
   children: ReactNode;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
   onAutofitSettled?: () => void;
@@ -605,12 +610,36 @@ function AutoFitContent({
     <div
       ref={ref}
       data-slide-autofit-root="true"
+      data-slide-content-scope={contentScope}
       className={`fmd-autofit-scale ${className}`}
     >
       {children}
     </div>
   );
 }
+
+/**
+ * Whether the slide's own markup declares a text color.
+ *
+ * The `.slide-content <tag>` palette in global.css paints headings and body
+ * text for the dark markdown decks. It is a per-element declaration, so it
+ * beats any color the slide inherits from its own wrapper — a light slide
+ * rendered white-on-cream, and no edit to the slide could repair it because
+ * the color lives in the stylesheet. `data-slide-content-scope` turns that
+ * palette off. The raw-HTML container always carries it; a markdown layout
+ * (which renders the same agent HTML through rehype-raw) carries it exactly
+ * when the slide took over colors, so a pure-markdown deck keeps its palette.
+ *
+ * Matches `color:` only inside a tag, so `background-color:`, `border-color:`,
+ * a `--brand-color:` custom property, and prose that says "color:" don't trip
+ * it.
+ */
+export function slideDeclaresTextColor(html: string): boolean {
+  return /<[^>]*[^-\w]color\s*:/i.test(html);
+}
+
+/** Marks a markdown container whose slide declares its own colors. */
+const AUTHORED_COLOR_SCOPE = "authored-colors";
 
 /**
  * Google Fonts families an imported deck may name. Split by what the `css2`
@@ -1091,6 +1120,9 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={`${slide.layoutFitRevision ?? ""}:${left}`}
           className="slide-content text-white/90"
+          {...(slideDeclaresTextColor(left)
+            ? { contentScope: AUTHORED_COLOR_SCOPE }
+            : {})}
           onOverflowChange={(info) => reportTargetOverflow("left", info)}
           onAutofitSettled={onAutofitSettled}
         >
@@ -1106,6 +1138,9 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={`${slide.layoutFitRevision ?? ""}:${right}`}
           className="slide-content text-white/90"
+          {...(slideDeclaresTextColor(right)
+            ? { contentScope: AUTHORED_COLOR_SCOPE }
+            : {})}
           onOverflowChange={(info) => reportTargetOverflow("right", info)}
           onAutofitSettled={onAutofitSettled}
         >
@@ -1158,6 +1193,9 @@ export function SlideInner({
         canvasHeight={dims.height}
         fitKey={`${slide.layoutFitRevision ?? ""}:${content}`}
         className="slide-content text-white/90 w-full"
+        {...(slideDeclaresTextColor(content)
+          ? { contentScope: AUTHORED_COLOR_SCOPE }
+          : {})}
         onOverflowChange={(info) => reportTargetOverflow("markdown", info)}
         onAutofitSettled={onAutofitSettled}
       >

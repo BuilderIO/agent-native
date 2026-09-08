@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BUILDER_STATUS_LEGACY_CREDENTIAL_KEYS,
   BUILDER_STATUS_ROUTE_SUFFIXES,
   mountBuilderStatusRouteAliases,
   resolveOAuthCustodyBuilderKeyStatus,
 } from "./core-routes-plugin.js";
 
 describe("Builder status route aliases", () => {
+  it("shares Content's intentional legacy private-key aliases", () => {
+    expect(BUILDER_STATUS_LEGACY_CREDENTIAL_KEYS).toEqual([
+      "BUILDER_PRIVATE_KEY",
+      "BUILDER_CMS_PRIVATE_KEY",
+    ]);
+  });
+
   it("retains the legacy path and mounts the neutral connection-status alias", () => {
     expect(BUILDER_STATUS_ROUTE_SUFFIXES).toEqual([
       "/builder/status",

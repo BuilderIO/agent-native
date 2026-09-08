@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentNativeI18nProvider } from "../i18n.js";
@@ -14,6 +15,7 @@ describe("McpAccessSettings localization", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+    window.history.replaceState({}, "", "/settings/mcp");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -44,14 +46,13 @@ describe("McpAccessSettings localization", () => {
     expect(container.textContent).toContain("URL del servidor MCP");
     expect(container.textContent).toContain("Conectar un host de IA");
     expect(container.textContent).not.toContain("MCP server URL");
-    expect(container.textContent).not.toContain("Abre Customize → Connectors");
+    expect(container.textContent).toContain("Abre Customize → Connectors");
 
     const claudeTab = container.querySelector<HTMLButtonElement>(
       "#mcp-guide-tab-claude",
     );
     expect(claudeTab).not.toBeNull();
-    await act(async () => claudeTab?.click());
-    expect(container.textContent).toContain("Abre Customize → Connectors");
+    expect(claudeTab?.getAttribute("aria-selected")).toBe("true");
 
     const connectLink = Array.from(container.querySelectorAll("a")).find(
       (link) => link.textContent?.includes("Abrir página completa de conexión"),
@@ -86,6 +87,118 @@ describe("McpAccessSettings localization", () => {
       expect(container.textContent).toContain("name it Mail");
     } finally {
       meta.remove();
+    }
+  });
+
+  it("selects the guide requested by the integrations handoff", async () => {
+    window.history.replaceState({}, "", "/settings/mcp?guide=grok");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <McpAccessSettings appName="Content" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("#mcp-guide-tab-grok")
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(container.textContent).toContain("grok.com/connectors");
+  });
+
+  it("synchronizes the guide after browser navigation", async () => {
+    window.history.replaceState({}, "", "/settings/mcp?guide=grok");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <McpAccessSettings appName="Content" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await act(async () => {
+      window.history.pushState({}, "", "/settings/mcp?guide=cursor");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    expect(
+      container
+        .querySelector("#mcp-guide-tab-cursor")
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("keeps a selected guide in the URL and restores it on navigation", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/settings/mcp?guide=grok&section=access",
+    );
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <McpAccessSettings appName="Content" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("#mcp-guide-tab-cursor")
+        ?.click();
+    });
+    expect(new URLSearchParams(window.location.search).get("guide")).toBe(
+      "cursor",
+    );
+    expect(new URLSearchParams(window.location.search).get("section")).toBe(
+      "access",
+    );
+
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(
+      container
+        .querySelector("#mcp-guide-tab-cursor")
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("renders the default guide without a browser during SSR", () => {
+    const browserWindow = window;
+    vi.stubGlobal("window", undefined);
+
+    try {
+      expect(() =>
+        renderToString(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <McpAccessSettings appName="Content" />
+          </AgentNativeI18nProvider>,
+        ),
+      ).not.toThrow();
+    } finally {
+      vi.stubGlobal("window", browserWindow);
     }
   });
 });

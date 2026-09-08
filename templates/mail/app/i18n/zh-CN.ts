@@ -55,6 +55,7 @@ const messages = {
       rename: "重命名",
       renameTab: "重命名标签页",
       savedFilters: "已保存的筛选条件",
+      combinedInbox: "合并收件箱",
       help: "勾选的项目会显示为标签页。标签邮件会从收件箱中分离。",
     },
     accounts: {

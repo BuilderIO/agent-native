@@ -487,9 +487,7 @@ URL 스킴이 바뀌기 전에 공유된 링크를 위해 레거시 라우트 �
 - `templates/calendar/actions/` — 새 기능을 에이전트와 프런트엔드 모두에
   노출하려면 `defineAction`으로 새 파일을 추가하세요.
 - `templates/calendar/app/routes/` — UI. 위에 나열되어 있습니다.
-- `templates/calendar/server/db/schema.ts` — Drizzle로 컬럼이나 테이블을
-  추가하세요. 템플릿이 SQLite, Postgres, Turso, D1, Neon에서 모두 동작하도록
-  코드를 방언에 구애받지 않게 유지하세요.
+- `templates/calendar/server/db/schema.ts` — Drizzle로 열이나 테이블을 추가하세요. PGlite와 Postgres에서 동작하도록 코드를 PostgreSQL 호환으로 유지하세요.
 - `templates/calendar/server/lib/` — 프로바이더 통합: `google-calendar.ts`,
   `zoom.ts`, `people-search.ts`, `ical-fetcher.ts`, `find-time.ts`,
   `provider-api.ts`.

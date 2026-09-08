@@ -99,8 +99,6 @@ const BINARY_EXTENSIONS = new Set([
   ".wasm",
   ".class",
   ".jar",
-  ".sqlite",
-  ".sqlite3",
   ".pyc",
   ".node",
 ]);
@@ -167,7 +165,7 @@ const PATTERNS = [
     // Captures scheme/user/password separately so the password never
     // reaches the redaction preview, not even partially.
     name: "database connection string with password",
-    re: /\b(postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/([^\s:@/]+):([^\s@/]+)@/g,
+    re: /\b(postgres(?:ql)?):\/\/([^\s:@/]+):([^\s@/]+)@/g,
     redact: (_m, scheme, user) => `${scheme}://${user}:***@`,
     isPlaceholder: (m) =>
       DB_PLACEHOLDER_PASSWORDS.has((m[3] ?? "").toLowerCase()),

@@ -1,13 +1,17 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
 import { closeDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { registerShareableResource } from "@agent-native/core/sharing";
-import { createClient, type Client } from "@libsql/client";
+
+const { PGlite } = createRequire(
+  new URL("../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
 import { eq } from "drizzle-orm";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import {
   afterAll,
   beforeAll,
@@ -20,11 +24,40 @@ import {
 
 import * as planSchema from "../server/db/schema.js";
 
-let client: Client;
-let db: LibSQLDatabase<typeof planSchema>;
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(statement: SqlStatement) {
+  if (typeof statement === "string") {
+    const results = [];
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      results.push(await client.query(postgresSql(sql)));
+    return results.at(-1);
+  }
+  return client.query(postgresSql(statement.sql), statement.args ?? []);
+}
+
+let client: PGlite;
+let db: PgliteDatabase<typeof planSchema>;
 let dbDir: string;
 let previousDatabaseUrl: string | undefined;
 let previousPlanDatabaseUrl: string | undefined;
+
+vi.mock("@agent-native/core/collab", () => ({
+  deleteCollabState: async (docId: string) => {
+    await client?.query(
+      "DELETE FROM _collab_docs WHERE doc_id = $1 OR doc_id LIKE $2",
+      [docId, `${docId}:%`],
+    );
+  },
+}));
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => db,
@@ -45,7 +78,7 @@ function asUser(userEmail: string, fn: () => Promise<any> | any) {
 
 async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets isolated temp DB.
-  await client.executeMultiple(`
+  await execute(`
     DROP TABLE IF EXISTS _collab_docs;
     DELETE FROM plan_assets;
     DELETE FROM plan_reports;
@@ -168,7 +201,7 @@ async function seedPlan() {
     byteSize: 4,
     createdAt: NOW,
   });
-  await client.executeMultiple(`
+  await execute(`
     CREATE TABLE IF NOT EXISTS _collab_docs (
       doc_id TEXT PRIMARY KEY,
       yjs_state TEXT NOT NULL,
@@ -177,14 +210,14 @@ async function seedPlan() {
       updated_at TEXT NOT NULL DEFAULT ''
     );
     INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at)
-      VALUES ('plan:${PLAN_ID}', 'state', 'exact', 0, '${NOW}');
+      VALUES ('plan:${PLAN_ID}:root', 'state', 'exact', 0, '${NOW}');
     INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at)
       VALUES ('plan:${PLAN_ID}:block_1', 'state', 'block', 0, '${NOW}');
   `);
 }
 
 async function countRows(table: string, column = "plan_id") {
-  const { rows } = await client.execute({
+  const { rows } = await execute({
     sql: `SELECT COUNT(*) AS n FROM ${table} WHERE ${column} = ?`,
     args: [PLAN_ID],
   });
@@ -204,16 +237,16 @@ beforeAll(async () => {
   process.env.PLAN_LOCAL_MODE = "0";
 
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-delete-action-"));
-  const dbUrl = `file:${path.join(dbDir, "test.db")}`;
+  const dbUrl = `pglite:${dbDir}`;
   previousDatabaseUrl = process.env.DATABASE_URL;
   previousPlanDatabaseUrl = process.env.PLAN_DATABASE_URL;
   process.env.DATABASE_URL = dbUrl;
   process.env.PLAN_DATABASE_URL = dbUrl;
   await closeDbExec();
-  client = createClient({ url: dbUrl });
+  client = await PGlite.create(dbDir);
   db = drizzle(client, { schema: planSchema });
 
-  await client.executeMultiple(`
+  await execute(`
     CREATE TABLE plans (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -259,7 +292,7 @@ beforeAll(async () => {
     CREATE TABLE plan_comments (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, parent_comment_id TEXT, section_id TEXT, kind TEXT NOT NULL DEFAULT 'comment', status TEXT NOT NULL DEFAULT 'open', anchor TEXT, message TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT 'human', author_email TEXT, author_name TEXT, resolution_target TEXT, mentions_json TEXT, resolved_by TEXT, resolved_at TEXT, consumed_at TEXT, deleted_at TEXT, deleted_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE plan_events (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, payload TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
     CREATE TABLE plan_reports (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, reason TEXT NOT NULL, details TEXT, status TEXT NOT NULL DEFAULT 'open', reporter_email TEXT, reporter_name TEXT, page_url TEXT, occurrence_count INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-    CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, chat_context TEXT, summary_status TEXT, summary_source TEXT, block_count INTEGER, section_count INTEGER, has_canvas INTEGER, has_prototype INTEGER, preview_text TEXT);
+    CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, chat_context TEXT, summary_status TEXT, summary_source TEXT, block_count INTEGER, section_count INTEGER, has_canvas BOOLEAN, has_prototype BOOLEAN, preview_text TEXT);
     CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE plan_assets (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, filename TEXT NOT NULL, mime_type TEXT NOT NULL, data TEXT NOT NULL, byte_size INTEGER NOT NULL, created_at TEXT NOT NULL);
   `);
@@ -280,7 +313,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await closeDbExec();
-  client?.close();
+  await client?.close();
   if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = previousDatabaseUrl;
   if (previousPlanDatabaseUrl === undefined)
@@ -376,7 +409,7 @@ describe("delete-visual-plan", () => {
     expect(await countRows("plan_versions")).toBe(0);
     expect(await countRows("plan_shares", "resource_id")).toBe(0);
     expect(await countRows("plan_assets")).toBe(0);
-    const collabRows = await client.execute({
+    const collabRows = await execute({
       sql: `SELECT doc_id FROM _collab_docs WHERE doc_id = ? OR doc_id LIKE ?`,
       args: [`plan:${PLAN_ID}`, `plan:${PLAN_ID}:%`],
     });

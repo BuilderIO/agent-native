@@ -154,6 +154,24 @@ describe("renderClipsTransactionalEmail", () => {
     );
   });
 
+  it("adds a one-click view opt-out and a deep link to notification settings", () => {
+    const result = render({
+      kind: "first-view",
+      to: "owner@example.test",
+      recordingId: "rec-1",
+      title: "Product tour",
+    });
+
+    expect(result.html).toContain("Turn off Clip view emails");
+    expect(result.html).toContain(
+      'href="https://clips.example/email-preferences/clip-views?token=',
+    );
+    expect(result.html).toContain(
+      'href="https://clips.example/settings/notifications"',
+    );
+    expect(result.text).toContain("Turn off Clip view emails");
+  });
+
   it("uses conservative display-name, viewer, sender, title, and summary fallbacks", () => {
     expect(normalizeEmailDisplayName("jane.doe@example.test", "Someone")).toBe(
       "Jane Doe",
@@ -606,6 +624,7 @@ describe("sendClipsTransactionalEmail", () => {
           replyTo: "hello@agent-native.com",
         },
         replyTo: "hello@agent-native.com",
+        disableClickTracking: true,
       }),
     );
   });

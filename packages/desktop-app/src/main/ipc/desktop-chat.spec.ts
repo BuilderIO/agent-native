@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
+import path from "node:path";
 
+import type { AppConfig } from "@shared/app-registry";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({
@@ -17,11 +20,18 @@ vi.mock("../app-store", () => ({
   loadApps: vi.fn(() => []),
 }));
 
+vi.mock("../cookie-header", () => ({
+  readCookieHeaderForUrl: vi.fn(async () => ""),
+}));
+
 import {
   desktopTerminalMcpArgs,
   desktopTerminalInfo,
+  desktopTerminalWorkspacePath,
   DesktopTerminalMcpRelay,
   desktopTerminalOpenCodeEnvironment,
+  getDesktopAppMcpAuthorization,
+  resolveDesktopTerminalCwd,
   resolveTargetUrl,
   shouldForwardRequestHeader,
   shouldForwardResponseHeader,
@@ -29,6 +39,38 @@ import {
 } from "./desktop-chat.js";
 
 describe("desktop chat relay target URLs", () => {
+  it("uses selected app folders and a stable app-owned fallback", () => {
+    const selectedPath = mkdtempSync(path.join("/tmp", "selected-app-"));
+    vi.spyOn(process, "cwd").mockReturnValue(selectedPath);
+    vi.stubEnv("AGENT_NATIVE_PROJECT_ROOT", "/");
+    vi.stubEnv("CODE_AGENTS_PROJECT_ROOT", "/");
+    vi.stubEnv("INIT_CWD", "/");
+    vi.stubEnv("PWD", "/");
+
+    try {
+      expect(resolveDesktopTerminalCwd(selectedPath)).toBe(selectedPath);
+      expect(desktopTerminalWorkspacePath()).toBe("/tmp/terminal-workspace");
+      expect(resolveDesktopTerminalCwd()).toBe("/tmp/terminal-workspace");
+    } finally {
+      rmSync(selectedPath, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves an explicit project root before the app-owned fallback", () => {
+    const projectRoot = mkdtempSync(path.join("/tmp", "project-root-"));
+    vi.spyOn(process, "cwd").mockReturnValue("/tmp");
+    vi.stubEnv("AGENT_NATIVE_PROJECT_ROOT", projectRoot);
+    vi.stubEnv("CODE_AGENTS_PROJECT_ROOT", "/");
+    vi.stubEnv("INIT_CWD", "/");
+    vi.stubEnv("PWD", "/");
+
+    try {
+      expect(resolveDesktopTerminalCwd()).toBe(projectRoot);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it("configures the desktop sidebar tool for supported CLI agents", () => {
     const registration = {
       url: "http://127.0.0.1:3456/mcp",
@@ -119,6 +161,34 @@ describe("desktop chat relay target URLs", () => {
         },
       },
     });
+  });
+
+  it("bounds optional app MCP authorization requests", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ token: "token" }), { status: 200 }),
+      );
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(new AbortController().signal);
+
+    try {
+      await expect(
+        getDesktopAppMcpAuthorization(
+          { id: "mail", name: "Mail" } as AppConfig,
+          "https://mail.agent-native.com",
+        ),
+      ).resolves.toEqual({ Authorization: "Bearer token" });
+      expect(timeoutSpy).toHaveBeenCalledWith(10_000);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://mail.agent-native.com/mcp/connect/token",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    } finally {
+      timeoutSpy.mockRestore();
+      fetchSpy.mockRestore();
+    }
   });
 
   it("keeps Codex preferences while removing unrelated MCP startup work", () => {

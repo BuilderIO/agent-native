@@ -56,6 +56,7 @@ const messages = {
       rename: "名前を変更",
       renameTab: "タブ名を変更",
       savedFilters: "保存したフィルター",
+      combinedInbox: "統合受信トレイ",
       help: "チェックした項目はタブとして表示されます。ラベル付きメールは受信トレイから分離されます。",
     },
     accounts: {

@@ -75,6 +75,7 @@ Read the relevant skill before deeper work:
 | `search-documents` | Title and content search with snippets |
 | `get-document` | One document with full content |
 | `pull-document` | Flush live collab state, then read (external edits) |
+| `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |
 | `create-document` | Create a page, optionally under a parent |
 | `resolve-content-landing` | Restore the caller's last authorized page or ensure their private Personal welcome page |
 | `edit-document` | Find/replace edit — preferred for small changes |
@@ -82,20 +83,18 @@ Read the relevant skill before deeper work:
 | `delete-document` | Move a page and its children to Trash |
 | `list-content-database-blocks` | List stable blocks and revisions in one exact database row/property |
 | `mutate-content-database-block` | Insert, update, upsert, delete, or reorder one supported stable block |
-| `migrate-content-database-rows` | Validate, atomically apply, verify, roll back, or finalize one bounded whole-database row migration |
+| `migrate-content-database-rows` | Validate/apply/verify; terminal phases use `manage-content-database-migration` |
 
 Every action carries its own schema, and the rest of the app-specific surface
 (comments, sharing, databases, Notion, local file sources such as
 `remove-local-file-source`) is registered too — use `tool-search` instead of
 scanning a table here.
 
-Sidebar ordering has two deliberately different meanings. Reordering Pinned or
-workspace roots moves the exact database membership identified by both
-`databaseId` and `itemId`; it never reparents or moves the referenced document.
-Files sidebar Custom order is a per-user database-view preference written with
-`update-content-database-personal-view`, so it must not change shared Files
-membership positions. Ordinary unconstrained database row reordering remains a
-shared database mutation through `move-database-item`.
+Sidebar ordering has two meanings. Reordering Pinned or workspace roots moves
+the exact `databaseId` + `itemId` membership, never the document. Files Custom
+order is a per-user view preference written with
+`update-content-database-personal-view`; shared row ordering still uses
+`move-database-item`.
 
 ## Source Changes
 

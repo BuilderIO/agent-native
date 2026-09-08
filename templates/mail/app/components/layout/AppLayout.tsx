@@ -6,6 +6,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
@@ -53,6 +54,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -66,6 +68,7 @@ import {
   useSettings,
   useUpdateSettings,
   useEmails,
+  prefetchEmails,
   useReportSpam,
   useBlockSender,
   useMuteThread,
@@ -219,6 +222,70 @@ export function labelTabHref(labelId: string): string {
   return `/${view}?label=${encodeURIComponent(labelId)}`;
 }
 
+type MailPrefetchTarget = {
+  view: string;
+  search?: string;
+  label?: string;
+};
+
+const MAIL_TAB_PREFETCH_CONCURRENCY = 2;
+let mailTabPrefetchGeneration = 0;
+let mailTabPrefetchTail: Promise<unknown> = Promise.resolve();
+
+export function prefetchMailTabTargets(
+  targets: readonly MailPrefetchTarget[],
+  prefetch: (target: MailPrefetchTarget) => Promise<unknown>,
+) {
+  const generation = ++mailTabPrefetchGeneration;
+  const run = mailTabPrefetchTail.then(async () => {
+    const queue = [...targets];
+    const worker = async () => {
+      while (generation === mailTabPrefetchGeneration && queue.length > 0) {
+        const target = queue.shift();
+        if (!target) return;
+        await Promise.allSettled([
+          Promise.resolve().then(() => prefetch(target)),
+        ]);
+      }
+    };
+
+    return Promise.all(
+      Array.from(
+        {
+          length: Math.min(MAIL_TAB_PREFETCH_CONCURRENCY, queue.length),
+        },
+        worker,
+      ),
+    );
+  });
+  mailTabPrefetchTail = run;
+  return run;
+}
+
+export function getTabPrefetchTarget(
+  tab: {
+    id: string;
+    href: string;
+    type: "system" | "label" | "filter";
+  },
+  savedFilters: readonly Pick<SavedMailFilter, "id" | "query">[],
+): MailPrefetchTarget | null {
+  if (tab.type === "filter") {
+    const filter = savedFilters.find(
+      (candidate) => candidate.id === tab.id.slice("filter:".length),
+    );
+    return filter ? { view: "inbox", search: filter.query } : null;
+  }
+
+  const url = new URL(tab.href, "https://mail.local");
+  const view = url.pathname.split("/").filter(Boolean)[0] || "inbox";
+  const label = url.searchParams.get("label") ?? undefined;
+  if (view === "inbox" && (!label || isInboxScopedAppLabel(label))) {
+    return { view: "inbox" };
+  }
+  return { view, ...(label ? { label } : {}) };
+}
+
 interface AppLayoutProps {
   children: React.ReactNode;
 }
@@ -249,6 +316,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <AgentSidebar
+      browserTabId={getBrowserTabId()}
       position="right"
       defaultOpen={false}
       agentPageHref="/settings/agent"
@@ -266,6 +334,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
 function AppLayoutInner({ children }: AppLayoutProps) {
   const t = useT();
+  const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const compose = useComposeState();
   const headerActions = useHeaderActions();
@@ -416,6 +485,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // Keep the pinned label order exactly as stored so the settings checkbox can
   // actually turn Important off.
   const userPinnedLabels = settings?.pinnedLabels;
+  const combineInbox = settings?.combineInbox === true;
   const pinnedLabels = useMemo(
     () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
     [isGoogleConnected, userPinnedLabels],
@@ -434,7 +504,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     data: activeFilterEmails = [],
     totalEstimate: activeFilterTotalEstimate,
     hasNextPage: activeFilterHasNextPage,
-  } = useEmails("all", activeSavedFilter?.query, undefined, {
+  } = useEmails("inbox", activeSavedFilter?.query, undefined, {
     enabled: Boolean(activeSavedFilter),
   });
   const {
@@ -474,7 +544,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "true";
   });
+  const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =
+    useState(false);
   const perAppChatOpen = usePerAppChatOpen();
+  useEffect(() => {
+    if (!perAppChatOpen) setSidebarExpandedWhileChatOpen(false);
+  }, [perAppChatOpen]);
   useEffect(() => {
     if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
     else localStorage.removeItem("mail-sidebar-pinned");
@@ -490,18 +565,26 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const showCollapsedSidebar =
     !isMobile &&
     showSidebar &&
-    (sidebarPinned ? sidebarCollapsed : perAppChatOpen);
+    (sidebarPinned
+      ? sidebarCollapsed
+      : perAppChatOpen && !sidebarExpandedWhileChatOpen);
   const closeSidebar = useCallback(() => {
     if (!sidebarPinned || isMobile) setSidebarOpen(false);
   }, [sidebarPinned, isMobile]);
 
   const collapseButton =
-    sidebarPinned && !isMobile ? (
+    !isMobile && (sidebarPinned || (perAppChatOpen && showSidebar)) ? (
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
-            onClick={() => setSidebarCollapsed((value) => !value)}
+            onClick={() => {
+              if (!sidebarPinned && perAppChatOpen) {
+                setSidebarExpandedWhileChatOpen((value) => !value);
+                return;
+              }
+              setSidebarCollapsed((value) => !value);
+            }}
             className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
             aria-label={
               showCollapsedSidebar
@@ -648,9 +731,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   // Tabs to show in the bar: pinned triage filters first, then the inbox
   // remainder as "Other". Without pinned filters, the inbox is just "Inbox".
-  const hasPinnedFilters = pinnedLabels.some(
-    (id) => !collapsibleViews.some((v) => v.id === id),
-  );
+  const hasPinnedFilters =
+    !combineInbox &&
+    pinnedLabels.some((id) => !collapsibleViews.some((v) => v.id === id));
 
   const visibleTabs = useMemo(() => {
     const tabs: {
@@ -695,6 +778,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         });
         continue;
       }
+      if (combineInbox) continue;
       // Check if it's a user label (handle old nested-path IDs like "[superhuman]/ai/pitch")
       const normalizedId = id.includes("/")
         ? id
@@ -766,6 +850,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     activeLabel,
     activeInboxTab,
     activeFilterId,
+    combineInbox,
     hasPinnedFilters,
     t,
   ]);
@@ -792,6 +877,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
     return tabs;
   }, [activeLabel, labels, labelAliases, labelDisplayNames, visibleTabs]);
+
+  useEffect(() => {
+    if (tabsLoading) return;
+    const targets = new Map<string, MailPrefetchTarget>();
+    for (const tab of visibleTabs) {
+      if (tab.isActive) continue;
+      const target = getTabPrefetchTarget(tab, savedFilters);
+      if (!target) continue;
+      targets.set(JSON.stringify(target), target);
+    }
+    void queryClient.cancelQueries({ queryKey: ["email-prefetch"] });
+    void prefetchMailTabTargets([...targets.values()], (target) =>
+      prefetchEmails(queryClient, target.view, target.search, target.label),
+    );
+  }, [queryClient, savedFilters, tabsLoading, visibleTabs]);
 
   // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(
@@ -861,7 +961,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const fetchNav = async () => {
       try {
         const res = await fetch(
-          agentNativePath("/_agent-native/application-state/navigation"),
+          agentNativePath(
+            `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+          ),
         );
         if (res.ok) {
           const nav = await res.json();
@@ -945,6 +1047,62 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       updateSettings.mutate({ pinnedLabels: next });
     },
     [pinnedLabels, updateSettings],
+  );
+
+  const handleCombinedInboxChange = useCallback(
+    (next: boolean) => {
+      updateSettings.mutate({ combineInbox: next });
+      if (next) {
+        if (
+          view !== "inbox" ||
+          (!isInboxScopedAppLabel(activeLabel) &&
+            activeInboxTab !== OTHER_INBOX_TAB_PARAM)
+        ) {
+          return;
+        }
+        const nextParams = new URLSearchParams(location.search);
+        nextParams.delete("label");
+        nextParams.delete("tab");
+        const search = nextParams.toString();
+        void navigate({
+          pathname: "/inbox",
+          search: search ? `?${search}` : "",
+        });
+        return;
+      }
+      if (
+        view !== "inbox" ||
+        threadId ||
+        activeLabel ||
+        activeInboxTab ||
+        activeFilterId ||
+        activeSearchQuery
+      ) {
+        return;
+      }
+      const splitRoute = pinnedLabels.includes("important")
+        ? "/inbox?label=important"
+        : pinnedLabels.some(
+              (id) => !collapsibleViews.some((view) => view.id === id),
+            )
+          ? `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`
+          : "/inbox";
+      if (splitRoute !== "/inbox") {
+        void navigate(splitRoute, { replace: true });
+      }
+    },
+    [
+      activeInboxTab,
+      activeLabel,
+      activeFilterId,
+      activeSearchQuery,
+      location.search,
+      navigate,
+      pinnedLabels,
+      threadId,
+      updateSettings,
+      view,
+    ],
   );
 
   const saveSearchAsFilter = useCallback(
@@ -1055,15 +1213,23 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // Global keyboard shortcuts
   const cycleTab = useCallback(
     (reverse?: boolean) => {
-      if (visibleTabs.length < 2) return;
-      const activeIdx = visibleTabs.findIndex((t) => t.isActive);
+      if (topBarTabs.length < 2) return;
+      const activeIdx = topBarTabs.findIndex((tab) => tab.isActive);
       const delta = reverse ? -1 : 1;
       const nextIdx =
-        (activeIdx === -1 ? 0 : activeIdx + delta + visibleTabs.length) %
-        visibleTabs.length;
-      void navigate(visibleTabs[nextIdx].href);
+        (activeIdx === -1 ? 0 : activeIdx + delta + topBarTabs.length) %
+        topBarTabs.length;
+      void navigate(topBarTabs[nextIdx].href);
     },
-    [visibleTabs, navigate],
+    [topBarTabs, navigate],
+  );
+
+  const canCycleTab = useCallback(
+    (event: KeyboardEvent) =>
+      topBarTabs.length >= 2 &&
+      event.target instanceof Element &&
+      event.target.closest("[data-mail-tab-list]") !== null,
+    [topBarTabs.length],
   );
 
   const handleSnooze = useCallback(() => {
@@ -1127,11 +1293,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { key: "z", handler: runUndo },
     {
       key: "Tab",
+      shouldHandle: canCycleTab,
       handler: () => cycleTab(false),
     },
     {
       key: "Tab",
       shift: true,
+      shouldHandle: canCycleTab,
       handler: () => cycleTab(true),
     },
     {
@@ -1155,14 +1323,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, []);
 
   // Sequence shortcuts (g + key = go to view)
-  const qc = useQueryClient();
   useSequenceShortcuts([
     {
       keys: ["g", "i"],
       handler: () => {
         void navigate("/inbox");
-        void qc.invalidateQueries({ queryKey: ["emails"] });
-        void qc.invalidateQueries({ queryKey: ["labels"] });
+        void queryClient.invalidateQueries({ queryKey: ["emails"] });
+        void queryClient.invalidateQueries({ queryKey: ["labels"] });
       },
     },
     { keys: ["g", "s"], handler: () => navigate("/starred") },
@@ -1343,7 +1510,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 ))}
               </nav>
             ) : (
-              <nav className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
+              <nav
+                className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar"
+                data-mail-tab-list
+              >
                 {topBarTabs.map((tab, idx) => {
                   const visibleIndex = visibleTabs.findIndex(
                     (item) => item.id === tab.id,
@@ -1468,11 +1638,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     userLabels={userLabels}
                     labelDisplayNames={labelDisplayNames}
                     pinnedLabels={pinnedLabels}
+                    combinedInbox={combineInbox}
                     savedFilters={savedFilters}
                     labelAliases={labelAliases}
                     search={labelSearch}
                     onSearchChange={setLabelSearch}
                     onToggle={togglePinned}
+                    onCombinedInboxChange={handleCombinedInboxChange}
                     onRemoveFilter={removeSavedFilter}
                     onRename={(id, alias) => {
                       const next = { ...labelAliases };
@@ -1546,8 +1718,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   if (inboxIsFetching) return;
                   setIsManuallyRefreshing(true);
                   markExternalEmailRefresh();
-                  void qc.invalidateQueries({ queryKey: ["emails"] });
-                  void qc.invalidateQueries({ queryKey: ["labels"] });
+                  void queryClient.invalidateQueries({ queryKey: ["emails"] });
+                  void queryClient.invalidateQueries({ queryKey: ["labels"] });
                   window.setTimeout(() => setIsManuallyRefreshing(false), 800);
                 }}
                 disabled={inboxIsFetching}
@@ -2499,11 +2671,13 @@ function TabSettingsPopover({
   userLabels,
   labelDisplayNames,
   pinnedLabels,
+  combinedInbox,
   savedFilters,
   labelAliases,
   search,
   onSearchChange,
   onToggle,
+  onCombinedInboxChange,
   onRemoveFilter,
   onRename,
 }: {
@@ -2511,11 +2685,13 @@ function TabSettingsPopover({
   userLabels: Label[];
   labelDisplayNames: ReadonlyMap<string, string>;
   pinnedLabels: string[];
+  combinedInbox: boolean;
   savedFilters: SavedMailFilter[];
   labelAliases: Record<string, string>;
   search: string;
   onSearchChange: (v: string) => void;
   onToggle: (id: string) => void;
+  onCombinedInboxChange: (checked: boolean) => void;
   onRemoveFilter: (id: string) => void;
   onRename: (id: string, alias: string) => void;
 }) {
@@ -2596,6 +2772,20 @@ function TabSettingsPopover({
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder={t("mail.search.placeholder")}
           className="w-full bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none px-1 py-0.5"
+        />
+      </div>
+
+      <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
+        <label
+          htmlFor="combined-inbox-toggle"
+          className="text-[13px] text-foreground"
+        >
+          {t("mail.tabSettings.combinedInbox")}
+        </label>
+        <Switch
+          id="combined-inbox-toggle"
+          checked={combinedInbox}
+          onCheckedChange={onCombinedInboxChange}
         />
       </div>
 

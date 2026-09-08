@@ -66,6 +66,10 @@ const IN_SCOPE_EXT = /\.(tsx|ts|css)$/;
 const EXCLUDED_BUILD_DIR =
   /\/(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage)\//;
 const EXCLUDED_TEST_FILE = /\.(stories|spec|test)\./;
+// Whole-directory, not just `*.spec.*`: an E2E harness module holds the
+// fixture HTML the specs render inside the preview iframe, which is a test
+// document with no theme to honour.
+const EXCLUDED_E2E_DIR = /(^|\/)e2e\//;
 const EXCLUDED_TOKEN_PATH = /(^|\/)(brand|tokens|theme)(\/|$)/i;
 // `global.css` declares a running app's tokens; `templates-meta.ts` is the
 // catalog where each template declares its own brand accent as data (all 17
@@ -121,6 +125,7 @@ function inScope(relPath) {
     return false;
   }
   if (EXCLUDED_TEST_FILE.test(relPath)) return false;
+  if (EXCLUDED_E2E_DIR.test(relPath)) return false;
   if (EXCLUDED_TOKEN_PATH.test(relPath)) return false;
   if (THEME_DEFINITION_FILE.test(relPath)) return false;
   return true;

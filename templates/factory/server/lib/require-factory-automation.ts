@@ -1,11 +1,14 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import { listAutomationDefinitions } from "@agent-native/core/triggers";
 
 import { getDb } from "../db/index.js";
 import {
   inferAutomationSource,
   type FactoryAutomationSource,
 } from "./factory-automation-config.js";
+import {
+  factoryIdFromAutomationName,
+  findFactoryAutomationDefinition,
+} from "./factory-automation-resources.js";
 import {
   factoryAutomationLeafName,
   readAutomationFactoryId,
@@ -82,22 +85,21 @@ export async function requireFactoryAutomation(
   }
   const leafName = factoryAutomationLeafName(lineage.triggerName);
 
-  const definition = (
-    await listAutomationDefinitions(
-      {
-        userEmail: identity.userEmail,
-        orgId: identity.orgId,
-        appId: "factory",
-      },
-      "organization",
-    )
-  ).find((entry) => entry.resource.id === lineage.triggerId);
+  const factoryId =
+    expectedFactoryId ?? factoryIdFromAutomationName(lineage.triggerName);
+  const definition = factoryId
+    ? await findFactoryAutomationDefinition(
+        identity.orgId,
+        factoryId,
+        lineage.triggerId,
+      )
+    : null;
   if (
     !definition ||
     definition.name !== lineage.triggerName ||
-    definition.meta.domain !== "factory" ||
-    definition.meta.orgId !== identity.orgId ||
-    definition.meta.runAs !== "creator" ||
+    (definition.meta.orgId != null &&
+      definition.meta.orgId !== identity.orgId) ||
+    (definition.meta.runAs != null && definition.meta.runAs !== "creator") ||
     !definition.meta.createdBy?.trim()
   ) {
     throw governedAutomationError(role, lineage.triggerName, "definition");

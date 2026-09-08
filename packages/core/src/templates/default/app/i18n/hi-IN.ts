@@ -11,6 +11,12 @@ const messages = {
     themeTitle: "थीम",
     themeDescription: "डार्क / लाइट बदलें",
   },
+  common: {
+    cancel: "रद्द करें",
+    confirmDisconnect: "डिस्कनेक्ट की पुष्टि करें",
+    disconnect: "डिस्कनेक्ट करें",
+    disconnecting: "डिस्कनेक्ट हो रहा है…",
+  },
   settings: {
     title: "सेटिंग्स",
     description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
@@ -26,6 +32,9 @@ const messages = {
     openTeamSettings: "टीम सेटिंग्स खोलें",
     openResourceSettings: "संसाधन सेटिंग्स खोलें",
     backHome: "होम पर वापस जाएं",
+    builderConnection: {
+      manage: "Builder.io कनेक्शन प्रबंधित करें",
+    },
   },
   dispatch: {
     nav: {

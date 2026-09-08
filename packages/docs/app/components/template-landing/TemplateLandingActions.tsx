@@ -3,6 +3,7 @@ import { IconArrowUpRight } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { CustomizeTemplatePopover } from "../CustomizeTemplatePopover";
+import { firstPartyAppUrl } from "../deployment-links";
 import { sitePathForLocale } from "../docs-locale";
 import { applyFirstTouchAttributionToLink } from "../marketing-attribution";
 import { TemplateDocsLink } from "../template-docs";
@@ -28,7 +29,7 @@ export function TemplateLandingActions({
   return (
     <>
       <a
-        href={template.demoUrl}
+        href={firstPartyAppUrl(template.demoUrl)}
         target="_blank"
         rel="noopener noreferrer"
         className="primary-button"

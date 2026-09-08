@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import type {
   ConfigureDocumentPropertyRequest,
+  ContentDatabaseItemsPageResponse,
   ContentDatabaseResponse,
   DeleteDocumentPropertyRequest,
   DocumentPropertiesResponse,
@@ -11,9 +12,13 @@ import type {
   DuplicateDocumentPropertyRequest,
   ReorderDocumentPropertyRequest,
   SetDocumentPropertyRequest,
+  UpdateDatabaseItemsRequest,
+  UpdateDatabaseItemsResponse,
 } from "@shared/api";
 import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+import { toast } from "sonner";
 
+import { dbText } from "../components/editor/database/text";
 import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
@@ -28,6 +33,49 @@ import {
 } from "./use-documents";
 
 type DatabaseScopedRequest = { databaseId: string };
+
+type DocumentPropertyMutationContext = {
+  previous?: Array<[readonly unknown[], unknown]>;
+  mutationKey: string;
+  sequence: number;
+};
+
+type SetDocumentPropertyOptions = {
+  errorNotification?: "shared" | "caller";
+};
+
+const documentPropertyMutationSequences = new WeakMap<
+  object,
+  Map<string, number>
+>();
+
+function nextDocumentPropertyMutationSequence(
+  queryClient: object,
+  documentId: string,
+  propertyId: string,
+) {
+  let sequences = documentPropertyMutationSequences.get(queryClient);
+  if (!sequences) {
+    sequences = new Map();
+    documentPropertyMutationSequences.set(queryClient, sequences);
+  }
+  const mutationKey = `${documentId}:${propertyId}`;
+  const sequence = (sequences.get(mutationKey) ?? 0) + 1;
+  sequences.set(mutationKey, sequence);
+  return { mutationKey, sequence };
+}
+
+function isLatestDocumentPropertyMutation(
+  queryClient: object,
+  context: DocumentPropertyMutationContext | undefined,
+) {
+  if (!context?.mutationKey) return true;
+  return (
+    documentPropertyMutationSequences
+      .get(queryClient)
+      ?.get(context.mutationKey) === context.sequence
+  );
+}
 
 export function documentPropertiesResponseMatchesScope(
   documentId: string,
@@ -109,6 +157,7 @@ export function useSetDocumentProperty(
   documentId: string,
   databaseId: string,
   databaseDocumentId = documentId,
+  options: SetDocumentPropertyOptions = {},
 ) {
   const queryClient = useQueryClient();
   const mutation = useActionMutation<
@@ -116,13 +165,31 @@ export function useSetDocumentProperty(
     SetDocumentPropertyRequest
   >("set-document-property", {
     skipActionQueryInvalidation: true,
+    scope: {
+      id: `content-document-properties:${databaseId}`,
+    },
     onMutate: async (variables) => {
-      await queryClient.cancelQueries(
-        contentDatabaseQueryFilter(databaseDocumentId),
+      const sequence = nextDocumentPropertyMutationSequence(
+        queryClient,
+        variables.documentId,
+        variables.propertyId,
       );
-      const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
-        contentDatabaseQueryFilter(databaseDocumentId),
-      );
+      await Promise.all([
+        queryClient.cancelQueries(
+          contentDatabaseQueryFilter(databaseDocumentId),
+        ),
+        queryClient.cancelQueries(
+          contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+        ),
+      ]);
+      const previous: Array<[readonly unknown[], unknown]> = [
+        ...queryClient.getQueriesData<ContentDatabaseResponse>(
+          contentDatabaseQueryFilter(databaseDocumentId),
+        ),
+        ...queryClient.getQueriesData<ContentDatabaseItemsPageResponse>(
+          contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+        ),
+      ];
       queryClient.setQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(databaseDocumentId),
         (current) =>
@@ -132,28 +199,60 @@ export function useSetDocumentProperty(
             value: variables.value,
           }),
       );
-      return { previous };
+      queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+        (current) =>
+          applyDocumentPropertyValueToDatabaseResponse(current, {
+            documentId: variables.documentId,
+            propertyId: variables.propertyId,
+            value: variables.value,
+          }),
+      );
+      return { previous, ...sequence };
     },
-    onError: (_error, variables, context) => {
-      const rollback = context as
-        | {
-            previous?: Array<[readonly unknown[], unknown]>;
-          }
-        | undefined;
+    onError: (error, variables, context) => {
+      if (options.errorNotification !== "caller") {
+        toast.error(dbText("somethingWentWrong"), {
+          description: error.message,
+        });
+      }
+      const rollback = context as DocumentPropertyMutationContext | undefined;
+      if (!isLatestDocumentPropertyMutation(queryClient, rollback)) return;
       for (const [queryKey, data] of rollback?.previous ?? []) {
         queryClient.setQueryData(queryKey, data);
       }
       void queryClient.invalidateQueries({
         queryKey: documentPropertiesQueryKey(variables.documentId, databaseId),
       });
+      void queryClient.invalidateQueries(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+      void queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+      );
     },
-    onSuccess: (data, variables) => {
+    onSuccess: (data, variables, context) => {
+      const mutationContext = context as
+        | DocumentPropertyMutationContext
+        | undefined;
+      if (!isLatestDocumentPropertyMutation(queryClient, mutationContext)) {
+        return;
+      }
       const savedValue =
         data.properties.find(
           (property) => property.definition.id === variables.propertyId,
         )?.value ?? variables.value;
       queryClient.setQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(databaseDocumentId),
+        (current) =>
+          applyDocumentPropertyValueToDatabaseResponse(current, {
+            documentId: variables.documentId,
+            propertyId: variables.propertyId,
+            value: savedValue as DocumentPropertyValue,
+          }),
+      );
+      queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId),
         (current) =>
           applyDocumentPropertyValueToDatabaseResponse(current, {
             documentId: variables.documentId,
@@ -180,6 +279,30 @@ export function useSetDocumentProperty(
     },
   });
   return withDatabaseScope(mutation, databaseId);
+}
+
+export function useUpdateDatabaseItems(databaseDocumentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    UpdateDatabaseItemsResponse,
+    UpdateDatabaseItemsRequest
+  >("update-database-items", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () => {
+      const databaseQueries = contentDatabaseQueryFilter(databaseDocumentId);
+      const constrainedQueries =
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId);
+      void queryClient.invalidateQueries({
+        queryKey: ["action"],
+        predicate: (query) =>
+          databaseQueries.predicate(query) ||
+          constrainedQueries.predicate(query),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+    },
+  });
 }
 
 export function useDuplicateDocumentProperty(

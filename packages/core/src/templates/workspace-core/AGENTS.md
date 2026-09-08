@@ -60,9 +60,9 @@ agent should know.
   duplicate, wrap, proxy, or re-export an action.
 - Keep app-specific screens, actions, state, and skills inside `apps/<app>`. Put
   shared code in `packages/shared` only when multiple apps need it.
-- App database code must be provider-agnostic: `@agent-native/core/db/schema`
-  helpers plus Drizzle's query builder. Never import `drizzle-orm/sqlite-core`
-  or `drizzle-orm/pg-core` from an app.
+- App database code must be PostgreSQL-specific: `@agent-native/core/db/schema`
+  helpers plus Drizzle's PostgreSQL query builder. Never import raw schema-driver
+  packages from an app.
 - SQL is for structured records, metadata, references, and searchable text.
   Large files and blob payloads belong in configured file/blob storage; persist
   only URLs, ids, or handles.

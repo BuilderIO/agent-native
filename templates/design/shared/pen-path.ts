@@ -647,6 +647,11 @@ export function serializePenPath(path: PenPath): string {
   return commands.join(" ");
 }
 
+/** Reads back the trailing "Z" `serializePenPath` emits for a closed path. */
+export function isClosedPathData(data: string | null | undefined): boolean {
+  return Boolean(data && /Z\s*$/i.test(data.trim()));
+}
+
 export function translatePenPath(
   path: PenPath,
   dx: number,

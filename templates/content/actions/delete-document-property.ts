@@ -5,6 +5,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { withoutDatabaseColumnPresentation } from "../shared/database-table-columns.js";
 import {
   isBlocksPropertyType,
   isPrimaryBlocksField,
@@ -19,7 +21,9 @@ import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.j
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   listPropertiesForDocument,
+  parseDatabaseViewConfig,
   resolvePropertyDatabaseForDocument,
+  serializeDatabaseViewConfig,
 } from "./_property-utils.js";
 
 export default defineAction({
@@ -72,6 +76,7 @@ export default defineAction({
       const [lockedDatabase] = await tx
         .select({
           naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
+          viewConfigJson: schema.contentDatabases.viewConfigJson,
         })
         .from(schema.contentDatabases)
         .where(eq(schema.contentDatabases.id, database.id));
@@ -139,6 +144,20 @@ export default defineAction({
         .delete(schema.documentPropertyDefinitions)
         .where(eq(schema.documentPropertyDefinitions.id, propertyId));
 
+      const viewConfig = parseDatabaseViewConfig(lockedDatabase.viewConfigJson);
+      await tx
+        .update(schema.contentDatabases)
+        .set({
+          viewConfigJson: serializeDatabaseViewConfig({
+            ...viewConfig,
+            views: viewConfig.views.map((view) =>
+              withoutDatabaseColumnPresentation(view, propertyId),
+            ),
+          }),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.contentDatabases.id, database.id));
+
       if (lockedDatabase.naturalKeyPropertyId === propertyId) {
         await tx
           .update(schema.contentDatabases)
@@ -180,7 +199,11 @@ export default defineAction({
             const now = new Date().toISOString();
             await tx
               .update(schema.documents)
-              .set({ content: "", updatedAt: now })
+              .set({
+                content: "",
+                bodyRevision: bodyRevisionForContent(""),
+                updatedAt: now,
+              })
               .where(
                 inArray(schema.documents.id, documentsWithoutSurvivingPrimary),
               );

@@ -10,7 +10,7 @@ export const ORG_MIGRATIONS = [
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       created_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at BIGINT NOT NULL
     )`,
   },
   {
@@ -20,7 +20,7 @@ export const ORG_MIGRATIONS = [
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at INTEGER NOT NULL,
+      joined_at BIGINT NOT NULL,
       UNIQUE(org_id, email)
     )`,
   },
@@ -31,7 +31,7 @@ export const ORG_MIGRATIONS = [
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       invited_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
+      created_at BIGINT NOT NULL,
       status TEXT NOT NULL
     )`,
   },
@@ -71,8 +71,8 @@ export const ORG_MIGRATIONS = [
     // via `LOWER(email)`. This keeps exactly one row per (org_id,
     // LOWER(email)) — the row with the oldest `joined_at` (ties broken by
     // `id` for determinism) — by deleting any row for which a strictly
-    // "older" row exists in the same group. Portable across SQLite and
-    // Postgres (plain correlated EXISTS subquery, no window functions).
+    // "older" row exists in the same group. The correlated EXISTS subquery
+    // avoids window functions.
     // Must run before the unique index below or that CREATE would fail on
     // any database that already has case-variant duplicates.
     version: 1009,
@@ -111,7 +111,7 @@ export const ORG_MIGRATIONS = [
       email TEXT NOT NULL,
       role TEXT NOT NULL,
       updated_by TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at BIGINT NOT NULL
     )`,
   },
   {
@@ -142,8 +142,8 @@ export const ORG_MIGRATIONS = [
       name TEXT NOT NULL,
       description TEXT,
       path TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
     )`,
   },
   {
@@ -180,5 +180,55 @@ export const ORG_MIGRATIONS = [
               FROM workspace_app_shares
               WHERE workspace_app_shares.resource_id = workspace_apps.id
             )`,
+  },
+  {
+    version: 1019,
+    name: "organization-identity-federation",
+    sql: `
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS identity_authority TEXT;
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS identity_id TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS organizations_identity_uidx
+        ON organizations (identity_authority, identity_id);
+    `,
+  },
+  {
+    version: 1020,
+    name: "organization-federation-removal-pending",
+    sql: `ALTER TABLE org_members
+          ADD COLUMN IF NOT EXISTS federation_removal_pending_at BIGINT`,
+  },
+  {
+    version: 1021,
+    name: "organization-federation-roster-initialized",
+    sql: `ALTER TABLE organizations
+          ADD COLUMN IF NOT EXISTS federation_roster_initialized_at BIGINT`,
+  },
+  {
+    // Widening only. Every column below stores a JS `Date.now()`
+    // millisecond epoch (13 digits) but was declared `INTEGER` — Postgres
+    // int4, max 2,147,483,647 — so the very first org-creation INSERT
+    // (`organizations.created_at`, `org_members.joined_at`) fails with
+    // `value "<ms epoch>" is out of range for type integer`. BIGINT matches
+    // every other millisecond-timestamp column in the framework.
+    version: 1022,
+    name: "org-tables-timestamps-bigint",
+    sql: `
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE organizations ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE organizations ALTER COLUMN federation_roster_initialized_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE org_members ALTER COLUMN joined_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE org_members ALTER COLUMN federation_removal_pending_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE org_invitations ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE app_member_roles ALTER COLUMN updated_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE workspace_apps ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE workspace_apps ALTER COLUMN updated_at TYPE BIGINT;
+    `,
   },
 ];

@@ -5,8 +5,13 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withSavedTableColumnPresentation } from "../shared/database-table-columns.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
-import { serializeDatabaseViewConfig } from "./_property-utils.js";
+import {
+  parseDatabaseViewConfig,
+  serializeDatabaseViewConfig,
+} from "./_property-utils.js";
 
 const sortSchema = z.object({
   key: z.string(),
@@ -87,10 +92,13 @@ const viewSchema = z.object({
   endDatePropertyId: z.string().nullable().optional(),
   hiddenPropertyIds: z.array(z.string()).default([]),
   propertyOrderIds: z.array(z.string()).default([]),
+  tableColumnOrderIds: z.array(z.string()).optional(),
   collapsedGroupIds: z.array(z.string()).default([]),
   hideEmptyGroups: z.boolean().default(false),
   calculations: z.record(z.string(), columnCalculationSchema).default({}),
   wrapCells: z.boolean().default(false),
+  columnWrapOverrides: z.record(z.string().min(1), z.boolean()).optional(),
+  frozenThroughColumnId: z.string().min(1).nullable().optional(),
   rowDensity: z.enum(["compact", "default", "comfortable"]).default("default"),
   openPagesIn: z.enum(["preview", "full_page"]).default("preview"),
   formQuestions: z.array(formQuestionSchema).default([]),
@@ -114,7 +122,7 @@ export default defineAction({
   run: async ({ databaseId, viewConfig }) => {
     const db = getDb();
     const [database] = await db
-      .select()
+      .select({ documentId: schema.contentDatabases.documentId })
       .from(schema.contentDatabases)
       .where(
         and(
@@ -126,13 +134,41 @@ export default defineAction({
 
     await assertAccess("document", database.documentId, "editor");
 
-    await db
-      .update(schema.contentDatabases)
-      .set({
-        viewConfigJson: serializeDatabaseViewConfig(viewConfig),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.contentDatabases.id, databaseId));
+    await db.transaction(async (tx) => {
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        databaseId,
+      );
+      const [lockedDatabase] = await tx
+        .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.id, databaseId),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        );
+      if (!lockedDatabase)
+        throw new Error(`Database "${databaseId}" not found`);
+
+      const currentViewConfig = parseDatabaseViewConfig(
+        lockedDatabase.viewConfigJson,
+      );
+      const nextViewConfig = {
+        ...viewConfig,
+        views: viewConfig.views?.map((view) =>
+          withSavedTableColumnPresentation(view, currentViewConfig.views),
+        ),
+      };
+
+      await tx
+        .update(schema.contentDatabases)
+        .set({
+          viewConfigJson: serializeDatabaseViewConfig(nextViewConfig),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.contentDatabases.id, databaseId));
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

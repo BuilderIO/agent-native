@@ -262,7 +262,10 @@ export async function canUpdateAgentLoopSettings(
   try {
     const exec = getDbExec();
     const { rows } = await exec.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [orgId, userEmail.toLowerCase()],
     });
     const role = String((rows[0] as any)?.role ?? "");

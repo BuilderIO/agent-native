@@ -1,6 +1,6 @@
 ---
 title: "Deployment"
-description: "किसी Agent-Native ऐप या वर्कस्पेस को persistent SQL database के साथ Nitro-compatible platform पर deploy करें।"
+description: "किसी Agent-Native ऐप या वर्कस्पेस को persistent PostgreSQL database के साथ Nitro-compatible platform पर deploy करें।"
 ---
 
 <!-- i18n-docs-ignore -->
@@ -26,7 +26,7 @@ Shared login के साथ कई apps को एक origin के पीछ�
 
 ## Deploy करने से पहले: persistent database चुनें {#persistent-database}
 
-हर deployed app को persistent SQL database चाहिए। पहले production deploy से पहले deployment environment में `DATABASE_URL` सेट करें। अगर provider अलग token मांगता है, तो `DATABASE_AUTH_TOKEN` भी सेट करें।
+हर deployed app को persistent PostgreSQL database चाहिए। पहले production deploy से पहले deployment environment में `DATABASE_URL` सेट करें।
 
 Standalone app को stable `BETTER_AUTH_SECRET` चाहिए। Signed cross-app requests वाले workspace को `A2A_SECRET` चाहिए।
 

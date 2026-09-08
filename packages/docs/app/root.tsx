@@ -1,4 +1,9 @@
-import { AgentNativeRouteWarmup } from "@agent-native/core/client/host";
+import { AgentNativeWebMcpActionRegistration } from "@agent-native/core/client/hooks";
+import {
+  AgentNativeRouteWarmup,
+  defineClientAction,
+  isClientRouteUrl,
+} from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
   getLocaleInitScript,
@@ -6,6 +11,7 @@ import {
 } from "@agent-native/core/client/i18n";
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
+import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   lazy,
@@ -14,6 +20,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  type MouseEvent,
 } from "react";
 import {
   Links,
@@ -24,12 +31,14 @@ import {
   Link,
   isRouteErrorResponse,
   useMatches,
+  useHref,
+  useNavigate,
   useRouteError,
   useLocation,
   type LoaderFunctionArgs,
 } from "react-router";
 
-import { getGithubStarCountFromCache } from "../lib/github-star-count";
+import { getGithubStarCount } from "../lib/github-star-count";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -43,6 +52,7 @@ import {
   docsAlternateLinksForPath,
   docsMarkdownPathForPath,
 } from "./components/docs-seo";
+import { SnackbarProvider } from "./components/website-redesign/ds/snackbar";
 import { Footer } from "./components/website-redesign/footer";
 import { SiteHeader } from "./components/website-redesign/site-header";
 import { isStaleDocsChunkError } from "./docs-error-classification.js";
@@ -125,12 +135,68 @@ async function initialMessagesForLocale(locale: DocsLocale) {
 export async function loader({ request, url }: LoaderFunctionArgs) {
   const requestUrl = url ?? new URL(request.url);
   const locale = resolveLayoutLocale(requestUrl.pathname);
+  const [messages, starCount] = await Promise.all([
+    initialMessagesForLocale(locale),
+    getGithubStarCount(),
+  ]);
   return {
     locale,
     preference: { locale },
-    messages: await initialMessagesForLocale(locale),
-    starCount: getGithubStarCountFromCache(),
+    messages,
+    starCount,
   };
+}
+
+function DocsWebMcpNavigationRegistration() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const registration = createAgentNativeWebMcpRegistration({
+      actions: [
+        defineClientAction<{ path: string }, { path: string }>({
+          name: "navigate",
+          title: "Navigate docs",
+          description: "Navigate the documentation site to a same-origin path.",
+          schema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description:
+                  "Absolute same-origin path, including query or hash",
+              },
+            },
+            required: ["path"],
+            additionalProperties: false,
+          },
+          run: (input) => {
+            if (typeof input?.path !== "string") {
+              throw new Error("Docs navigation requires a string path");
+            }
+            const { path } = input;
+            if (!path.startsWith("/")) {
+              throw new Error("Docs navigation requires an absolute path");
+            }
+            const target = new URL(path, window.location.origin);
+            if (target.origin !== window.location.origin) {
+              throw new Error("Docs navigation must stay on the current site");
+            }
+            const destination = `${target.pathname}${target.search}${target.hash}`;
+            navigate(destination);
+            return { path: destination };
+          },
+        }),
+      ],
+    });
+
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Unsupported browsers keep normal
+      // docs navigation without exposing a broken page-level integration.
+    });
+    return () => registration.stop();
+  }, [navigate]);
+
+  return null;
 }
 
 type RootLocaleData = Awaited<ReturnType<typeof loader>>;
@@ -174,21 +240,21 @@ export const links = () => [
 ];
 
 export const meta = () => [
-  { title: "Agent-Native — Framework for Agent-Native Apps" },
+  { title: "Agent-Native — The Agentic Application Framework" },
   {
     name: "description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   ...defaultSocialImageMeta(),
   {
     property: "og:title",
-    content: "Agent-Native — Framework for Agent-Native Apps",
+    content: "Agent-Native — The Agentic Application Framework",
   },
   {
     property: "og:description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   { property: "og:type", content: "website" },
   { property: "og:url", content: SITE_URL },
@@ -197,6 +263,61 @@ export const meta = () => [
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
   const { starCount } = useRootLocaleData();
+  const routerRootHref = useHref("/");
+  const navigate = useNavigate();
+
+  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const link = target.closest<HTMLAnchorElement>("a[href]");
+    if (
+      !link ||
+      link.dataset.discover ||
+      (link.target && link.target !== "_self") ||
+      link.hasAttribute("download")
+    ) {
+      return;
+    }
+
+    const url = new URL(link.href, window.location.href);
+    if (
+      url.origin !== window.location.origin ||
+      (url.pathname === window.location.pathname &&
+        url.search === window.location.search)
+    ) {
+      return;
+    }
+    if (!isClientRouteUrl(url)) return;
+
+    const routerRootPath = new URL(
+      routerRootHref,
+      window.location.href,
+    ).pathname.replace(/\/+$/, "");
+    let pathname = url.pathname;
+    if (routerRootPath) {
+      if (url.pathname === routerRootPath) {
+        pathname = "/";
+      } else if (url.pathname.startsWith(`${routerRootPath}/`)) {
+        pathname = url.pathname.slice(routerRootPath.length);
+      } else {
+        return;
+      }
+    }
+
+    event.preventDefault();
+    void navigate(`${pathname}${url.search}${url.hash}`);
+  };
 
   return (
     // core's `.agent-sidebar-shell` sits between <body> and this chrome and
@@ -204,11 +325,16 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
     // the background on <body> never shows and every route inherited a color
     // from a token system the brand palette knows nothing about. Painting --bg
     // here is what actually decides the page color, on every route.
-    <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]">
+    <div
+      className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]"
+      onClick={handleClick}
+    >
       <ScrollManager />
-      <SiteHeader starCount={starCount} />
-      {children}
-      <Footer />
+      <SnackbarProvider>
+        <SiteHeader starCount={starCount} />
+        {children}
+        <Footer />
+      </SnackbarProvider>
     </div>
   );
 }
@@ -523,7 +649,13 @@ export function RootShell({ mounted }: { mounted: boolean }) {
   // the Suspense boundary mounted in every phase removes that first teardown.
   return (
     <>
-      {mounted && <AgentNativeRouteWarmup />}
+      {mounted && (
+        <>
+          <AgentNativeRouteWarmup />
+          <AgentNativeWebMcpActionRegistration />
+          <DocsWebMcpNavigationRegistration />
+        </>
+      )}
       <Suspense fallback={fallback}>
         {mounted ? (
           <LazyAgentSidebar

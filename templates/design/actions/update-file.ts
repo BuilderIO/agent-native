@@ -5,7 +5,6 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -18,10 +17,10 @@ import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 
 // TEMPORARY diagnostic — remove once we've read a few real conflicts in prod.
-// Conflicts are now benign 409s the framework no longer error-logs; this keeps
-// them visible in Netlify, and `content-conflict`'s cacheIsStale field tells us
-// whether they're the multi-instance stale-cache phantom (→ worth the core
-// reload fix) or a genuine concurrent writer (→ 409-rebase is already correct).
+// Conflicts are benign 409s the framework no longer error-logs, so they are
+// otherwise invisible in Netlify. Every remaining one should be a genuine
+// concurrent writer now that core's ydoc-manager re-checks the stored version
+// instead of answering from whatever this instance loaded first.
 function logSaveConflictDebug(
   event: string,
   detail: Record<string, unknown>,
@@ -408,25 +407,6 @@ export default defineAction({
                 skippedStaleMirror = true;
               }
             } else {
-              const liveContentHash = sourceContentHash(liveContent);
-              // Diagnostic probe (never affects the outcome): `getText` read this
-              // instance's Y.Doc cache, never re-hydrated from the DB. Compare it
-              // to the freshly persisted text_snapshot so the log distinguishes a
-              // multi-instance stale cache (cacheIsStale) from a genuine writer.
-              let freshDbLiveHash: string | null = null;
-              try {
-                const { rows } = await getDbExec().execute({
-                  sql: "SELECT text_snapshot FROM _collab_docs WHERE doc_id = ?",
-                  args: [id],
-                });
-                if (rows.length > 0) {
-                  freshDbLiveHash = sourceContentHash(
-                    String(rows[0]?.text_snapshot ?? ""),
-                  );
-                }
-              } catch {
-                // diagnostic only
-              }
               logSaveConflictDebug("content-conflict", {
                 id,
                 caller: context?.caller,
@@ -434,12 +414,8 @@ export default defineAction({
                 operationRevision: operationRevision ?? null,
                 expectedVersionHash,
                 sentContentHash: sourceContentHash(content),
-                liveContentHash,
+                liveContentHash: sourceContentHash(liveContent),
                 persistedMirrorHash: persistedContentHash,
-                cacheIsStale:
-                  freshDbLiveHash !== null &&
-                  freshDbLiveHash !== liveContentHash,
-                freshDbMatchesExpected: freshDbLiveHash === expectedVersionHash,
               });
               // 409 (statusCode), not a bare 500: an expected optimistic-
               // concurrency outcome the framework returns verbatim and the client
@@ -511,11 +487,10 @@ export default defineAction({
 
         let updateResult: unknown;
 
-        if (filename !== undefined && isPostgres()) {
+        if (filename !== undefined) {
           updateResult = await db.transaction(async (tx) => {
-            // Postgres evaluates concurrent NOT EXISTS updates under MVCC, so a
-            // guarded UPDATE alone can still race. Serialize design-file renames in
-            // this rare path without using SQLite's fragile async savepoint wrapper.
+            // A guarded UPDATE alone can still race under Postgres MVCC, so
+            // serialize design-file renames before checking for collisions.
             await (
               tx as unknown as {
                 execute: (query: unknown) => Promise<unknown>;
@@ -542,48 +517,10 @@ export default defineAction({
               .where(and(eq(schema.designFiles.id, id), contentCasWhere));
           });
         } else {
-          // Reject colliding SQLite renames as part of the write. SQLite's local
-          // async transaction wrapper can fail under concurrent editor/collab writes,
-          // so keep this to one guarded UPDATE instead of a SELECT-then-UPDATE window.
-          const renameWhere =
-            filename === undefined
-              ? undefined
-              : and(
-                  sql`NOT EXISTS (
-                SELECT 1 FROM design_files AS sibling
-                WHERE sibling.design_id = ${file.designId}
-                  AND sibling.filename = ${filename}
-                  AND sibling.id <> ${id}
-              )`,
-                );
-          const updateWhere = and(
-            eq(schema.designFiles.id, id),
-            renameWhere,
-            contentCasWhere,
-          );
-
           updateResult = await db
             .update(schema.designFiles)
             .set(updates)
-            .where(updateWhere);
-
-          if (filename !== undefined && rowsAffected(updateResult) === 0) {
-            const [collision] = await db
-              .select({ id: schema.designFiles.id })
-              .from(schema.designFiles)
-              .where(
-                and(
-                  eq(schema.designFiles.designId, file.designId),
-                  eq(schema.designFiles.filename, filename),
-                ),
-              )
-              .limit(1);
-            if (collision && collision.id !== id) {
-              throw new Error(
-                `File "${filename}" already exists in design ${file.designId}`,
-              );
-            }
-          }
+            .where(and(eq(schema.designFiles.id, id), contentCasWhere));
         }
 
         if (requiresContentCas && rowsAffected(updateResult) === 0) {

@@ -56,6 +56,7 @@ const messages = {
       rename: "Umbenennen",
       renameTab: "Tab umbenennen",
       savedFilters: "Gespeicherte Filter",
+      combinedInbox: "Kombinierter Posteingang",
       help: "Markierte Elemente werden als Tabs angezeigt. Label-E-Mails werden vom Posteingang getrennt.",
     },
     accounts: {

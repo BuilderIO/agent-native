@@ -1331,7 +1331,7 @@ export function SlashCommandMenu({
           <PopoverContent
             align="start"
             side="bottom"
-            className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
+            className="relative w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
           >
             <p className="px-1 pb-2 text-sm font-semibold text-foreground">
               {t("editor.generateWithAi")}

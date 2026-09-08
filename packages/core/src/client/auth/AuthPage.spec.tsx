@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { getOnboardingHtml } from "../../server/onboarding-html.js";
 import {
   AuthPage,
+  isAuthenticatedAuthSession,
+  isConfirmedAnonymousAuthSession,
   oauthReturnTarget,
   resolveGoogleAuthUrlPath,
   type AuthPageProps,
@@ -18,9 +20,51 @@ function propsFromHtml(html: string): AuthPageProps {
 }
 
 describe("AuthPage", () => {
+  it("only confirms anonymous sessions from a readable auth response", () => {
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: true, status: 200 },
+        { error: "Not authenticated" },
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: true, status: 200 },
+        { error: "Session unavailable" },
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: false, status: 503 },
+        { error: "Not authenticated" },
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it("only treats a successful session response with an email as signed in", () => {
+    expect(
+      isAuthenticatedAuthSession({ ok: true }, { email: "person@example.com" }),
+    ).toBe(true);
+    expect(
+      isAuthenticatedAuthSession(
+        { ok: true },
+        { error: "Not authenticated", email: "person@example.com" },
+      ),
+    ).toBe(false);
+    expect(isAuthenticatedAuthSession({ ok: false }, {})).toBe(false);
+  });
+
   it("renders the password auth surface on the server without browser globals", () => {
+    const props = propsFromHtml(getOnboardingHtml());
     const html = renderToString(
-      <AuthPage {...propsFromHtml(getOnboardingHtml())} />,
+      <AuthPage
+        {...props}
+        identitySsoEnabled={false}
+        identitySsoAuto={false}
+      />,
     );
 
     expect(html).toContain('id="signup-form"');
@@ -30,36 +74,82 @@ describe("AuthPage", () => {
   });
 
   it("composes the shared marketing home and product screenshot for branded auth", () => {
-    const html = renderToString(
-      <AuthPage
-        {...propsFromHtml(
-          getOnboardingHtml({ requestHost: "slides.agent-native.com" }),
-        )}
-      />,
-    );
+    const onboardingHtml = getOnboardingHtml({
+      requestHost: "slides.agent-native.com",
+    });
+    const props = propsFromHtml(onboardingHtml);
+    const html = renderToString(<AuthPage {...props} />);
 
     expect(html).toContain('data-agent-native-marketing-home="true"');
     expect(html).toContain('class="auth-marketing-screenshot"');
     expect(html).toContain("/auth-marketing/slides.webp");
-    expect(html).toContain('href="https://agent-native.com/apps/slides"');
     expect(html).toContain("New to Slides?");
+    expect(html).toContain('href="https://agent-native.com/apps/slides"');
+    expect(html).toContain('class="auth-marketing-learn-more"');
+    expect(onboardingHtml).toContain(
+      "bottom: max(1rem, env(safe-area-inset-bottom));\n    inset-inline-end: max(1rem, env(safe-area-inset-right));",
+    );
     expect(html).not.toContain('data-agent-native-starfield="true"');
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
     expect(html).toContain('class="form-panel');
-    expect(html).toMatch(
-      /class="auth-marketing-top-right">\s*<a[^>]+class="auth-marketing-learn-more"/,
+    expect(html).toContain('id="heading"');
+    expect(html).not.toContain('id="local-note"');
+    expect(onboardingHtml).toContain("aspect-ratio: 914 / 818");
+    expect(onboardingHtml).toContain("width: 100%");
+    expect(onboardingHtml).toContain(
+      "position: fixed;\n    inset: 0;\n    z-index: 0;",
+    );
+    expect(onboardingHtml).toContain("max-height: none;");
+    expect(onboardingHtml).toContain("filter: blur(18px)");
+    expect(onboardingHtml).toContain("opacity: 0.8");
+    expect(onboardingHtml).toContain("object-fit: cover");
+    expect(onboardingHtml).toContain(
+      "box-shadow: 0 12px 36px rgba(0,0,0,0.38)",
+    );
+    expect(onboardingHtml).toContain(
+      "box-shadow: 0 18px 50px rgba(0,0,0,0.62)",
+    );
+    expect(onboardingHtml).toContain(
+      "position: fixed;\n    inset: 0;\n    z-index: 1;\n    display: flex;\n    align-items: center;\n    justify-content: flex-start;",
+    );
+    expect(onboardingHtml).toContain(
+      ".auth-marketing-home.has-product-screenshot .form-panel > .card {\n    margin-block: auto;\n  }",
+    );
+    expect(onboardingHtml).not.toContain(
+      ".auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }",
+    );
+    expect(onboardingHtml).toContain("border-radius: 0.75rem;");
+    expect(onboardingHtml).toContain("@media (prefers-color-scheme: light)");
+    expect(onboardingHtml).toContain(
+      "background: color-mix(in srgb, CanvasText 4%, Canvas);",
+    );
+    expect(onboardingHtml).toContain("color-scheme: light;");
+    expect(onboardingHtml).toContain(
+      ".auth-marketing-home .card .verification-copy",
     );
   });
 
-  it("places Calendar's learn-more link in the bottom-right corner", () => {
+  it("places the learn-more link bottom-right for every app, with no per-app opt-in", () => {
+    // Mail never configured a placement — bottom-right is the only layout, not a toggle.
     const props = propsFromHtml(
-      getOnboardingHtml({ requestHost: "calendar.agent-native.com" }),
+      getOnboardingHtml({ requestHost: "mail.agent-native.com" }),
     );
     const html = renderToString(<AuthPage {...props} />);
 
-    expect(props.marketing?.learnMorePlacement).toBe("bottom-right");
-    expect(html).toContain("has-bottom-right-learn-more");
+    expect(props.marketing).not.toHaveProperty("learnMorePlacement");
+    expect(html).toContain('class="auth-marketing-learn-more"');
+    expect(html).not.toContain("has-bottom-right-learn-more");
+  });
+
+  it.each([
+    ["slides.agent-native.com", "914 / 818"],
+    ["analytics.agent-native.com", "927 / 818"],
+  ])("keeps the declared screenshot ratio for %s", (requestHost, ratio) => {
+    const html = getOnboardingHtml({ requestHost });
+
+    expect(html).toContain(`style="aspect-ratio:${ratio}"`);
+    expect(html).toContain('class="auth-marketing-screenshot"');
   });
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {

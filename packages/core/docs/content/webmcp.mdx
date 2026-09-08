@@ -6,7 +6,7 @@ search: "WebMCP browser tools modelContext registerTool getTools executeTool bro
 
 # WebMCP
 
-<!-- i18n-copy-ignore: formatting-only table alignment; no translated prose changed. -->
+<!-- i18n-copy-ignore: technical-only evaluator and page-helper examples; localized summaries link to the English reference. -->
 
 WebMCP is a proposed browser API for making page capabilities available to an
 agent running in that browser. It is client-side and page-local: a page
@@ -40,15 +40,106 @@ validated, authenticated server dispatcher. This includes agent-only actions
 declared with `http: false`; WebMCP does not turn those actions into public HTTP
 APIs.
 
+The core also initializes `@mcp-b/webmcp-polyfill` when the browser does not
+provide a usable native WebMCP surface. This keeps `document.modelContext`
+available for a host browser JavaScript evaluator. The polyfill is page-local.
+It does not grant access to the page or create a network MCP connection.
+
 An action is eligible when `agentTool` is not `false` and `needsApproval` is
 not declared. The latter is a fail-closed boundary: the server action approval
 contract belongs to the agent loop and cannot be delegated to a browser hint.
-Public paths, signed-out pages, and `sessionBypass` surfaces do not register
-backend action tools. Browsers without `document.modelContext` simply keep the
-normal app behavior.
+Authenticated `sessionBypass` surfaces, such as MCP embed routes, also register
+backend action tools. Public paths and signed-out pages do not. Browsers
+without `document.modelContext` simply keep the normal app behavior.
 
 No per-app WebMCP list or new `defineAction` metadata is required. Change the
 existing action definition when its exposure should change.
+
+When a non-read-only WebMCP action finishes, the framework dispatches an
+`agentNative:refresh-data` event on `window` so the app's sync transport
+re-polls and the UI repaints without a reload.
+
+## Use WebMCP from Claude Code or Cowork
+
+The ChatGPT app has named framework host tools for browser-session WebMCP.
+Other agents may expose the same capability through an MCP-B local relay or a
+browser JavaScript evaluator instead. The `/webmcp` skill tries the host bridge
+first, then the relay, then the evaluator.
+
+When a browser evaluator is the available path, call the page helper the
+framework publishes at `window.__agentNativeWebMcp` instead of driving
+`document.modelContext` directly:
+
+```js
+const an = window.__agentNativeWebMcp;
+await an.ready({ waitMs: 5000 });
+const tools = await an.tools("slide");
+const outcome = await an.call("update-slide", { id, title });
+```
+
+`call()` picks the input contract the active host expects, always executes a
+descriptor from a fresh listing, and retries a stale-descriptor error
+automatically instead of surfacing it to the caller. `window.__agentNativeWebMcp`
+is `undefined` until an Agent-Native page starts registering WebMCP tools — the
+user may be signed out, the page still loading, or the deployed app older than
+this helper — so treat its absence as "not ready yet," not "unsupported."
+
+<!-- i18n-copy-ignore: evaluator timing guidance for one host; localized summaries link to the English guide. -->
+
+`waitMs` is one end-to-end deadline for the call, covering any wait for
+registration as well as execution. A call that outlives it returns
+`{ state: "pending", id }` while the work keeps running in the page; poll
+`an.result(id)` on a later evaluator call to pick up the outcome. On a host
+whose evaluator times out in a few seconds, such as Codex's CDP
+`Runtime.evaluate` at about 3 s, pass a `waitMs` just under that cap on every
+call so reads and most writes still settle in one evaluation and only a slow
+write goes pending:
+
+```js
+const outcome = await an.call("update-slide", args, { waitMs: 2000 });
+// outcome.state === "pending" → read an.result(outcome.id) next evaluation
+```
+
+The raw `document.modelContext` call remains available as a fallback when the
+helper is not present:
+
+```js
+const tools = await document.modelContext.getTools();
+const tool = tools.find(({ name }) => name === "create-deck");
+if (!tool) throw new Error("create-deck is unavailable in this tab");
+const input = { title: "Customer onboarding", slides: [] };
+const usesCodexPageAdapter =
+  typeof document.modelContext.codexExecuteTool === "function" ||
+  typeof document.modelContext.codexGetTools === "function";
+const result = await document.modelContext.executeTool(
+  tool,
+  usesCodexPageAdapter ? input : JSON.stringify(input),
+);
+return typeof result === "string" ? JSON.parse(result) : result;
+```
+
+`executeTool()` invokes the registered page callback. For framework backend
+actions, that callback uses the shared action dispatcher with the current
+browser session. Agents should list tools immediately before each mutation and
+pass the descriptor returned by that listing. They should not call an internal
+action `run()` function, hand-build an authenticated HTTP request, or use the
+visible developer console as the transport. Native WebMCP and the polyfill
+accept JSON-stringified input, while the Codex page adapter (identified by
+`codexExecuteTool`/`codexGetTools`) accepts the schema-shaped object directly.
+
+For agents that use the MCP-B local relay, the page also needs the relay's
+browser embed script and the local MCP server must be configured in the agent
+host. The server exposes `webmcp_list_sources`, `webmcp_list_tools`, and the
+live page tools. Restrict the relay to the app origin instead of leaving its
+development default open:
+
+```bash
+npx @mcp-b/webmcp-local-relay@latest --widget-origin https://slides.agent-native.com
+```
+
+The strict polyfill makes the page API available, but it does not inject the
+relay embed script automatically. This separation prevents every deployed app
+from opening a local connection without the app owner's opt-in.
 
 ## Explicit page-local actions
 
@@ -245,8 +336,9 @@ bounded convenience when the clip is already open in a compatible browser.
 
 ## Compatibility and safety
 
-- Feature-detect `document.modelContext`; `supported` is false when the
-  browser has no WebMCP implementation.
+- Feature-detect `document.modelContext`; call
+  `initializeAgentNativeWebMcp()` when a standalone page needs the framework's
+  polyfill before creating a client or registration.
 - Keep `fromOrigins` and `exposedTo` to exact secure origins. Do not use `*` in
   production.
 - Treat descriptions, schemas, annotations, and results as page-provided

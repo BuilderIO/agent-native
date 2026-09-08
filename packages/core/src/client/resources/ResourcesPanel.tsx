@@ -887,7 +887,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
           )}
 
           {view === "skill" && (
-            <div className="p-3">
+            <div className="relative p-3">
               <label className="mb-1 block text-[11px] font-semibold text-foreground">
                 Create Skill
               </label>
@@ -962,7 +962,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
           )}
 
           {view === "job" && (
-            <div className="p-3">
+            <div className="relative p-3">
               <label className="mb-1 block text-[11px] font-semibold text-foreground">
                 Schedule Task
               </label>
@@ -1021,7 +1021,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
           )}
 
           {view === "agent-prompt" && (
-            <div className="p-3">
+            <div className="relative p-3">
               <label className="mb-1 block text-[11px] font-semibold text-foreground">
                 Create Agent From Prompt
               </label>

@@ -102,6 +102,7 @@ describe("DocsSidebar", () => {
       "deploy-an-app",
       "workspace-deployment",
       "deployment-providers",
+      "database-providers",
       "deployment-production",
     ]);
     const providerGroup = deployment?.items.find(
@@ -118,6 +119,14 @@ describe("DocsSidebar", () => {
       "azure-static-web-apps",
       "koyeb",
       "render",
+    ]);
+    const databaseGroup = deployment?.items.find(
+      (item) => item.id === "database-providers",
+    );
+    expect(databaseGroup?.children?.map((item) => item.id)).toEqual([
+      "database-neon",
+      "database-supabase",
+      "database-postgres",
     ]);
     const productionGroup = deployment?.items.find(
       (item) => item.id === "deployment-production",
@@ -142,8 +151,8 @@ describe("DocsSidebar", () => {
     expect(sectionIds.slice(0, 5)).toEqual([
       "overview",
       "deployment",
-      "core-architecture",
       "toolkits",
+      "core-architecture",
       "apps",
     ]);
   });

@@ -1,20 +1,11 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { IconArrowUpRight, IconExternalLink } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { BuilderImage } from "./builder-image";
-import { CustomizeTemplatePopover } from "./CustomizeTemplatePopover";
 import { sitePathForLocale } from "./docs-locale";
-import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
-import { TemplateDocsLink } from "./template-docs";
-import { Button } from "./website-redesign/ds/button";
-
-const CARD_ARROW_CLASS = [
-  "mt-auto flex h-8 w-8 items-center justify-center rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border)] bg-transparent text-[var(--b-text-primary)]",
-  "transition-[background,border-color,color] duration-150 ease-[ease]",
-  "group-hover:border-[var(--b-text-primary)] group-hover:bg-[var(--b-text-primary)] group-hover:text-[var(--b-bg-page)]",
-].join(" ");
+import { APP_ART } from "./website-redesign/app-art";
+import { CardArrow } from "./website-redesign/ds/card-arrow";
 
 export { trackEvent };
 
@@ -164,77 +155,26 @@ export const featuredTemplates = [
   "plan",
 ].map((slug) => templates.find((template) => template.slug === slug)!);
 
-function TemplateLaunchButton({ template }: { template: Template }) {
-  const t = useT();
-  const hasDemoUrl = "demoUrl" in template && template.demoUrl;
-
-  return (
-    <div className="mt-auto flex flex-wrap gap-2 pt-1">
-      {hasDemoUrl ? (
-        <Button
-          variant="primary"
-          icon={IconExternalLink}
-          href={template.demoUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => {
-            applyFirstTouchAttributionToLink(event.currentTarget);
-            trackEvent("click try demo", {
-              template: template.slug,
-              location: "card",
-            });
-          }}
-          className="flex-1 whitespace-nowrap uppercase"
-        >
-          {t("common.tryIt")}
-        </Button>
-      ) : null}
-      <CustomizeTemplatePopover
-        template={template}
-        location="card"
-        className="secondary-button flex-1 whitespace-nowrap"
-      />
-      <div className="flex-1">
-        <TemplateDocsLink
-          template={template}
-          location="card"
-          className="secondary-button w-full whitespace-nowrap"
-        />
-      </div>
-    </div>
-  );
-}
-
 export function TemplateCard({ template }: { template: Template }) {
   const { locale } = useLocale();
   const t = useT();
   const templatePath = sitePathForLocale(`/apps/${template.slug}`, locale);
   const heroCopy =
     template.slug === "clips"
-      ? {
-          replaces: t("templateLanding.clips.s007"),
-          description: t("templateLanding.clips.s008"),
-        }
+      ? { description: t("templateLanding.clips.s008") }
       : template.slug === "slides"
-        ? {
-            replaces: [
-              t("templateLanding.slides.s006Primary"),
-              t("templateLanding.slides.s006Secondary"),
-            ].join(" "),
-            description: t("templateLanding.slides.s007"),
-          }
+        ? { description: t("templateLanding.slides.s007") }
         : null;
-  const replaces =
-    heroCopy?.replaces ?? t(`templates.${template.slug}.replaces`);
   const description =
     heroCopy?.description ?? t(`templates.${template.slug}.description`);
+  const art = APP_ART[template.slug];
 
   return (
     <article className="group flex min-w-0 flex-col overflow-hidden border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
       <Link
         data-an-prefetch="viewport"
         to={templatePath}
-        className="flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-raised)] transition-opacity hover:opacity-90"
+        className="flex flex-auto flex-col no-underline"
         onClick={() =>
           trackEvent("click template", {
             template: template.slug,
@@ -242,49 +182,58 @@ export function TemplateCard({ template }: { template: Template }) {
           })
         }
       >
-        {template.screenshot ? (
-          <BuilderImage
-            src={
-              template.slug === "clips"
-                ? "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Febc2a7d837664382853cbfb481592b31?format=webp&width=800&height=1200"
-                : template.screenshot
-            }
-            crossOrigin="anonymous"
-            alt={t("templateCard.screenshotAlt", { name: template.name })}
-            loading="lazy"
-            decoding="async"
-            className="h-full w-full object-cover object-top"
-          />
-        ) : (
-          <div
-            className="flex h-full w-full items-center justify-center"
-            style={{
-              background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
-            }}
-          >
-            <span className="rounded-lg bg-[var(--b-bg-page)]/80 px-4 py-2 font-[family-name:var(--b-font-sans)] text-sm font-semibold text-[var(--b-text-primary)] shadow-sm">
-              {template.name}
-            </span>
-          </div>
-        )}
-      </Link>
-      <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
-        <div className="flex w-full items-start justify-between gap-3">
+        <div className="relative flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)]">
+          {art ? (
+            <>
+              <BuilderImage
+                src={art.imageDark}
+                crossOrigin="anonymous"
+                alt={t("templateCard.screenshotAlt", { name: template.name })}
+                loading="lazy"
+                decoding="async"
+                className="theme-img-dark relative h-full w-full object-cover"
+              />
+              <BuilderImage
+                src={art.imageLight}
+                crossOrigin="anonymous"
+                alt={t("templateCard.screenshotAlt", { name: template.name })}
+                loading="lazy"
+                decoding="async"
+                className="theme-img-light absolute inset-0 h-full w-full object-cover"
+              />
+            </>
+          ) : template.screenshot ? (
+            <BuilderImage
+              src={template.screenshot}
+              crossOrigin="anonymous"
+              alt={t("templateCard.screenshotAlt", { name: template.name })}
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover object-top transition-opacity hover:opacity-90"
+            />
+          ) : (
+            <div
+              className="flex h-full w-full items-center justify-center"
+              style={{
+                background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
+              }}
+            >
+              <span className="rounded-lg bg-[var(--b-bg-page)]/80 px-4 py-2 font-[family-name:var(--b-font-sans)] text-sm font-semibold text-[var(--b-text-primary)] shadow-sm">
+                {template.name}
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
           <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
             {template.name}
           </h3>
-          <span aria-hidden="true" className={CARD_ARROW_CLASS}>
-            <IconArrowUpRight size={16} stroke={1.75} />
-          </span>
+          <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {description}
+          </p>
+          <CardArrow />
         </div>
-        <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
-          {description}
-        </p>
-        <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-muted)]">
-          {replaces}
-        </p>
-        <TemplateLaunchButton template={template} />
-      </div>
+      </Link>
     </article>
   );
 }

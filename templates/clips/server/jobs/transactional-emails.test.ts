@@ -1,14 +1,28 @@
-import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
+import { createRequire } from "node:module";
+
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let db: ReturnType<typeof drizzle>;
-let sqlite: Client;
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+
+let client: PGliteClient;
+
+const mocks = vi.hoisted(() => ({
+  getUserSetting: vi.fn(),
+}));
 
 vi.mock("../db/index.js", async () => {
   const schema = await import("../db/schema.js");
   return { getDb: () => db, schema };
 });
+
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: (...args: unknown[]) => mocks.getUserSetting(...args),
+}));
 
 import type { MonthlyRecap } from "../lib/recap-metrics.js";
 import { createTransactionalEmailStore } from "../lib/transactional-email-store.js";
@@ -28,7 +42,7 @@ type AgentView = NonNullable<
 >;
 
 async function createTables() {
-  await sqlite.execute(`CREATE TABLE clips_transactional_email_jobs (
+  await client.query(`CREATE TABLE clips_transactional_email_jobs (
     logical_key TEXT PRIMARY KEY, type TEXT NOT NULL, state TEXT NOT NULL,
     recipient TEXT NOT NULL, recording_ids_json TEXT NOT NULL, share_id TEXT,
     requested_by TEXT, month TEXT, generated_summary TEXT, attempts INTEGER NOT NULL,
@@ -37,14 +51,15 @@ async function createTables() {
     cancelled_at TEXT, failed_at TEXT, last_error TEXT, lease_until TEXT,
     lease_token TEXT
   )`);
-  await sqlite.execute(`CREATE TABLE clips_transactional_email_configs (
+  await client.query(`CREATE TABLE clips_transactional_email_configs (
     id TEXT PRIMARY KEY, config_json TEXT NOT NULL
   )`);
 }
 
 beforeEach(async () => {
-  sqlite = createClient({ url: ":memory:" });
-  db = drizzle(sqlite);
+  mocks.getUserSetting.mockResolvedValue(null);
+  client = await PGlite.create("memory://");
+  db = drizzle(client);
   await createTables();
 });
 
@@ -320,7 +335,7 @@ async function setup(enabledAt = "2026-08-01T00:00:00.000Z") {
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await sqlite.close();
+  await client.close();
 });
 
 describe("transactional email worker", () => {
@@ -657,6 +672,37 @@ describe("transactional email worker", () => {
         viewerEmail: "external@example.com",
       }),
     );
+  });
+
+  it("cancels a queued view email after the owner opts out", async () => {
+    const clock = await setup();
+    const ownerEmail = "owner@example.com";
+    const clip = recording("recording-1", ownerEmail);
+    const send = vi.fn();
+    mocks.getUserSetting.mockResolvedValue({ viewNotifications: false });
+    await clock.store.enqueue("first-view:recording-1", {
+      type: "first-view",
+      recipient: ownerEmail,
+      recordingIds: [clip.id],
+      requestedBy: ownerEmail,
+    });
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [],
+        recordings: new Map([[clip.id, clip]]),
+        countedViews: new Map([[clip.id, ["external@example.com"]]]),
+      }),
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(await clock.store.readJob("first-view:recording-1")).toMatchObject({
+      state: "cancelled",
+    });
   });
 
   it.each(["archived", "trashed"] as const)(

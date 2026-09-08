@@ -158,14 +158,20 @@ const messages = {
     tryAgainMoment: "Réessayez dans un instant.",
     aiRequestFailed: "La requête IA a échoué",
     titleUpdated: "Titre mis à jour",
+    descriptionUpdated: "Description mise à jour",
+    chaptersGenerated: "Chapitres générés",
+    fillerCompleted: "Suppression des mots de remplissage terminée",
+    workflowReady: "Workflow prêt",
+    workflowFailed: "Échec de la génération du workflow",
+    transcriptionCompleted: "Transcription terminée",
     transcriptNotReady: "La transcription n'est pas encore prête",
     tryAfterTranscription: "Réessayez une fois la transcription terminée.",
-    titleGenerationQueued: "Génération de titres en file d'attente",
-    descriptionQueued: "Demande de description en file d'attente",
-    chapterQueued: "Demande de chapitre en file d'attente",
-    fillerQueued: "Suppression des mots de remplissage en file d'attente",
-    silenceQueued: "Suppression du silence en file d'attente",
-    workflowQueued: "Demande de workflow en file d'attente",
+    titleGenerationQueued: "Génération du titre…",
+    descriptionQueued: "Génération de la description…",
+    chapterQueued: "Génération des chapitres…",
+    fillerQueued: "Suppression des mots de remplissage…",
+    silenceQueued: "Suppression des silences…",
+    workflowQueued: "Génération du workflow…",
     pageTitle: "Enregistrement de clips · Clips",
     loomMissingUrl: "Cet enregistrement Loom n'a pas sa source URL.",
     finalizeFailed: "Échec de la finalisation ({{status}})",
@@ -355,11 +361,10 @@ const messages = {
     downloadForWindows: "Télécharger pour Windows",
     downloadForLinux: "Télécharger pour Linux",
     downloadDesktopApp: "Téléchargez l'application de bureau",
-    agentNativeClips: "Agent-Native Clips",
-    agentNativeClipsIntro: "est une alternative gratuite,",
-    openSource: "open source",
-    agentFriendly: "compatible avec les agents",
-    loomAlternative: "à Loom",
+    agentEmptyTitle: "Rejoignez la conversation",
+    agentEmptyDescription:
+      "Créez un compte Clips gratuit pour commenter, réagir et poser des questions sur ce clip.",
+    agentEmptySignInPrompt: "Vous avez déjà un compte ?",
     signUp: "S’inscrire",
     ownerInsights: "Insights du propriétaire",
     ownerInsightsDescription:
@@ -746,6 +751,7 @@ const messages = {
     transcriptCleanupDescription:
       "Affichez immédiatement la transcription native, puis nettoyez-la en arrière-plan lorsqu’elle est disponible.",
     notifications: "Alertes",
+    monthlyRecap: "Récapitulatif mensuel",
     sharing: "Partage",
     defaultVisibility: "Visibilité par défaut des nouveaux enregistrements",
     defaultVisibilityDescription:
@@ -755,7 +761,7 @@ const messages = {
     visibilityPublic: "Public - toute personne disposant du lien",
     emailNotifications: "Notifications par e-mail",
     emailNotificationsDescription:
-      "Recevez un e-mail lorsqu’une personne commente votre enregistrement ou y réagit.",
+      "Choisissez les e-mails Clips facultatifs que vous souhaitez recevoir.",
     saved: "Paramètres enregistrés",
     saveFailed: "Échec de l’enregistrement",
     builderConnectedToast: "Builder.io connecté",
@@ -934,6 +940,12 @@ const messages = {
     totalVideoViews: "Vues totales de la vidéo",
     averageCompletionRate: "Taux d’achèvement moyen",
     moreInsights: "Plus d’insights",
+    connectAnalytics: "Connecter à Agent-Native Analytics",
+    connectAnalyticsTitle: "Continuer dans Agent-Native Analytics",
+    exploreWithAgent: "Explorer avec un agent",
+    startChatAction: "Démarrer le chat",
+    trackInDashboard: "Suivre dans un tableau de bord",
+    chooseDashboardAction: "Choisir un tableau de bord",
   },
   libraryGrid: {
     spaceRoot: "Racine de l’espace",
@@ -1045,6 +1057,13 @@ const messages = {
     editComment: "Modifier le commentaire",
     commentButton: "Commenter",
     composerPlaceholder: "Ajouter un commentaire…",
+    resolved: "Résolu",
+    reply: "Répondre",
+    react: "Réagir",
+    resolve: "Résoudre",
+    unresolve: "Rouvrir",
+    delete: "Supprimer",
+    moreActions: "Autres actions pour le commentaire de {{author}}",
   },
   shareMeeting: {
     pageTitle: "Notes de réunion · Clips",
@@ -1238,13 +1257,23 @@ const messages = {
     deleting: "Suppression...",
   },
   signInPrompt: {
-    title: "Créez un compte pour {{intent}}",
-    description: "C’est gratuit. Vous reviendrez directement à ce clip.",
+    title: "Créez un compte Clips gratuit pour {{intent}}",
+    agentTitle: "Créez un compte Clips gratuit pour rejoindre la conversation",
+    genericTitle: "Créez un compte Clips gratuit pour continuer",
+    description: "Vous reviendrez à ce clip dès que vous aurez terminé.",
+    passwordsMismatch: "Les mots de passe ne correspondent pas.",
     commentIntent: "commenter",
-    reactIntent: "réagir",
+    reactIntent: "ajouter une réaction",
     createAccount: "Créer un compte gratuit",
     notNow: "Pas maintenant",
     signIn: "Se connecter",
+    google: "S’inscrire avec Google",
+    or: "ou",
+    legalPrefix: "En vous inscrivant, vous acceptez nos",
+    legalTerms: "Conditions",
+    legalConnector: "et",
+    legalPrivacy: "Politique de confidentialité",
+    legalSuffix: ".",
   },
   embedRoute: {
     passwordRequired: "Mot de passe requis",
@@ -1261,6 +1290,52 @@ const messages = {
     selectedPreview: "Aperçu de la caméra sélectionnée",
     preview: "Aperçu caméra",
     setBubbleSize: "Définir la taille de la bulle caméra {{size}}",
+    needsAttention: "Vérifier la caméra",
+    unsupported:
+      "Ce navigateur ne prend pas en charge le test de caméra en direct.",
+    policyBlocked:
+      "Cette page bloque l’accès à la caméra. Ouvrez Clips directement et réessayez.",
+    secureContextRequired:
+      "Les tests de caméra nécessitent HTTPS ou localhost.",
+    permissionBlocked:
+      "L’accès à la caméra est bloqué. Autorisez-le dans les réglages de ce site, puis rechargez la page.",
+    permissionDenied:
+      "L’accès à la caméra a été refusé. Vérifiez le réglage de caméra du site et les réglages de confidentialité du système, puis rechargez la page.",
+    notFound:
+      "Aucune caméra trouvée. Branchez-en une ou choisissez une autre caméra.",
+    inUse:
+      "Cette caméra est utilisée par une autre application. Fermez-la ou choisissez une autre caméra.",
+    startFailed: "Impossible de démarrer le test de caméra.",
+    disconnected: "Caméra déconnectée.",
+    noVideo: "Aucune vidéo de la caméra détectée.",
+  },
+  microphoneVisualizer: {
+    off: "Désactivé",
+    needsAttention: "Vérifier le micro",
+    signal: "Signal",
+    listening: "Écoute",
+    opening: "Ouverture",
+    openingEllipsis: "Ouverture...",
+    stop: "Arrêter",
+    test: "Tester le micro",
+    unsupported:
+      "Ce navigateur ne prend pas en charge le test de microphone en direct.",
+    policyBlocked:
+      "Cette page bloque l’accès au microphone. Ouvrez Clips directement et réessayez.",
+    secureContextRequired:
+      "Les tests de microphone nécessitent HTTPS ou localhost.",
+    permissionBlockedBrowser:
+      "L’accès au microphone est bloqué. Autorisez-le dans les réglages de ce site, puis rechargez la page.",
+    permissionBlockedDesktop:
+      "L’accès au microphone est bloqué. Autorisez-le dans les réglages de confidentialité du système, puis rouvrez l’enregistreur.",
+    permissionDenied:
+      "L’accès au microphone a été refusé. Vérifiez le réglage du microphone du site et les réglages de confidentialité du système, puis rechargez la page.",
+    notFound:
+      "Aucun microphone trouvé. Branchez-en un ou choisissez une autre entrée.",
+    inUse:
+      "Ce microphone est utilisé par une autre application. Fermez-la ou choisissez une autre entrée.",
+    startFailed: "Impossible de démarrer le test du microphone.",
+    disconnected: "Microphone déconnecté.",
   },
   storageSetup: {
     builderTimeout:
@@ -1379,6 +1454,11 @@ const messages = {
     shortMicLabel: "Mic {{id}} (Localisé)",
     defaultCamera: "Default camera (Localisé)",
     shortCameraLabel: "Camera {{id}} (Localisé)",
+    moreCameras: "Plus de caméras…",
+    cameraPickerTitle: "Choisir une caméra",
+    moreMicrophones: "Plus de microphones…",
+    microphonePickerTitle: "Choisir un microphone",
+    closeDevicePicker: "Fermer le sélecteur d’appareil",
     noAudio: "No audio (Localisé)",
     noCamera: "No camera (Localisé)",
     loomImportFailed: "Could not import that Loom. (Localisé)",
@@ -1401,10 +1481,11 @@ const messages = {
     cameraOff: "Camera off (Localisé)",
     includeCameraAria: "Include camera in this recording (Localisé)",
     startRecording: "Start recording (Localisé)",
+    startCameraRecording: "Démarrer l’enregistrement caméra",
     micOffConfirmTitle: "Votre micro est désactivé",
     micOffConfirmDescription:
       "Pour avoir du son dans votre vidéo, vous devez réactiver votre microphone.",
-    startWithoutMic: "Continuer",
+    startWithoutMic: "Enregistrer sans audio",
     unmuteMicrophone: "Réactiver le micro",
     uploadVideo: "Upload video (Localisé)",
     importLoom: "Import Loom (Localisé)",
@@ -1442,6 +1523,7 @@ const messages = {
     placementThroughout: "Throughout (Localisé)",
     placementEnd: "At end (Localisé)",
     delete: "Delete (Localisé)",
+    validWebUrl: "Saisissez une adresse http:// ou https:// valide.",
   },
   recordRoute: {
     pageTitle: "New recording — Clips (Localisé)",
@@ -1473,6 +1555,7 @@ const messages = {
       "Recording your screen — switch to the window you want to capture (Localisé)",
     largeClipsNeedReencode:
       "Large clips need a quick re-encode before upload. (Localisé)",
+    compressingRecording: "Compression de votre enregistrement…",
     savingRecording: "Saving your recording… (Localisé)",
     sessionExpired: "Session expired (Localisé)",
     sessionExpiredDescription:
@@ -1486,6 +1569,10 @@ const messages = {
     whatToCheck: "What to check (Localisé)",
     downloadRecording: "Download (Localisé)",
     openRecorderInTab: "Open recorder in tab (Localisé)",
+    retryUpload: "Réessayer l’envoi",
+    tryAgain: "Réessayer",
+    storageConnectedReopeningRecorder:
+      "Stockage connecté. Réouverture de l’enregistreur...",
     connectStorageToFinish:
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips terminera l’enregistrement.",
     connectStorageToRetryLoom:
@@ -1547,6 +1634,7 @@ const messages = {
     emptyWebDescription:
       "Dictation runs through the desktop app for global shortcuts that work in any app — Slack, your editor, anywhere. (Localisé)",
     downloadDesktopApp: "Download Clips desktop app (Localisé)",
+    tryInBrowser: "Essayer dans le navigateur",
     holdToDictate: "hold to dictate (Localisé)",
     toggle: "toggle (Localisé)",
     desktopCtaTitle: "Dictate from anywhere with the desktop app (Localisé)",
@@ -1558,18 +1646,32 @@ const messages = {
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut. (Localisé)",
     loadFailed: "Couldn't load dictations. (Localisé)",
     noFilterMatches: "No dictations matching this filter. (Localisé)",
-    dictionaryTitle: "Dictionary (Localisé)",
+    dictionaryTitle: "Dictionnaire",
+    dictionaryAutoLearn: "L’application de bureau apprend de vos corrections",
+    dictionaryAddTerms: "Ajouter des termes",
+    dictionaryImport: "Importer",
+    dictionaryExport: "Exporter en CSV",
+    dictionaryImportFailed:
+      "Choisissez un fichier CSV, TSV ou texte contenant des termes valides.",
+    dictionaryExported: "Dictionnaire exporté",
+    dictionaryTermsPlaceholder: "Agent-Native\nagent natif → Agent-Native",
+    dictionaryTermsRequired: "Saisissez au moins un terme.",
+    dictionarySearch: "Rechercher dans le dictionnaire",
+    dictionaryNoMatches: "Aucun terme correspondant.",
+    dictionaryRemoveTitle: "Supprimer « {{term}} » ?",
+    dictionaryRemoveDescription:
+      "Les prochaines dictées n’utiliseront plus cette correction.",
     dictionaryDescription:
-      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own. (Localisé)",
+      "Ces termes aident la reconnaissance vocale à utiliser vos orthographes préférées.",
     dictionaryTermPlaceholder: "Term (Localisé)",
     dictionaryReplacementPlaceholder: "Replacement (optional) (Localisé)",
     dictionaryAdd: "Add (Localisé)",
     dictionaryLoading: "Loading dictionary... (Localisé)",
-    dictionaryEmpty: "No learned terms yet. (Localisé)",
-    dictionaryUsesCount: "Used {{count}}x (Localisé)",
-    dictionaryRemove: "Remove (Localisé)",
-    vocabularyAddFailed: "Couldn't add term (Localisé)",
-    vocabularyRemoveFailed: "Couldn't remove term (Localisé)",
+    dictionaryEmpty: "Aucun terme appris pour le moment.",
+    dictionaryUsesCount: "Utilisé {{count}} fois",
+    dictionaryRemove: "Supprimer",
+    vocabularyAddFailed: "Impossible d’ajouter le terme",
+    vocabularyRemoveFailed: "Impossible de supprimer le terme",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "Couper à la tête de lecture (S)",

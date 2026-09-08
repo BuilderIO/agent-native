@@ -158,14 +158,20 @@ const messages = {
     tryAgainMoment: "Tente novamente em alguns instantes.",
     aiRequestFailed: "Falha na solicitação de IA",
     titleUpdated: "Título atualizado",
+    descriptionUpdated: "Descrição atualizada",
+    chaptersGenerated: "Capítulos gerados",
+    fillerCompleted: "Remoção de palavras de preenchimento concluída",
+    workflowReady: "Fluxo de trabalho pronto",
+    workflowFailed: "Falha ao gerar o fluxo de trabalho",
+    transcriptionCompleted: "Transcrição concluída",
     transcriptNotReady: "A transcrição ainda não está pronta",
     tryAfterTranscription: "Tente novamente após o término da transcrição.",
-    titleGenerationQueued: "Geração de título na fila",
-    descriptionQueued: "Solicitação de descrição na fila",
-    chapterQueued: "Solicitação de capítulo na fila",
-    fillerQueued: "Remoção de palavras de preenchimento na fila",
-    silenceQueued: "Remoção de silêncio na fila",
-    workflowQueued: "Solicitação de fluxo de trabalho na fila",
+    titleGenerationQueued: "Gerando título…",
+    descriptionQueued: "Gerando descrição…",
+    chapterQueued: "Gerando capítulos…",
+    fillerQueued: "Removendo palavras de preenchimento…",
+    silenceQueued: "Removendo silêncios…",
+    workflowQueued: "Gerando fluxo de trabalho…",
     pageTitle: "Gravação de clipe · Clips",
     loomMissingUrl: "Esta gravação Loom não tem a fonte URL.",
     finalizeFailed: "Falha na finalização ({{status}})",
@@ -352,11 +358,10 @@ const messages = {
     downloadForWindows: "Baixar para Windows",
     downloadForLinux: "Baixar para Linux",
     downloadDesktopApp: "Baixe o aplicativo para desktop",
-    agentNativeClips: "Agent-Native Clips",
-    agentNativeClipsIntro: "é uma alternativa gratuita,",
-    openSource: "de código aberto",
-    agentFriendly: "amigável para agentes",
-    loomAlternative: "ao Loom",
+    agentEmptyTitle: "Participe da conversa",
+    agentEmptyDescription:
+      "Crie uma conta Clips grátis para comentar, reagir e fazer perguntas sobre este clipe.",
+    agentEmptySignInPrompt: "Já tem uma conta?",
     signUp: "Cadastre-se",
     ownerInsights: "Insights do proprietário",
     ownerInsightsDescription:
@@ -744,6 +749,7 @@ const messages = {
     transcriptCleanupDescription:
       "Mostre a transcrição nativa imediatamente e depois limpe em segundo plano quando disponível.",
     notifications: "Notificações",
+    monthlyRecap: "Resumo mensal",
     sharing: "Compartilhamento",
     defaultVisibility: "Visibilidade padrão de novas gravações",
     defaultVisibilityDescription:
@@ -753,7 +759,7 @@ const messages = {
     visibilityPublic: "Público - qualquer pessoa com o link",
     emailNotifications: "Notificações por e-mail",
     emailNotificationsDescription:
-      "Receba um e-mail quando alguém comentar ou reagir à sua gravação.",
+      "Escolha quais e-mails opcionais do Clips você quer receber.",
     saved: "Configurações salvas",
     saveFailed: "Falha ao salvar",
     builderConnectedToast: "Builder.io conectado",
@@ -931,6 +937,12 @@ const messages = {
     totalVideoViews: "Total de visualizações do vídeo",
     averageCompletionRate: "Taxa média de conclusão",
     moreInsights: "Mais insights",
+    connectAnalytics: "Conectar ao Agent-Native Analytics",
+    connectAnalyticsTitle: "Continuar no Agent-Native Analytics",
+    exploreWithAgent: "Explorar com um agente",
+    startChatAction: "Iniciar conversa",
+    trackInDashboard: "Acompanhar em um painel",
+    chooseDashboardAction: "Escolher painel",
   },
   libraryGrid: {
     spaceRoot: "Raiz do espaço",
@@ -1041,6 +1053,13 @@ const messages = {
     editComment: "Editar comentário",
     commentButton: "Comentar",
     composerPlaceholder: "Adicionar um comentário…",
+    resolved: "Resolvido",
+    reply: "Responder",
+    react: "Reagir",
+    resolve: "Resolver",
+    unresolve: "Reabrir",
+    delete: "Excluir",
+    moreActions: "Mais ações para o comentário de {{author}}",
   },
   shareMeeting: {
     pageTitle: "Notas da reunião · Clips",
@@ -1234,13 +1253,23 @@ const messages = {
     deleting: "Excluindo...",
   },
   signInPrompt: {
-    title: "Crie uma conta para {{intent}}",
-    description: "É grátis. Traremos você de volta a este clipe.",
+    title: "Crie uma conta Clips grátis para {{intent}}",
+    agentTitle: "Crie uma conta Clips grátis para participar da conversa",
+    genericTitle: "Crie uma conta Clips grátis para continuar",
+    description: "Você voltará para este clipe assim que terminar.",
+    passwordsMismatch: "As senhas não conferem.",
     commentIntent: "comentar",
-    reactIntent: "reagir",
+    reactIntent: "adicionar uma reação",
     createAccount: "Criar conta grátis",
     notNow: "Agora não",
     signIn: "Entrar",
+    google: "Cadastrar com o Google",
+    or: "ou",
+    legalPrefix: "Ao se cadastrar, você aceita nossos",
+    legalTerms: "Termos",
+    legalConnector: "e",
+    legalPrivacy: "Política de Privacidade",
+    legalSuffix: ".",
   },
   embedRoute: {
     passwordRequired: "Senha obrigatória",
@@ -1257,6 +1286,50 @@ const messages = {
     selectedPreview: "Prévia da câmera selecionada",
     preview: "Prévia da câmera",
     setBubbleSize: "Definir tamanho da bolha da câmera {{size}}",
+    needsAttention: "Verificar câmera",
+    unsupported:
+      "Este navegador não oferece suporte ao teste de câmera ao vivo.",
+    policyBlocked:
+      "Esta página bloqueia o acesso à câmera. Abra o Clips diretamente e tente novamente.",
+    secureContextRequired: "Os testes de câmera exigem HTTPS ou localhost.",
+    permissionBlocked:
+      "O acesso à câmera está bloqueado. Permita-o nas configurações deste site e recarregue a página.",
+    permissionDenied:
+      "O acesso à câmera foi negado. Verifique a configuração de câmera do site e as configurações de privacidade do sistema e recarregue a página.",
+    notFound:
+      "Nenhuma câmera foi encontrada. Conecte uma ou escolha outra câmera.",
+    inUse:
+      "A câmera está sendo usada por outro app. Feche-o ou escolha outra câmera.",
+    startFailed: "Não foi possível iniciar o teste da câmera.",
+    disconnected: "Câmera desconectada.",
+    noVideo: "Nenhum vídeo da câmera foi detectado.",
+  },
+  microphoneVisualizer: {
+    off: "Desativado",
+    needsAttention: "Verificar microfone",
+    signal: "Sinal",
+    listening: "Ouvindo",
+    opening: "Abrindo",
+    openingEllipsis: "Abrindo...",
+    stop: "Parar",
+    test: "Testar microfone",
+    unsupported:
+      "Este navegador não oferece suporte ao teste de microfone ao vivo.",
+    policyBlocked:
+      "Esta página bloqueia o acesso ao microfone. Abra o Clips diretamente e tente novamente.",
+    secureContextRequired: "Os testes de microfone exigem HTTPS ou localhost.",
+    permissionBlockedBrowser:
+      "O acesso ao microfone está bloqueado. Permita-o nas configurações deste site e recarregue a página.",
+    permissionBlockedDesktop:
+      "O acesso ao microfone está bloqueado. Permita-o nas configurações de privacidade do sistema e abra o gravador novamente.",
+    permissionDenied:
+      "O acesso ao microfone foi negado. Verifique a configuração de microfone do site e as configurações de privacidade do sistema e recarregue a página.",
+    notFound:
+      "Nenhum microfone foi encontrado. Conecte um ou escolha outra entrada.",
+    inUse:
+      "O microfone está sendo usado por outro app. Feche-o ou escolha outra entrada.",
+    startFailed: "Não foi possível iniciar o teste do microfone.",
+    disconnected: "Microfone desconectado.",
   },
   storageSetup: {
     builderTimeout:
@@ -1373,6 +1446,11 @@ const messages = {
     shortMicLabel: "Mic {{id}}",
     defaultCamera: "Default camera",
     shortCameraLabel: "Camera {{id}}",
+    moreCameras: "Mais câmeras…",
+    cameraPickerTitle: "Escolher uma câmera",
+    moreMicrophones: "Mais microfones…",
+    microphonePickerTitle: "Escolher um microfone",
+    closeDevicePicker: "Fechar seletor de dispositivo",
     noAudio: "No audio",
     noCamera: "No camera",
     loomImportFailed: "Could not import that Loom.",
@@ -1395,10 +1473,11 @@ const messages = {
     cameraOff: "Camera off",
     includeCameraAria: "Include camera in this recording",
     startRecording: "Start recording",
+    startCameraRecording: "Iniciar gravação da câmera",
     micOffConfirmTitle: "Seu microfone está silenciado",
     micOffConfirmDescription:
       "Para que seu vídeo tenha som, ative o microfone.",
-    startWithoutMic: "Continuar",
+    startWithoutMic: "Gravar sem áudio",
     unmuteMicrophone: "Ativar microfone",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",
@@ -1435,6 +1514,7 @@ const messages = {
     placementThroughout: "Throughout",
     placementEnd: "At end",
     delete: "Delete",
+    validWebUrl: "Insira um endereço http:// ou https:// válido.",
   },
   recordRoute: {
     pageTitle: "New recording — Clips",
@@ -1463,6 +1543,7 @@ const messages = {
     recordingScreen:
       "Recording your screen — switch to the window you want to capture",
     largeClipsNeedReencode: "Large clips need a quick re-encode before upload.",
+    compressingRecording: "Compactando sua gravação…",
     savingRecording: "Saving your recording…",
     sessionExpired: "Session expired",
     sessionExpiredDescription:
@@ -1476,6 +1557,10 @@ const messages = {
     whatToCheck: "What to check",
     downloadRecording: "Download",
     openRecorderInTab: "Open recorder in tab",
+    retryUpload: "Tentar enviar novamente",
+    tryAgain: "Tentar novamente",
+    storageConnectedReopeningRecorder:
+      "Armazenamento conectado. Reabrindo o gravador...",
     connectStorageToFinish:
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips terminará de salvar.",
     connectStorageToRetryLoom:
@@ -1535,6 +1620,7 @@ const messages = {
     emptyWebDescription:
       "Dictation runs through the desktop app for global shortcuts that work in any app — Slack, your editor, anywhere.",
     downloadDesktopApp: "Download Clips desktop app",
+    tryInBrowser: "Testar no navegador",
     holdToDictate: "hold to dictate",
     toggle: "toggle",
     desktopCtaTitle: "Dictate from anywhere with the desktop app",
@@ -1546,7 +1632,21 @@ const messages = {
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.",
     loadFailed: "Couldn't load dictations.",
     noFilterMatches: "No dictations matching this filter.",
-    dictionaryTitle: "Dictionary",
+    dictionaryTitle: "Dicionário",
+    dictionaryAutoLearn: "O app para desktop aprende com suas correções",
+    dictionaryAddTerms: "Adicionar termos",
+    dictionaryImport: "Importar",
+    dictionaryExport: "Exportar CSV",
+    dictionaryImportFailed:
+      "Escolha um arquivo CSV, TSV ou de texto com termos válidos.",
+    dictionaryExported: "Dicionário exportado",
+    dictionaryTermsPlaceholder: "Agent-Native\nagente nativo → Agent-Native",
+    dictionaryTermsRequired: "Insira pelo menos um termo.",
+    dictionarySearch: "Pesquisar no dicionário",
+    dictionaryNoMatches: "Nenhum termo correspondente.",
+    dictionaryRemoveTitle: "Remover “{{term}}”?",
+    dictionaryRemoveDescription:
+      "As próximas transcrições não usarão mais esta correção.",
     dictionaryDescription:
       "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own.",
     dictionaryTermPlaceholder: "Term",
@@ -1554,8 +1654,8 @@ const messages = {
     dictionaryAdd: "Add",
     dictionaryLoading: "Loading dictionary...",
     dictionaryEmpty: "No learned terms yet.",
-    dictionaryUsesCount: "Used {{count}}x",
-    dictionaryRemove: "Remove",
+    dictionaryUsesCount: "Usado {{count}} vezes",
+    dictionaryRemove: "Remover",
     vocabularyAddFailed: "Couldn't add term",
     vocabularyRemoveFailed: "Couldn't remove term",
   },

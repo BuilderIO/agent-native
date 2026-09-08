@@ -29,6 +29,8 @@ import {
 } from "./frame.js";
 import { sendMcpAppHostMessage } from "./mcp-app-host.js";
 
+export { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
+
 export type AgentChatRequestMode = "act" | "plan";
 
 export interface AgentChatMessage {
@@ -656,15 +658,6 @@ export function formatAgentChatContextItemsForPrompt(
     .filter((item): item is AgentChatContextItem => item !== null)
     .map((item) => [`## ${item.title}`, item.context].join("\n"))
     .join("\n\n");
-}
-
-export function appendAgentChatContextToMessage(
-  message: string,
-  context: string,
-): string {
-  const trimmedContext = context.trim();
-  if (!trimmedContext) return message;
-  return `${message}\n\n<context>\n${trimmedContext}\n</context>`;
 }
 
 function normalizeStringArray(value: unknown): string[] | undefined {

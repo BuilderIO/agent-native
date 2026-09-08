@@ -1,5 +1,7 @@
 import {
+  type ComponentProps,
   createContext,
+  forwardRef,
   ReactNode,
   useContext,
   useEffect,
@@ -13,6 +15,9 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
+import { Button, type ButtonProps } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
+import { cn } from "@/lib/utils";
 
 interface PageHeaderSlotContextValue {
   slot: HTMLElement | null;
@@ -47,6 +52,36 @@ export function PageHeader({ children }: { children: ReactNode }) {
   if (!ready || !slot) return null;
   return createPortal(children, slot);
 }
+
+export const PageHeaderPrimaryAction = forwardRef<
+  HTMLButtonElement,
+  Omit<ButtonProps, "size" | "variant">
+>(function PageHeaderPrimaryAction({ className, ...props }, ref) {
+  return (
+    <Button
+      ref={ref}
+      size="sm"
+      variant="default"
+      className={cn("shrink-0", className)}
+      {...props}
+    />
+  );
+});
+PageHeaderPrimaryAction.displayName = "PageHeaderPrimaryAction";
+
+export const PageHeaderActionGroup = forwardRef<
+  HTMLDivElement,
+  ComponentProps<typeof ButtonGroup>
+>(function PageHeaderActionGroup({ className, ...props }, ref) {
+  return (
+    <ButtonGroup
+      ref={ref}
+      className={cn("shrink-0 [&>*]:h-9", className)}
+      {...props}
+    />
+  );
+});
+PageHeaderActionGroup.displayName = "PageHeaderActionGroup";
 
 export function PageBreadcrumb({ label }: { label: string }) {
   return (

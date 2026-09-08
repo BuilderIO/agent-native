@@ -7,6 +7,7 @@ const guards = [
   "guard:hooks-registered",
   "guard:agent-native-brand",
   "guard:no-drizzle-push",
+  "guard:mcp-registry",
   "guard:no-pnpm-patches",
   "guard:chat-first-shared-ui",
   "guard:no-empty-migrations",
@@ -46,6 +47,7 @@ const guards = [
   "guard:plan-marketplace",
   "guard:no-error-string-returns",
   "guard:no-action-twin-routes",
+  "guard:external-result-contract",
   "guard:provider-action-factories",
   "guard:agent-chat-context",
   "guard:request-storms",
@@ -63,6 +65,7 @@ const guards = [
   "guard:persistent-compositing",
   "guard:help-icon-scale",
   "guard:no-default-chrome",
+  "guard:single-search-clear",
   "guard:no-boot-data-work",
   "guard:no-untracked-imports",
   "guard:no-heavy-dashboard-list-reads",
@@ -70,6 +73,8 @@ const guards = [
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
   "guard:doc-budgets",
+  "guard:e2e-quarantine",
+  "guard:e2e-harness",
 ] as const;
 
 type GuardName = (typeof guards)[number];

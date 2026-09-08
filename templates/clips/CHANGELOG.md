@@ -3,7 +3,18 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-04
+
+### Fixed
+
+- Clips desktop shows its real version again in About and Get Info, and nightly builds resume.
+- Meeting notes now stop within about 15 seconds of a Zoom, Teams, or Meet call ending, even while music or a video keeps playing afterward.
+
 ## 2026-09-01
+
+### Improved
+
+- The recorder playhead now docks automatically when dragged near a screen edge, returns to floating mode when pulled away, remembers its screen position, and transitions more smoothly into Restart and Delete confirmations.
 
 ### Fixed
 

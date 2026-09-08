@@ -56,9 +56,9 @@ describe("Content agent chat plugin", () => {
     expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: "content",
-        mcp: {
+        mcp: expect.objectContaining({
           externalAgents: { writes: "allowlisted" },
-        },
+        }),
       }),
     );
   });

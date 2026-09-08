@@ -21,6 +21,7 @@ import {
   canUseDeployCredentialFallbackForRequest,
   getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
+  prefetchSecrets,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
   resolveBuilderGatewayCredentialsDetailed,
@@ -89,8 +90,14 @@ const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
  */
 export function registerAgentEngine(entry: AgentEngineEntry): void {
   if (_registry.has(entry.name)) {
-    // Allow re-registration in tests / hot-reload — just overwrite
+    // Allow re-registration in tests / hot-reload — just overwrite.
+    // Delete first: `Map.set` on an existing key keeps its original insertion
+    // slot, so a re-registered engine would silently retain the priority it
+    // had in a previous test's registry. Detection walks this map in order, so
+    // that leaves a stale entry ahead of Builder and probes a provider key on
+    // the path that is supposed to resolve without reading one.
     if (process.env.NODE_ENV === "test") {
+      _registry.delete(entry.name);
       _registry.set(entry.name, entry);
       return;
     }
@@ -705,12 +712,48 @@ export async function detectEngineFromUserSecrets(
     return null;
   }
 
+  const firstEntry = _registry.values().next().value;
+  if (
+    !getAppConfig().agent.preferBringYourOwnKey &&
+    firstEntry?.name === "builder" &&
+    isAgentEnginePackageInstalled(firstEntry) &&
+    firstEntry.requiredEnvVars.length > 0 &&
+    (await hasUsableBuilderConnection(identity))
+  ) {
+    return firstEntry;
+  }
+
+  // Deliberately lazy: a connected Builder account resolves from the first
+  // registry entry without reading a provider key at all, so warming eagerly
+  // would put four scope reads in front of the fast path on a continuously
+  // polled endpoint. Once any non-Builder engine is probed, though, every
+  // remaining candidate is about to be read, and `resolveSecret` walks
+  // user/org/workspace/solo per key. One batched read per scope covers the
+  // whole set, and `readAppSecrets` memoizes absent keys too, so the
+  // no-provider-configured case collapses rather than staying at full cost.
+  let secretsPrefetched = false;
+  const prefetchCandidateSecrets = async (): Promise<void> => {
+    if (secretsPrefetched) return;
+    secretsPrefetched = true;
+    await prefetchSecrets([
+      ...new Set(
+        [..._registry.values()]
+          .filter(
+            (entry) =>
+              entry.name !== "builder" && isAgentEnginePackageInstalled(entry),
+          )
+          .flatMap((entry) => entry.requiredEnvVars),
+      ),
+    ]);
+  };
+
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (!isAgentEnginePackageInstalled(entry)) return false;
     if (entry.requiredEnvVars.length === 0) return false;
     if (entry.name === "builder") {
       return hasUsableBuilderConnection(identity);
     }
+    await prefetchCandidateSecrets();
     for (const key of entry.requiredEnvVars) {
       // A throw here means the credential store could not be read. Let it
       // propagate: swallowing it reports "no provider connected" to a user
@@ -721,7 +764,6 @@ export async function detectEngineFromUserSecrets(
   };
 
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
-
   if (preferByo) {
     for (const entry of _registry.values()) {
       if (entry.name === "builder") continue;

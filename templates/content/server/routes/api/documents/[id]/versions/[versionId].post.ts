@@ -5,6 +5,7 @@ import { defineEventHandler, createError } from "h3";
 
 import { getDb } from "../../../../../db/index.js";
 import { schema } from "../../../../../db/index.js";
+import { bodyRevisionForContent } from "../../../../../lib/document-body-revision.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
@@ -78,6 +79,7 @@ export default defineEventHandler(async (event) => {
         .set({
           title: version.title,
           content: version.content,
+          bodyRevision: bodyRevisionForContent(version.content),
           updatedAt: now,
         })
         .where(

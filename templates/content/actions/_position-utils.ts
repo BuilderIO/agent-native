@@ -28,6 +28,47 @@ if (!globalRef[LOCK_KEY]) {
 }
 const positionLocks: Map<string, Promise<unknown>> = globalRef[LOCK_KEY]!;
 
+const MAX_DATABASE_POSITION = 2_147_483_647;
+
+/**
+ * Return the next canonical position after a database aggregate result.
+ * PostgreSQL may return integer aggregates as strings, and older callers
+ * accidentally persisted negative values such as -11 and -111. Those rows
+ * sort before the canonical non-negative range, so a negative maximum means
+ * the next canonical position is zero without rewriting legacy data.
+ */
+export function nextAppendPosition(max: unknown): number {
+  const raw = max ?? -1;
+  const normalized = typeof raw === "string" ? raw.trim() : raw;
+  const value =
+    typeof normalized === "number"
+      ? normalized
+      : typeof normalized === "string" && /^-?\d+$/.test(normalized)
+        ? Number(normalized)
+        : Number.NaN;
+
+  if (!Number.isSafeInteger(value)) {
+    throw new Error("Database position is outside the supported range.");
+  }
+  if (value < 0) return 0;
+
+  const next = value + 1;
+  if (!Number.isSafeInteger(next) || next > MAX_DATABASE_POSITION) {
+    throw new Error("Database position is outside the supported range.");
+  }
+  return next;
+}
+
+/** Allocate each position in a multi-row append through the same bounds check. */
+export function createAppendPositionAllocator(max: unknown): () => number {
+  let previous = max;
+  return () => {
+    const next = nextAppendPosition(previous);
+    previous = next;
+    return next;
+  };
+}
+
 /** Run `fn` serialized against any other call using the same `scopeKey`. */
 export function withPositionLock<T>(
   scopeKey: string,

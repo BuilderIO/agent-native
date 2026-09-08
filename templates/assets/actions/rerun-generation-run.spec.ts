@@ -4,12 +4,43 @@ const getDbMock = vi.hoisted(() => vi.fn());
 const assertAccessMock = vi.hoisted(() => vi.fn());
 const resolveTemplateAccessMock = vi.hoisted(() => vi.fn());
 const generateImageRunMock = vi.hoisted(() => vi.fn());
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (entry: unknown) => entry,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+}));
+const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
+const unrestrictedScope = vi.hoisted(() => ({
+  unrestricted: true,
+  approvableLibraryIds: new Set<string>(),
+  ownRunIds: new Set<string>(),
+  callerEmail: "viewer@example.test",
+}));
+
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
+  // The draft-input guards have their own tests; these specs exercise the
+  // surrounding behavior with an approver's unrestricted scope.
+  draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
+  resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
+  unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
+  assertCanUseAssets: vi.fn(),
+  assertCanUseRuns: vi.fn(),
+  canReadDraftAsset: vi.fn(() => true),
+  canReadRun: vi.fn(() => true),
+  draftReadFilter: vi.fn(() => undefined),
+  runReadFilter: vi.fn(() => undefined),
+  sessionReadFilter: vi.fn(() => undefined),
+  canReadSession: vi.fn(() => true),
+  deleteDraftAssetIfUnchanged: deleteDraftMock,
 }));
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column, value) => ({ column, value })),
@@ -39,6 +70,7 @@ import action from "./rerun-generation-run.js";
 describe("rerun-generation-run template access", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
     getDbMock.mockReturnValue({
       select: vi.fn(() => ({
@@ -48,6 +80,7 @@ describe("rerun-generation-run template access", () => {
               {
                 id: "run-1",
                 libraryId: "kit-1",
+                ownerEmail: "author@example.test",
                 presetId: "private-global-template",
                 sessionId: null,
                 prompt: "Generate",
@@ -79,5 +112,22 @@ describe("rerun-generation-run template access", () => {
       "viewer",
     );
     expect(generateImageRunMock).not.toHaveBeenCalled();
+  });
+
+  it("scopes a rerun to the source run's author", async () => {
+    resolveTemplateAccessMock.mockRejectedValue(
+      new Error("Template not found or not accessible."),
+    );
+
+    await expect(action.run({ runId: "run-1", source: "ui" })).rejects.toThrow(
+      "not accessible",
+    );
+
+    // A rerun reuses another caller's prompt, settings, and session.
+    expect(libraryAccessMock).toHaveBeenCalledWith(
+      "kit-1",
+      "author@example.test",
+      "A generation run",
+    );
   });
 });

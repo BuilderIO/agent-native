@@ -1,6 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { DEFAULT_BIG_NUDGE_PX } from "../shared/canvas-math";
+import { e2eBaseURL } from "./base-url";
+import { expandAllLayers } from "./helpers";
 
 /**
  * Grouping and selection traversal, asserted against Figma's documented
@@ -138,15 +140,9 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  for (let i = 0; i < 5; i += 1) {
-    await page
-      .getByRole("button", { name: "Expand layer" })
-      .first()
-      .click()
-      .catch(() => {});
-    await page.waitForTimeout(250);
-  }
+  // No blind settle: expandAllLayers waits for the first layer row, which
+  // the editor cannot render before it has parsed the document.
+  await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
 
@@ -183,7 +179,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ??
     process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
+    e2eBaseURL();
 });
 
 test.describe("keyboard selection traversal", () => {
@@ -554,7 +550,10 @@ test.describe("multi-selection", () => {
     ).toBeCloseTo(measured!.contentWidth, -1);
   });
 
-  test("Smart selection exposes spacing handles for evenly spaced layers", async ({
+  // Aspirational: no [data-smart-selection], [data-spacing-handle] or
+  // [data-smart-handle] exists in the app yet, so this specifies Figma
+  // smart-selection rather than guarding it.
+  test.fixme("Smart selection exposes spacing handles for evenly spaced layers", async ({
     page,
   }) => {
     const id = await newDesign(page);
@@ -584,9 +583,11 @@ test.describe("frames versus groups", () => {
   }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
-    const before = styleOf(await indexHtml(page, id), "wrap");
+    const beforeHtml = await indexHtml(page, id);
+    const before = styleOf(beforeHtml, "wrap");
     const wBefore = styleNum(before, "width");
     const hBefore = styleNum(before, "height");
+    const kidLeftBefore = styleNum(styleOf(beforeHtml, "kid-1"), "left");
 
     await selectViaTree(page, "Kid One");
     for (let i = 0; i < 3; i += 1) {
@@ -595,7 +596,15 @@ test.describe("frames versus groups", () => {
     }
     await page.waitForTimeout(2000);
 
-    const after = styleOf(await indexHtml(page, id), "wrap");
+    const afterHtml = await indexHtml(page, id);
+    // The child has to actually move, or "the frame kept its size" holds for
+    // the trivial reason that nothing happened.
+    expect(
+      styleNum(styleOf(afterHtml, "kid-1"), "left"),
+      `the child must move for this to test anything (left stayed ${kidLeftBefore})`,
+    ).not.toBe(kidLeftBefore);
+
+    const after = styleOf(afterHtml, "wrap");
     expect(
       [styleNum(after, "width"), styleNum(after, "height")],
       `Figma: "frames are layers whose size is explicitly set by you" — moving a child ` +

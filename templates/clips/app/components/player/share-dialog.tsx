@@ -34,6 +34,10 @@ import {
 import { toast } from "sonner";
 
 import {
+  PageHeaderActionGroup,
+  PageHeaderPrimaryAction,
+} from "@/components/library/page-header";
+import {
   CopyButton,
   GeneralAccessSelect,
   InvitePeopleField,
@@ -46,7 +50,6 @@ import {
   type Visibility,
 } from "@/components/sharing/share-ui";
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import {
   Collapsible,
   CollapsibleContent,
@@ -61,7 +64,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -179,14 +182,13 @@ export function ShareRecordingPopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
-        <ButtonGroup className="clips-share-trigger shrink-0">
+        <PageHeaderActionGroup>
           <PopoverTrigger asChild>{children}</PopoverTrigger>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
+              <PageHeaderPrimaryAction
                 type="button"
-                size="icon"
-                className="size-8 shrink-0 shadow-none"
+                className="w-8 px-0 shadow-none"
                 aria-label={
                   copied
                     ? t("recordRoute.linkCopied")
@@ -200,7 +202,7 @@ export function ShareRecordingPopover({
                 ) : (
                   <IconLink className="size-4" />
                 )}
-              </Button>
+              </PageHeaderPrimaryAction>
             </TooltipTrigger>
             <TooltipContent side="bottom">
               {copied
@@ -208,7 +210,7 @@ export function ShareRecordingPopover({
                 : t("recordRoute.copyLinkAction")}
             </TooltipContent>
           </Tooltip>
-        </ButtonGroup>
+        </PageHeaderActionGroup>
       </PopoverAnchor>
       {/* Keep the layer class in app source so Tailwind emits it for Clips. */}
       <PopoverContent
@@ -1101,7 +1103,9 @@ function SocialTab({
         <button
           type="button"
           className="flex h-11 w-full items-center gap-3 px-3 text-left text-sm font-medium transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-          onClick={() => window.open(animatedThumbnailUrl, "_blank")}
+          onClick={() =>
+            window.open(animatedThumbnailUrl, "_blank", "noopener,noreferrer")
+          }
         >
           <IconPhoto className="size-4 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate">

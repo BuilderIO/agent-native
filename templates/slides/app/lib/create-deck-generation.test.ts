@@ -5,6 +5,7 @@ const mockCallAction = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => mockCallAction(...args),
   deleteClientAppState: vi.fn().mockResolvedValue(undefined),
+  getBrowserTabId: () => "test-tab",
 }));
 
 vi.mock("react-dom", () => ({
@@ -65,6 +66,9 @@ describe("getUploadedImageAgentOptions", () => {
 describe("startDeckGeneration", () => {
   it("extracts an explicit target slide count for continuation", () => {
     expect(requestedSlideCount("Create a dark 6-slide presentation")).toBe(6);
+    expect(requestedSlideCount("Create exactly 8 slides about launches")).toBe(
+      8,
+    );
     expect(requestedSlideCount("Create a deck about launches")).toBeUndefined();
   });
 

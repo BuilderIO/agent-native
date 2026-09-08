@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -90,9 +90,10 @@ export default defineAction({
     }).catch(() => null);
 
     if (!uploaded) {
-      throw new Error(
+      fail(
         "Export was generated but not saved because file storage is not configured. " +
           "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, or register a custom provider.",
+        { errorCode: "file_storage_not_configured" },
       );
     }
 
