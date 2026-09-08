@@ -724,6 +724,18 @@ const messages = {
     agentTitle: "Gestionar agente",
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
+    experiments: "Experimentos",
+    experimentsIntro:
+      "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
+    experimentVideoEditing: "Edición de vídeo",
+    experimentVideoEditingDescription:
+      "Prueba el nuevo editor de vídeo. Es inestable y puede tener errores.",
+    experimentMeetings: "Reuniones y transcripción",
+    experimentMeetingsDescription:
+      "Prueba la captura y transcripción automática de reuniones. Es inestable y puede tener errores.",
+    experimentWisprFlow: "Dictado de WisprFlow",
+    experimentWisprFlowDescription:
+      "Prueba el dictado por voz de WisprFlow. Es inestable y puede tener errores.",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
     preferencesTitle: "Preferencias",
     languageTitle: "Idioma",

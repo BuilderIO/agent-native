@@ -728,6 +728,18 @@ const messages = {
     agentTitle: "Agent verwalten",
     title: "Einstellungen",
     pageTitle: "Einstellungen · Clips",
+    experiments: "Experimente",
+    experimentsIntro:
+      "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
+    experimentVideoEditing: "Videobearbeitung",
+    experimentVideoEditingDescription:
+      "Teste den neuen Videoeditor. Er ist instabil und kann Fehler enthalten.",
+    experimentMeetings: "Meetings und Transkription",
+    experimentMeetingsDescription:
+      "Teste die automatische Erfassung und Transkription von Meetings. Sie ist instabil und kann Fehler enthalten.",
+    experimentWisprFlow: "WisprFlow-Diktat",
+    experimentWisprFlowDescription:
+      "Teste das WisprFlow-Sprachdiktat. Es ist instabil und kann Fehler enthalten.",
     intro:
       "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
     preferencesTitle: "Voreinstellungen",

@@ -717,6 +717,18 @@ const messages = {
     agentTitle: "エージェントを管理",
     title: "設定",
     pageTitle: "設定 · Clips",
+    experiments: "実験機能",
+    experimentsIntro:
+      "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
+    experimentVideoEditing: "動画編集",
+    experimentVideoEditingDescription:
+      "新しい動画エディターをお試しください。不安定でバグがある可能性があります。",
+    experimentMeetings: "会議と文字起こし",
+    experimentMeetingsDescription:
+      "会議の自動キャプチャと文字起こしをお試しください。不安定でバグがある可能性があります。",
+    experimentWisprFlow: "WisprFlow 音声入力",
+    experimentWisprFlowDescription:
+      "WisprFlow の音声入力をお試しください。不安定でバグがある可能性があります。",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
     preferencesTitle: "環境設定",
     languageTitle: "言語",

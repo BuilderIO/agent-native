@@ -702,6 +702,18 @@ const messages = {
     agentTitle: "Manage agent",
     title: "Settings",
     pageTitle: "Settings · Clips",
+    experiments: "Experiments",
+    experimentsIntro:
+      "These are new, unstable features and may have bugs. We value your feedback.",
+    experimentVideoEditing: "Video editing",
+    experimentVideoEditingDescription:
+      "Try the new video editor. It is unstable and may have bugs.",
+    experimentMeetings: "Meetings and transcription",
+    experimentMeetingsDescription:
+      "Try automatic meeting capture and transcription. It is unstable and may have bugs.",
+    experimentWisprFlow: "WisprFlow dictation",
+    experimentWisprFlowDescription:
+      "Try WisprFlow voice dictation. It is unstable and may have bugs.",
     intro: "Preferences and connected services for this Clips workspace.",
     preferencesTitle: "Preferences",
     languageTitle: "Language",

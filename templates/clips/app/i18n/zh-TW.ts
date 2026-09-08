@@ -676,6 +676,18 @@ const messages = {
     agentTitle: "管理代理",
     title: "設定",
     pageTitle: "設定 · Clips",
+    experiments: "實驗功能",
+    experimentsIntro:
+      "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
+    experimentVideoEditing: "影片編輯",
+    experimentVideoEditingDescription:
+      "試用新的影片編輯器。它不穩定，可能會有錯誤。",
+    experimentMeetings: "會議與轉錄",
+    experimentMeetingsDescription:
+      "試用自動會議擷取與轉錄功能。它不穩定，可能會有錯誤。",
+    experimentWisprFlow: "WisprFlow 聽寫",
+    experimentWisprFlowDescription:
+      "試用 WisprFlow 語音聽寫功能。它不穩定，可能會有錯誤。",
     intro: "此 Clips 工作區的偏好設定和已連線服務。",
     preferencesTitle: "偏好設定",
     languageTitle: "語言",

@@ -708,6 +708,18 @@ const messages = {
     agentTitle: "إدارة الوكيل",
     title: "الإعدادات",
     pageTitle: "الإعدادات · Clips",
+    experiments: "التجارب",
+    experimentsIntro:
+      "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
+    experimentVideoEditing: "تحرير الفيديو",
+    experimentVideoEditingDescription:
+      "جرّب محرر الفيديو الجديد. إنه غير مستقر وقد يحتوي على أخطاء.",
+    experimentMeetings: "الاجتماعات والنسخ النصي",
+    experimentMeetingsDescription:
+      "جرّب الالتقاط والنسخ النصي التلقائي للاجتماعات. إنها غير مستقرة وقد تحتوي على أخطاء.",
+    experimentWisprFlow: "الإملاء عبر WisprFlow",
+    experimentWisprFlowDescription:
+      "جرّب الإملاء الصوتي عبر WisprFlow. إنه غير مستقر وقد يحتوي على أخطاء.",
     intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",
     preferencesTitle: "التفضيلات",
     languageTitle: "اللغة",

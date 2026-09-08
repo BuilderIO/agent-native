@@ -75,6 +75,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
+import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "../../shared/experiments";
 import {
   CamIcon,
   GoogleIcon,
@@ -1292,6 +1293,9 @@ export function App({
   const [authStatus, setAuthStatus] = useState<
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
+  const [experimentValues, setExperimentValues] = useState<
+    Record<string, boolean>
+  >({});
   // "Could not reach the server" is not the same state as "signed out", and the
   // fix is different: one needs a correct server URL, the other needs sign-in.
   const [serverReachable, setServerReachable] = useState(true);
@@ -1352,10 +1356,24 @@ export function App({
     setCameraError,
     setRecError,
   });
-  const voiceDictationEnabled = featureConfig?.voiceEnabled !== false;
+  const meetingsExperimentEnabled =
+    experimentValues[CLIPS_MEETINGS.key] === true;
+  const wisprFlowExperimentEnabled =
+    experimentValues[CLIPS_WISPRFLOW.key] === true;
+  const voiceDictationEnabled =
+    wisprFlowExperimentEnabled && featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =
     voiceDictationEnabled &&
     (voiceShortcut === "fn" || voiceShortcut === "both");
+
+  useEffect(() => {
+    if (!meetingsExperimentEnabled && popoverView === "meetings") {
+      setPopoverView("recorder");
+    }
+    if (!wisprFlowExperimentEnabled && popoverView === "dictation") {
+      setPopoverView("recorder");
+    }
+  }, [meetingsExperimentEnabled, popoverView, wisprFlowExperimentEnabled]);
   const updateVoiceShortcut = useCallback((value: VoiceShortcutPreference) => {
     saveBool(VOICE_SHORTCUT_CONFIGURED_KEY, true);
     setVoiceShortcut(value);
@@ -1766,6 +1784,37 @@ export function App({
     [serverUrl],
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    if (authStatus !== "authed") {
+      setExperimentValues({});
+      emit("clips:experiments-updated", { values: {} }).catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }
+    void callClipsAction<Record<string, boolean>>(
+      "get-experiments",
+      {},
+      { method: "GET" },
+    )
+      .then((values) => {
+        if (!cancelled) {
+          setExperimentValues(values);
+          emit("clips:experiments-updated", { values }).catch(() => {});
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setExperimentValues({});
+          emit("clips:experiments-updated", { values: {} }).catch(() => {});
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authStatus, callClipsAction]);
+
   const updateAgentHandoff = useCallback(
     async (
       requestId: string,
@@ -2135,7 +2184,7 @@ export function App({
   }, [callClipsAction, featureConfig?.screenMemory?.enabled]);
 
   const fetchUpcomingMeetings = useCallback(async () => {
-    if (authStatus !== "authed") {
+    if (authStatus !== "authed" || !meetingsExperimentEnabled) {
       setMeetings([]);
       setMeetingsError(null);
       setMeetingsCalendarNeedsReauth(false);
@@ -2185,11 +2234,15 @@ export function App({
     } finally {
       setMeetingsLoading(false);
     }
-  }, [authStatus, callClipsAction]);
+  }, [authStatus, callClipsAction, meetingsExperimentEnabled]);
 
   useEffect(() => {
     let cancelled = false;
-    if (popoverView !== "meetings" || meetings.length === 0) {
+    if (
+      !meetingsExperimentEnabled ||
+      popoverView !== "meetings" ||
+      meetings.length === 0
+    ) {
       setRewindMeetingHistoryAvailability({});
       return () => {
         cancelled = true;
@@ -2225,10 +2278,11 @@ export function App({
     return () => {
       cancelled = true;
     };
-  }, [meetings, popoverView]);
+  }, [meetings, meetingsExperimentEnabled, popoverView]);
 
   const startMeetingNotes = useCallback(
     (meeting: PopoverMeeting, includeFromMeetingStart = false) => {
+      if (!meetingsExperimentEnabled) return;
       setActiveMeetingId(meeting.id);
       setMeetingStartMessage(
         includeFromMeetingStart
@@ -2249,7 +2303,7 @@ export function App({
         );
       });
     },
-    [],
+    [meetingsExperimentEnabled],
   );
 
   const startMeetingNotesAndJoin = useCallback(
@@ -2275,6 +2329,7 @@ export function App({
   }, []);
 
   useEffect(() => {
+    if (!meetingsExperimentEnabled) return;
     invoke<string | null>("get_active_meeting_id")
       .then((meetingId) => {
         if (meetingId) setActiveMeetingId((current) => current ?? meetingId);
@@ -2349,18 +2404,26 @@ export function App({
       unlistens.forEach((unlisten) => unlisten());
       unlistens.length = 0;
     };
-  }, []);
+  }, [meetingsExperimentEnabled]);
 
   useEffect(() => {
-    if (!popoverVisible || !activeMeetingId) return;
+    if (!meetingsExperimentEnabled || !popoverVisible || !activeMeetingId) {
+      return;
+    }
     showActiveMeetingPill(activeMeetingId);
-  }, [activeMeetingId, popoverVisible, showActiveMeetingPill]);
+  }, [
+    activeMeetingId,
+    meetingsExperimentEnabled,
+    popoverVisible,
+    showActiveMeetingPill,
+  ]);
 
   useMeetingTranscription({
     callClipsAction,
     serverUrl,
     selectedMicId,
     selectedMicLabel,
+    enabled: meetingsExperimentEnabled,
   });
 
   type DesktopAuthKind = "google" | "magic-link";
@@ -4399,6 +4462,8 @@ export function App({
         {isRecording ? <ActiveRecordingBanner /> : null}
         <Setup
           surface="memory"
+          meetingsExperimentEnabled={meetingsExperimentEnabled}
+          wisprFlowExperimentEnabled={wisprFlowExperimentEnabled}
           recordingActive={isRecording || recordingFlowActive}
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -4440,6 +4505,8 @@ export function App({
         {isRecording ? <ActiveRecordingBanner /> : null}
         <Setup
           initialSettingsTab={initialSettingsTab}
+          meetingsExperimentEnabled={meetingsExperimentEnabled}
+          wisprFlowExperimentEnabled={wisprFlowExperimentEnabled}
           recordingActive={isRecording || recordingFlowActive}
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -4475,7 +4542,7 @@ export function App({
     );
   }
 
-  if (popoverView === "meetings") {
+  if (popoverView === "meetings" && meetingsExperimentEnabled) {
     return (
       <div className="app app-popover-view" ref={appRef}>
         {pendingUploadBanner}
@@ -4504,7 +4571,7 @@ export function App({
     );
   }
 
-  if (popoverView === "dictation") {
+  if (popoverView === "dictation" && wisprFlowExperimentEnabled) {
     return (
       <div className="app app-popover-view" ref={appRef}>
         {pendingUploadBanner}
@@ -4628,7 +4695,7 @@ export function App({
         <Header mode={mode} onModeChange={selectCaptureMode} />
         <UpdateBanner />
 
-        {imminentMeeting ? (
+        {meetingsExperimentEnabled && imminentMeeting ? (
           <ImminentMeetingRow
             meeting={imminentMeeting}
             onStartNotes={() => startMeetingNotes(imminentMeeting)}
@@ -4790,15 +4857,17 @@ export function App({
       </div>
 
       <div className="bottom-row">
-        <BottomButton
-          icon="dictation"
-          label="Dictate"
-          shortcut={compactVoiceShortcutLabel(
-            voiceShortcut,
-            voiceCustomShortcut,
-          )}
-          onClick={() => setPopoverView("dictation")}
-        />
+        {wisprFlowExperimentEnabled ? (
+          <BottomButton
+            icon="dictation"
+            label="Dictate"
+            shortcut={compactVoiceShortcutLabel(
+              voiceShortcut,
+              voiceCustomShortcut,
+            )}
+            onClick={() => setPopoverView("dictation")}
+          />
+        ) : null}
         <BottomButton
           icon="library"
           label="Library"
@@ -6152,6 +6221,8 @@ function formatStorageBytes(bytes: number): string {
 function Setup({
   surface = "settings",
   initialSettingsTab,
+  meetingsExperimentEnabled,
+  wisprFlowExperimentEnabled,
   recordingActive = false,
   initial,
   serverUrl,
@@ -6181,6 +6252,8 @@ function Setup({
 }: {
   surface?: "settings" | "memory";
   initialSettingsTab?: SettingsTabId;
+  meetingsExperimentEnabled: boolean;
+  wisprFlowExperimentEnabled: boolean;
   recordingActive?: boolean;
   initial?: string | null;
   serverUrl?: string;
@@ -8311,18 +8384,26 @@ function Setup({
       label: "Rewind",
       icon: <IconHistory size={16} stroke={1.7} aria-hidden="true" />,
     },
-    {
-      id: "meetings",
-      label: "Meetings",
-      icon: <IconCalendar size={16} stroke={1.7} aria-hidden="true" />,
-    },
+    ...(meetingsExperimentEnabled
+      ? [
+          {
+            id: "meetings" as const,
+            label: "Meetings",
+            icon: <IconCalendar size={16} stroke={1.7} aria-hidden="true" />,
+          },
+        ]
+      : []),
     // A microphone, not a keyboard: dictation is the surface you talk into, and
     // a keyboard icon read as "keyboard shortcuts" instead.
-    {
-      id: "dictation",
-      label: "Dictation",
-      icon: <IconMicrophone size={16} stroke={1.7} aria-hidden="true" />,
-    },
+    ...(wisprFlowExperimentEnabled
+      ? [
+          {
+            id: "dictation" as const,
+            label: "Dictation",
+            icon: <IconMicrophone size={16} stroke={1.7} aria-hidden="true" />,
+          },
+        ]
+      : []),
     // A wrench, not a warning triangle: Advanced is rarely-needed, not unsafe.
     {
       id: "advanced",
@@ -8333,8 +8414,18 @@ function Setup({
   const activeSettingsTab =
     settingsTabs.find((tab) => tab.id === settingsTab) ?? settingsTabs[0];
 
+  useEffect(() => {
+    if (
+      surface !== "settings" ||
+      settingsTabs.some((tab) => tab.id === settingsTab)
+    ) {
+      return;
+    }
+    setSettingsTab(settingsTabs[0].id);
+  }, [settingsTab, settingsTabs, surface]);
+
   function renderSettingsTab() {
-    switch (settingsTab) {
+    switch (activeSettingsTab?.id) {
       case "recording":
         return renderRecordingSettings();
       case "meetings":

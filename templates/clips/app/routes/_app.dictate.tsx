@@ -1,8 +1,10 @@
+import { useExperimentState } from "@agent-native/core/client/experiments";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { CLIPS_WISPRFLOW } from "@shared/experiments";
 import {
   IconArrowsExchange,
   IconChevronDown,
@@ -18,6 +20,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Navigate } from "react-router";
 import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
@@ -716,6 +719,7 @@ function DictateEmptyState({
 }
 
 export default function DictateRoute() {
+  const experiment = useExperimentState(CLIPS_WISPRFLOW.key);
   const t = useT();
   const { isDesktopApp } = useDesktopPromo();
   const [filter, setFilter] = useState<SourceFilter>("all");
@@ -963,6 +967,10 @@ export default function DictateRoute() {
     createDictation.isPending ||
     draftText.trim().length > 0 ||
     interimText.trim().length > 0;
+
+  if (!experiment.isLoading && !experiment.enabled) {
+    return <Navigate replace to="/library" />;
+  }
 
   return (
     <>

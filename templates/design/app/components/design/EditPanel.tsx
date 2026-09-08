@@ -295,6 +295,7 @@ interface EditPanelProps {
   readOnly?: boolean;
   activeTab?: InspectorTab;
   onActiveTabChange?: (tab: InspectorTab) => void;
+  tweaksEnabled?: boolean;
   tweaks?: TweakDefinition[];
   tweakValues?: Record<string, string | number | boolean>;
   onTweakChange?: (id: string, value: string | number | boolean) => void;
@@ -1285,6 +1286,7 @@ function InspectorTabsHeader({
   commentsCount = 0,
   inspectorGridDebug = false,
   onInspectorGridDebugChange,
+  tweaksEnabled,
 }: {
   activeTab: InspectorTab;
   readOnly: boolean;
@@ -1293,6 +1295,7 @@ function InspectorTabsHeader({
   commentsCount?: number;
   inspectorGridDebug?: boolean;
   onInspectorGridDebugChange?: (visible: boolean) => void;
+  tweaksEnabled: boolean;
 }) {
   const t = useT();
 
@@ -1336,7 +1339,7 @@ function InspectorTabsHeader({
                   </span>
                 ) : null}
               </TabsTrigger>
-              {!readOnly ? (
+              {!readOnly && tweaksEnabled ? (
                 <TabsTrigger
                   value="tweaks"
                   aria-label={t("designEditor.tweaks")}
@@ -1790,6 +1793,7 @@ export const EditPanel = memo(function EditPanel({
   readOnly = false,
   activeTab = "design",
   onActiveTabChange,
+  tweaksEnabled = true,
   tweaks = [],
   tweakValues = {},
   onTweakChange,
@@ -1948,8 +1952,11 @@ export const EditPanel = memo(function EditPanel({
     (element) => isContainerElement(element),
   );
   const handleActiveTabChange = useCallback(
-    (tab: InspectorTab) => onActiveTabChange?.(tab),
-    [onActiveTabChange],
+    (tab: InspectorTab) => {
+      if (tab === "tweaks" && !tweaksEnabled) return;
+      onActiveTabChange?.(tab);
+    },
+    [onActiveTabChange, tweaksEnabled],
   );
   const handleTweakChange = useCallback(
     (tweakId: string, value: string | number | boolean) => {
@@ -2158,7 +2165,9 @@ export const EditPanel = memo(function EditPanel({
   const resolvedActiveTab: InspectorTab =
     readOnly && (activeTab === "design" || activeTab === "tweaks")
       ? "code"
-      : activeTab;
+      : !tweaksEnabled && activeTab === "tweaks"
+        ? "design"
+        : activeTab;
 
   // Frame presets belong to the Design inspector. Keep Comments and Tweaks
   // visible when the Frame tool remains armed while another tab is active.
@@ -2185,6 +2194,7 @@ export const EditPanel = memo(function EditPanel({
           commentsCount={reviewCommentsCount}
           inspectorGridDebug={inspectorGridDebug}
           onInspectorGridDebugChange={onInspectorGridDebugChange}
+          tweaksEnabled={tweaksEnabled}
         />
 
         {showFramePresets ? (

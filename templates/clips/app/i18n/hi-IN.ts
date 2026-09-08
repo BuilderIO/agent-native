@@ -699,6 +699,18 @@ const messages = {
     agentTitle: "एजेंट प्रबंधित करें",
     title: "सेटिंग्स",
     pageTitle: "सेटिंग्स · Clips",
+    experiments: "प्रयोग",
+    experimentsIntro:
+      "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
+    experimentVideoEditing: "वीडियो संपादन",
+    experimentVideoEditingDescription:
+      "नया वीडियो संपादक आज़माएँ। यह अस्थिर है और इसमें बग हो सकते हैं।",
+    experimentMeetings: "मीटिंग और ट्रांसक्रिप्शन",
+    experimentMeetingsDescription:
+      "स्वचालित मीटिंग कैप्चर और ट्रांसक्रिप्शन आज़माएँ। यह अस्थिर है और इसमें बग हो सकते हैं।",
+    experimentWisprFlow: "WisprFlow डिक्टेशन",
+    experimentWisprFlowDescription:
+      "WisprFlow वॉइस डिक्टेशन आज़माएँ। यह अस्थिर है और इसमें बग हो सकते हैं।",
     intro: "इस Clips वर्कस्पेस के लिए प्राथमिकताएँ और कनेक्टेड सेवाएँ।",
     preferencesTitle: "प्राथमिकताएँ",
     languageTitle: "भाषा",

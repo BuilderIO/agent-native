@@ -1,6 +1,8 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useExperimentState } from "@agent-native/core/client/experiments";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { CLIPS_MEETINGS } from "@shared/experiments";
 import {
   IconAlertTriangle,
   IconCalendar,
@@ -10,7 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
@@ -677,6 +679,7 @@ function MeetingsHeader({
 
 export default function MeetingsIndexRoute() {
   const t = useT();
+  const experiment = useExperimentState(CLIPS_MEETINGS.key);
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQ = searchParams.get("q") ?? "";
   const [query, setQuery] = useState(initialQ);
@@ -898,6 +901,10 @@ export default function MeetingsIndexRoute() {
 
   const nothingAtAll =
     historyMeetings.length === 0 && agendaMeetings.length === 0;
+
+  if (!experiment.isLoading && !experiment.enabled) {
+    return <Navigate replace to="/library" />;
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
