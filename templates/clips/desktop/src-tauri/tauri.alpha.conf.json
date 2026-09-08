@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Clips Alpha",
+  "identifier": "com.clips.tray.alpha",
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "targets": ["app"],
+    "macOS": {
+      "minimumSystemVersion": "26.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": false
+    }
+  }
+}

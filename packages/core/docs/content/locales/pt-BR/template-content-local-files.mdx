@@ -1,0 +1,69 @@
+---
+title: "Fontes de pastas locais"
+description: "Conecte pastas Markdown e MDX aos espaços do Content com suporte de banco de dados."
+---
+
+# Fontes de pastas locais
+
+O Content agora tem um único modelo de dados: cada página fica no SQL, pertence
+a um **espaço** e integra o banco de sistema **Files** desse espaço. Uma pasta
+local é uma fonte conectada a Files, não um segundo modo do aplicativo. Não há
+mais uma chave `AGENT_NATIVE_MODE`.
+
+Cada usuário tem um espaço pessoal, cada organização acessível tem seu espaço,
+e o catálogo pessoal **Workspaces** determina quais aparecem. Files é um banco
+normal do Content: propriedades, filtros, ordenação, agrupamento e visualizações
+salvas também podem renderizar a barra lateral.
+
+## Conectar uma pasta
+
+Escolha uma pasta pelo navegador ou Agent-Native Desktop e conecte-a a um espaço
+existente, ou crie um espaço privado baseado nela. O SQL guarda apenas o ID
+opaco da conexão, caminhos relativos, hashes e metadados — nunca o caminho
+absoluto, o identificador do navegador ou o conteúdo bruto do arquivo.
+
+As políticas são `database_primary`, `source_primary` e
+`reviewed_bidirectional`. A sincronização materializa os arquivos como páginas
+SQL normais. Alterações simultâneas geram uma mudança para revisão, em vez de
+sobrescrever um lado. Desconectar preserva páginas e arquivos.
+
+## Iniciar em um repositório
+
+```bash
+npx @agent-native/core@latest content .
+```
+
+O comando inicia o Content normal com banco de dados, registra a pasta como
+fonte e abre a conexão. Nenhuma variável de modo é definida.
+
+## Configuração
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "roots": [
+        {
+          "name": "Docs",
+          "path": "docs",
+          "kind": "docs",
+          "extensions": [".md", ".mdx"],
+          "source": {
+            "type": "local-folder",
+            "connectionId": "local-folder:<opaque-id>",
+            "truthPolicy": "source_primary"
+          }
+        }
+      ],
+      "components": "components",
+      "extensions": "extensions"
+    }
+  }
+}
+```
+
+Para migrar, remova `mode: "local-files"` e
+`AGENT_NATIVE_MODE=local-files`, mantenha as raízes e adicione `source`. IDs no
+frontmatter preservam a identidade ao renomear ou mover uma página. Componentes
+e extensões locais continuam usando a ponte local confiável.

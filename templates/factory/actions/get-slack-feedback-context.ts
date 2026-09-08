@@ -1,0 +1,121 @@
+import { defineAction } from "@agent-native/core/action";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb } from "../server/db/index.js";
+import { triageItems } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryItemFilter,
+  readTriageConfigRow,
+} from "../server/lib/factory-scope.js";
+import {
+  requireWorkspaceMember,
+  workspaceMemberIdentityFromContext,
+} from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
+import { createSlackReader } from "../server/triage/slack-client.js";
+import {
+  collectSlackUserIds,
+  readStoredUserLabels,
+  resolveSlackUserLabels,
+} from "../server/triage/slack-user-labels.js";
+
+export default defineAction({
+  description:
+    "Read the bounded full Slack thread for one Factory feedback item. Use this before deciding whether a report is a clear bug; unreadable or truncated context is not a green light.",
+  schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
+    itemId: z.string().min(1),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ factoryId, itemId }, context) => {
+    const { userEmail, orgId } = await requireWorkspaceMember(
+      workspaceMemberIdentityFromContext(context),
+    );
+    const item = (
+      await getDb()
+        .select()
+        .from(triageItems)
+        .where(
+          and(
+            eq(triageItems.id, itemId),
+            orgFactoryItemFilter(orgId, factoryId),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!item) throw new Error("Factory item not found.");
+    if (item.source !== "slack" || !item.channelId || !item.threadTs) {
+      throw new Error("Factory item is not a readable Slack feedback item.");
+    }
+
+    const config = await readTriageConfigRow(getDb(), orgId, factoryId);
+    const workspace =
+      config?.slackWorkspace === "secondary" ? "secondary" : "primary";
+    const slack = createSlackReader({ ownerEmail: userEmail, orgId });
+    const { messages, hasMore } = await slack.getCompleteThread(
+      workspace,
+      item.channelId,
+      item.threadTs,
+    );
+    const liveLabels = await resolveSlackUserLabels(
+      collectSlackUserIds(messages),
+      (userId) => slack.getUserInfo(workspace, userId),
+    );
+    const userLabels = {
+      ...readStoredUserLabels(item.metadataJson),
+      ...Object.fromEntries(liveLabels),
+    };
+
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "get-slack-feedback-context",
+        kind: "read",
+        itemId,
+        source: "slack",
+        sourceUrl: item.sourceUrl,
+        summary: `Read the Slack thread (${messages.length} message${messages.length === 1 ? "" : "s"}).`,
+        details: {
+          channelId: item.channelId,
+          threadTs: item.threadTs,
+          coverage: hasMore ? "partial" : "complete",
+          messageCount: messages.length,
+          itemTitle: item.title,
+          itemSummary: item.summary,
+        },
+      },
+      factoryId,
+    );
+
+    return {
+      ok: true,
+      itemId,
+      sourceUrl: item.sourceUrl,
+      channelId: item.channelId,
+      threadTs: item.threadTs,
+      coverage: hasMore ? "partial" : "complete",
+      builderSlackUserId: config?.builderSlackUserId ?? null,
+      userLabels,
+      messages: messages.map((message) => {
+        const userId = message.user ?? null;
+        const resolved =
+          (userId ? userLabels[userId] : undefined) ?? message.username ?? null;
+        return {
+          user: userId ?? message.username ?? message.bot_id ?? null,
+          username: resolved,
+          botId: message.bot_id ?? null,
+          text: message.text,
+          ts: message.ts,
+          threadTs: message.thread_ts ?? item.threadTs,
+          replyCount: message.reply_count ?? 0,
+          reactions: message.reactions ?? [],
+        };
+      }),
+    };
+  },
+});

@@ -1,0 +1,47 @@
+---
+title: "Netlify"
+description: "Implementa una aplicación nativa del agente en Netlify con el ajuste preestablecido de Nitro para Netlify, y configura keep-warm para bases de datos con escalado a cero."
+---
+
+# Netlify
+
+El ajuste preestablecido `netlify` de Nitro funciona bien y, en la práctica, nos ha dado arranques en frío mucho más rápidos que Cloudflare Pages (~200 ms de TTFB frente a ~9 s) para plantillas que se comunican con Postgres externo (Neon). Establece el ajuste preestablecido en `vite.config.ts`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+…o establece `NITRO_PRESET=netlify` en el momento de la compilación.
+
+Para un espacio de trabajo, implementa todas las aplicaciones desde un único sitio de Netlify ejecutando:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+La compilación del espacio de trabajo escribe los activos estáticos bajo `dist/_workspace_static/` y enruta cada aplicación a su propia función de Netlify sin redirecciones de activos forzadas, de modo que archivos como `/mail/assets/...` se sirven de forma estática antes de que la función del servidor gestione las rutas de las aplicaciones.
+
+## Keep-warm y bases de datos con escalado a cero {#netlify-keep-warm}
+
+Cuando está habilitada, la compilación de Netlify emite una función programada que solicita `/_agent-native/health` **cada minuto**. Eso mantiene calientes la función del servidor y su base de datos, de modo que el siguiente visitante tras un periodo de inactividad no pague un arranque en frío (1–5 s en Neon).
+
+Keep-warm está **deshabilitado de forma predeterminada** porque un despertar cada minuto impide la autosuspensión en bases de datos medidas con escalado a cero. En un nivel gratuito de Neon, esto puede agotar la cuota de cómputo, y la base de datos entonces rechaza **todas** las lecturas a mitad de sesión. El síntoma es una aplicación muerta, no una lenta. Establece `AGENT_NATIVE_ENABLE_KEEP_WARM=1` cuando la menor latencia para el siguiente visitante compense el tiempo de base de datos activa.
+
+El calendario de keep-warm y el calentamiento de la función en segundo plano solo se aplican después de que se habilite el flag principal de keep-warm:
+
+| Variable                                    | Efecto                                                                                                                                                                                                                  |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Activa el calentamiento programado del servidor y la base de datos. No está definido de forma predeterminada.                                                                                                           |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Interruptor de compatibilidad que prevalece sobre el flag de activación cuando está establecido.                                                                                                                        |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Sobrescribe la cadencia con una expresión cron de 5 campos, por ejemplo `*/5 * * * *`. La cadencia predeterminada cuando está habilitado es `* * * * *`. Un valor no analizable **hace fallar la compilación**.         |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Descarta solo el calentamiento de la función en segundo plano, manteniendo caliente el servidor. Calentar `server` es una solicitud. Calentar `-background` inicia un contenedor nuevo que vuelve a sondear el esquema. |
+
+Si estás en un nivel de base de datos gratuito o limitado por cuota, deja `AGENT_NATIVE_ENABLE_KEEP_WARM` sin definir. Si lo habilitas, usa una cadencia más lenta o establece `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` para descartar el calentamiento en segundo plano, más costoso.
+
+## Qué sigue
+
+- [**Implementación**](/docs/deployment) — elige una base de datos persistente y un ajuste preestablecido antes de tu primera implementación en producción
+- [**Caché SSR**](/docs/ssr-caching) — la política de caché predeterminada y el comportamiento independiente de `netlify-cdn-cache-control` de Netlify
+- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Vercel**](/docs/vercel), [**Cloudflare**](/docs/cloudflare) y [**Otras plataformas**](/docs/other-platforms) — los demás ajustes preestablecidos de Nitro

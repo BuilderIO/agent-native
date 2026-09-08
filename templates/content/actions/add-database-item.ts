@@ -1,0 +1,97 @@
+import { defineAction } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
+import { z } from "zod";
+
+import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
+import {
+  canonicalizeDatabasePropertyInput,
+  databasePropertyEntriesSchema,
+  databasePropertyValuesSchema,
+} from "./_database-property-input.js";
+import {
+  createDatabaseRow,
+  databaseMutationAgentTargetSchema,
+  databaseMutationEnvelopeSchema,
+} from "./_database-row-mutation.js";
+import { getContentDatabaseResponse } from "./_database-utils.js";
+
+const schema = databaseMutationEnvelopeSchema.extend({
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe("New row page title"),
+  propertyValues: databasePropertyValuesSchema,
+  propertyEntries: databasePropertyEntriesSchema,
+});
+const agentSchema = schema
+  .extend({ target: databaseMutationAgentTargetSchema })
+  .omit({ propertyValues: true });
+
+export default defineAction({
+  description:
+    "Create one row in an exact ordinary Content database using the mutation target and schema revision from a fresh get-content-database read. Strictly validates every non-Blocks property, applies one new intent once per fresh idempotency key, and returns a verified receipt with stable membership and page identities.",
+  mcpTool: true,
+  agentInputSchema: agentSchema,
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Add Content Database Item",
+    description:
+      "Delegate creation of one page item in an existing Content database.",
+  },
+  schema,
+  audit: {
+    recordInputs: false,
+    target: (args) => ({
+      type: "content-database",
+      id: args.target.databaseId,
+      visibility: "private",
+    }),
+    summary: (_args, result) => {
+      const receipt = (result as ContentDatabaseRowMutationResult | null)
+        ?.receipt;
+      return receipt
+        ? `Created Content database row ${receipt.row.itemId}`
+        : "Created Content database row";
+    },
+  },
+  run: async (args): Promise<ContentDatabaseRowMutationResult> => {
+    const result = await createDatabaseRow(
+      canonicalizeDatabasePropertyInput(args),
+    );
+    const response = await getContentDatabaseResponse(
+      result.receipt.target.databaseId,
+      {
+        limit: 1,
+        offset: 0,
+        documentIds: [result.receipt.row.documentId],
+      },
+    );
+    const createdItem = response.items[0];
+    if (!createdItem || createdItem.id !== result.receipt.row.itemId) {
+      throw new Error(
+        "Created row receipt did not resolve to its exact read-back.",
+      );
+    }
+    return { ...result, createdItem };
+  },
+  link: ({ result }) => {
+    const documentId = (result as ContentDatabaseRowMutationResult | null)
+      ?.receipt.row.documentId;
+    if (!documentId) return null;
+    return {
+      url: buildDeepLink({
+        app: "content",
+        view: "editor",
+        params: { documentId },
+      }),
+      label: "Open database row",
+      view: "editor",
+    };
+  },
+});

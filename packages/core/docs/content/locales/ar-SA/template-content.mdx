@@ -1,0 +1,129 @@
+---
+title: "المحتوى"
+description: "Obsidian مفتوح المصدر لـ MDX: حرّر ملفات Markdown/MDX المحلية، وأنشئ قواعد بيانات بنمط Notion، واكتب بمساعدة وكيل ذكاء اصطناعي."
+---
+
+# المحتوى
+
+المحتوى عبارة عن Obsidian مفتوح المصدر لـ MDX. إنه مساحة عمل للمستندات صديقة
+للملفات المحلية يمكن للوكيل من خلالها قراءة الصفحات وكتابتها وإعادة تنظيمها
+ونشرها نيابة عنك. افتح مستندًا واطلب "أعد كتابة هذه الفقرة لتكون أكثر إيجازًا"
+أو "أنشئ صفحة باسم تخطيط الربع الرابع مع صفحات فرعية للأهداف والمقاييس
+والمخاطر". النتيجة نفسها سواء قمت بذلك بنفسك أو طلبت من الوكيل القيام به.
+
+<WireframeBlock id="doc-block-content1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+عند فتح التطبيق، سترى شجرة صفحات بجانب المحرر. يعرف الوكيل دائمًا الصفحة التي
+تشاهدها والنص الذي حددته، لذلك يمكن أن تظل تعديلات المستند مرتبطة بالصفحة
+الحالية.
+
+<Diagram id="doc-block-content2" title="مستند واحد، ثلاثة أسطح للمزامنة" summary={"تكتب أنت والوكيل من خلال خط أنابيب التحرير المباشر نفسه. تُعد SQL هي المخزن الأساسي، بينما الملفات المحلية وNotion وBuilder CMS أسطح مزامنة اختيارية حوله."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      تكتب<br /><small class="diagram-muted"
+        >قائمة الشرطة المائلة، شريط الأدوات</small
+      >
+    </div>
+    <div class="diagram-node">
+      تعديلات الوكيل<br /><small class="diagram-muted"
+        >edit-document find/replace</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    المستندات (Markdown)<br /><small class="diagram-muted"
+      >مخزن SQL الأساسي</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      ملفات .md / .mdx المحلية<br /><small class="diagram-muted"
+        >/local-files</small
+      >
+    </div>
+    <div class="diagram-box">
+      صفحات Notion<br /><small class="diagram-muted">سحب · دفع</small>
+    </div>
+    <div class="diagram-box">
+      إدخالات Builder CMS<br /><small class="diagram-muted"
+        >سحب · دفع محمي</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## ما يمكنك فعله به
+
+- **اكتب المستندات ونظّمها.** تحرير نص منسّق، وشجرة صفحات متداخلة بلا حدود، والمفضلة، والتعليقات، وسجل الإصدارات، والمشاركة. راجع [كتابة المستندات وتنظيمها](/docs/template-content-editing).
+- **أنشئ قواعد بيانات بنمط Notion.** جداول يكون فيها كل صف مستندًا مستقلًا بذاته، مع خصائص مكتوبة وطرق عرض جدول/قائمة/معرض/لوحة/تقويم/جدول زمني/نموذج. راجع [قواعد البيانات والخصائص والنماذج](/docs/template-content-databases).
+- **اجمع طلبات مُنظَّمة.** حوّل قاعدة بيانات إلى نموذج استقبال يمكن للوكيل أو Slack أو تطبيق آخر إرسال بيانات إليه بأمان. راجع [قواعد البيانات والخصائص والنماذج](/docs/template-content-databases).
+- **حرّر الملفات على القرص مثل Obsidian**، وأبقِ المستندات متزامنة مع Notion أو Builder CMS. راجع [مزامنة الملفات المحلية وNotion وBuilder CMS](/docs/template-content-sync).
+- **تعاون في الوقت الفعلي.** يمكن لعدة أشخاص (والوكيل) تعديل المستند نفسه في الوقت نفسه دون أن يطغى تعديل أحدهم على الآخر.
+- **شارك المستندات** مع زملائك في الفريق أو اجعلها عامة. تكون خاصة بشكل افتراضي، مع أدوار المشاهد والمحرر والمشرف.
+- **اطلب من الوكيل أي شيء**: "أعد كتابة هذه الفقرة." "أضف ملخصًا (TL;DR) في الأعلى." "ابحث عن جميع ملاحظات اجتماعاتي من الأسبوع الماضي." "أنشئ قاعدة بيانات للتسجيل التجريبي مع نموذج لاستقبال الطلبات عبر Slack."
+
+## البدء
+
+عرض توضيحي مباشر: [content.agent-native.com](https://content.agent-native.com).
+
+عند فتح التطبيق، انقر فوق **+ صفحة جديدة** في الشريط الجانبي، وأعطها عنوانًا، وابدأ في الكتابة. لاستخدام الوكيل، اكتب في الشريط الجانبي:
+
+- "أنشئ صفحة باسم Onboarding وأضف ثلاث صفحات فرعية تحتها."
+- "أعد كتابة هذه الفقرة لتكون أكثر إيجازًا." (مع صفحة مفتوحة)
+- "أضف قسمًا حول التسعير بثلاث نقاط."
+- "لخّص هذا المستند في ملخص (TL;DR) في الأعلى."
+- "اسحب أحدث تحديث من Notion." (بعد ربط صفحة Notion)
+
+حدد نصًا واضغط على Cmd+I لتركيز الوكيل مع هذا التحديد المُحمَّل مسبقًا. عندها تعمل عبارة "اجعل هذا أكثر تأثيرًا" على ما حددته بالضبط.
+
+لإنشاء نسختك الخاصة من Content:
+
+```bash
+npx @agent-native/core@latest create my-content --standalone --template content
+```
+
+راجع [بدء الاستخدام](/docs/getting-started) لبقية خطوات الإعداد (`cd`، و`pnpm install`، و`pnpm dev`) وأساسيات إطار العمل.
+
+## ما هي الخطوة التالية
+
+- [**كتابة المستندات وتنظيمها**](/docs/template-content-editing) — المحرر، وشجرة الصفحات، والتعليقات، وسجل الإصدارات، والمشاركة
+- [**قواعد البيانات والخصائص والنماذج**](/docs/template-content-databases) — قواعد البيانات المضمّنة، وأنواع الخصائص، وطرق العرض، والمصادر الخارجية، ونماذج الاستقبال
+- [**مزامنة الملفات المحلية وNotion وBuilder CMS**](/docs/template-content-sync) — سير عمل المجلدات على نمط Obsidian إضافة إلى عمليات التزامن ذهابًا وإيابًا مع Notion وBuilder CMS
+- [**دليل المطوّر**](/docs/template-content-developers) — نموذج البيانات، وقائمة الإجراءات، والمسارات، وكيفية توسيع القالب
+- [**القوالب**](/docs/cloneable-saas) — نموذج Cloneable SaaS، وكل قالب مجال آخر يمكنك البدء منه
+- [**بدء الاستخدام**](/docs/getting-started) — أساسيات إطار العمل: الإجراءات، وحالة التطبيق، والمزامنة المباشرة
+- [**التعاون في الوقت الفعلي**](/docs/real-time-collaboration) — خط أنابيب Yjs الذي تشاركه المستندات مع أسطح تعاونية أخرى
+- [**المشاركة**](/docs/sharing) — نموذج منح المشاركة الذي تُبنى عليه المستندات

@@ -1,0 +1,258 @@
+// Restrict every persisted FormField id (and conditional.fieldId reference)
+// to a safe character set. Field ids are interpolated into raw HTML attributes
+// by the public form SSR renderer and into CSS/JS selectors by the inline
+// runtime — an unrestricted id like `x" onfocus="alert(1)` would otherwise
+// stored-XSS every anonymous submitter of a published form.
+import {
+  DEFAULT_FORM_FILE_MAX_BYTES,
+  isValidFileAccept,
+  MAX_FORM_FILE_COUNT,
+} from "./file-upload-policy.js";
+
+export const FIELD_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+export const FIELD_TYPES = [
+  "text",
+  "email",
+  "number",
+  "textarea",
+  "select",
+  "multiselect",
+  "checkbox",
+  "radio",
+  "date",
+  "rating",
+  "scale",
+  "file",
+] as const;
+const FIELD_TYPE_SET = new Set(FIELD_TYPES);
+const CONDITIONAL_OPERATORS = new Set(["equals", "not_equals", "contains"]);
+
+/**
+ * Generates a safe id for a whole-array field replacement (create-form,
+ * update-form) when the model omits one — the #1 create-form failure in
+ * the 2026-07-25 reliability sweep ("field #1 has an invalid id undefined").
+ * Never used by patch-form-fields: there a missing id on an upsert op is
+ * ambiguous (new field vs. a forgotten reference to an existing one), so it
+ * must keep failing loud rather than risk silently creating a duplicate.
+ * Ids are slugified from `label` through the same FIELD_ID_PATTERN charset
+ * `assertValidFields` enforces, so a generated id can never fail that check.
+ */
+export function normalizeFieldIds(fields: unknown): unknown {
+  if (!Array.isArray(fields)) return fields;
+  const usedIds = new Set(
+    fields
+      .map((f) =>
+        f && typeof f === "object" ? (f as Record<string, unknown>).id : null,
+      )
+      .filter(
+        (id): id is string =>
+          typeof id === "string" && FIELD_ID_PATTERN.test(id),
+      ),
+  );
+  return fields.map((field) => {
+    if (field == null || typeof field !== "object") return field;
+    const f = field as Record<string, unknown>;
+    if (typeof f.id === "string" && FIELD_ID_PATTERN.test(f.id)) return field;
+    const label = typeof f.label === "string" ? f.label : "";
+    const base =
+      label
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 40) || "field";
+    let candidate = base;
+    let suffix = 1;
+    while (usedIds.has(candidate)) {
+      candidate = `${base}_${++suffix}`;
+    }
+    usedIds.add(candidate);
+    return { ...f, id: candidate };
+  });
+}
+
+/**
+ * Keeps granular edits compatible with fields written before the current
+ * schema. The UI already renders unknown types as text and treats a missing
+ * required flag as false, so patch reads must make the same repair before the
+ * strict persistence check runs.
+ */
+export function normalizePersistedFields(fields: unknown): unknown {
+  if (!Array.isArray(fields)) return fields;
+  return fields.map((field) => {
+    if (field == null || typeof field !== "object" || Array.isArray(field)) {
+      return field;
+    }
+    const f = field as Record<string, unknown>;
+    return {
+      ...f,
+      type:
+        typeof f.type === "string" &&
+        FIELD_TYPE_SET.has(f.type as (typeof FIELD_TYPES)[number])
+          ? f.type
+          : "text",
+      required: f.required === undefined ? false : f.required,
+    };
+  });
+}
+
+export function assertValidFields(fields: unknown): void {
+  if (!Array.isArray(fields)) {
+    throw new Error("fields must be an array");
+  }
+  const seenIds = new Set<string>();
+  for (const [idx, field] of fields.entries()) {
+    if (field == null || typeof field !== "object") {
+      throw new Error(`field #${idx + 1} must be an object`);
+    }
+    const f = field as Record<string, unknown>;
+
+    const id = f.id;
+    if (typeof id !== "string" || !FIELD_ID_PATTERN.test(id)) {
+      throw new Error(
+        `field #${idx + 1} has an invalid id ${JSON.stringify(id)} — must match ${FIELD_ID_PATTERN.source}`,
+      );
+    }
+    if (seenIds.has(id)) {
+      throw new Error(`duplicate field id "${id}" at position #${idx + 1}`);
+    }
+    seenIds.add(id);
+
+    if (
+      typeof f.type !== "string" ||
+      !FIELD_TYPE_SET.has(f.type as (typeof FIELD_TYPES)[number])
+    ) {
+      throw new Error(
+        `field #${idx + 1} has an invalid type ${JSON.stringify(f.type)} — must be one of ${FIELD_TYPES.join(", ")}`,
+      );
+    }
+    if (typeof f.label !== "string") {
+      throw new Error(`field #${idx + 1} label must be a string`);
+    }
+    if (typeof f.required !== "boolean") {
+      throw new Error(`field #${idx + 1} required must be a boolean`);
+    }
+
+    const hasFileMetadata = [
+      "multiple",
+      "accept",
+      "maxSizeBytes",
+      "maxFiles",
+    ].some((key) => key in f);
+    if (f.type !== "file" && hasFileMetadata) {
+      throw new Error(
+        `field #${idx + 1} file metadata is only valid for file fields`,
+      );
+    }
+    if (f.type === "file") {
+      if (f.multiple !== undefined && typeof f.multiple !== "boolean") {
+        throw new Error(`field #${idx + 1} multiple must be a boolean`);
+      }
+      if (!isValidFileAccept(f.accept)) {
+        throw new Error(`field #${idx + 1} accept must be a valid file filter`);
+      }
+      const maxSizeBytes = f.maxSizeBytes;
+      if (
+        maxSizeBytes !== undefined &&
+        (typeof maxSizeBytes !== "number" ||
+          !Number.isSafeInteger(maxSizeBytes) ||
+          maxSizeBytes <= 0 ||
+          maxSizeBytes > DEFAULT_FORM_FILE_MAX_BYTES)
+      ) {
+        throw new Error(
+          `field #${idx + 1} maxSizeBytes must be an integer between 1 and ${DEFAULT_FORM_FILE_MAX_BYTES}`,
+        );
+      }
+      const maxFiles = f.maxFiles;
+      if (
+        maxFiles !== undefined &&
+        (typeof maxFiles !== "number" ||
+          !Number.isSafeInteger(maxFiles) ||
+          maxFiles <= 0 ||
+          maxFiles > MAX_FORM_FILE_COUNT ||
+          f.multiple !== true)
+      ) {
+        throw new Error(
+          `field #${idx + 1} maxFiles requires multiple and must be between 1 and ${MAX_FORM_FILE_COUNT}`,
+        );
+      }
+    }
+
+    const cond = f.conditional;
+    if (cond !== undefined) {
+      if (cond == null || typeof cond !== "object") {
+        throw new Error(`field #${idx + 1} conditional must be an object`);
+      }
+      const condition = cond as Record<string, unknown>;
+      const condFieldId = condition.fieldId;
+      if (
+        typeof condFieldId !== "string" ||
+        !FIELD_ID_PATTERN.test(condFieldId)
+      ) {
+        throw new Error(
+          `field #${idx + 1} conditional.fieldId ${JSON.stringify(condFieldId)} is invalid — must match ${FIELD_ID_PATTERN.source}`,
+        );
+      }
+      if (
+        typeof condition.operator !== "string" ||
+        !CONDITIONAL_OPERATORS.has(condition.operator)
+      ) {
+        throw new Error(
+          `field #${idx + 1} conditional.operator must be equals, not_equals, or contains`,
+        );
+      }
+      if (typeof condition.value !== "string") {
+        throw new Error(`field #${idx + 1} conditional.value must be a string`);
+      }
+    }
+
+    // validation.min / .max are interpolated into HTML attributes (min="..."
+    // max="...") by the SSR renderer — must be numeric to prevent XSS.
+    const validation = f.validation;
+    if (validation != null && typeof validation === "object") {
+      const v = validation as Record<string, unknown>;
+      if (v.min != null && !isFinite(Number(v.min))) {
+        throw new Error(`field #${idx + 1} validation.min must be a number`);
+      }
+      if (v.max != null && !isFinite(Number(v.max))) {
+        throw new Error(`field #${idx + 1} validation.max must be a number`);
+      }
+      if (v.pattern != null) {
+        if (typeof v.pattern !== "string") {
+          throw new Error(
+            `field #${idx + 1} validation.pattern must be a string`,
+          );
+        }
+        try {
+          new RegExp(v.pattern);
+        } catch {
+          throw new Error(
+            `field #${idx + 1} validation.pattern must be a valid regular expression`,
+          );
+        }
+      }
+    }
+  }
+
+  const fieldIndexes = new Map(
+    fields.map((field, index) => [
+      (field as Record<string, unknown>).id,
+      index,
+    ]),
+  );
+  for (const [idx, field] of fields.entries()) {
+    const condition = (field as Record<string, unknown>).conditional;
+    if (!condition || typeof condition !== "object") continue;
+    const condFieldId = (condition as Record<string, unknown>).fieldId;
+    const sourceIndex = fieldIndexes.get(condFieldId);
+    if (sourceIndex === undefined) {
+      throw new Error(
+        `field #${idx + 1} conditional.fieldId ${JSON.stringify(condFieldId)} does not reference a field in this form`,
+      );
+    }
+    if (sourceIndex >= idx) {
+      throw new Error(
+        `field #${idx + 1} conditional.fieldId must reference an earlier field`,
+      );
+    }
+  }
+}

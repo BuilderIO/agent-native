@@ -1,0 +1,1661 @@
+import {
+  BUILDER_PUBLISH_MCP_RESOURCE,
+  resolveBuilderCredential,
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "@agent-native/core/server";
+
+import type {
+  BuilderCmsModelFieldSummary,
+  BuilderCmsModelSummary,
+  BuilderCmsModelsResponse,
+} from "../shared/api.js";
+import {
+  builderBlocksHash,
+  builderEntryBlocks,
+  type BuilderContentEntry,
+} from "../shared/builder-mdx.js";
+import {
+  normalizeBuilderCmsApiEntry,
+  type BuilderCmsSourceEntry,
+} from "./_builder-cms-source-adapter.js";
+
+export type BuilderCmsReadState = "live" | "unconfigured" | "error";
+
+export interface BuilderCmsReadResult {
+  state: BuilderCmsReadState;
+  entries: BuilderCmsSourceEntry[];
+  fetchedAt: string;
+  message: string | null;
+  progress: BuilderCmsReadProgress;
+}
+
+export interface BuilderCmsReadProgress {
+  requestedLimit: number;
+  pageSize: number;
+  startOffset: number;
+  nextOffset: number;
+  fetchedEntryCount: number;
+  hasMore: boolean;
+  partial: boolean;
+  readMode: "builder-api" | "mcp" | "none";
+}
+
+export interface BuilderCmsEntryLiveState {
+  exists: boolean;
+  published: "published" | "draft" | (string & {}) | null;
+  lastUpdated: number | string | null;
+  blocksHash: string | null;
+  id: string | null;
+}
+
+export interface BuilderCmsEntryFidelitySummary {
+  topLevelBlockCount: number;
+  componentCount: number;
+  textBlockCount: number;
+  imageBlockCount: number;
+  htmlImageCount: number;
+  markdownImageSyntaxCount: number;
+  videoBlockCount: number;
+  headingCount: number;
+  unorderedListCount: number;
+  orderedListCount: number;
+  listItemCount: number;
+  linkCount: number;
+  tableCount: number;
+  escapedTableMarkupCount: number;
+  codeCount: number;
+  blockquoteCount: number;
+  escapedBlockquoteMarkupCount: number;
+  hasYouTubeLink: boolean;
+}
+
+function countMatches(value: string, pattern: RegExp) {
+  return value.match(pattern)?.length ?? 0;
+}
+
+export function summarizeBuilderCmsEntryFidelity(
+  entry: BuilderCmsSourceEntry,
+): BuilderCmsEntryFidelitySummary {
+  const blocks = entry.rawEntry ? builderEntryBlocks(entry.rawEntry) : [];
+  const summary: BuilderCmsEntryFidelitySummary = {
+    topLevelBlockCount: blocks.length,
+    componentCount: 0,
+    textBlockCount: 0,
+    imageBlockCount: 0,
+    htmlImageCount: 0,
+    markdownImageSyntaxCount: 0,
+    videoBlockCount: 0,
+    headingCount: 0,
+    unorderedListCount: 0,
+    orderedListCount: 0,
+    listItemCount: 0,
+    linkCount: 0,
+    tableCount: 0,
+    escapedTableMarkupCount: 0,
+    codeCount: 0,
+    blockquoteCount: 0,
+    escapedBlockquoteMarkupCount: 0,
+    hasYouTubeLink: false,
+  };
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    const component =
+      record.component &&
+      typeof record.component === "object" &&
+      !Array.isArray(record.component)
+        ? (record.component as Record<string, unknown>)
+        : null;
+    if (component) {
+      summary.componentCount += 1;
+      const name = typeof component.name === "string" ? component.name : "";
+      if (name === "Image") summary.imageBlockCount += 1;
+      if (name === "Video") summary.videoBlockCount += 1;
+      if (name === "Text") {
+        summary.textBlockCount += 1;
+        const options =
+          component.options &&
+          typeof component.options === "object" &&
+          !Array.isArray(component.options)
+            ? (component.options as Record<string, unknown>)
+            : {};
+        const html = typeof options.text === "string" ? options.text : "";
+        summary.headingCount += countMatches(html, /<h[1-6]\b/gi);
+        summary.htmlImageCount += countMatches(html, /<img\b/gi);
+        summary.markdownImageSyntaxCount += countMatches(
+          html,
+          /!\[[^\]]*\]\(/g,
+        );
+        summary.unorderedListCount += countMatches(html, /<ul\b/gi);
+        summary.orderedListCount += countMatches(html, /<ol\b/gi);
+        summary.listItemCount += countMatches(html, /<li\b/gi);
+        summary.linkCount += countMatches(html, /<a\b/gi);
+        summary.tableCount += countMatches(html, /<table\b/gi);
+        summary.escapedTableMarkupCount += countMatches(html, /&lt;table\b/gi);
+        summary.codeCount += countMatches(html, /<code\b/gi);
+        summary.blockquoteCount += countMatches(html, /<blockquote\b/gi);
+        summary.escapedBlockquoteMarkupCount += countMatches(
+          html,
+          /&lt;blockquote\b/gi,
+        );
+        if (/youtube\.com|youtu\.be/i.test(html)) {
+          summary.hasYouTubeLink = true;
+        }
+      }
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+  visit(blocks);
+  return summary;
+}
+
+type FetchLike = typeof fetch;
+
+export type BuilderCmsContentEntryReadResult =
+  | {
+      state: "found";
+      entry: BuilderCmsSourceEntry;
+      providerStatus: "http_200" | "mcp_200";
+    }
+  | {
+      state: "not_found";
+      entry: null;
+      providerStatus:
+        | "http_404"
+        | "http_200_unexpected_entry"
+        | "mcp_not_found";
+    };
+
+export class BuilderCmsContentEntryReadError extends Error {
+  constructor(
+    message: string,
+    readonly reason:
+      | "auth_failed"
+      | "access_denied"
+      | "transient_read_failure"
+      | "malformed_body",
+    readonly providerStatus: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "BuilderCmsContentEntryReadError";
+  }
+}
+
+type BuilderMcpContentPart = {
+  type?: string;
+  text?: string;
+};
+
+type BuilderMcpToolResult = {
+  content?: BuilderMcpContentPart[];
+};
+
+const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
+const BUILDER_CMS_MAX_READ_LIMIT = 10_000;
+const BUILDER_CMS_PAGE_SIZE = 100;
+const BUILDER_CMS_PROJECTED_READ_CONCURRENCY = 8;
+const BUILDER_CMS_READ_RETRIES = 2;
+const BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS = [
+  "id",
+  "name",
+  "published",
+  "lastUpdated",
+  "createdDate",
+  "data.title",
+  "data.handle",
+  "data.url",
+  "data.slug",
+  "data.date",
+  "data.description",
+  "data.status",
+  "data.author",
+  "data.image",
+] as const;
+const BUILDER_CMS_TOP_LEVEL_METADATA_FIELDS = new Set(
+  BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS.filter(
+    (fieldPath) => !fieldPath.startsWith("data."),
+  ).map((fieldPath) => fieldPath.toLowerCase()),
+);
+const BUILDER_CMS_HEAVY_BODY_FIELD_PATHS = [
+  "data.blocks",
+  "data.blocksString",
+] as const;
+const BUILDER_CMS_FIELD_PATH_PATTERN =
+  /^[A-Za-z0-9_$-]+(?:\.[A-Za-z0-9_$-]+)*$/;
+
+type BuilderCmsContentPageResult =
+  | { pageLimit: number; pageEntries: BuilderCmsSourceEntry[] }
+  | { pageLimit: number; error: string };
+
+function normalizeBuilderCmsListFieldPath(fieldPath: string) {
+  const trimmed = fieldPath.trim();
+  if (!trimmed || !BUILDER_CMS_FIELD_PATH_PATTERN.test(trimmed)) return null;
+  const normalized = trimmed.includes(".")
+    ? trimmed
+    : BUILDER_CMS_TOP_LEVEL_METADATA_FIELDS.has(trimmed.toLowerCase())
+      ? trimmed
+      : `data.${trimmed}`;
+  const lower = normalized.toLowerCase();
+  if (
+    BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.some((heavyFieldPath) => {
+      const heavyLower = heavyFieldPath.toLowerCase();
+      return lower === heavyLower || lower.startsWith(`${heavyLower}.`);
+    })
+  ) {
+    return null;
+  }
+  if (
+    normalized.includes(".") &&
+    !normalized.toLowerCase().startsWith("data.")
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function preserveProjectedBuilderFieldAbsence(
+  read: BuilderCmsReadResult,
+  fieldPaths: readonly string[] | undefined,
+  rawData: boolean | undefined,
+): BuilderCmsReadResult {
+  if (read.state !== "live" || rawData === true || !fieldPaths?.length) {
+    return read;
+  }
+  const projectedFieldPaths = [
+    ...new Set(
+      fieldPaths
+        .map(normalizeBuilderCmsListFieldPath)
+        .filter((fieldPath): fieldPath is string => fieldPath !== null),
+    ),
+  ];
+  if (projectedFieldPaths.length === 0) return read;
+  return {
+    ...read,
+    entries: read.entries.map((entry) => {
+      const sourceValues = { ...entry.sourceValues };
+      for (const fieldPath of projectedFieldPaths) {
+        if (!Object.prototype.hasOwnProperty.call(sourceValues, fieldPath)) {
+          sourceValues[fieldPath] = null;
+        }
+      }
+      return { ...entry, sourceValues };
+    }),
+  };
+}
+
+export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
+  const fields = new Map<string, string>();
+  for (const fieldPath of [
+    ...BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS,
+    ...fieldPaths,
+  ]) {
+    const normalized = normalizeBuilderCmsListFieldPath(fieldPath);
+    if (!normalized) continue;
+    if (!fields.has(normalized)) fields.set(normalized, normalized);
+  }
+  return Array.from(fields.values()).join(",");
+}
+
+const BUILDER_CMS_METADATA_ENTRY_FIELDS = builderCmsListEntryFields();
+const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`;
+
+function applyBuilderCmsBodyEntryReadParams(url: URL, publicKey: string) {
+  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("includeUnpublished", "true");
+  url.searchParams.set("enrich", "true");
+  url.searchParams.set("noCache", "true");
+  url.searchParams.set("cachebust", String(Date.now()));
+  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+}
+
+function builderContentApiHost() {
+  return (
+    process.env.BUILDER_CONTENT_API_HOST ??
+    process.env.BUILDER_CMS_API_HOST ??
+    "https://cdn.builder.io"
+  ).replace(/\/+$/, "");
+}
+
+function entryArrayFromResponse(value: unknown) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.results) ? record.results : [];
+}
+
+function stringFromUnknown(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function stringOrNumberFromUnknown(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return stringFromUnknown(value);
+}
+
+function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
+  if (Array.isArray(value)) {
+    return value.length > 0
+      ? liveStateFromBuilderEntry(value[0])
+      : {
+          exists: false,
+          published: null,
+          lastUpdated: null,
+          blocksHash: null,
+          id: null,
+        };
+  }
+  if (!value || typeof value !== "object") {
+    return {
+      exists: false,
+      published: null,
+      lastUpdated: null,
+      blocksHash: null,
+      id: null,
+    };
+  }
+
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.results)) {
+    return liveStateFromBuilderEntry(record.results);
+  }
+  if (Object.keys(record).length === 0) {
+    return {
+      exists: false,
+      published: null,
+      lastUpdated: null,
+      blocksHash: null,
+      id: null,
+    };
+  }
+
+  const data =
+    record.data &&
+    typeof record.data === "object" &&
+    !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : {};
+  const id =
+    stringFromUnknown(record.id) ??
+    stringFromUnknown(record["@id"]) ??
+    stringFromUnknown(record.uuid);
+  if (!id) {
+    return {
+      exists: false,
+      published: null,
+      lastUpdated: null,
+      blocksHash: null,
+      id: null,
+    };
+  }
+
+  const blocks = builderEntryBlocks(record as BuilderContentEntry);
+  return {
+    exists: true,
+    published:
+      stringFromUnknown(record.published) ?? stringFromUnknown(data.published),
+    lastUpdated:
+      stringOrNumberFromUnknown(record.lastUpdated) ??
+      stringOrNumberFromUnknown(record.updatedDate) ??
+      stringOrNumberFromUnknown(record.updatedAt) ??
+      stringOrNumberFromUnknown(data.updatedAt),
+    blocksHash: blocks.length > 0 ? builderBlocksHash(blocks) : null,
+    id,
+  };
+}
+
+function readLimit(limit: number | undefined) {
+  if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
+    return Math.min(Math.floor(limit), BUILDER_CMS_MAX_READ_LIMIT);
+  }
+  const envLimit = Number(process.env.BUILDER_CMS_READ_LIMIT);
+  if (Number.isFinite(envLimit) && envLimit > 0) {
+    return Math.min(Math.floor(envLimit), BUILDER_CMS_MAX_READ_LIMIT);
+  }
+  return BUILDER_CMS_DEFAULT_READ_LIMIT;
+}
+
+function readPageLimit(remaining: number) {
+  return Math.min(remaining, BUILDER_CMS_PAGE_SIZE);
+}
+
+function retryableBuilderReadStatus(status: number) {
+  return status === 429 || status >= 500;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchBuilderContentPage(args: {
+  fetchImpl: FetchLike;
+  url: URL;
+  privateKey?: string;
+}): Promise<Response> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= BUILDER_CMS_READ_RETRIES; attempt += 1) {
+    try {
+      const headers: Record<string, string> = { accept: "application/json" };
+      if (args.privateKey) headers.authorization = `Bearer ${args.privateKey}`;
+      const response = await args.fetchImpl(args.url, { headers });
+      if (
+        !retryableBuilderReadStatus(response.status) ||
+        attempt === BUILDER_CMS_READ_RETRIES
+      ) {
+        return response;
+      }
+    } catch (error) {
+      lastError = error;
+      if (attempt === BUILDER_CMS_READ_RETRIES) {
+        throw error;
+      }
+    }
+    await sleep(25 * (attempt + 1));
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Builder read failed.");
+}
+
+function appendUniqueBuilderEntries(
+  target: BuilderCmsSourceEntry[],
+  seen: Set<string>,
+  entries: BuilderCmsSourceEntry[],
+) {
+  let appended = 0;
+  for (const entry of entries) {
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    target.push(entry);
+    appended += 1;
+  }
+  return appended;
+}
+
+function builderMcpEndpoint(
+  source: BuilderRequestAuthorization["source"] | undefined,
+) {
+  if (source === "oauth") return BUILDER_PUBLISH_MCP_RESOURCE;
+  return (
+    process.env.BUILDER_CMS_MCP_ENDPOINT ?? BUILDER_PUBLISH_MCP_RESOURCE
+  ).replace(/\/+$/, "");
+}
+
+async function readBuilderCmsAuthorization() {
+  return resolveBuilderRequestAuthorization({
+    oauthResource: "publish",
+    legacyCredentialKeys: ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
+  });
+}
+
+function parseBuilderMcpToolJson(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const result = value as BuilderMcpToolResult;
+  const text = result.content
+    ?.filter((part) => part.type === "text" && part.text)
+    .map((part) => part.text)
+    .join("\n");
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function builderMcpTotalCount(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const totalCount = Number((value as Record<string, unknown>).totalCount);
+  return Number.isInteger(totalCount) && totalCount >= 0 ? totalCount : null;
+}
+
+async function postBuilderMcp(args: {
+  endpoint: string;
+  privateKey: string;
+  payload: Record<string, unknown>;
+  connection?: BuilderMcpConnection;
+  modernClientName?: string;
+  fetchImpl: FetchLike;
+}) {
+  const method =
+    typeof args.payload.method === "string" ? args.payload.method : "";
+  const modernClientName =
+    args.modernClientName ??
+    (args.connection?.protocolVersion === "2026-07-28"
+      ? "agent-native-content-template"
+      : undefined);
+  const payload = modernClientName
+    ? withModernBuilderMcpEnvelope(args.payload, modernClientName)
+    : args.payload;
+  const headers: Record<string, string> = {
+    accept: "application/json, text/event-stream",
+    authorization: `Bearer ${args.privateKey}`,
+    "content-type": "application/json",
+  };
+  if (args.connection?.sessionId) {
+    headers["mcp-session-id"] = args.connection.sessionId;
+  }
+  if (modernClientName) {
+    headers["mcp-protocol-version"] = "2026-07-28";
+    headers["mcp-method"] = method;
+    const params = args.payload.params as Record<string, unknown> | undefined;
+    if (typeof params?.name === "string") {
+      headers["mcp-name"] = params.name;
+    }
+    if (method === "resources/read" && typeof params?.uri === "string") {
+      headers["mcp-name"] = params.uri;
+    }
+  }
+  const response = await args.fetchImpl(args.endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`Builder MCP request failed with HTTP ${response.status}.`);
+  }
+  const json = JSON.parse(text) as Record<string, unknown>;
+  const rpcError =
+    json.error && typeof json.error === "object" && !Array.isArray(json.error)
+      ? (json.error as Record<string, unknown>)
+      : null;
+  if (rpcError) {
+    const message =
+      typeof rpcError.message === "string" && rpcError.message.trim()
+        ? rpcError.message.trim()
+        : "The Builder MCP tool rejected the request.";
+    throw new Error(`Builder MCP request failed: ${message}`);
+  }
+  const toolResult =
+    json.result &&
+    typeof json.result === "object" &&
+    !Array.isArray(json.result)
+      ? (json.result as Record<string, unknown>)
+      : null;
+  if (toolResult?.isError === true) {
+    const content = Array.isArray(toolResult.content)
+      ? toolResult.content
+          .filter(
+            (part): part is { type: string; text: string } =>
+              !!part &&
+              typeof part === "object" &&
+              (part as Record<string, unknown>).type === "text" &&
+              typeof (part as Record<string, unknown>).text === "string",
+          )
+          .map((part) => part.text.trim())
+          .filter(Boolean)
+          .join("\n")
+      : "";
+    throw new Error(
+      `Builder MCP tool failed: ${content || "The tool rejected the request."}`,
+    );
+  }
+  return {
+    json,
+    sessionId: response.headers.get("mcp-session-id"),
+  };
+}
+
+interface BuilderMcpConnection {
+  protocolVersion: "2026-07-28" | "2025-11-25" | "2024-11-05";
+  sessionId: string | null;
+}
+
+function withModernBuilderMcpEnvelope(
+  payload: Record<string, unknown>,
+  clientName: string,
+): Record<string, unknown> {
+  const params =
+    payload.params &&
+    typeof payload.params === "object" &&
+    !Array.isArray(payload.params)
+      ? (payload.params as Record<string, unknown>)
+      : {};
+  const meta =
+    params._meta &&
+    typeof params._meta === "object" &&
+    !Array.isArray(params._meta)
+      ? (params._meta as Record<string, unknown>)
+      : {};
+  return {
+    ...payload,
+    params: {
+      ...params,
+      _meta: {
+        ...meta,
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {
+          name: clientName,
+          version: "0.1.0",
+        },
+        "io.modelcontextprotocol/clientCapabilities": {},
+      },
+    },
+  };
+}
+
+function builderMcpEntriesFromToolResponse(
+  response: unknown,
+  model: string,
+): BuilderCmsSourceEntry[] {
+  if (!response || typeof response !== "object") return [];
+  const record = response as Record<string, unknown>;
+  const entries =
+    (Array.isArray(record.content) && record.content) ||
+    (Array.isArray(record.results) && record.results) ||
+    [];
+  return entries
+    .map((entry) => normalizeBuilderCmsApiEntry(entry, model))
+    .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
+}
+
+function builderMcpProviderEntryCount(response: unknown): number {
+  if (!response || typeof response !== "object") return 0;
+  const record = response as Record<string, unknown>;
+  if (Array.isArray(record.content)) return record.content.length;
+  if (Array.isArray(record.results)) return record.results.length;
+  return 0;
+}
+
+function normalizeBuilderCmsModel(
+  value: unknown,
+): BuilderCmsModelSummary | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  if (!name) return null;
+  const id =
+    typeof record.id === "string" && record.id.trim() ? record.id : name;
+  const displayName =
+    typeof record.displayName === "string" && record.displayName.trim()
+      ? record.displayName.trim()
+      : name;
+  const kind =
+    typeof record.kind === "string" && record.kind.trim()
+      ? record.kind.trim()
+      : "unknown";
+  const fields = Array.isArray(record.fields)
+    ? record.fields
+        .map((field) => {
+          if (!field || typeof field !== "object") return null;
+          const fieldRecord = field as Record<string, unknown>;
+          const fieldName =
+            typeof fieldRecord.name === "string" ? fieldRecord.name.trim() : "";
+          if (!fieldName) return null;
+          const inputType =
+            typeof fieldRecord.inputType === "string" &&
+            fieldRecord.inputType.trim()
+              ? fieldRecord.inputType.trim()
+              : typeof fieldRecord.input === "string" &&
+                  fieldRecord.input.trim()
+                ? fieldRecord.input.trim()
+                : undefined;
+          const label =
+            typeof fieldRecord.label === "string" && fieldRecord.label.trim()
+              ? fieldRecord.label.trim()
+              : typeof fieldRecord.friendlyName === "string" &&
+                  fieldRecord.friendlyName.trim()
+                ? fieldRecord.friendlyName.trim()
+                : undefined;
+          const model =
+            typeof fieldRecord.model === "string" && fieldRecord.model.trim()
+              ? fieldRecord.model.trim()
+              : undefined;
+          const enumOptions = stringOptionsFromUnknown(fieldRecord.enum);
+          const options = stringOptionsFromUnknown(
+            fieldRecord.options ?? fieldRecord.allowedValues,
+          );
+          return {
+            name: fieldName,
+            ...(label ? { label } : {}),
+            type:
+              typeof fieldRecord.type === "string" && fieldRecord.type.trim()
+                ? fieldRecord.type.trim()
+                : "unknown",
+            ...(inputType ? { inputType } : {}),
+            ...(model ? { model } : {}),
+            ...(enumOptions ? { enum: enumOptions } : {}),
+            ...(options ? { options } : {}),
+            required: fieldRecord.required === true,
+          };
+        })
+        .filter((field): field is BuilderCmsModelSummary["fields"][number] =>
+          Boolean(field),
+        )
+    : [];
+
+  return { id, name, displayName, kind, fields };
+}
+
+function stringOptionsFromUnknown(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const options = value
+    .map((option) => {
+      if (typeof option === "string" || typeof option === "number") {
+        return String(option).trim();
+      }
+      if (!option || typeof option !== "object") return "";
+      const record = option as Record<string, unknown>;
+      for (const key of ["label", "name", "value"]) {
+        const candidate = record[key];
+        if (typeof candidate === "string" && candidate.trim()) {
+          return candidate.trim();
+        }
+        if (typeof candidate === "number" && Number.isFinite(candidate)) {
+          return String(candidate);
+        }
+      }
+      return "";
+    })
+    .filter(Boolean);
+  return options.length > 0 ? Array.from(new Set(options)) : undefined;
+}
+
+function builderMcpModelsFromToolResponse(
+  response: unknown,
+): BuilderCmsModelSummary[] {
+  if (!response || typeof response !== "object") return [];
+  const record = response as Record<string, unknown>;
+  const models = Array.isArray(record.models) ? record.models : [];
+  return models
+    .map((model) => normalizeBuilderCmsModel(model))
+    .filter((model): model is BuilderCmsModelSummary => Boolean(model))
+    .sort((a, b) => {
+      if (a.name === "agent-native-blog-article-test") return -1;
+      if (b.name === "agent-native-blog-article-test") return 1;
+      return a.displayName.localeCompare(b.displayName);
+    });
+}
+
+async function initializeBuilderMcp(args: {
+  endpoint: string;
+  privateKey: string;
+  fetchImpl: FetchLike;
+}) {
+  try {
+    const discovered = await postBuilderMcp({
+      endpoint: args.endpoint,
+      privateKey: args.privateKey,
+      fetchImpl: args.fetchImpl,
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "server/discover",
+        params: {},
+      },
+    });
+    const result = discovered.json.result;
+    if (
+      result &&
+      typeof result === "object" &&
+      Array.isArray((result as Record<string, unknown>).supportedVersions) &&
+      (
+        (result as Record<string, unknown>).supportedVersions as unknown[]
+      ).includes("2026-07-28")
+    ) {
+      return {
+        protocolVersion: "2026-07-28",
+        sessionId: null,
+      } satisfies BuilderMcpConnection;
+    }
+  } catch (error) {
+    // A legacy server may reject server/discover before initialize.
+    if (
+      !(error instanceof Error) ||
+      !(
+        /HTTP (?:400|404|405)\./.test(error.message) ||
+        /Method not found(?:: server\/discover)?/.test(error.message)
+      )
+    ) {
+      throw error;
+    }
+  }
+
+  const initializeLegacyProtocol = async (
+    protocolVersion: "2025-11-25" | "2024-11-05",
+  ) => {
+    const initialized = await postBuilderMcp({
+      endpoint: args.endpoint,
+      privateKey: args.privateKey,
+      fetchImpl: args.fetchImpl,
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion,
+          capabilities: {},
+          clientInfo: {
+            name: "agent-native-content-template",
+            version: "0.1.0",
+          },
+        },
+      },
+    });
+    if (initialized.json.error) {
+      throw new Error(
+        `Builder MCP initialize rejected protocol ${protocolVersion}.`,
+      );
+    }
+    const sessionId = initialized.sessionId;
+    if (sessionId) {
+      await postBuilderMcp({
+        endpoint: args.endpoint,
+        privateKey: args.privateKey,
+        fetchImpl: args.fetchImpl,
+        connection: { protocolVersion, sessionId },
+        payload: {
+          jsonrpc: "2.0",
+          method: "notifications/initialized",
+          params: {},
+        },
+      }).catch(() => null);
+    }
+    return {
+      protocolVersion,
+      sessionId,
+    } satisfies BuilderMcpConnection;
+  };
+
+  try {
+    return await initializeLegacyProtocol("2025-11-25");
+  } catch (error) {
+    const isProtocolRejection =
+      error instanceof Error &&
+      (/HTTP (?:400|404|405|422)\./.test(error.message) ||
+        error.message.includes("initialize rejected protocol"));
+    if (!isProtocolRejection) throw error;
+    return await initializeLegacyProtocol("2024-11-05");
+  }
+}
+
+async function readBuilderCmsContentEntriesViaMcp(args: {
+  model: string;
+  fieldPaths?: readonly string[];
+  includeBodies?: boolean;
+  rawData?: boolean;
+  limit?: number;
+  maxPages?: number;
+  offset?: number;
+  fetchImpl: FetchLike;
+  privateKey: string;
+  endpoint: string;
+  source: BuilderRequestAuthorization["source"];
+}): Promise<BuilderCmsReadResult> {
+  const fetchedAt = new Date().toISOString();
+  const endpoint = args.endpoint;
+  const requestedLimit = readLimit(args.limit);
+  const startOffset =
+    typeof args.offset === "number" && Number.isFinite(args.offset)
+      ? Math.max(0, Math.floor(args.offset))
+      : 0;
+  const connection = await initializeBuilderMcp({
+    endpoint,
+    privateKey: args.privateKey,
+    fetchImpl: args.fetchImpl,
+  });
+  const fields = args.rawData
+    ? undefined
+    : args.includeBodies
+      ? `${builderCmsListEntryFields(args.fieldPaths)},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`
+      : builderCmsListEntryFields(args.fieldPaths);
+  const contentEntries: BuilderCmsSourceEntry[] = [];
+  const seenIds = new Set<string>();
+  let pagesRead = 0;
+  let hasMore = false;
+  let offset = startOffset;
+  while (contentEntries.length < requestedLimit) {
+    const pageLimit = Math.min(
+      BUILDER_CMS_PAGE_SIZE,
+      requestedLimit - contentEntries.length,
+    );
+    const contentResult = await postBuilderMcp({
+      endpoint,
+      privateKey: args.privateKey,
+      fetchImpl: args.fetchImpl,
+      connection,
+      payload: {
+        jsonrpc: "2.0",
+        id: `content-${offset}`,
+        method: "tools/call",
+        params: {
+          name:
+            args.source === "oauth"
+              ? "browse_model_content"
+              : "get_builder_content",
+          arguments: {
+            modelName: args.model,
+            limit: pageLimit,
+            ...(offset > 0 ? { offset } : {}),
+            ...(args.source === "legacy"
+              ? { enrich: args.rawData !== true }
+              : {}),
+            ...(fields ? { fields } : {}),
+          },
+        },
+      },
+    });
+    const contentJson = parseBuilderMcpToolJson(contentResult.json.result);
+    if (!contentJson) {
+      throw new Error("Builder MCP browse returned malformed tool content.");
+    }
+    const pageEntries = builderMcpEntriesFromToolResponse(
+      contentJson,
+      args.model,
+    );
+    const providerEntryCount = builderMcpProviderEntryCount(contentJson);
+    const appended = appendUniqueBuilderEntries(
+      contentEntries,
+      seenIds,
+      pageEntries,
+    );
+    pagesRead += 1;
+    offset += pageLimit;
+    const totalCount = builderMcpTotalCount(contentJson);
+    hasMore =
+      totalCount !== null
+        ? offset < totalCount
+        : providerEntryCount >= pageLimit;
+    if (hasMore && appended === 0) {
+      throw new Error(
+        "Builder MCP pagination returned no new entries before the source was complete.",
+      );
+    }
+    if (!hasMore || (args.maxPages && pagesRead >= args.maxPages)) break;
+  }
+
+  return {
+    state: "live",
+    entries: contentEntries,
+    fetchedAt,
+    message: null,
+    progress: {
+      requestedLimit,
+      pageSize: BUILDER_CMS_PAGE_SIZE,
+      startOffset,
+      nextOffset: offset,
+      fetchedEntryCount: startOffset + contentEntries.length,
+      hasMore,
+      partial: hasMore,
+      readMode: "mcp",
+    },
+  };
+}
+
+async function readBuilderCmsContentEntriesViaContentApi(args: {
+  model: string;
+  fieldPaths?: readonly string[];
+  includeBodies?: boolean;
+  allowCached?: boolean;
+  rawData?: boolean;
+  limit?: number;
+  maxPages?: number;
+  offset?: number;
+  fetchImpl: FetchLike;
+  publicKey: string;
+  privateKey?: string;
+}): Promise<BuilderCmsReadResult> {
+  const fetchedAt = new Date().toISOString();
+  const url = new URL(
+    `/api/v3/content/${encodeURIComponent(args.model)}`,
+    builderContentApiHost(),
+  );
+  url.searchParams.set("apiKey", args.publicKey);
+  // Normal list reads enrich references and project away heavyweight bodies.
+  // Fidelity reads intentionally do neither: Builder's raw data object is the
+  // clone contract, including unresolved references and every nested field.
+  url.searchParams.set("enrich", args.rawData === true ? "false" : "true");
+  if (args.allowCached !== true || args.rawData === true) {
+    url.searchParams.set("noCache", "true");
+    url.searchParams.set(
+      "cachebust",
+      args.rawData === true ? String(Date.now()) : "true",
+    );
+  }
+  url.searchParams.set("includeUnpublished", "true");
+  if (args.rawData !== true) {
+    url.searchParams.set(
+      "fields",
+      args.includeBodies
+        ? `${builderCmsListEntryFields(args.fieldPaths)},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`
+        : builderCmsListEntryFields(args.fieldPaths),
+    );
+  }
+
+  const limit = readLimit(args.limit);
+  const startOffset =
+    typeof args.offset === "number" && Number.isFinite(args.offset)
+      ? Math.max(0, Math.floor(args.offset))
+      : 0;
+  const entries: BuilderCmsSourceEntry[] = [];
+  const seenIds = new Set<string>();
+  let pagesRead = 0;
+  let hasMore = false;
+  const concurrency =
+    args.rawData === true ? 1 : BUILDER_CMS_PROJECTED_READ_CONCURRENCY;
+  const errorResult = (message: string): BuilderCmsReadResult => ({
+    state: "error",
+    entries: [],
+    fetchedAt,
+    message,
+    progress: {
+      requestedLimit: limit,
+      pageSize: BUILDER_CMS_PAGE_SIZE,
+      startOffset,
+      nextOffset: startOffset + entries.length,
+      fetchedEntryCount: startOffset + entries.length,
+      hasMore,
+      partial: Boolean(args.maxPages) && hasMore,
+      readMode: "builder-api",
+    },
+  });
+
+  while (entries.length < limit) {
+    const pagesRemaining = args.maxPages
+      ? args.maxPages - pagesRead
+      : Number.POSITIVE_INFINITY;
+    if (pagesRemaining <= 0) break;
+    const pageCount = Math.min(
+      pagesRead === 0 ? 1 : concurrency,
+      pagesRemaining,
+      Math.ceil((limit - entries.length) / BUILDER_CMS_PAGE_SIZE),
+    );
+    const pageRequests = Array.from({ length: pageCount }, (_, index) => {
+      const pageUrl = new URL(url);
+      const pageLimit = readPageLimit(
+        limit - entries.length - index * BUILDER_CMS_PAGE_SIZE,
+      );
+      pageUrl.searchParams.set("limit", String(pageLimit));
+      pageUrl.searchParams.set(
+        "offset",
+        String(startOffset + (pagesRead + index) * BUILDER_CMS_PAGE_SIZE),
+      );
+      return { pageLimit, pageUrl };
+    });
+    const pageResults = await Promise.all(
+      pageRequests.map(
+        async ({
+          pageLimit,
+          pageUrl,
+        }): Promise<BuilderCmsContentPageResult> => {
+          try {
+            const response = await fetchBuilderContentPage({
+              fetchImpl: args.fetchImpl,
+              url: pageUrl,
+              privateKey: args.privateKey,
+            });
+            if (!response.ok) {
+              return {
+                pageLimit,
+                error: `Builder CMS read failed with HTTP ${response.status}.`,
+              };
+            }
+            const json = (await response.json()) as unknown;
+            const pageEntries = entryArrayFromResponse(json)
+              .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
+              .filter((entry): entry is BuilderCmsSourceEntry =>
+                Boolean(entry),
+              );
+            return { pageLimit, pageEntries };
+          } catch (error) {
+            return {
+              pageLimit,
+              error:
+                error instanceof Error
+                  ? `Builder CMS read failed: ${error.message}`
+                  : "Builder CMS read failed.",
+            };
+          }
+        },
+      ),
+    );
+
+    let stoppedOnShortPage = false;
+    for (const pageResult of pageResults) {
+      if ("error" in pageResult) return errorResult(pageResult.error);
+      const appended = appendUniqueBuilderEntries(
+        entries,
+        seenIds,
+        pageResult.pageEntries,
+      );
+      pagesRead += 1;
+      hasMore =
+        pageResult.pageEntries.length >= pageResult.pageLimit && appended > 0;
+      if (args.maxPages && pagesRead >= args.maxPages) break;
+      if (!hasMore) {
+        stoppedOnShortPage = true;
+        break;
+      }
+    }
+    if (stoppedOnShortPage || !hasMore) break;
+  }
+
+  return {
+    state: "live",
+    entries,
+    fetchedAt,
+    message: null,
+    progress: {
+      requestedLimit: limit,
+      pageSize: BUILDER_CMS_PAGE_SIZE,
+      startOffset,
+      nextOffset: startOffset + entries.length,
+      fetchedEntryCount: startOffset + entries.length,
+      hasMore,
+      partial: hasMore,
+      readMode: "builder-api",
+    },
+  };
+}
+
+export async function readBuilderCmsEntryLiveState(args: {
+  model: string;
+  entryId: string;
+  fetchImpl?: FetchLike;
+}): Promise<BuilderCmsEntryLiveState> {
+  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  if (!publicKey) {
+    throw new Error(
+      "Builder CMS live entry read skipped because BUILDER_PUBLIC_KEY is not configured.",
+    );
+  }
+
+  const url = new URL(
+    `/api/v3/content/${encodeURIComponent(args.model)}/${encodeURIComponent(
+      args.entryId,
+    )}`,
+    builderContentApiHost(),
+  );
+  applyBuilderCmsBodyEntryReadParams(url, publicKey);
+
+  const response = await fetchBuilderContentPage({
+    fetchImpl: args.fetchImpl ?? fetch,
+    url,
+  });
+  if (response.status === 404) {
+    return {
+      exists: false,
+      published: null,
+      lastUpdated: null,
+      blocksHash: null,
+      id: null,
+    };
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Builder CMS live entry read failed with HTTP ${response.status}.`,
+    );
+  }
+
+  const json = (await response.json()) as unknown;
+  return liveStateFromBuilderEntry(json);
+}
+
+export async function readBuilderCmsContentEntry(args: {
+  model: string;
+  entryId: string;
+  fetchImpl?: FetchLike;
+}): Promise<BuilderCmsSourceEntry | null> {
+  const result = await readBuilderCmsContentEntryResult({
+    ...args,
+    strictEntryIdentity: false,
+  });
+  return result.entry;
+}
+
+export async function readBuilderCmsContentEntryResult(args: {
+  model: string;
+  entryId: string;
+  fetchImpl?: FetchLike;
+  strictEntryIdentity?: boolean;
+}): Promise<BuilderCmsContentEntryReadResult> {
+  const authorization = await readBuilderCmsAuthorization();
+  const privateKey = authorization?.token ?? null;
+  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  if (!publicKey && !privateKey) {
+    throw new BuilderCmsContentEntryReadError(
+      "Builder CMS entry read skipped because Builder is not connected.",
+      "auth_failed",
+      "credential_missing",
+      false,
+    );
+  }
+
+  if (privateKey && (authorization?.source === "oauth" || !publicKey)) {
+    const endpoint = builderMcpEndpoint(authorization?.source);
+    try {
+      const connection = await initializeBuilderMcp({
+        endpoint,
+        privateKey,
+        fetchImpl: args.fetchImpl ?? fetch,
+      });
+      let offset = 0;
+      while (offset < BUILDER_CMS_MAX_READ_LIMIT) {
+        const entryResult = await postBuilderMcp({
+          endpoint,
+          privateKey,
+          fetchImpl: args.fetchImpl ?? fetch,
+          connection,
+          payload: {
+            jsonrpc: "2.0",
+            id: `entry-${args.entryId}-${offset}`,
+            method: "tools/call",
+            params: {
+              name:
+                authorization?.source === "oauth"
+                  ? "browse_model_content"
+                  : "get_builder_content",
+              arguments: {
+                modelName: args.model,
+                limit: BUILDER_CMS_PAGE_SIZE,
+                ...(offset > 0 ? { offset } : {}),
+                ...(authorization?.source === "legacy" ? { enrich: true } : {}),
+                fields: `${builderCmsListEntryFields()},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`,
+              },
+            },
+          },
+        });
+        const entryJson = parseBuilderMcpToolJson(entryResult.json.result);
+        if (!entryJson) {
+          throw new BuilderCmsContentEntryReadError(
+            "Builder MCP entry read returned malformed tool content.",
+            "malformed_body",
+            "mcp_malformed_response",
+            false,
+          );
+        }
+        const entries = builderMcpEntriesFromToolResponse(
+          entryJson,
+          args.model,
+        );
+        const providerEntryCount = builderMcpProviderEntryCount(entryJson);
+        const entry = entries.find(
+          (candidate) => candidate.id === args.entryId,
+        );
+        if (entry) {
+          return { state: "found", entry, providerStatus: "mcp_200" };
+        }
+        const totalCount = builderMcpTotalCount(entryJson);
+        const nextOffset = offset + BUILDER_CMS_PAGE_SIZE;
+        const hasMore =
+          totalCount !== null
+            ? nextOffset < totalCount
+            : providerEntryCount >= BUILDER_CMS_PAGE_SIZE;
+        if (!hasMore) {
+          return {
+            state: "not_found",
+            entry: null,
+            providerStatus: "mcp_not_found",
+          };
+        }
+        offset = nextOffset;
+      }
+      throw new BuilderCmsContentEntryReadError(
+        "Builder MCP entry lookup exceeded the bounded read limit before the requested entry could be confirmed present or missing.",
+        "transient_read_failure",
+        "mcp_partial_lookup",
+        true,
+      );
+    } catch (error) {
+      if (error instanceof BuilderCmsContentEntryReadError) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      const denied = /HTTP (?:401|403)\./.test(message);
+      throw new BuilderCmsContentEntryReadError(
+        `Builder MCP entry read failed: ${message}`,
+        denied ? "access_denied" : "transient_read_failure",
+        denied ? "mcp_access_denied" : "mcp_transient_failure",
+        !denied,
+      );
+    }
+  }
+
+  const url = new URL(
+    `/api/v3/content/${encodeURIComponent(args.model)}/${encodeURIComponent(
+      args.entryId,
+    )}`,
+    builderContentApiHost(),
+  );
+  applyBuilderCmsBodyEntryReadParams(url, publicKey!);
+
+  let response: Response;
+  try {
+    response = await fetchBuilderContentPage({
+      fetchImpl: args.fetchImpl ?? fetch,
+      url,
+    });
+  } catch (error) {
+    if (error instanceof BuilderCmsContentEntryReadError) throw error;
+    throw new BuilderCmsContentEntryReadError(
+      `Builder CMS entry read failed before a response was received: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      "transient_read_failure",
+      "network_error",
+      true,
+    );
+  }
+  if (response.status === 404) {
+    return {
+      state: "not_found",
+      entry: null,
+      providerStatus: "http_404",
+    };
+  }
+  if (!response.ok) {
+    const reason =
+      response.status === 401
+        ? "auth_failed"
+        : response.status === 403
+          ? "access_denied"
+          : response.status === 429 || response.status >= 500
+            ? "transient_read_failure"
+            : "malformed_body";
+    throw new BuilderCmsContentEntryReadError(
+      `Builder CMS entry read failed with HTTP ${response.status}.`,
+      reason,
+      `http_${response.status}`,
+      reason === "transient_read_failure",
+    );
+  }
+
+  let json: unknown;
+  try {
+    json = (await response.json()) as unknown;
+  } catch {
+    throw new BuilderCmsContentEntryReadError(
+      "Builder CMS entry read returned malformed JSON.",
+      "malformed_body",
+      "http_200_invalid_json",
+      false,
+    );
+  }
+  const rawEntry = Array.isArray(json)
+    ? json[0]
+    : (entryArrayFromResponse(json)[0] ?? json);
+  const entry = normalizeBuilderCmsApiEntry(rawEntry, args.model);
+  if (!entry || entry.id !== args.entryId) {
+    if (args.strictEntryIdentity === false) {
+      return {
+        state: "not_found",
+        entry: null,
+        providerStatus: "http_200_unexpected_entry",
+      };
+    }
+    throw new BuilderCmsContentEntryReadError(
+      "Builder CMS entry read returned an unexpected entry payload.",
+      "malformed_body",
+      "http_200_unexpected_entry",
+      false,
+    );
+  }
+  return { state: "found", entry, providerStatus: "http_200" };
+}
+
+export async function listBuilderCmsModels(
+  args: {
+    fetchImpl?: FetchLike;
+  } = {},
+): Promise<BuilderCmsModelsResponse> {
+  const fetchedAt = new Date().toISOString();
+  const fetchImpl = args.fetchImpl ?? fetch;
+  let authorization: BuilderRequestAuthorization | null;
+  try {
+    authorization = await readBuilderCmsAuthorization();
+  } catch (error) {
+    return {
+      state: "error",
+      models: [],
+      fetchedAt,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Builder authorization could not be resolved.",
+    };
+  }
+  const privateKey = authorization?.token ?? null;
+  if (!privateKey) {
+    return {
+      state: "unconfigured",
+      models: [],
+      fetchedAt,
+      message:
+        "Builder CMS model discovery skipped because BUILDER_PRIVATE_KEY is not configured.",
+    };
+  }
+
+  try {
+    const endpoint = builderMcpEndpoint(authorization?.source);
+    const connection = await initializeBuilderMcp({
+      endpoint,
+      privateKey,
+      fetchImpl,
+    });
+    const modelsResult = await postBuilderMcp({
+      endpoint,
+      privateKey,
+      fetchImpl,
+      connection,
+      payload: {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "list_builder_models",
+          arguments: {},
+        },
+      },
+    });
+    const modelsJson = parseBuilderMcpToolJson(modelsResult.json.result);
+    if (!modelsJson) {
+      throw new Error(
+        "Builder MCP model discovery returned malformed tool content.",
+      );
+    }
+    return {
+      state: "live",
+      models: builderMcpModelsFromToolResponse(modelsJson),
+      fetchedAt,
+      message: null,
+    };
+  } catch (error) {
+    return {
+      state: "error",
+      models: [],
+      fetchedAt,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Builder CMS model discovery failed.",
+    };
+  }
+}
+
+export async function readBuilderCmsModelFields(args: {
+  model: string;
+  fetchImpl?: FetchLike;
+}): Promise<BuilderCmsModelFieldSummary[]> {
+  const models = await listBuilderCmsModels({ fetchImpl: args.fetchImpl });
+  if (models.state === "unconfigured") return [];
+  if (models.state === "error") {
+    throw new Error(models.message ?? "Builder CMS model discovery failed.");
+  }
+  const modelName = args.model.trim().toLowerCase();
+  return (
+    models.models.find((model) => {
+      return (
+        model.name.trim().toLowerCase() === modelName ||
+        model.id.trim().toLowerCase() === modelName ||
+        model.displayName.trim().toLowerCase() === modelName
+      );
+    })?.fields ?? []
+  );
+}
+
+export async function readBuilderCmsContentEntries(args: {
+  model: string;
+  fieldPaths?: readonly string[];
+  includeBodies?: boolean;
+  allowCached?: boolean;
+  rawData?: boolean;
+  requirePrivateKey?: boolean;
+  limit?: number;
+  maxPages?: number;
+  offset?: number;
+  fetchImpl?: FetchLike;
+}): Promise<BuilderCmsReadResult> {
+  const fetchedAt = new Date().toISOString();
+  const fetchImpl = args.fetchImpl ?? fetch;
+  let authorization: BuilderRequestAuthorization | null;
+  try {
+    authorization = await readBuilderCmsAuthorization();
+  } catch (error) {
+    return {
+      state: "error",
+      entries: [],
+      fetchedAt,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Builder authorization could not be resolved.",
+      progress: {
+        requestedLimit: readLimit(args.limit),
+        pageSize: BUILDER_CMS_PAGE_SIZE,
+        startOffset: args.offset ?? 0,
+        nextOffset: args.offset ?? 0,
+        fetchedEntryCount: args.offset ?? 0,
+        hasMore: false,
+        partial: false,
+        readMode: "none",
+      },
+    };
+  }
+  const privateKey = authorization?.token ?? null;
+  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  if (args.requirePrivateKey === true && !privateKey) {
+    return {
+      state: "unconfigured",
+      entries: [],
+      fetchedAt,
+      message:
+        "Builder CMS authenticated read skipped because BUILDER_PRIVATE_KEY is not configured.",
+      progress: {
+        requestedLimit: readLimit(args.limit),
+        pageSize: BUILDER_CMS_PAGE_SIZE,
+        startOffset: 0,
+        nextOffset: 0,
+        fetchedEntryCount: 0,
+        hasMore: false,
+        partial: false,
+        readMode: "none",
+      },
+    };
+  }
+  if (publicKey && authorization?.source !== "oauth") {
+    const contentApiRead = await readBuilderCmsContentEntriesViaContentApi({
+      model: args.model,
+      fieldPaths: args.fieldPaths,
+      includeBodies: args.includeBodies,
+      allowCached: args.allowCached,
+      rawData: args.rawData,
+      limit: args.limit,
+      maxPages: args.maxPages,
+      offset: args.offset,
+      fetchImpl,
+      publicKey,
+      privateKey: privateKey ?? undefined,
+    });
+    if (contentApiRead.state === "live") {
+      return preserveProjectedBuilderFieldAbsence(
+        contentApiRead,
+        args.fieldPaths,
+        args.rawData,
+      );
+    }
+    if (!privateKey) return contentApiRead;
+  }
+
+  if (privateKey) {
+    try {
+      return preserveProjectedBuilderFieldAbsence(
+        await readBuilderCmsContentEntriesViaMcp({
+          model: args.model,
+          fieldPaths: args.fieldPaths,
+          includeBodies: args.includeBodies,
+          rawData: args.rawData,
+          limit: args.limit,
+          maxPages: args.maxPages,
+          offset: args.offset,
+          fetchImpl,
+          privateKey,
+          endpoint: builderMcpEndpoint(authorization?.source),
+          source: authorization?.source ?? "legacy",
+        }),
+        args.fieldPaths,
+        args.rawData,
+      );
+    } catch (error) {
+      return {
+        state: "error",
+        entries: [],
+        fetchedAt,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Builder CMS MCP read failed.",
+        progress: {
+          requestedLimit: readLimit(args.limit),
+          pageSize: BUILDER_CMS_PAGE_SIZE,
+          startOffset: 0,
+          nextOffset: 0,
+          fetchedEntryCount: 0,
+          hasMore: false,
+          partial: false,
+          readMode: "mcp",
+        },
+      };
+    }
+  }
+
+  if (!publicKey) {
+    return {
+      state: "unconfigured",
+      entries: [],
+      fetchedAt,
+      message:
+        "Builder CMS read skipped because BUILDER_PUBLIC_KEY is not configured.",
+      progress: {
+        requestedLimit: readLimit(args.limit),
+        pageSize: BUILDER_CMS_PAGE_SIZE,
+        startOffset: 0,
+        nextOffset: 0,
+        fetchedEntryCount: 0,
+        hasMore: false,
+        partial: false,
+        readMode: "none",
+      },
+    };
+  }
+
+  return {
+    state: "error",
+    entries: [],
+    fetchedAt,
+    message: "Builder CMS read returned no entries.",
+    progress: {
+      requestedLimit: readLimit(args.limit),
+      pageSize: BUILDER_CMS_PAGE_SIZE,
+      startOffset: 0,
+      nextOffset: 0,
+      fetchedEntryCount: 0,
+      hasMore: false,
+      partial: false,
+      readMode: "none",
+    },
+  };
+}

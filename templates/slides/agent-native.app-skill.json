@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "id": "slides",
+  "displayName": "Slides",
+  "description": "Generate, edit, and export React presentations through the Slides app.",
+  "hosted": {
+    "url": "https://slides.agent-native.com",
+    "mcpUrl": "https://slides.agent-native.com/mcp"
+  },
+  "mcp": {
+    "serverName": "agent-native-slides"
+  },
+  "local": {
+    "template": "slides",
+    "sourcePath": ".",
+    "defaultUrl": "http://127.0.0.1:8086",
+    "commands": {
+      "install": "pnpm install",
+      "dev": "pnpm dev",
+      "start": "pnpm start"
+    }
+  },
+  "auth": {
+    "mode": "oauth",
+    "setup": "Use the Slides actions if they are already available. Otherwise add https://slides.agent-native.com/mcp as a remote MCP connector in OAuth-capable hosts, then complete the host-owned OAuth sign-in. Codex and Claude Cowork use the browser-authorized device-code flow at https://slides.agent-native.com/mcp/connect or npx @agent-native/core@latest connect https://slides.agent-native.com. Never ask the user to paste a token into chat."
+  },
+  "surfaces": [
+    {
+      "id": "deck-editor",
+      "action": "create-deck",
+      "path": "/deck"
+    }
+  ],
+  "skills": [
+    {
+      "path": ".agents/skills/create-deck",
+      "visibility": "both",
+      "exportAs": "create-deck"
+    },
+    {
+      "path": ".agents/skills/slide-editing",
+      "visibility": "both",
+      "exportAs": "slide-editing"
+    },
+    {
+      "path": ".agents/skills/deck-management",
+      "visibility": "internal"
+    },
+    {
+      "path": ".agents/skills/design-systems",
+      "visibility": "both",
+      "exportAs": "design-systems"
+    },
+    {
+      "path": ".agents/skills/creative-context",
+      "visibility": "internal"
+    }
+  ],
+  "hostAdapters": [
+    "codex-plugin",
+    "claude-marketplace",
+    "vercel-skills",
+    "plain-skill",
+    "claude-skill",
+    "chatgpt-mcp",
+    "generic-mcp"
+  ]
+}
