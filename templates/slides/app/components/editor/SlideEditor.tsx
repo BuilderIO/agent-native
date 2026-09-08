@@ -194,6 +194,7 @@ import {
   findSmartBlock,
   isInlineTextElement,
   isRichTextBlock,
+  isSmartGroup,
   isSlideTextEditingTarget,
   shouldStampBuilderId,
 } from "./slide-text-targets";
@@ -323,7 +324,7 @@ function stampBuilderIds(container: HTMLElement) {
       return;
     }
     ensureBuilderId(element);
-    if (isRichTextBlock(element)) {
+    if (isRichTextBlock(element) && !isSmartGroup(element)) {
       for (const descendant of Array.from(
         element.querySelectorAll<HTMLElement>("[data-slide-text-block]"),
       )) {

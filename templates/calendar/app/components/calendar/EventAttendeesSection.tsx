@@ -690,10 +690,11 @@ export function EventAttendeesSection({
 }) {
   const t = useT();
   const attendees = event.attendees ?? [];
+  const organizerIsSelf = event.organizer?.self === true;
+  const initialSelfStatus: RsvpStatus =
+    event.responseStatus || (organizerIsSelf ? "accepted" : "needsAction");
   const [expanded, setExpanded] = useState(false);
-  const [selfStatus, setSelfStatus] = useState<RsvpStatus>(
-    event.responseStatus || "needsAction",
-  );
+  const [selfStatus, setSelfStatus] = useState<RsvpStatus>(initialSelfStatus);
   const [selfNote, setSelfNote] = useState(
     attendees.find((attendee) => attendee.self)?.comment?.trim() ?? "",
   );
@@ -705,7 +706,16 @@ export function EventAttendeesSection({
   const sorted = useMemo(() => sortAttendees(attendees), [attendees]);
   const canRsvpInline = canInlineRsvp(event);
   const selfAttendee = canRsvpInline
-    ? sorted.find((attendee) => attendee.self)
+    ? (sorted.find((attendee) => attendee.self) ??
+      (organizerIsSelf && event.organizer
+        ? {
+            email: event.organizer.email,
+            displayName: event.organizer.displayName,
+            organizer: true,
+            self: true,
+            responseStatus: initialSelfStatus,
+          }
+        : undefined))
     : undefined;
   const userIsOrganizer = Boolean(
     event.organizer?.self || selfAttendee?.organizer,
@@ -724,9 +734,9 @@ export function EventAttendeesSection({
       : sorted;
 
   useEffect(() => {
-    setSelfStatus(event.responseStatus || "needsAction");
+    setSelfStatus(initialSelfStatus);
     setSelfNote(selfAttendee?.comment?.trim() ?? "");
-  }, [event.id, event.responseStatus, selfAttendee?.comment]);
+  }, [event.id, initialSelfStatus, selfAttendee?.comment]);
 
   const handleSelfResponseChange = (status: RsvpStatus, note: string) => {
     setSelfStatus(status);

@@ -61,10 +61,15 @@ export function isSlideTextEditingTarget(
 }
 
 export function shouldStampBuilderId(element: HTMLElement): boolean {
+  const smartGroupMember =
+    isSmartGroup(element) ||
+    (isTextLeaf(element) &&
+      element.parentElement instanceof HTMLElement &&
+      isSmartGroup(element.parentElement));
   return (
     !element.classList.contains("fmd-layout-spacer") &&
     !isInlineTextElement(element) &&
-    !isRichTextLayerAncestor(element)
+    (!isRichTextLayerAncestor(element) || smartGroupMember)
   );
 }
 

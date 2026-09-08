@@ -106,6 +106,8 @@ describe("slide text targets", () => {
     const group = root.querySelector(".stage-card") as HTMLElement;
     const text = root.querySelector(".stage-title") as HTMLElement;
 
+    expect(shouldStampBuilderId(group)).toBe(true);
+    expect(shouldStampBuilderId(text)).toBe(true);
     expect(findSmartBlock(text, root)).toBe(text);
     expect(findSmartBlock(group, root)).toBe(group);
     expect(group.style.display).toBe("flex");

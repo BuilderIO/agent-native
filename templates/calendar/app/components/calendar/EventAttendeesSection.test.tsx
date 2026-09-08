@@ -153,7 +153,8 @@ describe("EventAttendeesSection attendee controls", () => {
         {
           email: "guest@example.com",
           displayName: "Guest",
-          responseStatus: "tentative",
+          comment: "Proposal: Sep 11, 1-1:30pm",
+          responseStatus: "accepted",
         },
       ],
     };
@@ -199,6 +200,30 @@ describe("EventAttendeesSection attendee controls", () => {
     );
     expect(proposeLink).toBeTruthy();
     expect(proposeLink?.getAttribute("href")).toBe(googleCalendarLink);
+
+    const organizerWithoutSelfAttendee: CalendarEvent = {
+      ...organizerEvent,
+      id: "event-proposal-review-without-self-attendee",
+      attendees: [
+        {
+          email: "guest@example.com",
+          comment: "Proposal: Sep 11, 1-1:30pm",
+          responseStatus: "accepted",
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <EventAttendeesSection event={organizerWithoutSelfAttendee} />,
+      );
+    });
+
+    expect(
+      Array.from(document.querySelectorAll("a")).some(
+        (link) => link.textContent === "eventForm.reviewProposedTime",
+      ),
+    ).toBe(true);
   });
 
   it("shows the event zone for the organizer and the browser zone for self", () => {

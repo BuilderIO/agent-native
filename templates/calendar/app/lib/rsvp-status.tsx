@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 export type RsvpStatus = "accepted" | "declined" | "tentative" | "needsAction";
 
 const TIME_PROPOSAL_COMMENT_RE =
-  /\b(propos(?:e|ed|ing)|new time|different time|another time|reschedul|move (?:it|this)|can we (?:do|move)|could we (?:do|move))\b/i;
+  /\b(proposal|propos(?:e|ed|ing)|new time|different time|another time|reschedul|move (?:it|this)|can we (?:do|move)|could we (?:do|move))\b/i;
 
 export function getRsvpStatusLabel(status?: string) {
   switch (status) {
@@ -73,29 +73,15 @@ export function RsvpStatusIcon({
 }
 
 export function hasTimeProposal(
-  event: Pick<CalendarEvent, "attendees" | "organizer">,
+  event: Pick<CalendarEvent, "attendees">,
 ): boolean {
   const attendees = event.attendees ?? [];
-  const otherAttendees = attendees.filter((attendee) => !attendee.self);
-
-  if (
-    otherAttendees.some((attendee) => {
+  return attendees
+    .filter((attendee) => !attendee.self)
+    .some((attendee) => {
       const comment = attendee.comment?.trim();
       return !!comment && TIME_PROPOSAL_COMMENT_RE.test(comment);
-    })
-  ) {
-    return true;
-  }
-
-  const userIsOrganizer = Boolean(
-    event.organizer?.self ||
-    attendees.some((attendee) => attendee.self && attendee.organizer),
-  );
-
-  return (
-    userIsOrganizer &&
-    otherAttendees.some((attendee) => attendee.responseStatus === "tentative")
-  );
+    });
 }
 
 export function EventStatusIcon({
