@@ -42,6 +42,8 @@ function comment(overrides: Partial<Comment> = {}): Comment {
     created_at: "2026-09-04T12:00:00.000Z",
     updated_at: "2026-09-04T12:00:00.000Z",
     notion_comment_id: null,
+    submission_source: "frontend",
+    submission_run_id: null,
     ...overrides,
   };
 }
@@ -161,6 +163,8 @@ describe("optimistic comment mutations", () => {
       content: "A new thought",
       author_email: "jane.doe@example.com",
       author_name: "Jane Doe",
+      submission_source: "frontend",
+      submission_run_id: null,
       mentions: [{ email: "sam@example.com", name: "Sam" }],
       mutation: { kind: "create", status: "pending" },
     });

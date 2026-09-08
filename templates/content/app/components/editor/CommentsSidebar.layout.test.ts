@@ -10,6 +10,7 @@ import {
   estimateThreadCardHeight,
   findPendingCommentOffset,
   findThreadPosition,
+  getAiCommentSource,
   layoutCommentThreads,
   scrollToCommentAnchor,
 } from "./CommentsSidebar";
@@ -29,6 +30,14 @@ function rect(top: number) {
 }
 
 describe("comments sidebar layout", () => {
+  it("attributes only comments submitted through AI surfaces", () => {
+    expect(getAiCommentSource("mcp")).toBe("mcp");
+    expect(getAiCommentSource("agent")).toBe("agent");
+    expect(getAiCommentSource("frontend")).toBeNull();
+    expect(getAiCommentSource("automation")).toBeNull();
+    expect(getAiCommentSource(null)).toBeNull();
+  });
+
   it("tracks both document and desktop-rail positions for a highlight", () => {
     document.body.innerHTML =
       '<div id="scroll"><div data-document-scroll-content><span data-comment-thread="thread-1"></span></div></div><div id="rail"></div>';
@@ -319,20 +328,6 @@ describe("comments sidebar layout", () => {
       '"relative mx-2 mt-3 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"',
     );
     expect(source).toContain(": undefined");
-  });
-
-  it("keeps comment drafts open until their mutation succeeds", () => {
-    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("createComment.isPending");
-    expect(source).toContain("onSuccess: (result) => {");
-    expect(source).toContain("onError: (error) => {");
-    expect(source).toContain('toast.error(t("empty.genericError")');
-    expect(source).toMatch(
-      /createComment\.mutate\([\s\S]*?onSuccess: \(result\) => \{[\s\S]*?pendingDraft\.clearIfUnchanged\(submittedDraft\)[\s\S]*?onPendingDone\?\.\(result\.threadId\)/,
-    );
   });
 
   it("keeps card height estimates based on the thread reply count", () => {

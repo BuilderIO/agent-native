@@ -1,3 +1,4 @@
+import type { ActionRunContext } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type CommentRow = {
@@ -25,7 +26,7 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({
-  getRequestRunContext: () => ({ caller: "mcp" }),
+  getRequestRunContext: () => ({ runId: "run-1" }),
   getRequestUserEmail: () => "author@example.com",
   getRequestUserName: () => "Authenticated Profile Name",
 }));
@@ -93,7 +94,8 @@ vi.mock("../server/db/index.js", () => {
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
 import action from "./add-comment";
 
-const run = (args: Record<string, unknown>) => (action as any).run(args);
+const run = (args: Record<string, unknown>, ctx?: ActionRunContext) =>
+  (action as any).run(args, ctx);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -138,6 +140,60 @@ describe("add-comment reply boundary", () => {
   });
 
   it.each([
+    ["mcp", "mcp"],
+    ["webmcp", "mcp"],
+    ["tool", "agent"],
+    ["frontend", "frontend"],
+    ["http", "http"],
+    ["cli", "cli"],
+    ["automation", "automation"],
+  ] as const)(
+    "records %s submission separately from the account",
+    async (caller, source) => {
+      await run(
+        {
+          documentId: "doc-1",
+          content: "Comment",
+          submissionSource: "frontend",
+        },
+        { caller, runId: caller === "tool" ? "run-1" : undefined },
+      );
+      expect(state.inserted[0]).toMatchObject({
+        authorEmail: "author@example.com",
+        authorName: "Author",
+        submissionSource: source,
+        submissionRunId: caller === "tool" ? "run-1" : null,
+      });
+    },
+  );
+
+  it("does not infer an agent from absent caller metadata", async () => {
+    await run({
+      documentId: "doc-1",
+      content: "Comment",
+      submissionSource: "mcp",
+    });
+    expect(state.inserted[0]).toMatchObject({ submissionSource: null });
+  });
+
+  it("attributes a reply to its own submission source", async () => {
+    await run(
+      {
+        documentId: "doc-1",
+        content: "Reply",
+        threadId: "root-1",
+        parentId: "root-1",
+      },
+      { caller: "tool", runId: "run-reply" },
+    );
+    expect(state.inserted[0]).toMatchObject({
+      parentId: "root-1",
+      submissionSource: "agent",
+      submissionRunId: "run-reply",
+    });
+  });
+
+  it.each([
     { threadId: "root-1" },
     { parentId: "root-1" },
     { threadId: "root-2", parentId: "root-1" },
@@ -169,6 +225,17 @@ describe("comment submission receipts", () => {
     expect(state.inserted).toHaveLength(1);
     expect(notifyDocumentComment).toHaveBeenCalledTimes(1);
     expect(mockAssertAccess).toHaveBeenCalledTimes(2);
+  });
+  it("preserves original submission provenance when a retry comes from a new run", async () => {
+    await run(input, { caller: "tool", runId: "original-run" });
+    expect(
+      await run(input, { caller: "mcp", runId: "retry-run" }),
+    ).toMatchObject({ replayed: true });
+    expect(state.inserted).toHaveLength(1);
+    expect(state.inserted[0]).toMatchObject({
+      submissionSource: "agent",
+      submissionRunId: "original-run",
+    });
   });
   it("recovers the same receipt after notification fails after insertion", async () => {
     vi.mocked(notifyDocumentComment).mockRejectedValueOnce(

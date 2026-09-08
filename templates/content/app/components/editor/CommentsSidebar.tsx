@@ -21,6 +21,7 @@ import {
   useLayoutEffect,
   useMemo,
   useCallback,
+  useId,
   type RefObject,
 } from "react";
 import { toast } from "sonner";
@@ -137,6 +138,63 @@ function CommentAvatar({
         {emailToInitial(label)}
       </UserAvatarFallback>
     </UserAvatar>
+  );
+}
+
+export function getAiCommentSource(
+  submissionSource: string | null | undefined,
+): "mcp" | "agent" | null {
+  return submissionSource === "mcp" || submissionSource === "agent"
+    ? submissionSource
+    : null;
+}
+
+function CommentAttributionBadge({ comment }: { comment: Comment }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const source = getAiCommentSource(comment.submission_source);
+  if (!source) return null;
+
+  const authorName =
+    comment.author_name ??
+    comment.author_email.split("@")[0] ??
+    comment.author_email;
+  const attribution = t("comments.aiAttribution", { name: authorName });
+  const sourceLabel = t(
+    source === "mcp" ? "comments.aiSourceMcp" : "comments.aiSourceAgent",
+  );
+
+  return (
+    <Tooltip open={open} onOpenChange={setOpen}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${attribution}. ${sourceLabel}`}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(true);
+          }}
+          className="pointer-events-auto -m-1 inline-flex shrink-0 items-center justify-center rounded p-1 leading-none text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-comment-ai-attribution={source}
+        >
+          <span className="inline-flex h-4 min-w-5 items-center justify-center rounded border border-border bg-muted/50 px-1 text-[10px] font-semibold leading-none tracking-wide">
+            {t("comments.aiBadge")}
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="start"
+        sideOffset={6}
+        className="w-max max-w-60 px-2 py-1.5 text-xs leading-4"
+      >
+        <span className="grid gap-0.5">
+          <span>{attribution}</span>
+          <span className="text-muted-foreground">{sourceLabel}</span>
+        </span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -753,7 +811,11 @@ export function CommentsSidebar({
 
   if (presentation === "history") {
     return (
-      <div className="min-h-full w-full bg-background" data-comments-history>
+      <div
+        className="min-h-full w-full bg-background"
+        data-comments-history
+        data-comments-sidebar
+      >
         <div className="sticky top-0 z-10 flex items-center border-b border-border bg-background px-3 py-2">
           {selectedThreadId && (
             <Button
@@ -1065,33 +1127,53 @@ function HistoryThreadView({
 }) {
   const first = thread.comments[0];
   const t = useT();
+  const labelId = useId();
+  const contentId = useId();
   return (
-    <button
-      type="button"
-      className="w-full min-w-0 overflow-hidden rounded-lg bg-popover p-3 text-start shadow-sm ring-1 ring-border/50 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      onClick={onOpen}
-    >
-      {thread.quotedText ? (
-        <p className="mb-2 line-clamp-2 border-s-2 border-border ps-2 text-xs italic text-muted-foreground">
-          {thread.quotedText}
-        </p>
-      ) : null}
-      <div className="flex items-start gap-2">
-        <CommentAvatar
-          email={first.author_email}
-          name={first.author_name ?? first.author_email}
-          className="size-5 shrink-0"
-        />
-        <span className="min-w-0 flex-1 break-words text-[13px] text-foreground/90">
-          {renderCommentBody(first.content, first.mentions)}
-        </span>
+    <div className="w-full min-w-0 overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50 group/history relative">
+      <button
+        type="button"
+        className="absolute inset-0 rounded-lg hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        aria-labelledby={`${labelId} ${contentId}`}
+        onClick={onOpen}
+      />
+      <div className="pointer-events-none relative p-3">
+        {thread.quotedText ? (
+          <p className="mb-2 line-clamp-2 border-s-2 border-border ps-[26px] text-xs italic leading-4 text-muted-foreground">
+            {thread.quotedText}
+          </p>
+        ) : null}
+        <div className="flex items-start gap-2">
+          <CommentAvatar
+            email={first.author_email}
+            name={first.author_name ?? first.author_email}
+            className="size-5 shrink-0"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex h-5 min-w-0 items-center gap-1.5">
+              <span
+                id={labelId}
+                className="truncate text-[13px] font-semibold leading-5 text-foreground"
+              >
+                {first.author_name ?? first.author_email.split("@")[0]}
+              </span>
+              <CommentAttributionBadge comment={first} />
+            </div>
+            <div
+              id={contentId}
+              className="break-words text-start text-[13px] leading-5 text-foreground/90 [&_a]:pointer-events-auto [&_a]:relative"
+            >
+              {renderCommentBody(first.content, first.mentions)}
+            </div>
+          </div>
+        </div>
+        {thread.comments.length > 1 && (
+          <span className="mt-2 block text-xs text-muted-foreground">
+            {t("comments.replyCount", { count: thread.comments.length - 1 })}
+          </span>
+        )}
       </div>
-      {thread.comments.length > 1 && (
-        <span className="mt-2 block text-xs text-muted-foreground">
-          {t("comments.replyCount", { count: thread.comments.length - 1 })}
-        </span>
-      )}
-    </button>
+    </div>
   );
 }
 
@@ -1341,7 +1423,7 @@ function ResolvedThreadView({
         )}
       </div>
       {thread.quotedText && (
-        <p className="mb-2 border-s-2 border-border ps-2 text-xs italic text-muted-foreground">
+        <p className="mb-2 border-s-2 border-border ps-[26px] text-xs italic leading-4 text-muted-foreground">
           {thread.quotedText}
         </p>
       )}
@@ -1459,14 +1541,16 @@ function CommentEntry({
           event.stopPropagation();
       }}
     >
-      <div className="mb-0.5 flex items-center gap-2">
+      <div className="mb-1 flex min-h-5 items-center gap-2">
         <CommentAvatar
           email={comment.author_email}
           name={comment.author_name ?? comment.author_email}
+          className="size-5 shrink-0"
         />
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
           {comment.author_name ?? comment.author_email.split("@")[0]}
         </span>
+        <CommentAttributionBadge comment={comment} />
         <span className="text-xs text-muted-foreground">
           {formatDate(comment.created_at)}
         </span>
@@ -1494,7 +1578,7 @@ function CommentEntry({
           </DropdownMenu>
         )}
       </div>
-      <div className="ps-8 text-[13px] leading-relaxed text-foreground/90">
+      <div className="ps-7 text-[13px] leading-5 text-foreground/90">
         {editing ? (
           <div>
             <CommentComposer

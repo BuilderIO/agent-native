@@ -34,6 +34,8 @@ export interface Comment {
   created_at: string;
   updated_at: string;
   notion_comment_id: string | null;
+  submission_source: string | null;
+  submission_run_id?: string | null;
   mutation?: CommentMutationState;
 }
 
@@ -432,6 +434,8 @@ export function useCreateComment(author: CommentAuthor = {}) {
         created_at: now,
         updated_at: now,
         notion_comment_id: null,
+        submission_source: "frontend",
+        submission_run_id: null,
         mutation: { operationId, kind: "create", status: "pending" },
       };
       documentOperations(queryClient, variables.documentId).set(operationId, {

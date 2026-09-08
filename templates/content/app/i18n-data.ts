@@ -1,6 +1,7 @@
 import { type LocaleCode } from "@agent-native/core/client/i18n";
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
+import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
 import zhTW from "./i18n/zh-TW";
 
 const databaseMessages = {
@@ -3373,6 +3374,7 @@ const enUS = {
     untitledDatabase: "Untitled database",
   },
   comments: {
+    ...commentAttributionMessagesByLocale["en-US"],
     filter: "Filter",
     add: "Add a comment...",
     title: "Comments",
@@ -9514,6 +9516,7 @@ const contentReferenceMessagesByLocale = {
 
 const commentMessagesByLocale = {
   "zh-CN": {
+    ...commentAttributionMessagesByLocale["zh-CN"],
     selectTextToComment: "选择文本以添加评论",
     replyCount_other: "{{count}} 条回复",
     commentActions: "评论操作",
@@ -9538,6 +9541,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "没有匹配的评论。",
   },
   "zh-TW": {
+    ...commentAttributionMessagesByLocale["zh-TW"],
     selectTextToComment: "選取文字以新增留言",
     replyCount_other: "{{count}} 則回覆",
     commentActions: "留言操作",
@@ -9562,6 +9566,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "沒有相符的留言。",
   },
   "es-ES": {
+    ...commentAttributionMessagesByLocale["es-ES"],
     selectTextToComment: "Selecciona texto para añadir un comentario",
     replyCount_one: "{{count}} respuesta",
     replyCount_many: "{{count}} respuestas",
@@ -9589,6 +9594,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "No hay comentarios coincidentes.",
   },
   "fr-FR": {
+    ...commentAttributionMessagesByLocale["fr-FR"],
     selectTextToComment: "Sélectionnez du texte pour ajouter un commentaire",
     replyCount_one: "{{count}} réponse",
     replyCount_many: "{{count}} réponses",
@@ -9616,6 +9622,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "Aucun commentaire correspondant.",
   },
   "de-DE": {
+    ...commentAttributionMessagesByLocale["de-DE"],
     selectTextToComment: "Text auswählen, um einen Kommentar hinzuzufügen",
     replyCount_one: "{{count}} Antwort",
     replyCount_other: "{{count}} Antworten",
@@ -9642,6 +9649,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "Keine passenden Kommentare.",
   },
   "ja-JP": {
+    ...commentAttributionMessagesByLocale["ja-JP"],
     selectTextToComment: "コメントを追加するテキストを選択",
     replyCount_other: "{{count}} 件の返信",
     commentActions: "コメント操作",
@@ -9667,6 +9675,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "一致するコメントはありません。",
   },
   "ko-KR": {
+    ...commentAttributionMessagesByLocale["ko-KR"],
     selectTextToComment: "댓글을 추가할 텍스트 선택",
     replyCount_other: "답글 {{count}}개",
     commentActions: "댓글 작업",
@@ -9692,6 +9701,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "일치하는 댓글이 없습니다.",
   },
   "pt-BR": {
+    ...commentAttributionMessagesByLocale["pt-BR"],
     selectTextToComment: "Selecione um texto para adicionar um comentário",
     replyCount_one: "{{count}} resposta",
     replyCount_many: "{{count}} respostas",
@@ -9719,6 +9729,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "Nenhum comentário correspondente.",
   },
   "hi-IN": {
+    ...commentAttributionMessagesByLocale["hi-IN"],
     selectTextToComment: "टिप्पणी जोड़ने के लिए टेक्स्ट चुनें",
     replyCount_one: "{{count}} जवाब",
     replyCount_other: "{{count}} जवाब",
@@ -9745,6 +9756,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "कोई मेल खाती टिप्पणी नहीं।",
   },
   "ar-SA": {
+    ...commentAttributionMessagesByLocale["ar-SA"],
     selectTextToComment: "حدد نصًا لإضافة تعليق",
     replyCount_zero: "{{count}} ردود",
     replyCount_one: "{{count}} رد",

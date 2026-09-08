@@ -41,6 +41,7 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 - Rich Comment bodies use the shared Blocks-field grammar; replies and mentions retain the same Page authority.
 - Anchors follow stable Block identity where possible and preserve historical target context after deletion rather than attaching to plausible new text.
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
+- Comments submitted through MCP or the in-app agent's Action tools retain the authenticated account as their author and separately persist their submission source. The UI and notifications identify them as posted via AI on that person's behalf; this describes submission, not a claim that AI wrote every word. Replies record their own source, edits preserve the original submission attribution, and historical comments without provenance remain unclassified.
 - References and embeds display the authoritative Page-owned thread; they do not clone or re-home it.
 
 ## Boundaries and non-goals

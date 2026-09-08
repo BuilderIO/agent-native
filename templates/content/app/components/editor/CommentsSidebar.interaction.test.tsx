@@ -83,6 +83,7 @@ function thread(id: string, resolved = false): CommentThread {
         created_at: "2026-09-04T12:00:00Z",
         updated_at: "2026-09-04T12:00:00Z",
         notion_comment_id: null,
+        submission_source: "frontend",
       },
     ],
   };
@@ -182,6 +183,29 @@ describe("comment review interactions", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
   }
+  it.each([
+    ["inline", "one", false],
+    ["history", null, false],
+    ["history", null, true],
+  ] as const)(
+    "preserves AI attribution in %s presentation (selected: %s, resolved: %s)",
+    (presentation, selected, resolved) => {
+      const attributed = thread("one", resolved);
+      attributed.comments[0].submission_source = "mcp";
+      render(selected, [attributed], presentation);
+      if (resolved) act(() => panel.setHistoryStatus("all"));
+      expect(
+        container.querySelector('[data-comment-ai-attribution="mcp"]'),
+      ).not.toBeNull();
+      expect(container.querySelector("[data-comments-sidebar]")).not.toBeNull();
+      attributed.comments[0].submission_source = "frontend";
+      render(selected, [attributed], presentation);
+      expect(
+        container.querySelector("[data-comment-ai-attribution]"),
+      ).toBeNull();
+    },
+  );
+
   it("preserves a reply through dismissal, thread switches, and panel presentation remounts", () => {
     render("one");
     type("Unsent detailed feedback");
