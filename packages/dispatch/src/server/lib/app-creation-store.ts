@@ -2247,7 +2247,6 @@ function slugify(value: string): string {
 }
 
 export function isLocalAppCreationRuntime(): boolean {
-  return false;
   if (process.env.NODE_ENV === "production") return false;
   if (
     process.env.NETLIFY ||
