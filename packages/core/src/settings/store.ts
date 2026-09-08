@@ -1,6 +1,6 @@
 import type { EventEmitter } from "node:events";
 
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestContext } from "../server/request-context.js";
@@ -100,19 +100,20 @@ export async function ensureTable(): Promise<void> {
 export interface StoreReadOptions {
   /** Skip the per-request snapshot when a cross-request race must be checked. */
   bypassCache?: boolean;
+  transaction?: DbExec;
 }
 
 export async function getSetting(
   key: string,
   options?: StoreReadOptions,
 ): Promise<Record<string, unknown> | null> {
-  const cache = requestSettingsCache();
+  const cache = options?.transaction ? null : requestSettingsCache();
   if (!options?.bypassCache && cache?.has(key)) {
     const cached = cache.get(key);
     return cached == null ? null : JSON.parse(cached);
   }
-  await ensureTable();
-  const client = getDbExec();
+  if (!options?.transaction) await ensureTable();
+  const client = options?.transaction ?? getDbExec();
   const table = settingsTable();
   const { rows } = await client.execute({
     sql: `SELECT value FROM ${table} WHERE key = ?`,

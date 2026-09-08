@@ -75,6 +75,19 @@ describe("Content document suggestion adapter", () => {
     expect(exclusions).toHaveBeenCalledOnce();
   });
 
+  it("uses the proposal transaction for database validation", async () => {
+    const execute = vi.fn(async () => ({ rows: [] }));
+    await contentDocumentSuggestionAdapter.validateProposal({
+      resourceType: "document",
+      resourceId: "doc-1",
+      baseRevision: "rev-1",
+      operations: [operation],
+      ctx: { suggestionAccess: access, transaction: { execute } },
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(exclusions).not.toHaveBeenCalled();
+  });
+
   it("rejects inline-database pages before creating a pending suggestion", async () => {
     const markdown = 'Before\n\n<InlineDatabase id="db-1" />';
     await expect(

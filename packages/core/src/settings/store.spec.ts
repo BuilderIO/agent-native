@@ -148,3 +148,16 @@ describe("settings store", () => {
     ]);
   });
 });
+
+it("reads settings through a supplied transaction without another connection", async () => {
+  const execute = vi.fn(async () => ({
+    rows: [{ value: '{"enabled":true}' }],
+    rowsAffected: 0,
+  }));
+  rawClient.execute.mockClear();
+  expect(await getSetting("flag", { transaction: { execute } })).toEqual({
+    enabled: true,
+  });
+  expect(execute).toHaveBeenCalledOnce();
+  expect(rawClient.execute).not.toHaveBeenCalled();
+});

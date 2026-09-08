@@ -195,7 +195,11 @@ export const createResourceSuggestion = defineAction({
       }
       const adapter = getSuggestionAdapter(args.adapterKind);
       if (!adapter) throw new Error("Suggestion adapter not registered");
-      const adapterContext = { ...(ctx as any), suggestionAccess: access };
+      const adapterContext = {
+        ...(ctx as any),
+        suggestionAccess: access,
+        transaction: tx,
+      };
       const operations =
         (await adapter.validateProposal({ ...args, ctx: adapterContext })) ??
         args.operations;

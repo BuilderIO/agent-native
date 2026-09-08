@@ -14,7 +14,9 @@
  */
 
 import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { drizzle as drizzleProxy } from "drizzle-orm/pg-proxy";
 
+import { withDbExec, type DbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
@@ -63,6 +65,7 @@ export class ForbiddenError extends Error {
 }
 
 export interface AccessContext {
+  transaction?: DbExec;
   userEmail?: string;
   orgId?: string;
   authCapability?: string;
@@ -591,7 +594,11 @@ export async function resolveAccess(
   rawCtx: AccessContext = currentAccess(),
   options: ResolveAccessOptions = {},
 ): Promise<ResolvedAccess | ResolvedAccessProjected | null> {
-  return resolveAccessImpl(resourceType, resourceId, rawCtx, options);
+  return rawCtx.transaction
+    ? withDbExec(rawCtx.transaction, () =>
+        resolveAccessImpl(resourceType, resourceId, rawCtx, options),
+      )
+    : resolveAccessImpl(resourceType, resourceId, rawCtx, options);
 }
 
 /**
@@ -609,7 +616,17 @@ async function resolveAccessImpl(
   rawCtx: AccessContext = currentAccess(),
   options: ResolveAccessOptions = {},
 ): Promise<ResolvedAccess | ResolvedAccessProjected | null> {
-  const reg = requireShareableResource(resourceType);
+  const registered = requireShareableResource(resourceType);
+  const transaction = rawCtx.transaction;
+  const transactionDb = transaction
+    ? drizzleProxy(async (query, params) => {
+        const result = await transaction.execute({ sql: query, args: params });
+        return { rows: result.rows.map((row) => Object.values(row)) };
+      })
+    : null;
+  const reg = transactionDb
+    ? { ...registered, getDb: () => transactionDb }
+    : registered;
   const ctx = resolveRegisteredAccessContext(reg, rawCtx);
 
   const resource = await loadResourceForAccess(reg, resourceId, options);

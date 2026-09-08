@@ -168,6 +168,21 @@ describe("suggestion creation replay", () => {
     });
   });
 
+  it("passes the active transaction to proposal validation", async () => {
+    prior = null;
+    await expect(
+      createResourceSuggestion.run(args, {
+        caller: "tool",
+        userEmail: "agent@example.com",
+      }),
+    ).rejects.toThrow("base revision");
+    expect(validateProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ctx: expect.objectContaining({ transaction }),
+      }),
+    );
+  });
+
   it("returns the original accepted suggestion before mutable validation", async () => {
     await expect(
       createResourceSuggestion.run(args, {

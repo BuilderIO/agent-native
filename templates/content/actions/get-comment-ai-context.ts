@@ -17,7 +17,7 @@ export default defineAction({
     const request = await requireCommentAiRequest();
     const receipt = serializeCommentAiRequest(request);
     if (["replied", "suggested", "resolved"].includes(request.status))
-      return { request: receipt };
+      return { request: receipt, operationCompleted: true, nextAction: null };
     try {
       const { document, comments, root } =
         await assertCommentAiSourceUnchanged(request);
@@ -32,6 +32,12 @@ export default defineAction({
       await updateCommentAiRequest(request, { status: "running" });
       return {
         request: receipt,
+        operationCompleted: false,
+        nextAction: {
+          reply: "reply-to-comment-ai-request",
+          suggest: "create-comment-ai-suggestion",
+          "apply-resolve": "apply-comment-ai-request",
+        }[request.intent],
         fieldId: request.fieldId,
         title: document.title,
         content: document.content,

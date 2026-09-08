@@ -195,7 +195,9 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     if (document.updatedAt !== input.baseRevision) {
       throw new Error("The Page changed before the suggestion was created");
     }
-    const exclusions = await getDbExec().execute({
+    const proposalDb =
+      (input.ctx?.transaction as DbExec | undefined) ?? getDbExec();
+    const exclusions = await proposalDb.execute({
       sql: `SELECT 'database' AS kind
             FROM content_database_items i
             INNER JOIN content_databases d ON d.id = i.database_id
