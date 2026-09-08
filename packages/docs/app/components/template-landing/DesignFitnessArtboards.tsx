@@ -136,6 +136,7 @@ function ImageSlot({
         alt=""
         crossOrigin="anonymous"
         decoding="async"
+        loading="lazy"
         style={{ objectPosition }}
       />
     </div>
