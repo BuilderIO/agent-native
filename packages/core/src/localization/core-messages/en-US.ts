@@ -93,6 +93,9 @@ const messages = {
     "Recorded videos need durable object storage before they can be played back or shared.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Speech-to-text provider key",
+  "onboarding.capability.about": "About {{label}}",
+  "onboarding.capability.why": "Why {{label}} is needed",
+  "onboarding.openAiKeySettings": "Open AI key settings",
   "aboutAgentNative.title": "About Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Environment",

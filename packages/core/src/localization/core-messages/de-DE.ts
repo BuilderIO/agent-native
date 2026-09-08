@@ -101,6 +101,9 @@ const messages: AgentChatTranslation = {
     "Aufgenommene Videos benötigen dauerhaften Objektspeicher, bevor sie abgespielt oder geteilt werden können.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Schlüssel eines Sprache-zu-Text-Anbieters",
+  "onboarding.capability.about": "Über {{label}}",
+  "onboarding.capability.why": "Warum {{label}} benötigt wird",
+  "onboarding.openAiKeySettings": "KI-Schlüsseleinstellungen öffnen",
   "aboutAgentNative.title": "Über Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Umgebung",

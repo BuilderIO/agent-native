@@ -91,6 +91,9 @@ const messages: AgentChatTranslation = {
     "रिकॉर्ड किए गए वीडियो को चलाने या साझा करने से पहले टिकाऊ ऑब्जेक्ट स्टोरेज की आवश्यकता होती है।",
   "onboarding.capability.clipsTranscription.keySummary":
     "स्पीच-टू-टेक्स्ट प्रदाता की कुंजी",
+  "onboarding.capability.about": "{{label}} के बारे में",
+  "onboarding.capability.why": "{{label}} क्यों आवश्यक है",
+  "onboarding.openAiKeySettings": "AI कुंजी सेटिंग खोलें",
   "aboutAgentNative.title": "Agent-Native के बारे में",
   "aboutAgentNative.version": "संस्करण",
   "aboutAgentNative.environment": "पर्यावरण",

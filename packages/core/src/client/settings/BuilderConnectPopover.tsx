@@ -28,6 +28,8 @@ export interface BuilderConnectPopoverProps {
   onConnect?: (provisionAccount: boolean) => void;
   /** Preserve parent-row click behavior for compact setup controls. */
   onTriggerClick?: React.MouseEventHandler<HTMLElement>;
+  /** Start the requested flow even while the initial status read is pending. */
+  defaultProvisionAccount?: boolean;
   contentTestId?: string;
   primaryTestId?: string;
   secondaryTestId?: string;
@@ -38,6 +40,7 @@ export function BuilderConnectPopover({
   children,
   onConnect,
   onTriggerClick,
+  defaultProvisionAccount = false,
   contentTestId,
   primaryTestId,
   secondaryTestId,
@@ -68,12 +71,22 @@ export function BuilderConnectPopover({
   };
 
   const trigger = React.cloneElement(children, {
-    "aria-disabled": capabilityResolved ? undefined : true,
+    "aria-disabled":
+      capabilityResolved || defaultProvisionAccount ? undefined : true,
     onClick: (event) => {
+      if (flow.connecting) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (!capabilityResolved) {
         event.preventDefault();
         event.stopPropagation();
-        flow.retry?.();
+        if (defaultProvisionAccount) {
+          start(defaultProvisionAccount);
+        } else {
+          flow.retry?.();
+        }
         return;
       }
       children.props.onClick?.(event);

@@ -1191,7 +1191,6 @@ export function IntegrationsPanel() {
       {externalHostMatches && (
         <section>
           <IntegrationGrid
-            className="sm:grid-cols-1"
             items={[
               {
                 id: "external-ai-host",

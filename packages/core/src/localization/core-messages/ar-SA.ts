@@ -94,6 +94,9 @@ const messages: AgentChatTranslation = {
     "تحتاج الفيديوهات المسجلة إلى تخزين كائنات دائم قبل تشغيلها أو مشاركتها.",
   "onboarding.capability.clipsTranscription.keySummary":
     "مفتاح مزود تحويل الكلام إلى نص",
+  "onboarding.capability.about": "حول {{label}}",
+  "onboarding.capability.why": "لماذا نحتاج إلى {{label}}",
+  "onboarding.openAiKeySettings": "فتح إعدادات مفاتيح الذكاء الاصطناعي",
   "aboutAgentNative.title": "حول Agent-Native",
   "aboutAgentNative.version": "الإصدار",
   "aboutAgentNative.environment": "البيئة",

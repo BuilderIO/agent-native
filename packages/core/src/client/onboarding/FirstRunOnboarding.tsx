@@ -18,6 +18,7 @@ import React, {
   useState,
 } from "react";
 
+import { buildSettingsRoute } from "../../navigation/index.js";
 import type {
   OnboardingAppProfile,
   OnboardingCapability,
@@ -336,12 +337,14 @@ export function FirstRunOnboarding({
   };
 
   const handleOpenSettings = () => {
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:open-settings", {
-        detail: { section: "integrations" },
-      }),
-    );
     void finishOnboarding("manual");
+    if (typeof window === "undefined") return;
+    window.history.pushState(
+      null,
+      "",
+      `${appPath(buildSettingsRoute("agent:llm"))}${window.location.search}`,
+    );
+    window.dispatchEvent(new Event("popstate"));
   };
 
   const handleFinish = (completeStep = true) => {
@@ -602,7 +605,13 @@ export function FirstRunOnboarding({
                           {capability.id === "design-system-intelligence" && (
                             <CapabilityInfoButton
                               why={copy.why}
-                              ariaLabel={`About ${copy.label}`}
+                              ariaLabel={t(
+                                "agentChat.onboarding.capability.about",
+                                {
+                                  defaultValue: "About {{label}}",
+                                  label: copy.label,
+                                },
+                              )}
                             />
                           )}
                         </span>
@@ -649,6 +658,7 @@ export function FirstRunOnboarding({
                 onConnect={(provisionAccount) =>
                   handleBuilder(provisionAccount)
                 }
+                defaultProvisionAccount
                 contentTestId="first-run-builder-consent"
                 primaryTestId="first-run-builder-create-and-activate"
                 secondaryTestId="first-run-builder-existing-account"
@@ -770,14 +780,6 @@ export function FirstRunOnboarding({
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  className={primaryButtonClass}
-                  onClick={handleOpenSettings}
-                >
-                  Open key settings
-                  <IconArrowRight size={15} />
-                </button>
-                <button
-                  type="button"
                   data-testid="first-run-skip-keys"
                   className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => {
@@ -786,6 +788,17 @@ export function FirstRunOnboarding({
                   }}
                 >
                   {t("agentChat.onboarding.skipForNow")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="first-run-open-key-settings"
+                  className={primaryButtonClass}
+                  onClick={handleOpenSettings}
+                >
+                  {t("agentChat.onboarding.openAiKeySettings", {
+                    defaultValue: "Open AI key settings",
+                  })}
+                  <IconArrowRight size={15} />
                 </button>
               </div>
             </div>
@@ -1338,6 +1351,8 @@ function CapabilityRow({
   copy: CapabilityCopy;
   compact: boolean;
 }) {
+  const t = useT();
+
   return (
     <div
       className={cn(
@@ -1354,7 +1369,10 @@ function CapabilityRow({
           </span>
           <CapabilityInfoButton
             why={copy.why}
-            ariaLabel={`Why ${copy.label} is needed`}
+            ariaLabel={t("agentChat.onboarding.capability.why", {
+              defaultValue: "Why {{label}} is needed",
+              label: copy.label,
+            })}
           />
         </div>
         <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">

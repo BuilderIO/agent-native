@@ -97,6 +97,9 @@ const messages: AgentChatTranslation = {
     "録画した動画は、再生または共有する前に永続的なオブジェクトストレージを必要とします。",
   "onboarding.capability.clipsTranscription.keySummary":
     "音声文字変換プロバイダーのキー",
+  "onboarding.capability.about": "{{label}}について",
+  "onboarding.capability.why": "{{label}}が必要な理由",
+  "onboarding.openAiKeySettings": "AIキー設定を開く",
   "aboutAgentNative.title": "Agent-Native について",
   "aboutAgentNative.version": "バージョン",
   "aboutAgentNative.environment": "環境",

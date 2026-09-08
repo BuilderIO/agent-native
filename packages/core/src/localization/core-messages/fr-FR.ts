@@ -101,6 +101,9 @@ const messages: AgentChatTranslation = {
     "Les vidéos enregistrées ont besoin d’un stockage objet durable avant de pouvoir être lues ou partagées.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Clé d’un fournisseur de conversion parole-texte",
+  "onboarding.capability.about": "À propos de {{label}}",
+  "onboarding.capability.why": "Pourquoi {{label}} est nécessaire",
+  "onboarding.openAiKeySettings": "Ouvrir les paramètres des clés IA",
   "aboutAgentNative.title": "À propos d’Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Environnement",

@@ -1081,12 +1081,10 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toMatch(/\bProduct\b/);
   });
 
-  // Regression: `statusResolved` flips only on a *successful* status response,
-  // so a failed one used to leave a fully styled CTA that swallowed every click
-  // for the rest of the session with nothing rendered and nothing logged. The
-  // contract is that a failed read is visible, not that it silently picks the
-  // existing-account path (which would bypass the free-credits consent).
-  it("surfaces a failed Builder status read next to the connect CTA", () => {
+  // A failed initial status read must not leave the free-credits CTA inert.
+  // The click can still start the provisioning flow, which performs its own
+  // fresh status read without bypassing the consent step.
+  it("keeps the free-credits CTA actionable after a failed status read", () => {
     const start = vi.fn();
     const retry = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -1123,14 +1121,45 @@ describe("FirstRunOnboarding", () => {
     const cta = document.body.querySelector(
       '[data-testid="first-run-connect-builder"]',
     );
-    expect(cta?.getAttribute("aria-disabled")).toBe("true");
+    expect(cta?.getAttribute("aria-disabled")).toBeNull();
 
     act(() => {
       cta?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(retry).toHaveBeenCalledTimes(1);
-    expect(start).not.toHaveBeenCalled();
+    expect(retry).not.toHaveBeenCalled();
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: true }),
+    );
+  });
+
+  it("opens the AI key settings page without opening the agent sidebar", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(window.location.pathname).toBe("/settings/agent/llm");
+    expect(mocks.completeFirstRun).toHaveBeenCalled();
+    window.history.replaceState(null, "", "/");
   });
 
   it("shows no status error while the first Builder status read is in flight", () => {

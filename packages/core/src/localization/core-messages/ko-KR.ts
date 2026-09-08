@@ -93,6 +93,9 @@ const messages: AgentChatTranslation = {
     "녹화한 동영상은 재생하거나 공유하기 전에 영구 오브젝트 스토리지가 필요합니다.",
   "onboarding.capability.clipsTranscription.keySummary":
     "음성 텍스트 변환 제공업체 키",
+  "onboarding.capability.about": "{{label}} 정보",
+  "onboarding.capability.why": "{{label}}이(가) 필요한 이유",
+  "onboarding.openAiKeySettings": "AI 키 설정 열기",
   "aboutAgentNative.title": "Agent-Native 정보",
   "aboutAgentNative.version": "버전",
   "aboutAgentNative.environment": "환경",

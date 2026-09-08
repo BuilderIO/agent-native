@@ -88,6 +88,9 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.why":
     "录制的视频需要持久对象存储后才能播放或分享。",
   "onboarding.capability.clipsTranscription.keySummary": "语音转文字提供商密钥",
+  "onboarding.capability.about": "关于{{label}}",
+  "onboarding.capability.why": "为什么需要{{label}}",
+  "onboarding.openAiKeySettings": "打开 AI 密钥设置",
   "aboutAgentNative.title": "关于 Agent-Native",
   "aboutAgentNative.version": "版本",
   "aboutAgentNative.environment": "环境",
