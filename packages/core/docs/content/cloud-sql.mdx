@@ -12,23 +12,33 @@ standard PostgreSQL URL.
 
 ## Configure the app
 
-Create a database and application user in Cloud SQL, then copy the instance's
-public or private address. Set `DATABASE_URL` in the server environment:
+Create a database and application user in Cloud SQL. For a direct public or
+private IP connection, copy the instance address and set `DATABASE_URL` in the
+server environment:
 
 ```bash
-DATABASE_URL=postgresql://app_user:YOUR_PASSWORD@your-cloud-sql-host:5432/appdb?sslmode=require
+DATABASE_URL=postgresql://app_user:password@your-cloud-sql-host:5432/appdb?sslmode=require
 ```
 
-For a deployment that runs the Cloud SQL Auth Proxy or another connector,
-point `DATABASE_URL` at the connector's local Postgres listener and follow the
-deployment platform's connector setup. The framework accepts the resulting
-PostgreSQL URL and does not configure the connector itself.
+If the deployment runs the [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/connect-auth-proxy)
+or another connector that exposes a local Postgres listener, point
+`DATABASE_URL` at that listener and disable client-side PostgreSQL TLS. The
+proxy or connector encrypts and authorizes its connection to Cloud SQL:
+
+```bash
+DATABASE_URL=postgresql://app_user:password@127.0.0.1:5432/appdb?sslmode=disable
+```
+
+Follow the deployment platform's connector setup. The framework accepts the
+resulting PostgreSQL URL and does not configure the connector itself.
 
 ## Networking and TLS
 
 Use a private IP when the deployment platform shares the right VPC network.
 For public IP connections, configure the instance's authorized networks or use
-a Cloud SQL connector. Enforce TLS for direct connections. Keep database
+a Cloud SQL connector. Enforce TLS for direct connections. For a local proxy or
+connector listener, use `sslmode=disable` in the client URL because the proxy or
+connector provides the encrypted connection to Cloud SQL. Keep database
 credentials in the deployment's secret storage.
 
 ## Migrations

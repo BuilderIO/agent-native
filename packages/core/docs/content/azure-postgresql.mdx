@@ -16,7 +16,7 @@ Create an application database and user, then copy the server hostname from
 the Azure portal. Set `DATABASE_URL` in the server environment:
 
 ```bash
-DATABASE_URL=postgresql://app_user:YOUR_PASSWORD@my-server.postgres.database.azure.com:5432/appdb?sslmode=require
+DATABASE_URL=postgresql://app_user:password@my-server.postgres.database.azure.com:5432/appdb?sslmode=require
 ```
 
 Use an application user instead of the server administrator when possible.

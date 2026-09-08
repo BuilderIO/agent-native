@@ -15,7 +15,7 @@ In the Amazon RDS console, open the DB instance and copy its endpoint and
 port. Set `DATABASE_URL` in the server environment:
 
 ```bash
-DATABASE_URL=postgresql://app_user:YOUR_PASSWORD@mydb.abc123.us-east-1.rds.amazonaws.com:5432/appdb?sslmode=require
+DATABASE_URL=postgresql://app_user:password@mydb.abc123.us-east-1.rds.amazonaws.com:5432/appdb?sslmode=require
 ```
 
 Use a database user created for the app instead of the master user. Keep the
