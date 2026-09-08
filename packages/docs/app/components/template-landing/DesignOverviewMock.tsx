@@ -758,7 +758,7 @@ const DESIGN_MOCK_CSS = [
 
   // Palette, mirroring templates/design/app/global.css. Dark by default; the
   // `html.light` block below swaps the whole mock when the docs shell is light.
-  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-selection: rgba(10, 154, 255, 0.24); --dm-accent: hsl(205 100% 53%); --dm-accent-contrast: #ffffff; --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-avatar-border: hsl(0 0% 13%); }",
+  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-accent: hsl(205 100% 53%); --dm-accent-contrast: #ffffff; --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-avatar-border: hsl(0 0% 13%); --dm-avatar-fg: hsl(0 0% 82%); --dm-avatar-bg-1: hsl(0 0% 40%); --dm-avatar-bg-2: hsl(0 0% 32%); --dm-avatar-bg-3: hsl(0 0% 25%); }",
 
   // Window
   ".design-mock .dm-window { position: absolute; inset: 0; display: flex; overflow: hidden; border-radius: 12px; border: 1px solid var(--dm-divider); background: var(--dm-panel-bg); color: var(--dm-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
@@ -769,8 +769,9 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-rail-project-mark { width: 24px; height: auto; }",
   ".design-mock .dm-rail-divider { width: 32px; height: 1px; background: var(--dm-border); }",
   ".design-mock .dm-rail-item { display: flex; width: 48px; height: 48px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-radius: 8px; color: var(--dm-fg-muted); }",
-  ".design-mock .dm-rail-item.is-active { background: var(--dm-selection); color: var(--dm-fg); }",
-  ".design-mock .dm-rail-item.is-active .dm-rail-icon { color: var(--dm-accent); }",
+  // The editor tints this blue (selection bg + accent icon). Kept neutral here
+  // so the hero's only blue is the actual selection on the canvas.
+  ".design-mock .dm-rail-item.is-active { background: var(--dm-active-row); color: var(--dm-fg); }",
   ".design-mock .dm-rail-icon { display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; }",
   ".design-mock .dm-rail-label { max-width: 100%; overflow: hidden; padding: 0 4px; font-size: 11px; font-weight: 450; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }",
 
@@ -827,11 +828,13 @@ const DESIGN_MOCK_CSS = [
   `.design-mock .dm-inspector { display: flex; width: ${INSPECTOR_WIDTH}px; flex-shrink: 0; flex-direction: column; overflow: hidden; border-left: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }`,
   ".design-mock .dm-inspector-toprow { display: flex; height: 40px; flex-shrink: 0; align-items: center; gap: 6px; padding: 0 8px; }",
   ".design-mock .dm-collaborators { display: flex; height: 32px; align-items: center; padding-right: 4px; }",
-  ".design-mock .dm-avatar { display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 2px solid var(--dm-avatar-border); border-radius: 999px; color: #ffffff; font-size: 10px; font-weight: 600; }",
+  // Three steps of one neutral rather than per-user hues: presence is ambient
+  // information here, and coloured discs pull the eye off the canvas.
+  ".design-mock .dm-avatar { display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 2px solid var(--dm-avatar-border); border-radius: 999px; color: var(--dm-avatar-fg); font-size: 10px; font-weight: 600; }",
   ".design-mock .dm-avatar + .dm-avatar { margin-left: -8px; }",
-  ".design-mock .dm-avatar-1 { background: #7c6ff0; }",
-  ".design-mock .dm-avatar-2 { background: #2f9e6d; }",
-  ".design-mock .dm-avatar-3 { background: #c9613f; }",
+  ".design-mock .dm-avatar-1 { background: var(--dm-avatar-bg-1); }",
+  ".design-mock .dm-avatar-2 { background: var(--dm-avatar-bg-2); }",
+  ".design-mock .dm-avatar-3 { background: var(--dm-avatar-bg-3); }",
   ".design-mock .dm-preview-btn { display: flex; height: 32px; align-items: center; gap: 2px; margin-left: auto; padding: 0 8px; border-radius: 6px; color: var(--dm-fg); }",
   ".design-mock .dm-share-btn { display: flex; height: 32px; align-items: center; padding: 0 12px; border-radius: 6px; background: var(--dm-accent); color: var(--dm-accent-contrast); font-size: 14px; font-weight: 500; }",
   ".design-mock .dm-segmented { display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: var(--dm-control-bg); }",
@@ -907,7 +910,7 @@ const DESIGN_MOCK_CSS = [
 
   // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
   // follows the visitor's theme instead of staying pinned to the dark art.
-  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-selection: rgba(10, 154, 255, 0.14); --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-avatar-border: hsl(0 0% 100%); }",
+  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-avatar-border: hsl(0 0% 100%); --dm-avatar-fg: hsl(0 0% 32%); --dm-avatar-bg-1: hsl(0 0% 72%); --dm-avatar-bg-2: hsl(0 0% 79%); --dm-avatar-bg-3: hsl(0 0% 86%); }",
   "html.light .design-mock .dm-paint-swatch { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }",
 
   // Narrow screens. The window is a fixed-width layout, so the whole mock
