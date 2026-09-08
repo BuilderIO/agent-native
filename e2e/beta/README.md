@@ -128,7 +128,7 @@ change the default for everyone in the org.
 
 | Secret                        | Purpose                                                                                                |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `BETA_E2E_EMAIL`              | The dedicated `+autoz` identity every authenticated spec asserts it is running as                       |
+| `BETA_E2E_EMAIL`              | The dedicated `+autoz` identity every authenticated spec asserts it is running as                      |
 | `BETA_E2E_SESSION_TOKENS`     | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                               |
 | `BETA_E2E_SESSION_TOKEN_CRM`  | Optional beta CRM override when its isolated database needs a fresh session                            |
 | `BETA_E2E_SESSION_TOKEN_CHAT` | Optional beta Chat override when its isolated database needs a fresh session                           |
