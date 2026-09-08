@@ -679,9 +679,11 @@ export default defineAction({
     for (let index = 0; index < requestedRoutes.length; index += 1) {
       const input = requestedRoutes[index]!;
       const primaryManifestRoute =
+        (input.url ? primaryManifest.byUrl.get(input.url) : undefined) ??
         (input.routeId ? primaryManifest.byId.get(input.routeId) : undefined) ??
-        (input.path ? primaryManifest.byPath.get(input.path) : undefined) ??
-        (input.url ? primaryManifest.byUrl.get(input.url) : undefined);
+        (!input.url && input.path
+          ? primaryManifest.byPath.get(input.path)
+          : undefined);
       const routeInput =
         input.connectionId || !primaryManifestRoute?.connectionId
           ? input
@@ -702,10 +704,16 @@ export default defineAction({
       const routeDevServerUrl = normalizeBaseUrl(routeConnection.devServerUrl);
       const routeManifest = manifestIndexesForConnection(routeConnection);
       const manifestRoute =
-        (input.routeId ? routeManifest.byId.get(input.routeId) : undefined) ??
-        (input.path ? routeManifest.byPath.get(input.path) : undefined) ??
         (input.url ? routeManifest.byUrl.get(input.url) : undefined) ??
-        primaryManifestRoute;
+        (input.routeId ? routeManifest.byId.get(input.routeId) : undefined) ??
+        (!input.url && input.path
+          ? routeManifest.byPath.get(input.path)
+          : undefined) ??
+        (routeConnection.id === connection.id &&
+        (!primaryManifestRoute?.connectionId ||
+          primaryManifestRoute.connectionId === routeConnection.id)
+          ? primaryManifestRoute
+          : undefined);
       const url = routeUrl(routeDevServerUrl, {
         path: input.path ?? manifestRoute?.path,
         url: input.url ?? manifestRoute?.url,
