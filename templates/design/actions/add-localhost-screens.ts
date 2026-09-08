@@ -314,8 +314,13 @@ function metadataForFile(
   return isRecord(legacy) ? legacy : undefined;
 }
 
-function routeUrlsMatch(left: string, right: string): boolean {
+function routeUrlsMatch(
+  left: string,
+  right: string,
+  options: { includeSearch?: boolean } = {},
+): boolean {
   try {
+    const includeSearch = options.includeSearch ?? true;
     const leftUrl = new URL(left);
     const rightUrl = new URL(right);
     const sameOrigin =
@@ -324,7 +329,7 @@ function routeUrlsMatch(left: string, right: string): boolean {
     return (
       sameOrigin &&
       leftUrl.pathname === rightUrl.pathname &&
-      leftUrl.search === rightUrl.search
+      (!includeSearch || leftUrl.search === rightUrl.search)
     );
   } catch {
     // coercion-ok: malformed persisted screen URLs are not route matches.
@@ -334,7 +339,13 @@ function routeUrlsMatch(left: string, right: string): boolean {
 
 function metadataMatchesRoute(
   metadata: Record<string, unknown> | undefined,
-  args: { connectionId: string; routeId: string; path: string; url: string },
+  args: {
+    connectionId: string;
+    routeId: string;
+    path: string;
+    url: string;
+    content?: string;
+  },
 ): boolean {
   if (!metadata || metadata.sourceType !== "localhost") return false;
   const storedConnectionId = metadata.connectionId;
@@ -347,10 +358,16 @@ function metadataMatchesRoute(
   const storedUrlMatches = [metadata.url, metadata.previewUrl].some(
     (value) => typeof value === "string" && routeUrlsMatch(value, args.url),
   );
+  const storedContentMatches =
+    typeof args.content === "string" &&
+    routeUrlsMatch(args.content, args.url, { includeSearch: false });
   const hasRouteIdentity =
-    storedConnectionId === args.connectionId || storedUrlMatches;
+    storedConnectionId === args.connectionId ||
+    storedUrlMatches ||
+    storedContentMatches;
   return (
     storedUrlMatches ||
+    storedContentMatches ||
     (hasRouteIdentity &&
       (metadata.routeId === args.routeId || metadata.path === args.path))
   );
@@ -536,12 +553,40 @@ export default defineAction({
         },
       );
     };
-    const primaryManifest = manifestForConnection(connection);
+    const routeManifestCache = new Map<
+      string,
+      {
+        manifest: LocalhostDesignRouteManifest;
+        byPath: Map<string, LocalhostDesignRouteManifest["routes"][number]>;
+        byUrl: Map<string, LocalhostDesignRouteManifest["routes"][number]>;
+        byId: Map<string, LocalhostDesignRouteManifest["routes"][number]>;
+      }
+    >();
+    const manifestIndexesForConnection = (
+      sourceConnection: typeof connection,
+    ) => {
+      const cached = routeManifestCache.get(sourceConnection.id);
+      if (cached) return cached;
+      const manifest = manifestForConnection(sourceConnection);
+      const indexed = {
+        manifest,
+        byPath: new Map(manifest.routes.map((route) => [route.path, route])),
+        byUrl: new Map(
+          manifest.routes
+            .filter((route) => route.url)
+            .map((route) => [route.url!, route]),
+        ),
+        byId: new Map(manifest.routes.map((route) => [route.id, route])),
+      };
+      routeManifestCache.set(sourceConnection.id, indexed);
+      return indexed;
+    };
+    const primaryManifest = manifestIndexesForConnection(connection);
     const requestedRoutes: LocalhostScreenInput[] = routes?.length
       ? routes
       : paths?.length
         ? paths.map((path) => ({ path }))
-        : primaryManifest.routes.map((route) => ({
+        : primaryManifest.manifest.routes.map((route) => ({
             routeId: route.id,
             connectionId: route.connectionId,
             path: route.path,
@@ -633,32 +678,37 @@ export default defineAction({
 
     for (let index = 0; index < requestedRoutes.length; index += 1) {
       const input = requestedRoutes[index]!;
-      const rawUrl = input.url ?? input.path;
+      const primaryManifestRoute =
+        (input.routeId ? primaryManifest.byId.get(input.routeId) : undefined) ??
+        (input.path ? primaryManifest.byPath.get(input.path) : undefined) ??
+        (input.url ? primaryManifest.byUrl.get(input.url) : undefined);
+      const routeInput =
+        input.connectionId || !primaryManifestRoute?.connectionId
+          ? input
+          : { ...input, connectionId: primaryManifestRoute.connectionId };
+      const rawUrl =
+        input.url ??
+        primaryManifestRoute?.url ??
+        input.path ??
+        primaryManifestRoute?.path;
       const hintedUrl =
-        !input.connectionId && rawUrl
+        !routeInput.connectionId && rawUrl
           ? routeUrl(primaryDevServerUrl, { url: rawUrl })
           : undefined;
-      const routeConnection = await resolveRouteConnection(input, hintedUrl);
+      const routeConnection = await resolveRouteConnection(
+        routeInput,
+        hintedUrl,
+      );
       const routeDevServerUrl = normalizeBaseUrl(routeConnection.devServerUrl);
-      const routeManifest = manifestForConnection(routeConnection);
-      const routeManifestByPath = new Map(
-        routeManifest.routes.map((route) => [route.path, route]),
-      );
-      const routeManifestByUrl = new Map(
-        routeManifest.routes
-          .filter((route) => route.url)
-          .map((route) => [route.url!, route]),
-      );
-      const routeManifestById = new Map(
-        routeManifest.routes.map((route) => [route.id, route]),
-      );
+      const routeManifest = manifestIndexesForConnection(routeConnection);
       const manifestRoute =
-        (input.routeId ? routeManifestById.get(input.routeId) : undefined) ??
-        (input.path ? routeManifestByPath.get(input.path) : undefined) ??
-        (input.url ? routeManifestByUrl.get(input.url) : undefined);
+        (input.routeId ? routeManifest.byId.get(input.routeId) : undefined) ??
+        (input.path ? routeManifest.byPath.get(input.path) : undefined) ??
+        (input.url ? routeManifest.byUrl.get(input.url) : undefined) ??
+        primaryManifestRoute;
       const url = routeUrl(routeDevServerUrl, {
         path: input.path ?? manifestRoute?.path,
-        url: input.url,
+        url: input.url ?? manifestRoute?.url,
       });
       if (!connectionOriginMatches(routeDevServerUrl, url)) {
         throw new Error(
@@ -703,7 +753,7 @@ export default defineAction({
       const routeCandidates = existingFiles.filter((file) =>
         metadataMatchesRoute(
           metadataForFile(file.id, existingMetadata, existingLocalhostScreens),
-          routeMatchArgs,
+          { ...routeMatchArgs, content: file.content },
         ),
       );
       const filenameBase = existingByFilename.get(basePreferredFilename);
@@ -715,7 +765,7 @@ export default defineAction({
             existingMetadata,
             existingLocalhostScreens,
           ),
-          routeMatchArgs,
+          { ...routeMatchArgs, content: filenameBase.content },
         )
           ? filenameBase
           : routeCandidates.find(
@@ -777,7 +827,7 @@ export default defineAction({
             existingMetadata,
             existingLocalhostScreens,
           ),
-          routeMatchArgs,
+          { ...routeMatchArgs, content: preferredExisting.content },
         )
           ? preferredExisting
           : undefined;

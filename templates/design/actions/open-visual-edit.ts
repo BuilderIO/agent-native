@@ -438,8 +438,14 @@ export default defineAction({
           : viewports
             ? routeManifest.routes.map((route) => ({
                 routeId: route.id,
+                connectionId: route.connectionId,
                 path: route.path,
+                url: route.url,
                 title: route.title,
+                sourceFile: route.sourceFile,
+                sourceKind: route.sourceKind,
+                screenshotUrl: route.screenshotUrl,
+                metadata: route.metadata,
               }))
             : undefined;
       if (viewports && !requestedRoutes?.length) {

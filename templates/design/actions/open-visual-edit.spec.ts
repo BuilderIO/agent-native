@@ -316,6 +316,40 @@ describe("open-visual-edit", () => {
     ]);
   });
 
+  it("preserves secondary route identity when expanding manifest routes across viewports", async () => {
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      routeManifest: {
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        routes: [
+          {
+            id: "secondary-settings",
+            connectionId: "localhost_secondary",
+            path: "/settings",
+            url: "http://127.0.0.2:5173/settings",
+            title: "Secondary settings",
+          },
+        ],
+      },
+      viewports: ["mobile"],
+      navigate: false,
+    });
+
+    expect(mocks.addLocalhostScreensRun.mock.calls[0]![0].routes).toEqual([
+      expect.objectContaining({
+        connectionId: "localhost_secondary",
+        path: "/settings",
+        url: "http://127.0.0.2:5173/settings",
+        width: 390,
+        height: 844,
+      }),
+    ]);
+  });
+
   it("fails loudly when viewports are requested but no route can be resolved", async () => {
     await expect(
       action.run({

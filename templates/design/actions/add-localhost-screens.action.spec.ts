@@ -293,6 +293,36 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(metadata).not.toHaveProperty("bridgeToken");
   });
 
+  it("refreshes a legacy primary screen when its URL content identifies the route", async () => {
+    mocks.state.files = [
+      {
+        id: "legacy_file",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings?old=1",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        legacy_file: { sourceType: "localhost", path: "/settings" },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/settings"],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(mocks.state.insertedFile).toBeNull();
+    expect(mocks.state.updatedFiles).toHaveLength(1);
+    expect(result.screens[0]?.id).toBe("legacy_file");
+  });
+
   it("never overwrites an unrelated inline file that uses the generated localhost filename", async () => {
     mocks.state.connection.routeManifest = JSON.stringify({
       version: 1,
@@ -444,7 +474,7 @@ describe("add-localhost-screens refresh behavior", () => {
         designId: "design_1",
         filename: "localhost-127-0-0-2-5173-settings.html",
         fileType: "html",
-        content: "http://127.0.0.2:5173/settings?old=1",
+        content: "http://localhost:5173/settings?old=1",
       },
     ];
     mocks.state.designData = {
@@ -465,6 +495,59 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(result.screens[0]?.id).not.toBe("legacy_file");
     expect(mocks.state.insertedFile).toMatchObject({
       filename: "localhost-127-0-0-2-5173-settings-2.html",
+    });
+  });
+
+  it("resolves a persisted secondary route before selecting its connection", async () => {
+    const secondaryConnection = {
+      id: "conn_2",
+      devServerUrl: "http://127.0.0.2:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://127.0.0.2:5173",
+        routes: [],
+      }),
+    };
+    mocks.state.scopedConnections.push(secondaryConnection);
+    mocks.state.connection.routeManifest = JSON.stringify({
+      version: 1,
+      sourceType: "localhost",
+      devServerUrl: "http://localhost:5173",
+      routes: [
+        {
+          id: "route-secondary",
+          connectionId: "conn_2",
+          path: "/settings",
+          url: "http://127.0.0.2:5173/settings",
+          title: "Secondary settings",
+        },
+      ],
+      generatedAt: "2026-07-09T00:00:00.000Z",
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/settings"],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]).toMatchObject({
+      connectionId: "conn_2",
+      devServerUrl: "http://127.0.0.2:5173",
+      url: "http://127.0.0.2:5173/settings",
+      routeId: "route-secondary",
+    });
+    expect(mocks.state.insertedFile).toMatchObject({
+      content: "http://127.0.0.2:5173/settings",
     });
   });
 
