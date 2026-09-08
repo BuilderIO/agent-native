@@ -41,7 +41,12 @@ describe("breadcrumb menu interaction", () => {
         }),
       );
     });
-    return { trigger: container.querySelector("button")!, onOpen };
+    return {
+      trigger: container.querySelector<HTMLButtonElement>(
+        '[aria-haspopup="menu"]',
+      )!,
+      onOpen,
+    };
   }
 
   async function pointer(
@@ -60,6 +65,18 @@ describe("breadcrumb menu interaction", () => {
       );
     });
   }
+
+  it("navigates when the named ancestor has a sibling menu", async () => {
+    const { onOpen } = await render();
+    const label = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Research",
+    )!;
+    await pointer(label, "pointerover");
+    await pointer(label, "pointerdown");
+    await pointer(label, "pointerup");
+    await act(async () => label.click());
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith("parent");
+  });
 
   it("keeps the menu open when a pointer clicks after hovering", async () => {
     const { trigger, onOpen } = await render();
