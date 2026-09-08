@@ -1128,7 +1128,7 @@ const frFR = {
       s004: "Affiner",
       s005: "Tous les modèles",
       s006: "Le studio de prototypage open source AI HTML",
-      s007: "Créez des designs et des prototypes interactifs. Affinez avec des outils familiers ou demandez simplement à l'agent. Exportez où vous voulez.",
+      s007: "Créez des designs et des prototypes interactifs. Affinez avec des outils familiers ou effectuez des modifications conversationnelles. Exportez où vous voulez.",
       s008: "Créez quelque chose",
       s009: "Comment ça marche",
       s010: "Tout ce dont vous avez besoin",

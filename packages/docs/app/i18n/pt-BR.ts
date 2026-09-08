@@ -1122,7 +1122,7 @@ const ptBR = {
       s004: "Refinar",
       s005: "Todos os modelos",
       s006: "O estúdio de prototipagem de código aberto AI HTML",
-      s007: "Crie designs e protótipos interativos. Refine com ferramentas familiares ou apenas peça ao agente. Exporte para qualquer lugar.",
+      s007: "Crie designs e protótipos interativos. Refine com ferramentas familiares ou faça edições de conversação. Exporte para qualquer lugar.",
       s008: "Crie algo",
       s009: "Como funciona",
       s010: "Tudo que você precisa",
