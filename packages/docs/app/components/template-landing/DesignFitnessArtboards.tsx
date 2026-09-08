@@ -393,13 +393,13 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-selected { position: relative; width: 160px; }",
   ".design-mock .ft-selected.is-full { width: 100%; }",
   ".design-mock .ft-cta { display: flex; height: 52px; align-items: center; justify-content: center; border-radius: 999px; background: var(--ft-lime); color: var(--ft-ink); font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }",
-  `.design-mock .ft-sel-outline { position: absolute; inset: 0; border: ${inverse(1.5)} solid var(--dm-accent); border-radius: 999px; pointer-events: none; }`,
-  `.design-mock .ft-sel-handle { position: absolute; z-index: 2; width: ${inverse(7)}; height: ${inverse(7)}; border: ${inverse(1)} solid var(--dm-accent); border-radius: ${inverse(1)}; background: #ffffff; }`,
+  `.design-mock .ft-sel-outline { position: absolute; inset: 0; border: ${inverse(1.5)} solid var(--dm-selection); border-radius: 999px; pointer-events: none; }`,
+  `.design-mock .ft-sel-handle { position: absolute; z-index: 2; width: ${inverse(7)}; height: ${inverse(7)}; border: ${inverse(1)} solid var(--dm-selection); border-radius: ${inverse(1)}; background: #ffffff; }`,
   `.design-mock .ft-sel-handle-tl { left: ${inverse(-4)}; top: ${inverse(-4)}; }`,
   `.design-mock .ft-sel-handle-tr { right: ${inverse(-4)}; top: ${inverse(-4)}; }`,
   `.design-mock .ft-sel-handle-bl { left: ${inverse(-4)}; bottom: ${inverse(-4)}; }`,
   `.design-mock .ft-sel-handle-br { right: ${inverse(-4)}; bottom: ${inverse(-4)}; }`,
-  `.design-mock .ft-sel-badge { position: absolute; left: 50%; top: calc(100% + ${inverse(6)}); z-index: 2; transform: translateX(-50%); padding: ${inverse(2)} ${inverse(6)}; border-radius: ${inverse(3)}; background: var(--dm-accent); color: var(--dm-accent-contrast); font-size: ${inverse(10)}; font-weight: 600; line-height: ${inverse(12)}; font-variant-numeric: tabular-nums; white-space: nowrap; }`,
+  `.design-mock .ft-sel-badge { position: absolute; left: 50%; top: calc(100% + ${inverse(6)}); z-index: 2; transform: translateX(-50%); padding: ${inverse(2)} ${inverse(6)}; border-radius: ${inverse(3)}; background: var(--dm-selection); color: var(--dm-selection-contrast); font-size: ${inverse(10)}; font-weight: 600; line-height: ${inverse(12)}; font-variant-numeric: tabular-nums; white-space: nowrap; }`,
 
   // Stat strip
   ".design-mock .ft-stats { display: grid; flex-shrink: 0; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 24px 0; }",

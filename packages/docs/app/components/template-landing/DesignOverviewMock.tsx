@@ -759,14 +759,20 @@ const DESIGN_MOCK_CSS = [
   // Palette, mirroring templates/design/app/global.css. Dark by default; the
   // `html.light` block below swaps the whole mock when the docs shell is light.
   //
-  // `--dm-accent` is the exception: it carries the Builder brand blue
-  // (--b-action-primary-bg / -text from website-redesign/tokens.css) rather
-  // than the editor's own blue, so the selection, active tool, and Share button
-  // read as this site's accent. Those values are copied rather than referenced
+  // `--dm-selection` is the exception: it carries the Builder brand blue
+  // (--b-action-primary-bg from website-redesign/tokens.css) and is the same
+  // bright value in both themes rather than darkening for light mode. It marks
+  // what the editor has selected — the outline, handles, and dimension badge —
+  // which has to stay legible against the design's own colours, and those do
+  // not change with the docs theme. The value is copied rather than referenced
   // because tokens.css is scoped under `.builder-brand-tokens`, which root.tsx
   // deliberately keeps off <body> — a `var(--b-*)` here would resolve to
   // nothing.
-  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-chrome-bg: hsl(0 0% 10%); --dm-dot: hsl(0 0% 30%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-accent: #01c8f1; --dm-accent-contrast: #0a0a0a; --dm-share-bg: hsl(0 0% 88%); --dm-share-fg: hsl(0 0% 12%); --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-avatar-border: hsl(0 0% 13%); --dm-avatar-fg: hsl(0 0% 82%); --dm-avatar-bg-1: hsl(0 0% 40%); --dm-avatar-bg-2: hsl(0 0% 32%); --dm-avatar-bg-3: hsl(0 0% 25%); }",
+  //
+  // Everything else in the chrome is neutral on purpose. `--dm-chip-*` is the
+  // filled-control pair (Share, active tool); an accent fill on those made the
+  // chrome compete with the canvas for attention.
+  ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-chrome-bg: hsl(0 0% 10%); --dm-dot: hsl(0 0% 30%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-selection: #01c8f1; --dm-selection-contrast: #0a0a0a; --dm-chip-bg: hsl(0 0% 88%); --dm-chip-fg: hsl(0 0% 12%); --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-avatar-border: hsl(0 0% 13%); --dm-avatar-fg: hsl(0 0% 82%); --dm-avatar-bg-1: hsl(0 0% 40%); --dm-avatar-bg-2: hsl(0 0% 32%); --dm-avatar-bg-3: hsl(0 0% 25%); }",
 
   // Window. Column, so the title bar spans the panels the way real window
   // chrome does; the body below it is the horizontal rail/panel/canvas split.
@@ -810,7 +816,7 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-layer { display: flex; height: 32px; align-items: center; gap: 8px; padding-right: 4px; border-radius: 5px; color: var(--dm-fg); }",
   ".design-mock .dm-layer.is-selected { background: var(--dm-component-selection); }",
   ".design-mock .dm-layer.is-component .dm-layer-glyph, .design-mock .dm-layer.is-component .dm-layer-label { color: var(--dm-component); }",
-  ".design-mock .dm-layer.is-selected .dm-layer-label { color: var(--dm-fg); }",
+  ".design-mock .dm-layer.is-selected .dm-layer-label { color: var(--dm-component); }",
   ".design-mock .dm-layer-indent { width: 16px; flex-shrink: 0; }",
   ".design-mock .dm-layer-indent + .dm-layer-indent { margin-left: -8px; }",
   ".design-mock .dm-layer-caret { display: flex; width: 16px; flex-shrink: 0; align-items: center; justify-content: center; color: var(--dm-fg-muted); }",
@@ -857,10 +863,10 @@ const DESIGN_MOCK_CSS = [
   // Neutral rather than the brand accent: it is the only filled control in the
   // chrome, so an accent fill made it the loudest thing on the page and pulled
   // focus off the canvas. The accent stays on the selection and active tool.
-  ".design-mock .dm-share-btn { display: flex; height: 28px; align-items: center; padding: 0 10px; border-radius: 6px; background: var(--dm-share-bg); color: var(--dm-share-fg); font-size: 12px; font-weight: 600; }",
+  ".design-mock .dm-share-btn { display: flex; height: 28px; align-items: center; padding: 0 10px; border-radius: 6px; background: var(--dm-chip-bg); color: var(--dm-chip-fg); font-size: 12px; font-weight: 600; }",
   ".design-mock .dm-segmented { display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: var(--dm-control-bg); }",
   ".design-mock .dm-segment { display: flex; height: 24px; align-items: center; gap: 4px; padding: 0 6px; border-radius: 5px; color: var(--dm-fg-muted); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }",
-  ".design-mock .dm-segment.is-active { background: var(--dm-panel-bg); color: var(--dm-accent); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }",
+  ".design-mock .dm-segment.is-active { background: var(--dm-panel-bg); color: var(--dm-fg); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }",
   ".design-mock .dm-zoom { display: flex; height: 24px; align-items: center; gap: 2px; margin-left: auto; padding: 0 4px; color: var(--dm-fg-muted); font-size: 10px; font-variant-numeric: tabular-nums; }",
 
   // Inspector tabs. The real control is a pill row, not an underline.
@@ -921,18 +927,18 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-tool-group { display: flex; min-width: 0; flex-shrink: 0; align-items: center; gap: 2px; }",
   ".design-mock .dm-tool-slot { display: flex; height: 32px; flex-shrink: 0; align-items: center; }",
   ".design-mock .dm-tool { display: flex; width: 32px; height: 32px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 6px; color: #e5e5e5; }",
-  ".design-mock .dm-tool.is-active { background: var(--dm-accent); color: var(--dm-accent-contrast); }",
+  ".design-mock .dm-tool.is-active { background: var(--dm-chip-bg); color: var(--dm-chip-fg); }",
   ".design-mock .dm-tool-caret { display: flex; width: 16px; height: 32px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 6px; color: #e5e5e5; }",
   ".design-mock .dm-toolbar-divider { width: 1px; height: 36px; flex-shrink: 0; margin: 0 2px; background: rgba(255, 255, 255, 0.15); }",
   ".design-mock .dm-mode-group { display: flex; flex-shrink: 0; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: rgba(255, 255, 255, 0.1); }",
   ".design-mock .dm-mode { display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 6px; color: #d4d4d4; }",
-  ".design-mock .dm-mode.is-active { background: rgba(3, 3, 3, 0.7); color: var(--dm-accent); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 8px 18px -12px rgba(0, 0, 0, 0.95); }",
+  ".design-mock .dm-mode.is-active { background: rgba(3, 3, 3, 0.7); color: var(--dm-fg); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 8px 18px -12px rgba(0, 0, 0, 0.95); }",
 
   DESIGN_FITNESS_CSS,
 
   // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
   // follows the visitor's theme instead of staying pinned to the dark art.
-  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-chrome-bg: hsl(0 0% 96%); --dm-dot: hsl(0 0% 80%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-accent: #00677f; --dm-accent-contrast: #ffffff; --dm-share-bg: hsl(0 0% 20%); --dm-share-fg: hsl(0 0% 98%); --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-avatar-border: hsl(0 0% 100%); --dm-avatar-fg: hsl(0 0% 32%); --dm-avatar-bg-1: hsl(0 0% 72%); --dm-avatar-bg-2: hsl(0 0% 79%); --dm-avatar-bg-3: hsl(0 0% 86%); }",
+  "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-chrome-bg: hsl(0 0% 96%); --dm-dot: hsl(0 0% 80%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-selection: #01c8f1; --dm-selection-contrast: #0a0a0a; --dm-chip-bg: hsl(0 0% 20%); --dm-chip-fg: hsl(0 0% 98%); --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-avatar-border: hsl(0 0% 100%); --dm-avatar-fg: hsl(0 0% 32%); --dm-avatar-bg-1: hsl(0 0% 72%); --dm-avatar-bg-2: hsl(0 0% 79%); --dm-avatar-bg-3: hsl(0 0% 86%); }",
   "html.light .design-mock .dm-paint-swatch { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }",
 
   // Light-mode floating toolbar: a raised white bar rather than the editor's
@@ -945,7 +951,7 @@ const DESIGN_MOCK_CSS = [
   // Needed even though the base rule already sets this: the light `.dm-tool`
   // selector above outranks `.dm-tool.is-active` on specificity, so without it
   // the active tool draws a dark icon on the dark accent fill.
-  "html.light .design-mock .dm-tool.is-active { color: var(--dm-accent-contrast); }",
+  "html.light .design-mock .dm-tool.is-active { color: var(--dm-chip-fg); }",
   "html.light .design-mock .dm-tool-caret { color: hsl(0 0% 45%); }",
   "html.light .design-mock .dm-toolbar-divider { background: rgba(0, 0, 0, 0.12); }",
   "html.light .design-mock .dm-mode-group { background: rgba(0, 0, 0, 0.06); }",
@@ -953,7 +959,7 @@ const DESIGN_MOCK_CSS = [
   // An accent wash rather than the raised white chip the dark theme inverts to:
   // white on a now-white bar is invisible.
   // `color` is restated for the same specificity reason as `.dm-tool.is-active`.
-  "html.light .design-mock .dm-mode.is-active { background: rgba(0, 103, 127, 0.14); color: var(--dm-accent); box-shadow: inset 0 0 0 1px rgba(0, 103, 127, 0.22); }",
+  "html.light .design-mock .dm-mode.is-active { background: #ffffff; color: hsl(0 0% 15%); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.16); }",
 
   // Narrow screens. The window is a fixed-width layout, so the whole mock
   // scales down and anchors to the left edge rather than letting the canvas
