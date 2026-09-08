@@ -73,6 +73,7 @@ import { LogoMark } from "../website-redesign/ds/logo-mark";
 import {
   BOARD_SCALE,
   ARTBOARD_BG,
+  ARTBOARD_BG_LIGHT,
   ARTBOARD_MIN_HEIGHT,
   DESIGN_FITNESS_CSS,
   DESKTOP_ARTBOARD_WIDTH,
@@ -839,6 +840,7 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-breakpoint-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 999px; background: currentColor; }",
   ".design-mock .dm-interact-btn { position: absolute; right: 4px; top: 50%; display: flex; height: 20px; align-items: center; gap: 4px; transform: translateY(-50%); padding: 0 6px; border: 1px solid var(--dm-border); border-radius: 6px; background: var(--dm-panel-bg); color: var(--dm-fg); font-size: 10px; font-weight: 500; }",
   `.design-mock .dm-frame-body { position: relative; overflow: hidden; background: ${ARTBOARD_BG}; box-shadow: inset 0 0 0 1px var(--dm-border); }`,
+  `html.light .design-mock .dm-frame-body { background: ${ARTBOARD_BG_LIGHT}; }`,
   `.design-mock .dm-frame-body { height: ${FRAME_BODY_HEIGHT}px; }`,
   `.design-mock .dm-artboard { transform: scale(${BOARD_SCALE}); transform-origin: top left; }`,
   `.design-mock .dm-artboard-desktop { width: ${DESKTOP_ARTBOARD_WIDTH}px; min-height: ${ARTBOARD_MIN_HEIGHT}px; }`,

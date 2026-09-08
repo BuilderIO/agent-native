@@ -40,11 +40,12 @@ export const FRAME_BODY_HEIGHT = 700;
 export const ARTBOARD_MIN_HEIGHT = FRAME_BODY_HEIGHT / BOARD_SCALE;
 
 /**
- * The design's page background. Exported so the frame body behind the artboard
- * matches it — the frame is taller than the content, and a white backing would
- * flash below the fold.
+ * The design's page background, per docs theme. Exported so the frame body
+ * behind the artboard matches it — the frame is taller than the content, so a
+ * mismatched backing flashes below the fold.
  */
 export const ARTBOARD_BG = "#0c0c0e";
+export const ARTBOARD_BG_LIGHT = "#f4f4f5";
 
 /** Logical size of the selected CTA, mirrored by the inspector's W/H fields. */
 export const SELECTED_CTA_WIDTH = 160;
@@ -358,23 +359,27 @@ export function FitnessMobileArtboard() {
 }
 
 export const DESIGN_FITNESS_CSS = [
-  // Palette. Fixed, not theme-derived: this is the user's design sitting on the
-  // canvas, so it must look identical whether the editor around it is light or
-  // dark — exactly like a real artboard.
+  // Palette. Follows the docs theme rather than staying pinned to one mode: a
+  // dark design inside a light page was a hole in the middle of the layout.
   //
-  // Dark and monochrome with a single accent. The earlier five-hue palette
-  // turned the artboard into the loudest thing on the page and competed with
-  // the editor for attention — the mock is meant to read as a design being
-  // worked on, not as the hero image. Structure now comes from surface steps
-  // and hairlines; `--ft-accent` is rationed to the emphasis word, the
-  // wordmark dot, and the two real calls to action.
+  // Monochrome with a single accent. The earlier five-hue palette turned the
+  // artboard into the loudest thing on the page and competed with the editor
+  // for attention — the mock is meant to read as a design being worked on, not
+  // as the hero image. Structure comes from surface steps and hairlines;
+  // `--ft-accent` is rationed to the emphasis word, the wordmark dot, and the
+  // two real calls to action.
   //
   // `--ft-fg` is capped below #e0e0e0 and is the brightest text in the design:
-  // pure white pulled focus out of the editor even on this dark ground. Every
+  // pure white pulled focus out of the editor even on a dark ground. Every
   // other neutral is that same value at reduced alpha so nothing can drift
-  // above the cap. `--ft-ink` stays dark on purpose: it is the text colour for
-  // accent fills, not a surface.
-  `.design-mock .ft { --ft-ink: #0c0c0e; --ft-bg: ${ARTBOARD_BG}; --ft-elevated: #16161a; --ft-hero-bg: #131317; --ft-fg: #cdcdd1; --ft-fg-soft: rgba(205, 205, 209, 0.62); --ft-line: rgba(205, 205, 209, 0.1); --ft-line-strong: rgba(205, 205, 209, 0.24); --ft-accent: #d8ff3e; }`,
+  // above the cap.
+  //
+  // Two tokens do not flip with the theme. `--ft-ink` is the text colour for
+  // accent fills, not a surface, so it stays dark against the lime in both.
+  // `--ft-accent-text` exists because lime works as a fill in either theme but
+  // is unreadable as text on a light page, where it drops to a deep olive.
+  `.design-mock .ft { --ft-ink: #0c0c0e; --ft-bg: ${ARTBOARD_BG}; --ft-elevated: #16161a; --ft-hero-bg: #131317; --ft-fg: #cdcdd1; --ft-fg-soft: rgba(205, 205, 209, 0.62); --ft-line: rgba(205, 205, 209, 0.1); --ft-line-strong: rgba(205, 205, 209, 0.24); --ft-accent: #d8ff3e; --ft-accent-text: #d8ff3e; }`,
+  `html.light .design-mock .ft { --ft-bg: ${ARTBOARD_BG_LIGHT}; --ft-elevated: #ffffff; --ft-hero-bg: #e8e8ea; --ft-fg: #26262b; --ft-fg-soft: rgba(38, 38, 43, 0.62); --ft-line: rgba(38, 38, 43, 0.12); --ft-line-strong: rgba(38, 38, 43, 0.26); --ft-accent-text: #55730a; }`,
   ".design-mock .ft { width: 100%; min-height: 100%; background: var(--ft-bg); color: var(--ft-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }",
   // The docs shell colors every h1-h4 and prose paragraph directly, so an
   // artboard heading would otherwise pick up the docs foreground instead of the
@@ -389,7 +394,7 @@ export const DESIGN_FITNESS_CSS = [
   // Nav
   ".design-mock .ft-nav { display: flex; height: 88px; flex-shrink: 0; align-items: center; gap: 48px; padding: 0 48px; }",
   ".design-mock .ft-wordmark { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; }",
-  ".design-mock .ft-wordmark-dot { color: var(--ft-accent); }",
+  ".design-mock .ft-wordmark-dot { color: var(--ft-accent-text); }",
   ".design-mock .ft-nav-links { display: flex; flex: 1; align-items: center; gap: 32px; color: var(--ft-fg-soft); font-size: 17px; font-weight: 500; }",
   ".design-mock .ft-nav-cta { display: flex; height: 48px; flex-shrink: 0; align-items: center; padding: 0 26px; border: 2px solid var(--ft-line-strong); border-radius: 999px; color: var(--ft-fg); font-size: 17px; font-weight: 600; }",
   ".design-mock .ft-nav-menu { margin-left: auto; color: var(--ft-fg-soft); font-size: 16px; font-weight: 600; }",
@@ -404,7 +409,7 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-hero-copy { position: relative; flex: 1; min-width: 0; }",
   ".design-mock .ft-eyebrow { display: inline-flex; align-items: center; height: 30px; padding: 0 14px; border-radius: 999px; background: rgba(205, 205, 209, 0.08); color: var(--ft-fg-soft); font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }",
   ".design-mock .ft-headline { margin: 20px 0 0; font-size: 68px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.02; }",
-  ".design-mock .ft-headline em { color: var(--ft-accent); font-style: italic; }",
+  ".design-mock .ft-headline em { color: var(--ft-accent-text); font-style: italic; }",
   ".design-mock .ft-subhead { margin: 20px 0 0; max-width: 440px; color: var(--ft-fg-soft); font-size: 19px; line-height: 1.5; }",
   ".design-mock .ft-hero-actions { display: flex; align-items: center; gap: 16px; margin-top: 32px; }",
   ".design-mock .ft-cta-ghost { display: flex; height: 52px; align-items: center; padding: 0 24px; border: 2px solid var(--ft-line-strong); border-radius: 999px; color: var(--ft-fg); font-size: 17px; font-weight: 600; }",
@@ -450,7 +455,7 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-plan-name { font-size: 17px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; }",
   ".design-mock .ft-plan-price { font-size: 50px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.05; }",
   ".design-mock .ft-plan-period { font-size: 18px; font-weight: 600; opacity: 0.5; }",
-  ".design-mock .ft-plan.is-featured .ft-plan-price { color: var(--ft-accent); }",
+  ".design-mock .ft-plan.is-featured .ft-plan-price { color: var(--ft-accent-text); }",
   ".design-mock .ft-plan-meta { color: var(--ft-fg-soft); font-size: 15px; font-weight: 500; }",
   ".design-mock .ft-plan-cta { display: flex; height: 48px; align-items: center; justify-content: center; margin-top: 12px; border: 2px solid var(--ft-line); border-radius: 999px; font-size: 16px; font-weight: 700; }",
   ".design-mock .ft-plan.is-featured .ft-plan-cta { border-color: transparent; background: var(--ft-accent); color: var(--ft-ink); }",
