@@ -122,11 +122,15 @@ export function getViteDevRecoveryScript(): string {
 
   function looksLikeViteFailureMessage(message) {
     if (!message) return false;
-    return message.indexOf("Failed to fetch dynamically imported module") !== -1
-        || message.indexOf("error loading dynamically imported module") !== -1
-        || message.indexOf("Importing a module script failed") !== -1
-        || message.indexOf("Outdated Optimize Dep") !== -1
+    var optimizerUrl = message.indexOf("/node_modules/.vite/deps/") !== -1
+        || message.indexOf("/@id/") !== -1
+        || message.indexOf("/@fs/") !== -1;
+    return message.indexOf("Outdated Optimize Dep") !== -1
         || message.indexOf("Optimize Deps Processing Error") !== -1
+        || ((message.indexOf("Failed to fetch dynamically imported module") !== -1
+          || message.indexOf("error loading dynamically imported module") !== -1
+          || message.indexOf("Importing a module script failed") !== -1)
+          && optimizerUrl)
         || (message.indexOf("504") !== -1 && (
           message.indexOf(".vite/deps") !== -1 ||
           message.indexOf("/node_modules/.vite/deps/") !== -1

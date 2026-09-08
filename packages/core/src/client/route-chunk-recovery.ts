@@ -150,6 +150,16 @@ function hasViteDevRecovery(win: Window): boolean | undefined {
   }
 }
 
+function isViteOptimizerFailureMessage(message: string): boolean {
+  return (
+    message.includes("Outdated Optimize Dep") ||
+    message.includes("Optimize Deps Processing Error") ||
+    message.includes("/node_modules/.vite/deps/") ||
+    message.includes("/@id/") ||
+    message.includes("/@fs/")
+  );
+}
+
 function readStaleChunkReloadAt(win: Window): number {
   try {
     const raw = (
@@ -257,7 +267,10 @@ function recoverFromDynamicImportFailure(
   // The Vite dev recovery script owns optimizer races in development. Let its
   // bounded overlay/reload policy handle those failures instead of starting a
   // second reload loop from the route recovery layer.
-  if (hasViteDevRecovery(win) === true) {
+  if (
+    hasViteDevRecovery(win) === true &&
+    isViteOptimizerFailureMessage(message)
+  ) {
     return false;
   }
   state.routeModuleFailureAt = Date.now();
@@ -288,20 +301,12 @@ function patchReload(win: Window, state: RouteChunkRecoveryState): void {
       // React Router calls reload immediately after logging, so navigating a
       // second time here can turn one stale route into a reload loop.
       if (state.recovering) return;
-      // Vite's dev recovery script owns the optimizer graph. A route-module
-      // error in that mode must refresh the current document, never replay
-      // the previous navigation target (which can restart a handoff loop).
-      if (
-        hasViteDevRecovery(win) !== true &&
-        recoverToIntendedNavigation(win, state)
-      ) {
+      // A route-module error is distinct from a Vite optimizer failure. If a
+      // handoff target is still fresh, recover to it; otherwise use the
+      // guarded current-page reload below.
+      if (recoverToIntendedNavigation(win, state)) {
         return;
       }
-      // Vite's recovery script owns refreshes in local development. React
-      // Router can report a route-module failure while a durable handoff is
-      // still mounting; replaying the current URL here turns that transient
-      // state into an unbounded same-route reload loop.
-      if (hasViteDevRecovery(win) === true) return;
       if (isAgentNativeDesktop(win)) return;
       // A current-route failure has no alternate target. Refresh once using
       // the session-scoped cooldown, then leave persistent failures visible.
@@ -385,9 +390,7 @@ export function installRouteChunkRecovery(
       // turn a same-route failure into a document replacement loop.
       if (args.some(isRouteModuleReloadMessage)) {
         state.routeModuleFailureAt = Date.now();
-        if (hasViteDevRecovery(win) !== true) {
-          recoverToIntendedNavigation(win, state);
-        }
+        recoverToIntendedNavigation(win, state);
       }
       originalError(...args);
     };

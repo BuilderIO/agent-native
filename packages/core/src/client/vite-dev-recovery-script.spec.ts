@@ -10,6 +10,10 @@ function runScript() {
 describe("getViteDevRecoveryScript", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/");
+    delete (window as unknown as Record<string, unknown>)[
+      "__agentNativeViteDevRecoveryInstalled"
+    ];
+    window.sessionStorage.removeItem("__an_optimize_reload");
     vi.restoreAllMocks();
   });
 
@@ -46,5 +50,28 @@ describe("getViteDevRecoveryScript", () => {
       "unhandledrejection",
       expect.any(Function),
     );
+  });
+
+  it("does not treat a React Router route failure as an optimizer failure", () => {
+    const addEventListener = vi.spyOn(window, "addEventListener");
+    const setTimeout = vi.spyOn(globalThis, "setTimeout");
+
+    runScript();
+
+    const rejectionHandler = addEventListener.mock.calls.find(
+      ([type]) => type === "unhandledrejection",
+    )?.[1] as ((event: Event) => void) | undefined;
+    expect(rejectionHandler).toBeTypeOf("function");
+
+    const scheduledAfterInstall = setTimeout.mock.calls.length;
+    rejectionHandler?.({
+      reason: {
+        message:
+          "Failed to fetch dynamically imported module: http://localhost:3000/chat/assets/route.js",
+      },
+      preventDefault: vi.fn(),
+    } as unknown as Event);
+
+    expect(setTimeout).toHaveBeenCalledTimes(scheduledAfterInstall);
   });
 });

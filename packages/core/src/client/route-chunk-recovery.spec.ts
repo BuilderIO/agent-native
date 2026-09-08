@@ -147,8 +147,8 @@ describe("route chunk recovery", () => {
     expect(isDynamicImportFailureMessage("plain network error")).toBe(false);
   });
 
-  it("lets local Vite dev recovery own route failures without a transformed module env", () => {
-    const { fakeWindow, originalReload } = createFakeWindow(
+  it("recovers local route failures without a transformed module env", () => {
+    const { fakeWindow, fakeLocation, originalReload } = createFakeWindow(
       "http://127.0.0.1:9327/chat/chat-new",
     );
 
@@ -158,7 +158,9 @@ describe("route chunk recovery", () => {
     );
     fakeWindow.location.reload();
 
-    expect(fakeWindow.location.assign).not.toHaveBeenCalled();
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "http://127.0.0.1:9327/chat/chat-new",
+    );
     expect(originalReload).not.toHaveBeenCalled();
   });
 
@@ -613,7 +615,7 @@ describe("route chunk recovery", () => {
     const preventDefault = vi.fn();
     dispatchWindow("unhandledrejection", {
       reason: new Error(
-        "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/AnalysisDetail-stale.js",
+        "Failed to fetch dynamically imported module: https://example.com/node_modules/.vite/deps/react.js",
       ),
       preventDefault,
     } as unknown as PromiseRejectionEvent);
@@ -622,7 +624,7 @@ describe("route chunk recovery", () => {
     expect(preventDefault).not.toHaveBeenCalled();
   });
 
-  it("leaves React Router's Vite dev route reload to the Vite handler", () => {
+  it("recovers React Router route reloads in Vite dev", () => {
     const { fakeWindow, fakeLocation, originalReload } = createFakeWindow(
       "https://example.com/dispatch/apps",
       { viteDevRecovery: true },
@@ -639,7 +641,9 @@ describe("route chunk recovery", () => {
     );
     fakeLocation.reload();
 
-    expect(fakeLocation.assign).not.toHaveBeenCalled();
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/dispatch/apps",
+    );
     expect(originalReload).not.toHaveBeenCalled();
   });
 
