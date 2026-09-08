@@ -40,7 +40,7 @@ const publicFixture = {
       timestampMs: 0,
       level: "log",
       message:
-        "%c[DevTools Capture Demo] Preview synchronization failed color: #ef4444; font-weight: 700",
+        "%c[DevTools Capture Demo] Preview synchronization failed color: #ef4444; font-weight: 700", // guard:allow-raw-color — captured console payload, not app theme styling
     },
     {
       timestampMs: 0,
@@ -151,7 +151,7 @@ const publicFixture = {
       timestampMs: 8114,
       level: "log",
       message:
-        "%c[DevTools Capture Demo] Preview synchronization failed color: #ef4444; font-weight: 700",
+        "%c[DevTools Capture Demo] Preview synchronization failed color: #ef4444; font-weight: 700", // guard:allow-raw-color — captured console payload, not app theme styling
     },
     {
       timestampMs: 8114,
