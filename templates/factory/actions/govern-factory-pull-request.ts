@@ -9,12 +9,12 @@ import {
   triageRuns,
 } from "../server/db/schema.js";
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import { resolveFactoryRepository } from "../server/lib/factory-repository-scope.js";
 import {
   factoryIdSchema,
   orgFactoryItemFilter,
   orgFactoryRunFilter,
   orgFactoryScopedItemWhere,
-  readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
 import {
@@ -154,9 +154,12 @@ export default defineAction({
       factoryId,
     );
     const repository = parseGitHubRepositoryRef(repo);
-    const configuredRepository = (
-      await readTriageConfigRow(getDb(), orgId, factoryId)
-    )?.repository;
+    const configuredRepository = await resolveFactoryRepository(
+      getDb(),
+      context,
+      { userEmail, orgId },
+      factoryId,
+    );
     if (
       !configuredRepository ||
       !gitHubRepositoriesEqual(configuredRepository, repo)

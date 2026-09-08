@@ -1126,7 +1126,7 @@ const deDE = {
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
       s006: "Das Open-Source-Prototyping-Studio AI HTML",
-      s007: "Generieren Sie interaktive Alpine/Tailwind-Prototypen aus einer Eingabeaufforderung, vergleichen Sie Varianten, verfeinern Sie sie mit optimierten Steuerelementen und exportieren Sie echte Dateien, die Sie besitzen.",
+      s007: "Erstellen Sie interaktive Designs und Prototypen. Verfeinern Sie sie mit gewohnten Werkzeugen oder nehmen Sie Konversationsbearbeitungen vor. Exportieren Sie überall hin.",
       s008: "Etwas gestalten",
       s009: "Wie es funktioniert",
       s010: "Alles was Sie brauchen",
@@ -1180,6 +1180,7 @@ const deDE = {
       s058: "Starten Sie mit der Vorlage und beginnen Sie mit der Erstellung interaktiver Prototypen mit einem Agenten, der die Quelle bearbeitet.",
       s059: "Lesen Sie die Dokumente",
       s060: "Alle Vorlagen anzeigen",
+      s061: "100 % kostenlos, Open Source und anpassbar.",
     },
     dispatch: {
       faq: {

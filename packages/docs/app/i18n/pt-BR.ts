@@ -1121,7 +1121,7 @@ const ptBR = {
       s004: "Refinar",
       s005: "Todos os modelos",
       s006: "O estúdio de prototipagem de código aberto AI HTML",
-      s007: "Gere protótipos Alpine/Tailwind interativos a partir de um prompt, compare variantes, refine com controles de ajuste e exporte arquivos reais de sua propriedade.",
+      s007: "Crie designs e protótipos interativos. Refine com ferramentas familiares ou faça edições de conversação. Exporte para qualquer lugar.",
       s008: "Crie algo",
       s009: "Como funciona",
       s010: "Tudo que você precisa",
@@ -1175,6 +1175,7 @@ const ptBR = {
       s058: "Comece com o modelo e comece a gerar protótipos interativos com um agente que edita a fonte.",
       s059: "Leia os documentos",
       s060: "Ver todos os modelos",
+      s061: "100% grátis, código aberto e personalizável.",
     },
     dispatch: {
       faq: {

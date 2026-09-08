@@ -45,6 +45,9 @@ node-compile-cache/
 **/data/*.lock
 **/data/pglite/
 **/data/e2e-pglite/
+# Ownership lock written next to the directory, not inside it: holds the PID and
+# token of whichever local process has the database open.
+**/data/pglite.*.lock
 
 # Legacy local SQLite artifacts. Nothing reads these since the framework went
 # PostgreSQL-only; a stray one is tens of MB of local state, not a source file.
