@@ -2,7 +2,14 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconExternalLink, IconLoader2 } from "@tabler/icons-react";
-import { useCallback, useId, useState, type ReactElement } from "react";
+import {
+  cloneElement,
+  useCallback,
+  useId,
+  useState,
+  type MouseEventHandler,
+  type ReactElement,
+} from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
@@ -23,6 +30,11 @@ type BuilderWaitlistProps = {
 const primaryButtonClassName =
   "inline-flex w-full items-center justify-center gap-2 rounded-md bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200";
 
+type BuilderLaunchTrigger = ReactElement<{
+  href?: string;
+  onClick?: MouseEventHandler<HTMLElement>;
+}>;
+
 // Flip this when Builder's hosted agent-native app flow is ready for launch.
 export const BUILDER_BUILD_ONLINE_SUPPORTED = false;
 export const BUILDER_SIGNUP_URL = "https://builder.io/signup";
@@ -30,11 +42,23 @@ export const BUILDER_SIGNUP_URL = "https://builder.io/signup";
 export function BuilderLaunchLink({
   className = primaryButtonClassName,
   onClick,
+  trigger,
 }: {
   className?: string;
   onClick?: () => void;
+  trigger?: BuilderLaunchTrigger;
 }) {
   const t = useT();
+
+  if (trigger) {
+    return cloneElement(trigger, {
+      href: BUILDER_SIGNUP_URL,
+      onClick: (event) => {
+        trigger.props.onClick?.(event);
+        if (!event.defaultPrevented) onClick?.();
+      },
+    });
+  }
 
   return (
     <a href={BUILDER_SIGNUP_URL} className={className} onClick={onClick}>
@@ -97,6 +121,20 @@ export function BuilderWaitlistContent({
             ? data.error
             : t("buildFromScratch.submitError"),
         );
+      }
+      let data: unknown;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(t("buildFromScratch.submitError"));
+      }
+      if (
+        typeof data !== "object" ||
+        data === null ||
+        !("formSubmitted" in data) ||
+        data.formSubmitted !== true
+      ) {
+        throw new Error(t("buildFromScratch.submitError"));
       }
       trackEvent("builder branch waitlist joined", {
         location,
@@ -194,20 +232,25 @@ export function BuildOnlinePopover({
   location: BuilderWaitlistLocation;
   // Redesign surfaces style their buttons from the --b-* token system; the
   // default trigger below belongs to the older docs button vocabulary.
-  trigger?: ReactElement;
+  trigger?: BuilderLaunchTrigger;
   onOpen?: () => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const handleOpen = () => {
+    trackEvent("click build online", { location });
+    onOpen?.();
+  };
+
+  if (BUILDER_BUILD_ONLINE_SUPPORTED) {
+    return <BuilderLaunchLink trigger={trigger} onClick={handleOpen} />;
+  }
 
   return (
     <Popover
       open={open}
       onOpenChange={(nextOpen) => {
-        if (nextOpen) {
-          trackEvent("click build online", { location });
-          onOpen?.();
-        }
+        if (nextOpen) handleOpen();
         setOpen(nextOpen);
       }}
     >

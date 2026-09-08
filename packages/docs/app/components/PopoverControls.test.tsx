@@ -13,7 +13,10 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
-import { BuildOnlinePopover } from "./BuilderWaitlistPopover";
+import {
+  BuildOnlinePopover,
+  BuilderWaitlistContent,
+} from "./BuilderWaitlistPopover";
 import { TemplateLandingActions } from "./template-landing/TemplateLandingActions";
 import { templates } from "./TemplateCard";
 
@@ -107,7 +110,7 @@ describe("docs popover controls", () => {
   it("submits the selected template with customization waitlist requests", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({}),
+      json: async () => ({ formSubmitted: true }),
     });
     vi.stubGlobal("fetch", fetchMock);
     renderWithProviders(<TemplateLandingActions template={templates[0]} />);
@@ -133,5 +136,26 @@ describe("docs popover controls", () => {
       template: templates[0].slug,
       useCase: "docs_edit_online_waitlist",
     });
+  });
+
+  it("does not show success when the waitlist route declines submission", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ formSubmitted: false }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithProviders(<BuilderWaitlistContent location="templates_index" />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
+      target: { value: "reader@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join waitlist" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    expect(
+      screen.queryByText(
+        "You're on the waitlist. We'll email you when build-online access opens.",
+      ),
+    ).toBeNull();
   });
 });
