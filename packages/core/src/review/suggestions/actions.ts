@@ -100,12 +100,12 @@ function isMatchingCreationReplay(
   );
 }
 
-function creationRequestJson(
+async function creationRequestFingerprint(
   input: Parameters<typeof isMatchingCreationReplay>[1],
   authorEmail: string | null,
   actorKind: ResourceSuggestion["actorKind"],
-): string {
-  return canonicalJson({
+): Promise<string> {
+  const requestJson = canonicalJson({
     resourceType: input.resourceType,
     resourceId: input.resourceId,
     adapterKind: input.adapterKind,
@@ -116,6 +116,13 @@ function creationRequestJson(
     actorKind,
     operations: normalizeOperations(input.operations),
   });
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(requestJson),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 export const createResourceSuggestion = defineAction({
@@ -152,7 +159,11 @@ export const createResourceSuggestion = defineAction({
           ? "human"
           : "system";
     const authorEmail = (ctx as any)?.userEmail ?? null;
-    const requestJson = creationRequestJson(args, authorEmail, actorKind);
+    const requestFingerprint = await creationRequestFingerprint(
+      args,
+      authorEmail,
+      actorKind,
+    );
     const db = getDbExec();
     await ensureSuggestionTables();
     await ensureReviewTables();
@@ -167,8 +178,8 @@ export const createResourceSuggestion = defineAction({
       );
       if (creation) {
         if (
-          creation.requestJson !== null
-            ? creation.requestJson !== requestJson
+          creation.requestFingerprint !== null
+            ? creation.requestFingerprint !== requestFingerprint
             : !isMatchingCreationReplay(
                 creation.suggestion,
                 args,
@@ -212,7 +223,7 @@ export const createResourceSuggestion = defineAction({
         tx,
         args.idempotencyKey,
         created.id,
-        requestJson,
+        requestFingerprint,
       );
       const threadComment = await insertReviewCommentWithClient(
         {

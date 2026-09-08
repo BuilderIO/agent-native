@@ -27,7 +27,7 @@ export async function ensureSuggestionTables(
         `CREATE TABLE IF NOT EXISTS agent_review_suggestions (id TEXT PRIMARY KEY, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, adapter_kind TEXT NOT NULL, adapter_version INTEGER NOT NULL, thread_id TEXT NOT NULL, author_email TEXT, actor_kind TEXT NOT NULL, base_revision TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', summary TEXT NOT NULL, owner_email TEXT, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata_json TEXT)`,
         `CREATE TABLE IF NOT EXISTS agent_review_suggestion_operations (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, ordinal INTEGER NOT NULL, operation_kind TEXT NOT NULL, target_id TEXT, before_json TEXT, after_json TEXT, anchor_json TEXT, dependencies_json TEXT, schema_version INTEGER NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS agent_review_suggestion_decisions (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, reviewer TEXT, decision TEXT NOT NULL, observed_base TEXT, outcome TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS agent_review_suggestion_creations (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL UNIQUE, request_json TEXT, created_at TEXT NOT NULL)`,
+        `CREATE TABLE IF NOT EXISTS agent_review_suggestion_creations (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL UNIQUE, request_fingerprint TEXT, created_at TEXT NOT NULL)`,
       ];
       for (const sql of ddl) {
         const name = sql.match(/agent_review_[a-z_]+/)![0];
@@ -35,8 +35,8 @@ export async function ensureSuggestionTables(
       }
       await ensureColumnExists(
         "agent_review_suggestion_creations",
-        "request_json",
-        "ALTER TABLE agent_review_suggestion_creations ADD COLUMN IF NOT EXISTS request_json TEXT",
+        "request_fingerprint",
+        "ALTER TABLE agent_review_suggestion_creations ADD COLUMN IF NOT EXISTS request_fingerprint TEXT",
       );
       await client.execute(
         "CREATE INDEX IF NOT EXISTS idx_review_suggestions_resource ON agent_review_suggestions (resource_type, resource_id, created_at)",
@@ -53,11 +53,11 @@ export async function getSuggestionByCreationKey(
   idempotencyKey: string,
 ): Promise<{
   suggestion: ResourceSuggestion;
-  requestJson: string | null;
+  requestFingerprint: string | null;
 } | null> {
   const row = (
     await client.execute({
-      sql: "SELECT suggestion_id, request_json FROM agent_review_suggestion_creations WHERE idempotency_key = ?",
+      sql: "SELECT suggestion_id, request_fingerprint FROM agent_review_suggestion_creations WHERE idempotency_key = ?",
       args: [idempotencyKey],
     })
   ).rows[0];
@@ -68,7 +68,8 @@ export async function getSuggestionByCreationKey(
   }
   return {
     suggestion,
-    requestJson: row.request_json == null ? null : String(row.request_json),
+    requestFingerprint:
+      row.request_fingerprint == null ? null : String(row.request_fingerprint),
   };
 }
 
@@ -76,11 +77,16 @@ export async function recordSuggestionCreation(
   client: DbExec,
   idempotencyKey: string,
   suggestionId: string,
-  requestJson: string,
+  requestFingerprint: string,
 ): Promise<void> {
   await client.execute({
-    sql: "INSERT INTO agent_review_suggestion_creations (idempotency_key,suggestion_id,request_json,created_at) VALUES (?,?,?,?)",
-    args: [idempotencyKey, suggestionId, requestJson, new Date().toISOString()],
+    sql: "INSERT INTO agent_review_suggestion_creations (idempotency_key,suggestion_id,request_fingerprint,created_at) VALUES (?,?,?,?)",
+    args: [
+      idempotencyKey,
+      suggestionId,
+      requestFingerprint,
+      new Date().toISOString(),
+    ],
   });
 }
 

@@ -157,7 +157,7 @@ describe("suggestion store", () => {
     expect(creation?.suggestion.operations[0]).toMatchObject(
       suggestion.operations[0],
     );
-    expect(creation?.requestJson).toBe(
+    expect(creation?.requestFingerprint).toBe(
       '{"operations":[{"kind":"replace_text"}]}',
     );
   });

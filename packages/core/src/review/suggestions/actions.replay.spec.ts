@@ -6,7 +6,7 @@ const transaction = { execute: vi.fn() };
 const validateProposal = vi.fn();
 const insertSuggestion = vi.fn();
 let prior: ResourceSuggestion | null;
-let requestJson: string | null;
+let requestFingerprint: string | null;
 
 vi.mock("../../db/client.js", () => ({
   getDialect: () => "sqlite",
@@ -27,7 +27,7 @@ vi.mock("./store.js", () => ({
   ensureSuggestionTables: vi.fn(),
   getSuggestion: vi.fn(),
   getSuggestionByCreationKey: vi.fn(async () =>
-    prior ? { suggestion: prior, requestJson } : null,
+    prior ? { suggestion: prior, requestFingerprint } : null,
   ),
   insertSuggestion,
   listSuggestions: vi.fn(),
@@ -75,8 +75,8 @@ function stableJson(value: unknown): string {
     .join(",")}}`;
 }
 
-function replayRequestJson(): string {
-  return stableJson({
+async function replayRequestFingerprint(): Promise<string> {
+  const requestJson = stableJson({
     resourceType: args.resourceType,
     resourceId: args.resourceId,
     adapterKind: args.adapterKind,
@@ -98,6 +98,13 @@ function replayRequestJson(): string {
       },
     ],
   });
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(requestJson),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 function makePrior(): ResourceSuggestion {
@@ -136,10 +143,10 @@ function makePrior(): ResourceSuggestion {
 }
 
 describe("suggestion creation replay", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     prior = makePrior();
-    requestJson = replayRequestJson();
+    requestFingerprint = await replayRequestFingerprint();
     validateProposal.mockRejectedValue(
       new Error("base revision is no longer current"),
     );
