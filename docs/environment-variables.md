@@ -278,6 +278,21 @@ production deployment:
 | `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                                           |
 | `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when keep-warm or scheduled signup checks fail; GitHub issue reporting remains the fallback when it is unset. |
 
+### Clips Chrome Web Store release
+
+These variables are internal handoffs used by the manual Clips release
+workflow. The `CWS_*` values are repository variables or short-lived workflow
+values. Store them in GitHub Actions configuration, never in the repository.
+
+| Variable                         | Purpose                                                                                 |
+| -------------------------------- | --------------------------------------------------------------------------------------- |
+| `CWS_API_ROOT`                   | Chrome Web Store API origin used by the Clips release workflow.                         |
+| `CWS_API_SCOPE`                  | Google OAuth scope requested for Chrome Web Store API access.                           |
+| `CWS_SERVICE_ACCOUNT`            | Service account email impersonated through GitHub Actions Workload Identity Federation. |
+| `CWS_WORKLOAD_IDENTITY_PROVIDER` | Workload Identity Federation provider used to obtain the short-lived Google token.      |
+| `CURRENT_STORE_VERSION`          | Published Store version passed to the release version guard.                            |
+| `EXTENSION_VERSION`              | Built extension version passed to the release version guard.                            |
+
 ### Beta E2E browser suite
 
 Read by the manual `Beta E2E (browser)` workflow and `e2e/beta/`, never by
