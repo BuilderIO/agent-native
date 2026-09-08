@@ -36,9 +36,11 @@ function extractMemberEmail(event: H3Event): string | undefined {
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
-import { getDbExec, isPostgres } from "../db/client.js";
+import { warnAgent } from "../agent/action-warnings.js";
+import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getSession } from "../server/auth.js";
 import { renderInviteEmail } from "../server/email-templates.js";
@@ -51,6 +53,13 @@ import { setActiveOrgId } from "./active-org.js";
 import { setRequiredAuthProvider } from "./auth-policy.js";
 import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import { getOrgContext, createOrganization } from "./context.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
+import {
+  addFederatedOrganizationMember,
+  updateFederatedOrganizationMemberRole,
+  revokeFederatedOrganizationMember,
+  syncOrganizationToIdentityHub,
+} from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import type {
@@ -61,6 +70,69 @@ import type {
 import { parseWorkspaceUrl } from "./workspace-url.js";
 
 const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
+const pendingFederatedOrgSyncs = new Map<string, Promise<void>>();
+
+async function syncFederatedOrgBestEffort(
+  event: H3Event,
+  input: {
+    email: string;
+    orgId: string | null;
+    orgName: string | null;
+    role: OrgRole | null;
+  },
+): Promise<void> {
+  if (!input.orgId || !input.orgName || !input.role) return;
+  await syncOrganizationToIdentityHub(event, {
+    id: input.orgId,
+    name: input.orgName,
+    role: input.role,
+    email: input.email,
+  }).catch((error) => {
+    // Federation is an opt-in cross-deployment enhancement. A hub outage must
+    // not turn a healthy local organization read or create into an outage.
+    void error;
+    warnAgent({
+      severity: "advisory",
+      code: "cross-app-organization-sync-failed",
+      message:
+        "Cross-app organization sync did not complete; local organization access remains unchanged.",
+    });
+  });
+}
+
+function scheduleFederatedOrgSync(
+  event: H3Event,
+  input: {
+    email: string;
+    orgId: string | null;
+    orgName: string | null;
+    role: OrgRole | null;
+  },
+): void {
+  if (!input.orgId || !input.orgName || !input.role) return;
+  const key = `${input.orgId}:${input.email.toLowerCase()}`;
+  if (pendingFederatedOrgSyncs.has(key)) return;
+  const sync = syncFederatedOrgBestEffort(event, input).finally(() => {
+    pendingFederatedOrgSyncs.delete(key);
+  });
+  pendingFederatedOrgSyncs.set(key, sync);
+  const waitUntil = (
+    event as H3Event & {
+      waitUntil?: (promise: Promise<unknown>) => void;
+    }
+  ).waitUntil;
+  if (typeof waitUntil === "function") {
+    try {
+      waitUntil.call(event, sync);
+      return;
+    } catch (error) {
+      // Some local adapters expose a non-functional placeholder. Continue the
+      // best-effort path without turning an org read into an outage.
+      void error;
+    }
+  }
+  void sync;
+}
 
 function normalizeWorkspaceAppDefaultVisibility(
   value: unknown,
@@ -91,18 +163,33 @@ function requireAuthEmail(session: { email?: string } | null): string {
 /** GET /_agent-native/org/me — current user's active org, all orgs, pending invitations */
 export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
+  scheduleFederatedOrgSync(event, ctx);
 
   const e = await exec();
   const allOrgsRes = await e.execute({
     sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
-          WHERE LOWER(m.email) = ?`,
+          WHERE LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NULL`,
     args: [ctx.email.toLowerCase()],
   });
   const orgs = allOrgsRes.rows.map((r: any) => ({
     orgId: String(r.orgId ?? r.org_id),
     role: String(r.role) as OrgRole,
+    orgName: String(r.orgName ?? r.org_name),
+  }));
+
+  const pendingRemovalRes = await e.execute({
+    sql: `SELECT m.org_id AS "orgId", o.name AS "orgName"
+          FROM org_members m
+          INNER JOIN organizations o ON m.org_id = o.id
+          WHERE LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NOT NULL`,
+    args: [ctx.email.toLowerCase()],
+  });
+  const pendingRemovals = pendingRemovalRes.rows.map((r: any) => ({
+    orgId: String(r.orgId ?? r.org_id),
     orgName: String(r.orgName ?? r.org_name),
   }));
 
@@ -119,6 +206,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
                   FROM org_members m
                   WHERE m.org_id = o.id
                     AND LOWER(m.email) = ?
+                    AND m.federation_removal_pending_at IS NULL
                 )`,
         args: [domain, ctx.email.toLowerCase()],
       });
@@ -194,6 +282,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     orgName: ctx.orgName,
     role: ctx.role,
     orgs,
+    pendingRemovals,
     pendingInvitations,
     domainMatches,
     allowedDomain,
@@ -207,6 +296,97 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     a2aSecretSet: isOwnerOrAdmin ? a2aSecretSet : undefined,
   };
 });
+
+/** POST /_agent-native/org/federation-removal/retry — finish self-cleanup after a failed revoke */
+export const retryPendingFederatedRemovalHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const session = await getSession(event);
+    const email = requireAuthEmail(session).trim().toLowerCase();
+    const body = await readBody(event);
+    const orgId = typeof body?.orgId === "string" ? body.orgId.trim() : "";
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(orgId)) {
+      throw createError({ statusCode: 400, message: "orgId is required" });
+    }
+
+    const e = await exec();
+    const pending = await e.execute({
+      sql: `SELECT m.role, o.name
+            FROM org_members m
+            INNER JOIN organizations o ON m.org_id = o.id
+            WHERE m.org_id = ? AND LOWER(m.email) = ?
+              AND m.federation_removal_pending_at IS NOT NULL
+            LIMIT 1`,
+      args: [orgId, email],
+    });
+    if (pending.rows.length === 0) {
+      throw createError({
+        statusCode: 404,
+        message: "Pending organization removal not found",
+      });
+    }
+    const role = String((pending.rows[0] as any).role) as OrgRole;
+    if (role === "owner") {
+      throw createError({
+        statusCode: 409,
+        message: "The organization owner cannot be removed",
+      });
+    }
+
+    let revoked = false;
+    try {
+      revoked = await revokeFederatedOrganizationMember(event, {
+        orgId,
+        actorEmail: email,
+        actorRole: role,
+        memberEmail: email,
+      });
+    } catch (error) {
+      void error;
+    }
+    if (!revoked) {
+      throw createError({
+        statusCode: 503,
+        message:
+          "Could not confirm removal with the identity authority; local cleanup remains pending.",
+      });
+    }
+
+    try {
+      await e.execute({
+        sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+        args: [orgId, email],
+      });
+    } catch (error) {
+      void error;
+      throw createError({
+        statusCode: 503,
+        message: "Identity removal succeeded but local cleanup is pending.",
+      });
+    }
+    invalidateMemberOrgCaches();
+
+    const nextOrg = await e.execute({
+      sql: `SELECT org_id AS "orgId" FROM org_members
+            WHERE LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            ORDER BY joined_at ASC, org_id ASC
+            LIMIT 1`,
+      args: [email],
+    });
+    const nextOrgId = nextOrg.rows[0]
+      ? String(
+          (nextOrg.rows[0] as any).orgId ?? (nextOrg.rows[0] as any).org_id,
+        )
+      : null;
+    await setActiveOrgId(
+      email,
+      nextOrgId,
+      "completed pending organization removal",
+    );
+
+    return { success: true, orgId };
+  },
+);
 
 /** PUT /_agent-native/org/workspace-app-default-visibility - org admins only */
 export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
@@ -254,6 +434,12 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   const { id, name: createdName, role } = await createOrganization(name, email);
+  await syncFederatedOrgBestEffort(event, {
+    email,
+    orgId: id,
+    orgName: createdName,
+    role,
+  });
   return { id, name: createdName, role };
 });
 
@@ -285,8 +471,10 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   const e = await exec();
   const args: unknown[] = [ctx.orgId];
   const countArgs: unknown[] = [ctx.orgId];
-  let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members WHERE org_id = ?`;
-  let countSql = `SELECT COUNT(*) AS "totalCount" FROM org_members WHERE org_id = ?`;
+  let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members
+             WHERE org_id = ? AND federation_removal_pending_at IS NULL`;
+  let countSql = `SELECT COUNT(*) AS "totalCount" FROM org_members
+                 WHERE org_id = ? AND federation_removal_pending_at IS NULL`;
   if (search) {
     sql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
     args.push(`%${escapeLike(search)}%`);
@@ -568,7 +756,7 @@ export const acceptInvitationHandler = defineEventHandler(
     const invRes = await e.execute({
       // Case-insensitive on email — see comment on the analogous
       // pending-invitations query in getMyOrgHandler.
-      sql: `SELECT id, org_id AS "orgId", role FROM org_invitations
+      sql: `SELECT id, org_id AS "orgId", role, invited_by AS "invitedBy" FROM org_invitations
             WHERE id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
       args: [invitationId, email.toLowerCase()],
     });
@@ -583,15 +771,28 @@ export const acceptInvitationHandler = defineEventHandler(
     const inviteRole: OrgRole = inv.role === "admin" ? "admin" : "member";
 
     const existingMembership = await e.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role, federation_removal_pending_at FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
       args: [invOrgId, email.toLowerCase()],
     });
 
+    if ((existingMembership.rows[0] as any)?.federation_removal_pending_at) {
+      throw createError({
+        statusCode: 503,
+        message: "This membership is pending identity-authority cleanup.",
+      });
+    }
+
     const orgRes = await e.execute({
-      sql: `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
+      sql: `SELECT name, identity_authority, identity_id
+            FROM organizations WHERE id = ? LIMIT 1`,
       args: [invOrgId],
     });
-    const orgName = String((orgRes.rows[0] as any)?.name ?? "");
+    const organization = orgRes.rows[0] as any;
+    const orgName = String(organization?.name ?? "");
+    const linked =
+      String(organization?.identity_authority ?? "").trim() ||
+      String(organization?.identity_id ?? "").trim();
 
     if (existingMembership.rows.length > 0) {
       await e.execute({
@@ -606,8 +807,69 @@ export const acceptInvitationHandler = defineEventHandler(
       };
     }
 
+    const inviterEmail = String(inv.invitedBy ?? inv.invited_by ?? "");
+    const inviterRes = await e.execute({
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
+      args: [invOrgId, inviterEmail.toLowerCase()],
+    });
+    const inviterRole = String((inviterRes.rows[0] as any)?.role ?? "");
+
+    let federationEnabled = false;
+    if (linked) {
+      try {
+        federationEnabled = await evaluateFeatureFlagStrict(
+          CROSS_APP_ORG_FEDERATION_FLAG.key,
+          {
+            userEmail: email,
+            userKey: email,
+            orgId: invOrgId,
+          },
+        );
+      } catch (error) {
+        // A linked invitation cannot safely fall back while rollout state is
+        // unreadable, but should report a retryable authority failure.
+        void error;
+        throw createError({
+          statusCode: 503,
+          message:
+            "Could not determine whether identity federation is enabled.",
+        });
+      }
+    }
+
+    if (federationEnabled) {
+      try {
+        await addFederatedOrganizationMember(event, {
+          orgId: invOrgId,
+          actorEmail: inviterEmail,
+          actorRole:
+            inviterRole === "owner" || inviterRole === "admin"
+              ? inviterRole
+              : "member",
+          memberEmail: email,
+          memberRole: inviteRole,
+        });
+      } catch (error) {
+        // The invitation remains pending so the authorized inviter can repair
+        // or retry the federation path without granting local access.
+        void error;
+        throw createError({
+          statusCode: 503,
+          message:
+            "Could not synchronize this invitation with the identity authority.",
+        });
+      }
+    }
+
+    // Do not expose a local membership while the identity authority is still
+    // deciding whether this invitee belongs in the shared roster.
     await e.execute({
-      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
       args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
     invalidateMemberOrgCaches();
@@ -657,19 +919,28 @@ export const removeMemberHandler = defineEventHandler(
       });
     }
     const e = await exec();
-    // Look specifically for an OWNER row matching this email rather
-    // than just "any matching row". Duplicate-case rows are possible
-    // (e.g. legacy data with both "Alice@..." and "alice@..." in
-    // org_members), and the prior `SELECT role ... LIMIT 1` could
-    // return the non-owner duplicate, pass the role check, and then
-    // the case-insensitive DELETE below would remove BOTH rows —
-    // including the owner — leaving the org ownerless. Querying for
-    // the owner row directly closes that case-mismatch attack.
-    const ownerCheck = await e.execute({
-      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? AND role = 'owner' LIMIT 1`,
+    // Read every matching row before issuing an authority revoke. A missing
+    // target must not turn into a remote delete, and legacy case-duplicate
+    // rows are safe only when every matching row is active and non-owner.
+    const targetRows = await e.execute({
+      sql: `SELECT role, federation_removal_pending_at FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?`,
       args: [ctx.orgId, memberEmailLower],
     });
-    if (ownerCheck.rows.length > 0) {
+    if (targetRows.rows.length === 0) {
+      throw createError({ statusCode: 404, message: "Member not found" });
+    }
+    if (
+      targetRows.rows.some(
+        (row: any) => row.federation_removal_pending_at != null,
+      )
+    ) {
+      throw createError({
+        statusCode: 503,
+        message: "This membership is pending identity-authority cleanup.",
+      });
+    }
+    if (targetRows.rows.some((row: any) => row.role === "owner")) {
       throw createError({
         statusCode: 403,
         message: "Cannot remove the organization owner",
@@ -677,9 +948,47 @@ export const removeMemberHandler = defineEventHandler(
     }
 
     await e.execute({
-      sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
-      args: [ctx.orgId, memberEmailLower],
+      sql: `UPDATE org_members SET federation_removal_pending_at = ?
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL`,
+      args: [Date.now(), ctx.orgId, memberEmailLower],
     });
+
+    try {
+      await revokeFederatedOrganizationMember(event, {
+        orgId: ctx.orgId,
+        actorEmail: ctx.email,
+        actorRole: ctx.role,
+        memberEmail,
+      });
+    } catch (error) {
+      // Keep the local and identity-authority rosters aligned. If the
+      // authority cannot revoke the copied membership, keep the restrictive
+      // marker so the member remains unauthorized until a later removal retry
+      // can finish the cleanup.
+      void error;
+      throw createError({
+        statusCode: 503,
+        message:
+          "Could not synchronize this member removal with the identity authority.",
+      });
+    }
+
+    try {
+      await e.execute({
+        sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+        args: [ctx.orgId, memberEmailLower],
+      });
+    } catch (error) {
+      // The durable pending marker keeps this member out of auth lookups until
+      // the idempotent authority revocation and local delete are retried.
+      void error;
+      throw createError({
+        statusCode: 503,
+        message:
+          "The member was revoked from the identity authority but local cleanup is pending.",
+      });
+    }
     invalidateMemberOrgCaches();
 
     return { success: true };
@@ -721,7 +1030,10 @@ export const changeMemberRoleHandler = defineEventHandler(
     // Look up the target member's current role to enforce sensible rules
     // about what changes are allowed.
     const current = await e.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [ctx.orgId, memberEmailLower],
     });
     if (current.rows.length === 0) {
@@ -753,6 +1065,23 @@ export const changeMemberRoleHandler = defineEventHandler(
       throw createError({
         statusCode: 400,
         message: "Use the owner account to change your own admin role",
+      });
+    }
+
+    try {
+      await updateFederatedOrganizationMemberRole(event, {
+        orgId: ctx.orgId,
+        actorEmail: ctx.email,
+        actorRole: ctx.role,
+        memberEmail,
+        memberRole: role,
+      });
+    } catch (error) {
+      void error;
+      throw createError({
+        statusCode: 503,
+        message:
+          "Could not synchronize this member role with the identity authority.",
       });
     }
 
@@ -827,13 +1156,25 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
 
   const e = await exec();
   const orgRes = await e.execute({
-    sql: `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
+    sql: `SELECT name, identity_authority, identity_id
+          FROM organizations WHERE id = ? LIMIT 1`,
     args: [ctx.orgId],
   });
   if (orgRes.rows.length === 0) {
     throw createError({ statusCode: 404, message: "Organization not found" });
   }
   const actualName = String((orgRes.rows[0] as any).name ?? "").trim();
+  const identityAuthority = String(
+    (orgRes.rows[0] as any).identity_authority ?? "",
+  ).trim();
+  const identityId = String((orgRes.rows[0] as any).identity_id ?? "").trim();
+  if (identityAuthority || identityId) {
+    throw createError({
+      statusCode: 409,
+      message:
+        "Federated organizations cannot be deleted from an individual app",
+    });
+  }
 
   if (confirmName.toLowerCase() !== actualName.toLowerCase()) {
     throw createError({
@@ -842,7 +1183,7 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  const settingsTable = isPostgres() ? "public.settings" : "settings";
+  const settingsTable = "public.settings";
   const settingsPrefix = `o:${ctx.orgId}:`.replace(
     /[!%_]/g,
     (character) => `!${character}`,
@@ -886,7 +1227,10 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
   invalidateMemberOrgCaches();
 
   const nextRes = await e.execute({
-    sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,
+    sql: `SELECT org_id AS "orgId" FROM org_members
+          WHERE LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [ctx.email.toLowerCase()],
   });
   const nextOrgId =
@@ -919,7 +1263,9 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
     sql: `SELECT m.role AS role, o.name AS "orgName"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
-          WHERE m.org_id = ? AND LOWER(m.email) = ? LIMIT 1`,
+          WHERE m.org_id = ? AND LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [orgId, email.toLowerCase()],
   });
 
@@ -955,7 +1301,8 @@ export const joinByDomainHandler = defineEventHandler(
     const e = await exec();
 
     const orgRes = await e.execute({
-      sql: `SELECT id, name, allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+      sql: `SELECT id, name, allowed_domain, identity_authority, identity_id
+            FROM organizations WHERE id = ? LIMIT 1`,
       args: [orgId],
     });
     if (orgRes.rows.length === 0) {
@@ -970,6 +1317,24 @@ export const joinByDomainHandler = defineEventHandler(
         statusCode: 403,
         message:
           "Your email domain does not match this organization's allowed domain",
+      });
+    }
+
+    const identityAuthority = String(org.identity_authority ?? "").trim();
+    const identityId = String(org.identity_id ?? "").trim();
+    if (identityAuthority || identityId) {
+      if (!identityAuthority || !identityId) {
+        throw createError({
+          statusCode: 409,
+          message: "Organization has an invalid identity mapping",
+        });
+      }
+      // A linked org's roster is owned by its identity authority. Domain
+      // matching remains local-only for unlinked organizations.
+      throw createError({
+        statusCode: 409,
+        message:
+          "Federated organizations must be joined through the identity authority",
       });
     }
 

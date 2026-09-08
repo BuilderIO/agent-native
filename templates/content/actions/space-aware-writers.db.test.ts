@@ -15,7 +15,7 @@ vi.mock("./_local-file-documents.js", async (importOriginal) => {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `space-aware-writers-${process.pid}-${Date.now()}.sqlite`,
+  `space-aware-writers-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -33,7 +33,7 @@ const VIEWER = "viewer@example.com";
 const OUTSIDER = "outsider@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -46,17 +46,17 @@ beforeAll(async () => {
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+    identity_authority TEXT, identity_id TEXT
   )`);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
-    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at INTEGER
   )`);
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function addOrganizationMember(args: {
@@ -65,11 +65,11 @@ async function addOrganizationMember(args: {
   role?: string;
 }) {
   await getDbExec().execute({
-    sql: "INSERT OR IGNORE INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
     args: [args.orgId, "Shared workspace", OWNER, Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: [
       `${args.orgId}:${args.email}`,
       args.orgId,
@@ -101,6 +101,14 @@ async function filesMemberships(documentId: string) {
 }
 
 describe("space-aware document writers", () => {
+  it("rejects an empty caller-provided database document ID", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createContentDatabase.run({ newDocumentId: "" }),
+      ),
+    ).rejects.toThrow();
+  });
+
   it("defaults root pages to personal Files and keeps nested pages in the parent space", async () => {
     const parent = await runWithRequestContext({ userEmail: OWNER }, () =>
       createDocument.run({ title: "Parent" }),
@@ -156,9 +164,13 @@ describe("space-aware document writers", () => {
       { userEmail: MEMBER, orgId },
       () =>
         createContentDatabase.run({
+          newDocumentId: "member-database-document",
           title: "Member database",
           spaceId,
         }),
+    );
+    expect(createdDatabase.database.documentId).toBe(
+      "member-database-document",
     );
     const [database] = await getDb()
       .select()

@@ -13,6 +13,7 @@ import {
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   DISABLED_SSR_CACHE_HEADERS,
   SSR_CACHE_ENV_VAR,
+  SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
   PASSWORD_MAX_LENGTH,
@@ -52,6 +53,13 @@ const UNAVAILABLE_EMAIL_READINESS = {
   status: "unavailable",
   provider: "unknown",
 } as const;
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
 
 function clearAuthPublicPathRegistry(): void {
   const globalState = globalThis as unknown as {
@@ -321,8 +329,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -437,8 +443,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -544,8 +548,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -613,8 +615,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -722,8 +722,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -858,9 +856,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("../org/context.js", () => ({
@@ -1209,9 +1205,7 @@ describe("server/auth", () => {
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -1398,8 +1392,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -1478,9 +1470,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -1539,9 +1529,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -1764,9 +1752,7 @@ describe("server/auth", () => {
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -3206,6 +3192,42 @@ describe("server/auth", () => {
       }
     });
 
+    it("uses the continuation query when SSR renders the login entry", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_MAGIC_LINK", "0");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        marketing: {
+          appName: "Slides",
+          tagline: "Build presentations alongside your agent.",
+        },
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(
+        createMockEvent({
+          path: "/sign-in",
+          query: { c: "continuation" },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe(
+        "query",
+      );
+      expect(
+        readAuthPageData(await (result as Response).text()).initialView,
+      ).toBe("login");
+    });
+
     it("serves the public home with the same cached auth document and head handoff", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -3703,9 +3725,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -3790,9 +3810,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4107,9 +4125,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4178,9 +4194,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4226,9 +4240,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4327,9 +4339,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4379,9 +4389,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4440,9 +4448,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4515,9 +4521,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4603,8 +4607,6 @@ describe("server/auth", () => {
           }),
         }),
         isLocalDatabase: () => true,
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -4654,9 +4656,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4761,9 +4761,7 @@ describe("server/auth", () => {
       );
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4862,9 +4860,7 @@ describe("server/auth", () => {
       );
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4936,9 +4932,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4994,9 +4988,7 @@ describe("server/auth", () => {
 
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -5053,9 +5045,7 @@ describe("server/auth", () => {
 
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -5340,9 +5330,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -5408,9 +5396,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       const captureAuthError = vi.fn();
@@ -5734,8 +5720,6 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -5848,8 +5832,6 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -5942,8 +5924,6 @@ describe("server/auth", () => {
       );
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -6031,7 +6011,7 @@ describe("server/auth", () => {
       expect(cookies).not.toContain("an_session=ba_unsigned_token.");
       expect(cookies).toContain("session_data=");
       expect(mockExecute).toHaveBeenCalledWith({
-        sql: "INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)",
+        sql: "INSERT INTO sessions (token, email, created_at) VALUES (?, ?, ?) ON CONFLICT (token) DO UPDATE SET email=EXCLUDED.email, created_at=EXCLUDED.created_at",
         args: ["ba_unsigned_token", "designer@example.com", expect.any(Number)],
       });
     });
@@ -6059,8 +6039,6 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -6146,8 +6124,6 @@ describe("server/auth", () => {
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -6241,8 +6217,6 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -6572,9 +6546,7 @@ describe("server/auth", () => {
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6597,9 +6569,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6623,9 +6593,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6649,9 +6617,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6679,9 +6645,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6820,9 +6784,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6865,9 +6827,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -6899,9 +6859,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       // Keep the real auth secret resolver; just take Better Auth out of the
@@ -6951,9 +6909,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6997,9 +6953,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -7052,9 +7006,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7091,9 +7043,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7141,9 +7091,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -7185,9 +7133,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -7230,9 +7176,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7274,9 +7218,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7318,9 +7260,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7384,9 +7324,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7419,7 +7357,7 @@ describe("server/auth", () => {
           return { rows: [{ org_id: "org-a" }, { org_id: "org-b" }] };
         }
         if (
-          /FROM\s+settings\b/i.test(sql) &&
+          /FROM\s+(?:public\.)?settings\b/i.test(sql) &&
           args[0] === "u:user@gmail.com:active-org-id"
         ) {
           return { rows: [{ value: JSON.stringify({ orgId: "org-b" }) }] };
@@ -7428,9 +7366,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7913,9 +7849,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7944,9 +7878,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7983,9 +7915,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -8056,9 +7986,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -8122,9 +8050,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -8162,9 +8088,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => false,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -8436,21 +8360,22 @@ describe("server/auth", () => {
 
     it("mobile callback deep-links to the native app but falls back to the return URL, not the homepage", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        },
+        query: { state: "state-1" },
+      });
+      event.res.headers.append(
+        "set-cookie",
+        "an_session=mobile-session; Path=/; HttpOnly; SameSite=Lax",
+      );
       const response = await Promise.resolve(
-        oauthCallbackResponse(
-          createMockEvent({
-            headers: {
-              "user-agent":
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            },
-            query: { state: "state-1" },
-          }),
-          "steve@example.com",
-          {
-            sessionToken: "token-1",
-            returnUrl: "/recaps/recap-abc",
-          },
-        ),
+        oauthCallbackResponse(event, "steve@example.com", {
+          sessionToken: "token-1",
+          returnUrl: "/recaps/recap-abc",
+        }),
       );
 
       expect(response).toBeInstanceOf(Response);
@@ -8463,6 +8388,10 @@ describe("server/auth", () => {
       // original page the visitor opened — never the bare app root.
       expect(html).toContain('window.location.href="/recaps/recap-abc"');
       expect(html).not.toContain('window.location.href="/"');
+      const setCookie = (response as Response).headers.getSetCookie?.() ?? [
+        (response as Response).headers.get("set-cookie") ?? "",
+      ];
+      expect(setCookie.join("\n")).toContain("an_session=mobile-session");
     });
 
     it("mobile callback fallback defaults to the app root when there is no return URL", async () => {
@@ -8934,9 +8863,7 @@ describe("server/auth", () => {
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        isPostgres: () => false,
         isLocalDatabase: () => true,
-        intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 

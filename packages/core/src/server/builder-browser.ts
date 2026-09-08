@@ -8,12 +8,18 @@ import {
 import type { H3Event } from "h3";
 import { getHeader, getRequestIP } from "h3";
 
+import { ActionContractError } from "../action.js";
 import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
 } from "./better-auth-instance.js";
+import {
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "./builder-api-auth.js";
+import type { BuilderOAuthPermissionScope } from "./builder-oauth.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
@@ -2180,18 +2186,25 @@ function builderProjectFromRecord(
   };
 }
 
-async function resolveBuilderApiCredentials() {
-  const { resolveBuilderCredentials } =
-    await import("./credential-provider.js");
-  const creds = await resolveBuilderCredentials();
-  if (!creds.privateKey || !creds.publicKey) {
-    throw new Error("Builder keys are not configured");
+async function resolveBuilderApiAuthorization(
+  requiredScope: BuilderOAuthPermissionScope,
+): Promise<BuilderRequestAuthorization> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope,
+  });
+  if (!authorization) {
+    throw new ActionContractError(
+      "Builder.io is not connected. Connect Builder.io in Settings.",
+      { errorCode: "builder_not_connected", statusCode: 400 },
+    );
   }
-  return {
-    ...creds,
-    privateKey: creds.privateKey,
-    publicKey: creds.publicKey,
-  };
+  if (authorization.source === "legacy" && !authorization.legacyPublicKey) {
+    throw new ActionContractError(
+      "Builder legacy credentials require BUILDER_PUBLIC_KEY for this request.",
+      { errorCode: "builder_legacy_public_key_required", statusCode: 400 },
+    );
+  }
+  return authorization;
 }
 
 async function fetchBuilderApi(
@@ -2418,16 +2431,19 @@ export async function findBuilderProjectForRepo(
   args: BuilderProjectLookupArgs,
 ): Promise<BuilderProjectResult | null> {
   const repoUrl = normalizeBuilderRepoUrl(args.repoUrl);
-  const creds = await resolveBuilderApiCredentials();
+  const authorization = await resolveBuilderApiAuthorization(
+    "builder:projects:read",
+  );
   const url = new URL("/projects", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
+  if (authorization.legacyPublicKey)
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
   url.searchParams.set("includeHidden", "true");
 
   const response = await fetchBuilderApi(
     url,
     {
       method: "GET",
-      headers: { Authorization: `Bearer ${creds.privateKey}` },
+      headers: { Authorization: authorization.authorization },
     },
     "project lookup",
   );
@@ -2468,16 +2484,19 @@ export async function createBuilderProject(args: {
 }): Promise<BuilderProjectResult> {
   const name = normalizeBuilderProjectString(args.name, "project name");
   const repoUrl = normalizeBuilderRepoUrl(args.repoUrl);
-  const creds = await resolveBuilderApiCredentials();
+  const authorization = await resolveBuilderApiAuthorization(
+    "builder:projects:write",
+  );
   const url = new URL("/projects/create", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
+  if (authorization.legacyPublicKey)
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
 
   const response = await fetchBuilderApi(
     url,
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${creds.privateKey}`,
+        Authorization: authorization.authorization,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -2547,12 +2566,8 @@ function normalizeBuilderBranchUrl(value: unknown): string {
 export async function runBuilderAgent(
   args: RunBuilderAgentArgs,
 ): Promise<RunBuilderAgentResult> {
-  const { resolveBuilderCredentials } =
-    await import("./credential-provider.js");
-  const creds = await resolveBuilderCredentials();
-  if (!creds.privateKey || !creds.publicKey) {
-    throw new Error("Builder keys are not configured");
-  }
+  const authorization =
+    await resolveBuilderApiAuthorization("builder:agents:run");
   if (!args.prompt || !args.prompt.trim()) {
     throw new Error("prompt is required");
   }
@@ -2569,7 +2584,7 @@ export async function runBuilderAgent(
   // against Space membership, so fall back to the credential's user id when
   // there is no session email or the email is not a member.
   const requestedEmail = args.userEmail?.trim() || undefined;
-  const fallbackUserId = args.userId || creds.userId || undefined;
+  const fallbackUserId = args.userId || authorization.userId || undefined;
   const builderUserEmail = requestedEmail;
   const builderUserId = requestedEmail ? undefined : fallbackUserId;
   if (!builderUserEmail && !builderUserId) {
@@ -2578,7 +2593,8 @@ export async function runBuilderAgent(
   const userPrompt = buildBuilderAgentUserPrompt(args.prompt, args.context);
 
   const url = new URL("/agents/run", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
+  if (authorization.legacyPublicKey)
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
 
   const postRun = async (actor: { userEmail?: string; userId?: string }) => {
     const body: Record<string, unknown> = {
@@ -2594,7 +2610,7 @@ export async function runBuilderAgent(
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${creds.privateKey}`,
+          Authorization: authorization.authorization,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
@@ -2650,12 +2666,9 @@ export async function runBuilderAgent(
 export async function requestBuilderBrowserConnection(
   args: BrowserConnectionArgs,
 ): Promise<Record<string, unknown>> {
-  const { resolveBuilderCredentials } =
-    await import("./credential-provider.js");
-  const creds = await resolveBuilderCredentials();
-  if (!creds.privateKey || !creds.publicKey) {
-    throw new Error("Builder browser access is not configured");
-  }
+  const authorization = await resolveBuilderApiAuthorization(
+    "builder:browser:connect",
+  );
 
   const sessionId = args.sessionId?.trim();
   if (!sessionId) {
@@ -2663,9 +2676,11 @@ export async function requestBuilderBrowserConnection(
   }
 
   const url = new URL("/codegen/get-browser-connection", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
-  if (creds.userId) {
-    url.searchParams.set("userId", creds.userId);
+  if (authorization.legacyPublicKey) {
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
+  }
+  if (authorization.userId) {
+    url.searchParams.set("userId", authorization.userId);
   }
 
   const response = await fetchBuilderApi(
@@ -2673,7 +2688,7 @@ export async function requestBuilderBrowserConnection(
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${creds.privateKey}`,
+        Authorization: authorization.authorization,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

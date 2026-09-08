@@ -83,10 +83,8 @@ const messages = {
     cloudConnectedReloading: "已連線。正在重新載入...",
     cloudConnectionFailed: "連線失敗",
     cloudTestConnect: "測試並連線",
-    cloudSqliteEdge: "邊緣 SQLite",
     cloudServerlessPostgres: "無伺服器 Postgres",
     cloudOpenSourceFirebaseAlternative: "Firebase 的開放原始碼替代方案",
-    cloudCloudflareSqliteEdge: "Cloudflare 邊緣 SQLite",
     designSlidePreview: "幻燈片預覽",
     designSlideTitle: "幻燈片標題",
     designSupportingText:

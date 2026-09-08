@@ -24,7 +24,7 @@ import { getSession } from "./auth.js";
 import {
   gatewayLaneUnavailableMessage,
   getBuilderGatewayBaseUrl,
-  resolveBuilderGatewayCredentials,
+  resolveBuilderGatewayAuth,
   resolveSecret,
 } from "./credential-provider.js";
 import { getH3App } from "./framework-request-handler.js";
@@ -578,11 +578,9 @@ function createSessionHandler(
           : undefined,
       },
       async () => {
-        const builderCredentials = await resolveBuilderGatewayCredentials();
-        const builderConfigured = Boolean(
-          builderCredentials.privateKey?.trim() &&
-          builderCredentials.publicKey?.trim(),
-        );
+        const builderCredentials = await resolveBuilderGatewayAuth();
+        const builderConfigured = builderCredentials !== null;
+
         const apiKey = builderConfigured
           ? null
           : (await resolveSecret("OPENAI_API_KEY"))?.trim();
@@ -649,16 +647,17 @@ function createSessionHandler(
                 ? getBuilderGatewayBaseUrl()
                 : `${getBuilderGatewayBaseUrl()}/`,
             );
-            gatewayUrl.searchParams.set(
-              "apiKey",
-              builderCredentials.publicKey!.trim(),
-            );
+            if (builderCredentials.spaceId) {
+              gatewayUrl.searchParams.set("apiKey", builderCredentials.spaceId);
+            }
             upstream = await fetch(gatewayUrl.toString(), {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${builderCredentials.privateKey!.trim()}`,
-                "x-builder-api-key": builderCredentials.publicKey!.trim(),
+                Authorization: builderCredentials.authorization,
+                ...(builderCredentials.spaceId
+                  ? { "x-builder-api-key": builderCredentials.spaceId }
+                  : {}),
                 ...getBuilderGatewayRequestHeaders(),
                 ...(builderCredentials.userId
                   ? { "x-builder-user-id": builderCredentials.userId }
@@ -695,7 +694,9 @@ function createSessionHandler(
         if (!upstream.ok) {
           const detail = await safeOpenAiErrorDetail(
             upstream,
-            builderConfigured ? builderCredentials.privateKey! : apiKey!,
+            builderConfigured
+              ? builderCredentials.authorization.replace(/^Bearer\s+/i, "")
+              : apiKey!,
           );
           setResponseStatus(event, builderConfigured ? upstream.status : 502);
           const rejection = `${builderConfigured ? "Builder" : "OpenAI"} rejected the realtime session (${upstream.status})${detail ? `: ${detail}` : ""}`;

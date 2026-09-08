@@ -195,31 +195,21 @@ function samePenPoint(a: PenPoint, b: PenPoint): boolean {
 }
 
 // Reads the app's actual resolved theme (next-themes' `dark` class on
-// <html>) rather than raw OS `prefers-color-scheme`. NOTE: this is about the
-// EDITOR CHROME theme only — it must NOT gate board-content defaults. The
-// board surface itself is ALWAYS dark (BOARD_SURFACE_BACKGROUND is a fixed
-// hsl(0 0% 10%) regardless of editor theme), so board-drawn text keys its
-// default color off `isBoardTarget` alone — see defaultCanvasTextColor.
-// Gating it on this flag made T-tool board text render black-on-dark
-// (invisible) whenever the editor UI was in light mode.
+// <html>) rather than raw OS `prefers-color-scheme`.
 export function isDesignEditorDarkTheme(): boolean {
   if (typeof document === "undefined") return false;
   return document.documentElement.classList.contains("dark");
 }
 
 /**
- * Default text color for a freshly drawn text primitive.
- *
- * - BOARD target: always white. The board surface is permanently dark
- *   (BOARD_SURFACE_BACKGROUND), independent of the editor chrome theme, so
- *   the "white Inter on dark board" default must not depend on
- *   isDesignEditorDarkTheme() — that gate left board text at `currentColor`
- *   (black in an unstyled document) for light-theme editor sessions.
- * - SCREEN target: `currentColor`, so text dropped into an existing (often
- *   light) screen inherits its surrounding styles/theme exactly as before.
+ * Default text color for a freshly drawn text primitive, chosen from the
+ * surface it lands on — the caller measures that, because the board's own
+ * document is transparent and its colour lives on the host. `currentColor`
+ * inherits the unstyled document's black, which is invisible on a dark one.
  */
-export function defaultCanvasTextColor(isBoardTarget: boolean): string {
-  return isBoardTarget ? "#ffffff" : "currentColor";
+export function defaultCanvasTextColor(needsLightFill: boolean): string {
+  // guard:allow-raw-color — written into the user's design HTML, where the editor's theme tokens do not exist
+  return needsLightFill ? "#ffffff" : "currentColor";
 }
 
 /**

@@ -10,10 +10,8 @@ import {
   IconChevronRight,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { NavLink } from "react-router";
 import { toast } from "sonner";
 
-import { ImportMenu } from "@/components/import-menu";
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
 import { Button } from "@/components/ui/button";
@@ -34,7 +32,7 @@ import { cn } from "@/lib/utils";
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
 import { EmptyState } from "./empty-state";
 import { FilterChips, type FilterChip } from "./filter-chips";
-import { PageHeader } from "./page-header";
+import { PageBreadcrumb, PageHeader } from "./page-header";
 import { RecordingCard } from "./recording-card";
 import { SearchBar } from "./search-bar";
 import { SortMenu, type SortKey } from "./sort-menu";
@@ -59,52 +57,6 @@ function Skeleton() {
         <div className="h-3.5 w-3/4 rounded bg-muted" />
         <div className="h-3 w-1/2 rounded bg-muted" />
       </div>
-    </div>
-  );
-}
-
-function NewRecordingTile({
-  spaceId,
-  folderId,
-}: {
-  spaceId?: string | null;
-  folderId?: string | null;
-}) {
-  const t = useT();
-  const recordHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (spaceId) params.set("spaceId", spaceId);
-    if (folderId) params.set("folderId", folderId);
-    const qs = params.toString();
-    return qs ? `/record?${qs}` : "/record";
-  }, [spaceId, folderId]);
-  const uploadHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (spaceId) params.set("spaceId", spaceId);
-    if (folderId) params.set("folderId", folderId);
-    params.set("autoUpload", "1");
-    return `/record?${params.toString()}`;
-  }, [spaceId, folderId]);
-  const importHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (spaceId) params.set("spaceId", spaceId);
-    if (folderId) params.set("folderId", folderId);
-    const qs = params.toString();
-    return qs ? `/import?${qs}` : "/import";
-  }, [spaceId, folderId]);
-
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center transition-colors hover:border-primary/40 hover:bg-muted/40">
-      <Button className="w-full max-w-[180px]" size="sm" asChild>
-        <NavLink to={recordHref}>{t("navigation.newRecording")}</NavLink>
-      </Button>
-      <ImportMenu
-        uploadHref={uploadHref}
-        importLoomHref={importHref}
-        size="sm"
-        variant="ghost"
-        className="h-auto px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
-      />
     </div>
   );
 }
@@ -412,6 +364,8 @@ export function LibraryGrid({
           recordingId={sharingRec.id}
           recordingTitle={sharingRec.title}
           initialVisibility={sharingRec.visibility}
+          hasPassword={sharingRec.hasPassword}
+          expiresAt={sharingRec.expiresAt}
           open={!!sharingRec}
           onOpenChange={(open) => {
             if (!open) setSharingRec(null);
@@ -437,20 +391,18 @@ export function LibraryGrid({
 
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
-        <div className="min-w-0">
-          {title && (
-            <h1 className="text-base font-semibold text-foreground truncate">
-              {title}
-            </h1>
-          )}
-        </div>
-        <div className="ms-auto flex min-w-0 items-center gap-2">
-          {extraActions}
+        <div className="flex min-w-0 flex-1 items-center gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem_minmax(0,1fr)]">
+          <div className="min-w-0 flex-1 lg:flex-none">
+            {title ? <PageBreadcrumb label={title} /> : null}
+          </div>
           <SearchBar
             side="bottom"
-            className="hidden min-w-0 max-w-64 flex-1 md:block"
+            className="hidden min-w-0 max-w-80 flex-1 md:block lg:w-full lg:max-w-none"
           />
-          <SortMenu value={sort} onChange={setSort} />
+          <div className="ms-auto flex min-w-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
+            {extraActions}
+            <SortMenu value={sort} onChange={setSort} />
+          </div>
         </div>
       </PageHeader>
 
@@ -469,7 +421,7 @@ export function LibraryGrid({
           )}
           aria-busy={isLoading}
         >
-          <div className="p-5">
+          <div className="flex min-h-full flex-col p-5">
             {isLoading ? (
               <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
                 {Array.from({ length: 8 }).map((_, i) => (
@@ -563,9 +515,6 @@ export function LibraryGrid({
                     readOnly={!canManageRecordings}
                   />
                 ))}
-                {view === "library" && page === totalPages && (
-                  <NewRecordingTile spaceId={spaceId} folderId={folderId} />
-                )}
               </div>
             )}
           </div>

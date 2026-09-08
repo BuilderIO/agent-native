@@ -64,10 +64,13 @@ export interface AuthPageProps {
   brandMarkSrc: string;
   githubUrl: string;
   showGoogle: boolean;
+  /** @deprecated Browser SSO entry points were removed. */
+  identitySsoEnabled?: boolean;
+  /** @deprecated Automatic browser SSO handoff was removed. */
+  identitySsoAuto?: boolean;
   signupLegalNotice?: AuthLegalNotice;
   signupLocalModeNote?: { text: string; command: string };
   docsAuthUrl: string;
-  identitySsoEnabled: boolean;
   publicOAuthOrigin: string;
   workspaceGatewayReturnOrigin: string;
   googleAuthMode: "popup" | "redirect" | "auto";
@@ -216,6 +219,26 @@ export function shouldRetryAuthSessionProbe(
   readable: boolean,
 ): boolean {
   return !readable || response.status === 429 || response.status >= 500;
+}
+
+export function isConfirmedAnonymousAuthSession(
+  response: Pick<Response, "ok" | "status">,
+  data: Record<string, unknown>,
+  readable: boolean,
+): boolean {
+  return (
+    response.ok &&
+    response.status === 200 &&
+    readable &&
+    data.error === "Not authenticated"
+  );
+}
+
+export function isAuthenticatedAuthSession(
+  response: Pick<Response, "ok">,
+  data: Record<string, unknown>,
+): boolean {
+  return response.ok && typeof data.email === "string" && !data.error;
 }
 
 async function requestJson(
@@ -629,7 +652,6 @@ export function AuthPage(props: AuthPageProps) {
     signupLegalNotice,
     signupLocalModeNote,
     docsAuthUrl,
-    identitySsoEnabled,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -839,6 +861,10 @@ export function AuthPage(props: AuthPageProps) {
       setView("magicLink");
       return;
     }
+    if (params.get("c")) {
+      setView("login");
+      return;
+    }
     const storedTab = readStorage(TAB_STORAGE_KEY);
     if (storedTab === "login" || storedTab === "signup") setView(storedTab);
   }, [authMode, googleOnly, readPendingSignupEmail, setNotice, t]);
@@ -856,8 +882,11 @@ export function AuthPage(props: AuthPageProps) {
               cache: "no-store",
             },
           );
-          if (response.ok && typeof data.email === "string" && !data.error) {
+          if (isAuthenticatedAuthSession(response, data)) {
             redirectToSignedInApp();
+            return;
+          }
+          if (isConfirmedAnonymousAuthSession(response, data, readable)) {
             return;
           }
           retry = shouldRetryAuthSessionProbe(response, readable);
@@ -872,6 +901,49 @@ export function AuthPage(props: AuthPageProps) {
     };
     void probe();
   }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved]);
+
+  React.useEffect(() => {
+    if (!runtimeBasePathResolved || view !== "magicLinkSent") return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const probe = async () => {
+      if (cancelled || inFlight || document.visibilityState === "hidden") {
+        return;
+      }
+      inFlight = true;
+      try {
+        const { response, data } = await requestJson(
+          apiPath("/_agent-native/auth/session"),
+          {
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          },
+        );
+        if (!cancelled && isAuthenticatedAuthSession(response, data)) {
+          redirectToSignedInApp();
+        }
+      } catch {
+        // coercion-ok: a transient probe failure leaves the completion view in place; the
+        // next visibility event or interval retries it.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const probeOnReturn = () => {
+      if (document.visibilityState === "visible") void probe();
+    };
+    const timer = window.setInterval(() => void probe(), 1000);
+    window.addEventListener("focus", probeOnReturn);
+    document.addEventListener("visibilitychange", probeOnReturn);
+    void probe();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", probeOnReturn);
+      document.removeEventListener("visibilitychange", probeOnReturn);
+    };
+  }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved, view]);
 
   React.useEffect(() => {
     let anonymousId = readStorage(ANALYTICS_ANONYMOUS_ID_KEY);
@@ -2081,7 +2153,6 @@ export function AuthPage(props: AuthPageProps) {
       message={messages.signup?.text}
     />
   );
-  const identityHref = apiPath("/_agent-native/identity/login");
   const authCard = (
     <div className={cardClassName}>
       <h1 id="heading" data-i18n={keys.heading}>
@@ -2098,20 +2169,6 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
-      {identitySsoEnabled ? (
-        <a
-          className="btn-identity-sso"
-          id="identity-sso-btn"
-          href={identityHref}
-          onClick={(event) => {
-            event.preventDefault();
-            const params = new URLSearchParams({ return: resumeHref() });
-            window.location.href = `${identityHref}?${params.toString()}`;
-          }}
-        >
-          Sign in with Agent-Native
-        </a>
-      ) : null}
       <div
         className="local-dev-signin"
         id="local-dev-signin"

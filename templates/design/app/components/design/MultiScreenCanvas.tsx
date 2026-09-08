@@ -43,6 +43,7 @@ import {
   getPenPathGeometry,
   hitTestPenAnchor,
   hitTestPenHandle,
+  isClosedPathData,
   isPenCloseTarget,
   movePenAnchor,
   movePenHandle,
@@ -90,8 +91,7 @@ import { parseBreakpointWidthInput } from "./BreakpointBar";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import {
   canvasPrimitiveReactStyle,
-  DEFAULT_LINE_STROKE,
-  DEFAULT_LINE_STROKE_WIDTH_PX,
+  canvasVectorPaint,
 } from "./canvas-primitive-style";
 import {
   CONTENT_SIZE_REPORT_MESSAGE_TYPE,
@@ -147,6 +147,10 @@ import { type ElementInfo, type PortableStyleSnapshot } from "./types";
  * resizable frame inside an infinite, pannable surface.
  */
 const SCREEN_WIDTH = OVERVIEW_FRAME_WIDTH;
+/** The board layers sit inside the canvas container, which redefines this var
+ *  when the design stores a colour — so reading it live is what keeps every
+ *  board layer the same colour as the canvas around it. */
+const CANVAS_BACKGROUND_VAR = "var(--design-editor-canvas-bg)";
 const SCREEN_HEIGHT = 640;
 const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
@@ -226,7 +230,6 @@ function hasScreenChildLayers(content: string): boolean {
 
 import {
   getBoardContentKey,
-  resolveBoardSurfaceBackground,
   getBoardContentLayerSignature,
   getBoardSurfaceContentBounds,
   getBoardSurfaceRenderContent,
@@ -685,19 +688,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       height: surfaceSize.height / scale,
     };
   }, [canvasZoom, pan.x, pan.y, surfaceSize.height, surfaceSize.width]);
-  // The board iframe cannot read the host's CSS vars. Prefer the live
-  // design canvas colour; the theme var is only the unset fallback.
-  const boardSurfaceBackground = useMemo(() => {
-    const themed =
-      typeof window === "undefined"
-        ? ""
-        : window
-            .getComputedStyle(document.documentElement)
-            .getPropertyValue("--design-editor-canvas-bg")
-            .trim();
-    return resolveBoardSurfaceBackground(canvasBackground, themed);
-  }, [canvasBackground, resolvedTheme]);
-
   const boardSurfaceRenderGeometry = useMemo(() => {
     if (!boardFrameGeometry) return undefined;
     const focusGeometry = boardSurfaceFocusPoint
@@ -746,16 +736,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       return null;
     }
     return getBoardSurfaceStaticPreviewContent({
+      darkScheme: resolvedTheme === "dark",
       html: boardSurfaceHtml,
       logicalGeometry: boardFrameGeometry,
       viewport: boardStaticPreviewViewport,
-      background: boardSurfaceBackground,
     });
   }, [
     boardSurfaceHtml,
     boardFrameGeometry,
     boardStaticPreviewViewport,
-    boardSurfaceBackground,
+    resolvedTheme,
   ]);
   const showBoardStaticPreview = Boolean(
     boardFrameGeometry &&
@@ -8547,7 +8537,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 pointerEvents: "none",
                 transform: `scale(${boardFrameGeometry.width / boardStaticPreviewViewport.width}, ${boardFrameGeometry.height / boardStaticPreviewViewport.height})`,
                 transformOrigin: "top left",
-                background: boardSurfaceBackground,
+                background: CANVAS_BACKGROUND_VAR,
               }}
             />
           </div>
@@ -8572,8 +8562,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             });
             const boardLayerSignature =
               getBoardContentLayerSignature(boardFileContent);
-            const boardRenderContent =
-              getBoardSurfaceRenderContent(boardFileContent);
+            const boardRenderContent = getBoardSurfaceRenderContent(
+              boardFileContent,
+              resolvedTheme === "dark",
+            );
             return (
               // Overflow-hidden wrapper so the board iframe never bleeds outside
               // its declared logical surface. z-index 0 keeps it below screen
@@ -8593,7 +8585,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   // board document. Inside the document it would be part of
                   // the srcdoc, so every colour-picker tick would rebuild the
                   // iframe; out here it is a CSS change and updates instantly.
-                  background: boardSurfaceBackground,
+                  background: CANVAS_BACKGROUND_VAR,
                 }}
               >
                 <DesignCanvas
@@ -9355,13 +9347,15 @@ function DraftPrimitiveContent({
       (draft.penPath
         ? serializePenPath(draft.penPath)
         : pointsToPath(draft.points ?? []));
-    // Figma parity: a freshly drawn line/arrow/pen path defaults to solid
-    // black at 1px (DEFAULT_LINE_STROKE / DEFAULT_LINE_STROKE_WIDTH_PX in
-    // canvas-primitive-style.ts), matching the committed board-file output
-    // and DesignEditor's appendCanvasPrimitiveToHtml. The arrowhead marker's
-    // fill is set to this same resolved stroke color (not `currentColor`) so
-    // it never disagrees with the shaft when a custom stroke is chosen.
-    const resolvedStroke = draft.stroke ?? DEFAULT_LINE_STROKE;
+    const paint = canvasVectorPaint({
+      closed: isClosedPathData(pathData),
+      fill: draft.fill,
+      stroke: draft.stroke,
+      strokeWidth: draft.strokeWidth,
+    });
+    // The arrowhead marker takes the resolved stroke color (not
+    // `currentColor`) so it never disagrees with the shaft.
+    const resolvedStroke = paint.stroke;
     return (
       <svg
         className={cn("block size-full overflow-visible", muted)}
@@ -9384,11 +9378,11 @@ function DraftPrimitiveContent({
         ) : null}
         <path
           d={pathData}
-          fill="none"
+          fill={paint.fill}
           stroke={resolvedStroke}
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth={draft.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX}
+          strokeWidth={paint.strokeWidth}
           markerEnd={draft.kind === "arrow" ? `url(#${markerId})` : undefined}
         />
       </svg>
@@ -9437,6 +9431,12 @@ function DraftPrimitiveContent({
   }
 
   if (draft.kind === "polygon" || draft.kind === "star") {
+    const polygonPaint = canvasVectorPaint({
+      closed: true,
+      fill: draft.fill,
+      stroke: draft.stroke,
+      strokeWidth: draft.strokeWidth,
+    });
     return (
       <svg
         className={cn("block size-full overflow-visible", muted)}
@@ -9451,10 +9451,10 @@ function DraftPrimitiveContent({
             draft.geometry.width,
             draft.geometry.height,
           )}
-          fill={draft.fill ?? "hsl(var(--primary) / 0.12)"}
-          stroke={draft.stroke ?? "none"}
+          fill={polygonPaint.fill}
+          stroke={polygonPaint.stroke}
           strokeLinejoin="round"
-          strokeWidth={draft.strokeWidth ?? 0}
+          strokeWidth={polygonPaint.strokeWidth}
         />
       </svg>
     );

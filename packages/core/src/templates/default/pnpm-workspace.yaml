@@ -48,6 +48,5 @@ overrides:
   "@tiptap/starter-kit": "3.28.0"
 
 allowBuilds:
-  better-sqlite3: true
   esbuild: true
   tesseract.js: true

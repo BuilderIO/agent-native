@@ -70,7 +70,7 @@ For a local production-shaped check with Postgres and Docker, follow the
 
 ### Configure the deployment
 
-Set `DATABASE_URL` to a persistent SQL database before the first production
+Set `DATABASE_URL` to a persistent PostgreSQL database before the first production
 deploy. A standalone app using framework auth also needs a stable
 `BETTER_AUTH_SECRET`. Add the provider and integration variables your app uses.
 
@@ -88,7 +88,7 @@ webhooks your app uses.
 
 <Callout tone="warning">
 
-Do not use the local SQLite file as production storage. Do not reuse the sample
+Do not use local PGlite storage as production storage. Do not reuse the sample
 auth secret from a local Docker setup. Keep secrets in the deployment
 provider's environment or managed secret store.
 

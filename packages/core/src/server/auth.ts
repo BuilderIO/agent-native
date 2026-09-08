@@ -74,13 +74,7 @@ function toWebRequest(event: H3Event): Request {
 }
 
 type H3App = H3AppShim;
-import {
-  getDbExec,
-  isPostgres,
-  intType,
-  retryOnDdlRace,
-  describeDbError,
-} from "../db/client.js";
+import { getDbExec, describeDbError } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
@@ -95,7 +89,10 @@ import {
 } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
-import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
+import {
+  resolveSsrCacheHeaders,
+  SSR_QUERY_CACHE_KEY_HEADER,
+} from "../shared/cache-control.js";
 import {
   extractOAuthStateAppId,
   extractOAuthStateProvider,
@@ -789,9 +786,10 @@ function betterAuthCallbackURL(
 export function getConfiguredLoginHtml(event: H3Event): string | null {
   const config = _authGuardConfig;
   if (!config) return null;
-  const { rawPath } = getRequestPathAndSearch(event);
+  const { rawPath, search } = getRequestPathAndSearch(event);
+  const requestPath = `${rawPath}${search}`;
   const loginHtml =
-    config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
+    config.getLoginHtml?.(event, requestPath) ?? config.loginHtml ?? null;
   if (!loginHtml) return null;
 
   const appOriginConfigScript = getAppOriginClientConfigScript();
@@ -801,7 +799,7 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
       ? injectHeadScript(loginHtml, appOriginConfigScript)
       : loginHtml;
   return injectLoginSocialImageMeta(
-    injectBetaOptOutPersistence(html, rawPath),
+    injectBetaOptOutPersistence(html, requestPath),
     event,
   );
 }
@@ -1573,18 +1571,17 @@ let sessionMaxAge = DEFAULT_MAX_AGE;
 export async function ensureSessionTable(): Promise<void> {
   if (!_sessionInitPromise) {
     _sessionInitPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
           CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             email TEXT,
-            created_at ${intType()} NOT NULL
+            created_at BIGINT NOT NULL
           )
         `;
 
       // PG guard: probe information_schema first (no lock), run DDL only when
       // missing, bounded by a transaction-scoped lock_timeout.
-      if (isPostgres()) {
+      {
         await ensureTableExists("sessions", createSql);
         await ensureColumnExists(
           "sessions",
@@ -1597,18 +1594,6 @@ export async function ensureSessionTable(): Promise<void> {
         await widenIntColumnsToBigInt("sessions", ["created_at"]);
         return;
       }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await retryOnDdlRace(() => client.execute(createSql));
-      try {
-        await client.execute(`ALTER TABLE sessions ADD COLUMN email TEXT`);
-      } catch {
-        // Column already exists
-      }
-      // Older deployments have a 32-bit `created_at`; on Postgres the
-      // `Date.now()` written on session create overflows int4. Widen in place
-      // (no-op once done / on fresh DBs).
-      await widenIntColumnsToBigInt("sessions", ["created_at"]);
     })().catch((err) => {
       // Don't cache the rejection — let the next caller retry a fresh init.
       _sessionInitPromise = undefined;
@@ -1647,9 +1632,7 @@ export async function addSession(token: string, email?: string): Promise<void> {
   const client = getDbExec();
   await retryIfSessionsMissing(() =>
     client.execute({
-      sql: isPostgres()
-        ? `INSERT INTO sessions (token, email, created_at) VALUES (?, ?, ?) ON CONFLICT (token) DO UPDATE SET email=EXCLUDED.email, created_at=EXCLUDED.created_at`
-        : `INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)`,
+      sql: `INSERT INTO sessions (token, email, created_at) VALUES (?, ?, ?) ON CONFLICT (token) DO UPDATE SET email=EXCLUDED.email, created_at=EXCLUDED.created_at`,
       args: [token, email ?? null, Date.now()],
     }),
   );
@@ -2549,7 +2532,7 @@ async function consumeDesktopExchangeFromDB(
     const entry = packed ? parseDesktopExchangeStoredEntry(packed) : null;
     if (!entry) return { status: "malformed", packed };
 
-    // SQLite >=3.35 and PostgreSQL both support RETURNING. Matching the
+    // Postgres RETURNING keeps the read/claim pair atomic. Matching the
     // payload makes the read/claim pair safe against a concurrent replacement
     // of the same flow id, while the single DELETE makes concurrent pollers
     // one-time consumers.
@@ -3335,6 +3318,7 @@ function loginHtmlResponse(
     requestIndependent?: boolean;
   } = {},
 ): Response {
+  const { search } = getRequestPathAndSearch(event);
   const appOriginConfigScript = getAppOriginClientConfigScript();
   let html = loginHtml;
   if (
@@ -3367,6 +3351,9 @@ function loginHtmlResponse(
       // analytics script is public build configuration, not user/session
       // state. Never vary this per request by cookie or session.
       ...resolveSsrCacheHeaders(),
+      ...(!options.requestIndependent && search
+        ? { [SSR_QUERY_CACHE_KEY_HEADER]: "query" }
+        : {}),
       "X-Robots-Tag": "noindex, nofollow",
     },
   });
@@ -3397,6 +3384,7 @@ function createAuthGuardFn(
     const url = event.node?.req?.url ?? event.path ?? "/";
     const queryStart = url.indexOf("?");
     const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
+    const requestPath = queryStart >= 0 ? url : rawPath;
     const p = stripAppBasePath(rawPath);
     const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
     const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
@@ -3685,7 +3673,8 @@ function createAuthGuardFn(
       });
     }
 
-    const loginHtml = config.getLoginHtml?.(event, rawPath) ?? config.loginHtml;
+    const loginHtml =
+      config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
     // (share links, embeds) here with a `?return=<path>` query. The clean
@@ -3943,7 +3932,7 @@ async function createAutoDevAccountForSession(
       } catch (e) {
         // Another process can still win the create race after our SELECT.
         // In-process first-page races share this promise and do not issue a
-        // duplicate Better Auth signup, which keeps local SQLite logs quiet.
+        // duplicate Better Auth signup, which keeps local development logs quiet.
         if (await hasAutoDevAccountUser(db)) return null;
         if (!isExpectedAuthFailure(e)) throw e;
         return null;
@@ -4188,8 +4177,8 @@ async function maybeAutoCreateDevSession(
     // The dev account does not exist at this point (the devUsers check
     // above returned early otherwise). Concurrent in-process first page
     // loads share one signup promise so the losing request never asks Better
-    // Auth to insert the same email and therefore never emits a SQLite
-    // unique-constraint log.
+    // Auth to insert the same email and therefore never emits a duplicate-key
+    // log.
     const devPassword = await createAutoDevAccountForSession(auth, db);
     if (!devPassword) return null;
 
@@ -5884,9 +5873,7 @@ async function mountBetterAuthRoutes(
         try {
           const { getDbExec } = await import("../db/client.js");
           const db = getDbExec();
-          // Use boolean literals for cross-dialect portability: Postgres
-          // stores `email_verified` as BOOLEAN and rejects integer 1/0,
-          // SQLite accepts TRUE/FALSE as aliases for 1/0 (since 3.23).
+          // Use Postgres boolean literals for the BOOLEAN column.
           // Quote `"user"` because it's a reserved keyword in Postgres.
           await db.execute({
             sql: 'UPDATE "user" SET email_verified = TRUE WHERE id = ? AND (email_verified = FALSE OR email_verified IS NULL)',

@@ -9,8 +9,20 @@ describe("callAppBundleIdsForJoinUrl", () => {
     ).toContain("com.google.Chrome");
   });
 
+  it("watches both native and browser bundles for Zoom", () => {
+    for (const url of [
+      "https://zoom.us/j/123",
+      "https://us02web.zoom.com/j/123",
+      "https://gov.zoomgov.com/j/123",
+    ]) {
+      const ids = callAppBundleIdsForJoinUrl(url);
+      expect(ids).toContain("us.zoom.xos");
+      expect(ids).toContain("com.google.Chrome");
+    }
+  });
+
   it("keeps native Zoom and Teams as the default", () => {
-    expect(callAppBundleIdsForJoinUrl("https://zoom.us/j/123")).toEqual([
+    expect(callAppBundleIdsForJoinUrl(undefined)).toEqual([
       "us.zoom.xos",
       "us.zoom.ZoomClips",
       "com.microsoft.teams2",

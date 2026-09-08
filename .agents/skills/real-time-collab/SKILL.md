@@ -33,8 +33,8 @@ conflicts. Always choose an explicit `access` mode on `createCollabPlugin`.
 - **Update batching** — local Yjs updates are debounced ~80 ms and coalesced
   with `Y.mergeUpdates` before sending; flushed immediately on
   `visibilitychange` / `pagehide`
-- **SQL `_collab_docs` table** persists Yjs state as base64 (SQLite/Postgres
-  compatible). Tombstone compaction fires automatically when the stored blob
+- **SQL `_collab_docs` table** persists Yjs state as base64 in Postgres. Tombstone
+  compaction fires automatically when the stored blob
   exceeds 4× the fresh encoded size.
 
 ## Agent + Human Editing

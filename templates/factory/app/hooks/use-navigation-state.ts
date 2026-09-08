@@ -14,6 +14,7 @@ export interface NavigationState {
   factoryAuditRunId?: string;
   factoryNodeId?: string;
   factoryEdgeId?: string;
+  factoryItemId?: string;
   creatingFactory?: boolean;
 }
 
@@ -55,6 +56,9 @@ export function useNavigationState() {
           : {}),
         ...(pathname === "/factory" && searchParams.get("edge")
           ? { factoryEdgeId: searchParams.get("edge") ?? undefined }
+          : {}),
+        ...(pathname === "/factory" && searchParams.get("itemId")
+          ? { factoryItemId: searchParams.get("itemId") ?? undefined }
           : {}),
         ...(pathname === "/new-factory" ? { creatingFactory: true } : {}),
       };

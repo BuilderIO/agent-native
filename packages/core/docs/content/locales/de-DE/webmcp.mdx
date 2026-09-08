@@ -18,6 +18,8 @@ nicht.
 
 Der Agent-Native-Kern initialisiert `@mcp-b/webmcp-polyfill`, wenn der Browser keine nutzbare native WebMCP-Oberfläche bereitstellt. Das Polyfill ist auf die Seite beschränkt und stellt keine Netzwerk-MCP-Verbindung her.
 
+Authentifizierte Seiten stellen Browser-Agenten außerdem `window.__agentNativeWebMcp` bereit, mit `ready()`, `tools()`, `describe()`, `call()` und `result(id)`. `call()` übernimmt den Eingabevertrag des aktiven Hosts, aktuelle Tool-Deskriptoren, Wiederholungsversuche und Aufrufe, die einen kurzen Evaluator überdauern; Details siehe den englischen Leitfaden.
+
 ## HTTP-Erkennung und fetch-Fallback
 
 Für Agenten ohne laufenden Browser stellt Agent-Native zusätzlich ein abrufbares

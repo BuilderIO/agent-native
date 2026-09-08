@@ -137,6 +137,11 @@ fallbacks, not overrides. If a token is absent, use the nearest semantic token
 or a neutral fallback and record the gap; do not invent a new brand color or
 font without an explicit decision.
 
+Every deck read returns `designSystem` as a bounded summary; call
+`get-design-system` once for the full context before the first slide, and use
+`get-deck`'s `deckStyle` and `representativeSlideId` to match an existing deck
+(the actions skill documents the field).
+
 Before calling a deck ready, render the changed slides and perform one bounded
 review for system consistency, hierarchy, contrast, overflow, missing assets,
 placeholder remnants, and editable-object preservation. Fix the batch once and

@@ -223,6 +223,49 @@ describe("useBuilderStatus", () => {
     expect(container.textContent).toContain("loaded configured stale");
     expect(container.textContent).toContain("Builder status unavailable (404)");
   });
+
+  it("ignores an older refresh after a newer status request starts", async () => {
+    const pendingResponses: Array<(response: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            pendingResponses.push(resolve);
+          }),
+      ),
+    );
+
+    await act(async () => {
+      root.render(<BuilderStatusProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pendingResponses).toHaveLength(1);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pendingResponses).toHaveLength(2);
+
+    await act(async () => {
+      pendingResponses[1]?.(
+        jsonResponse({ ...connectedBuilderStatus, configured: false }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("loaded not-configured fresh");
+
+    await act(async () => {
+      pendingResponses[0]?.(jsonResponse(connectedBuilderStatus));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("loaded not-configured fresh");
+  });
 });
 
 describe("useBuilderConnectFlow", () => {

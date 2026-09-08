@@ -1024,6 +1024,7 @@ export function createAgentChatPlugin(
             "_utils",
             "db-connect",
             "db-status",
+            "migrate-production",
           ]);
 
           for (const dir of ["actions", "scripts"]) {
@@ -1341,14 +1342,14 @@ export function createAgentChatPlugin(
             await import("../extensions/web-search-tool.js");
           const {
             getBuilderWebSearchBaseUrl,
-            resolveBuilderGatewayCredentials,
+            resolveBuilderGatewayAuth,
             resolveSecret,
           } = await import("./credential-provider.js");
           const { getBuilderGatewayRequestHeaders } =
             await import("../agent/engine/builder-gateway-headers.js");
           webSearchTool = createWebSearchToolEntry({
             resolveSecret,
-            resolveBuilderCredentials: resolveBuilderGatewayCredentials,
+            resolveBuilderCredentials: resolveBuilderGatewayAuth,
             getBuilderWebSearchBaseUrl,
             getBuilderRequestHeaders: getBuilderGatewayRequestHeaders,
           });
@@ -1764,6 +1765,7 @@ export function createAgentChatPlugin(
             callId: `a2a-action-${invocationId}`,
             ownerEmail: getRequestUserEmail(),
             orgId: getRequestOrgId() ?? null,
+            appId: options?.appId,
             caller: "a2a",
             networkProtocol: "a2a",
             networkId: invocationId,
@@ -1784,6 +1786,7 @@ export function createAgentChatPlugin(
             callId: approval.callId,
             ownerEmail: approval.ownerEmail,
             orgId: approval.orgId ?? null,
+            appId: options?.appId,
             approvedToolCalls: [approval.approvalKey],
           });
           if (result.status === "approval_required") {
@@ -2571,6 +2574,7 @@ export function createAgentChatPlugin(
             mcpOptions.description ??
             `Agent-Native ${options?.appId ?? "app"} agent`,
           instructions: mcpOptions.instructions,
+          keyToolNames: mcpOptions.keyToolNames,
           websiteUrl: mcpOptions.websiteUrl,
           icons: mcpOptions.icons,
           actions: externalActions,
@@ -2870,6 +2874,7 @@ export function createAgentChatPlugin(
             mcpOptions.description ??
             `Agent-Native ${options?.appId ?? "app"} agent`,
           instructions: mcpOptions.instructions,
+          keyToolNames: mcpOptions.keyToolNames,
           websiteUrl: mcpOptions.websiteUrl,
           icons: mcpOptions.icons,
         },
@@ -3406,6 +3411,7 @@ export function createAgentChatPlugin(
             callId: request.callId,
             ownerEmail: request.userEmail,
             orgId: request.orgId,
+            appId: options?.appId,
             threadId: request.sessionId
               ? `realtime:${request.sessionId}`
               : `realtime:${request.callId}`,

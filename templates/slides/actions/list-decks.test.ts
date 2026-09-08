@@ -48,10 +48,6 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => requestUserEmail,
 }));
 
-vi.mock("@agent-native/core/db", () => ({
-  isPostgres: () => false,
-}));
-
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: () => ({ allowed: true }),
 }));
@@ -147,10 +143,10 @@ describe("list-decks", () => {
       visibility: "visibility_col",
       ownerEmail: "owner_email_col",
       previewSlide: expect.objectContaining({
-        strings: expect.arrayContaining(["json_extract("]),
+        strings: expect.arrayContaining(["::jsonb -> 'slides' -> 0)::text"]),
       }),
       aspectRatio: expect.objectContaining({
-        strings: expect.arrayContaining(["json_extract("]),
+        strings: expect.arrayContaining(["::jsonb ->> 'aspectRatio')"]),
       }),
     });
     expect(result.decks[0]).toMatchObject({

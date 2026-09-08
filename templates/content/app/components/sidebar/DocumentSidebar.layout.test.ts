@@ -166,6 +166,45 @@ describe("document sidebar layout", () => {
     );
   });
 
+  it("settles search dismissal by clearing the hidden query", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("const closeSearch = useCallback");
+    expect(sidebar).toContain('setSearchQuery("")');
+    expect(sidebar).toContain("if (isSearching)");
+    expect(sidebar).toContain("closeSearch();");
+  });
+
+  it("reveals child destinations without concurrent rollback conflicts", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("const revealParentForCreation = useCallback");
+    expect(sidebar).toContain("parentCreationRevealsRef");
+    expect(sidebar).toContain("reveal.pendingCount += 1");
+    expect(sidebar).toContain("current.keepExpanded ||= succeeded");
+    expect(sidebar).toContain("settleParentExpansion(false)");
+  });
+
+  it("opens a new database immediately while persistence settles", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("const handleCreateDatabase = useCallback");
+    expect(sidebar).toContain("newDocumentId: id");
+    expect(sidebar).toContain("navigateToDocument(id)");
+    expect(sidebar).toContain(
+      "rollbackOptimisticCreatedDocument(\n          queryClient,\n          id",
+    );
+    expect(sidebar).toContain("navigate(previousPath, {");
+    expect(sidebar).toContain(
+      "if (window.location.pathname === `/page/${id}`)",
+    );
+    expect(sidebar).toContain(
+      "pendingOptimisticCreationIdsRef.current.add(id)",
+    );
+    expect(sidebar).toContain("skipListDocumentsInvalidation: true");
+    expect(sidebar).toContain("settleOptimisticListRefresh(id)");
+  });
+
   it("scopes sidebar creation to the selected Content space", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");

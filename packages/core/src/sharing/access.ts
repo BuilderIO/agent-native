@@ -13,12 +13,16 @@
  * callers who lack the required role.
  */
 
-import { and, eq, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
 
-import { isPostgres } from "../db/client.js";
+import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
+import { isMissingOrganizationTableError } from "../org/membership.js";
 import { orgMembers } from "../org/schema.js";
+import { organizations } from "../org/schema.js";
 import {
   getRequestAuthCapability,
+  getRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
 } from "../server/request-context.js";
@@ -62,6 +66,7 @@ export interface AccessContext {
   userEmail?: string;
   orgId?: string;
   authCapability?: string;
+  federationMembershipValidated?: boolean;
 }
 
 /** Current request's access context. Pulls from request-context ALS. */
@@ -70,6 +75,8 @@ export function currentAccess(): AccessContext {
     userEmail: getRequestUserEmail(),
     orgId: getRequestOrgId(),
     authCapability: getRequestAuthCapability(),
+    federationMembershipValidated:
+      getRequestContext()?.federationMembershipValidated,
   };
 }
 
@@ -80,8 +87,21 @@ export function resolveRegisteredAccessContext(
   if (!reg?.resolveAccessContext) return ctx;
   const resolved = reg.resolveAccessContext(ctx);
   return ctx.authCapability
-    ? { ...resolved, authCapability: ctx.authCapability }
-    : resolved;
+    ? {
+        ...resolved,
+        authCapability: ctx.authCapability,
+        ...(ctx.federationMembershipValidated === undefined
+          ? {}
+          : {
+              federationMembershipValidated: ctx.federationMembershipValidated,
+            }),
+      }
+    : ctx.federationMembershipValidated === undefined
+      ? resolved
+      : {
+          ...resolved,
+          federationMembershipValidated: ctx.federationMembershipValidated,
+        };
 }
 
 function normalizeEmailForAccess(email: string | undefined): string | null {
@@ -100,8 +120,8 @@ function emailColumnMatches(column: any, email: string): SQL {
  * statement of which orgs they belong to.
  *
  * Queries through the resource's own `reg.getDb()` — the same connection
- * every other lookup in this file uses — not the ambient `getDbExec()`,
- * since `org_members` lives in that same app database.
+ * every other lookup in this file uses — and revalidates linked memberships
+ * against the identity authority when federation is enabled.
  */
 async function isOrgMember(
   reg: ShareableResourceRegistration,
@@ -116,10 +136,53 @@ async function isOrgMember(
       and(
         eq(orgMembers.orgId, memberOrgId),
         emailColumnMatches(orgMembers.email, email),
+        isNull(orgMembers.federationRemovalPendingAt),
       ),
     )
     .limit(1);
-  return rows.length > 0;
+  if (rows.length === 0) return false;
+
+  let organization: {
+    identityAuthority: string | null;
+    identityId: string | null;
+  } | null = null;
+  try {
+    [organization] = await db
+      .select({
+        identityAuthority: organizations.identityAuthority,
+        identityId: organizations.identityId,
+      })
+      .from(organizations)
+      .where(eq(organizations.id, memberOrgId))
+      .limit(1);
+  } catch (error) {
+    if (!isMissingOrganizationTableError(error)) throw error;
+    // Embedded hosts may provide org_members for a fixture without the org
+    // module. Preserve the historical local membership behavior there.
+    return true;
+  }
+  const linked =
+    String(organization?.identityAuthority ?? "").trim() ||
+    String(organization?.identityId ?? "").trim();
+  if (!linked) return true;
+
+  if (
+    !(await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
+      userEmail: email,
+      userKey: email,
+      orgId: memberOrgId,
+    }))
+  ) {
+    return true;
+  }
+  const { validateFederatedOrganizationMembershipForCurrentRequest } =
+    await import("../org/federation.js");
+  const validation =
+    await validateFederatedOrganizationMembershipForCurrentRequest({
+      orgId: memberOrgId,
+      email,
+    });
+  return validation.active;
 }
 
 /**
@@ -205,18 +268,23 @@ export function accessFilter(
 
   if (reg?.supportsGroupShares && normalizedUserEmail && orgId) {
     const groupTable = sql.raw(workspaceUserGroupsTable());
-    const groupMemberPredicate = isPostgres()
-      ? sql`exists (
+    const federationGuard =
+      ctx.federationMembershipValidated === true
+        ? sql`1=1`
+        : sql`not exists (
+            select 1 from organizations as federation_org
+            where federation_org.id = ${resourceTable.orgId}
+              and (
+                federation_org.identity_authority is not null
+                or federation_org.identity_id is not null
+              )
+          )`;
+    const groupMemberPredicate = sql`exists (
           select 1
           from jsonb_array_elements_text(
             workspace_group.member_emails_json::jsonb
           ) as group_member(email)
           where lower(group_member.email) = ${normalizedUserEmail}
-        )`
-      : sql`exists (
-          select 1
-          from json_each(workspace_group.member_emails_json) as group_member
-          where lower(group_member.value) = ${normalizedUserEmail}
         )`;
     clauses.push(
       sql`exists (select 1 from ${sharesTable}
@@ -228,10 +296,12 @@ export function accessFilter(
                       where workspace_group.id = ${sharesTable.principalId}
                         and workspace_group.org_id = ${resourceTable.orgId}
                         and workspace_group.org_id = ${orgId}
+                        and ${federationGuard}
                         and exists (
                           select 1 from ${orgMembers} as workspace_member
                           where workspace_member.org_id = workspace_group.org_id
                             and lower(workspace_member.email) = ${normalizedUserEmail}
+                            and workspace_member.federation_removal_pending_at is null
                         )
                         and ${groupMemberPredicate}
                     ))`,
@@ -386,18 +456,20 @@ function columnName(column: unknown): string | null {
 }
 
 function missingColumnName(err: unknown): string | null {
-  const error = err as { code?: string; message?: string } | undefined;
-  const message = error?.message ?? "";
-  if (
-    error?.code !== "42703" &&
-    !/no such column|does not exist/i.test(message)
-  ) {
-    return null;
+  let current = err as
+    | { code?: unknown; message?: unknown; cause?: unknown }
+    | undefined;
+  for (let attempt = 0; current && attempt < 4; attempt++) {
+    const code = typeof current.code === "string" ? current.code : "";
+    const message = typeof current.message === "string" ? current.message : "";
+    if (code === "42703" || /column .* does not exist/i.test(message)) {
+      return message.match(/column ["']?([\w.]+)["']?/i)?.[1] ?? null;
+    }
+    current =
+      current.cause && typeof current.cause === "object"
+        ? (current.cause as typeof current)
+        : undefined;
   }
-  const quoted = message.match(/column\s+"([^"]+)"\s+does not exist/i)?.[1];
-  if (quoted) return quoted;
-  const sqlite = message.match(/no such column:\s+["`]?([\w.]+)["`]?/i)?.[1];
-  if (sqlite) return sqlite.split(".").pop() ?? sqlite;
   return null;
 }
 
@@ -621,31 +693,33 @@ async function highestShareRole(
   let best: ShareRole | null = null;
 
   if (reg.supportsGroupShares && normalizedUserEmail && resource.orgId) {
-    const groupRows = await db
-      .select({
-        principalId: reg.sharesTable.principalId,
-        role: reg.sharesTable.role,
-      })
-      .from(reg.sharesTable)
-      .where(
-        and(
-          eq(reg.sharesTable.resourceId, resourceId),
-          eq(reg.sharesTable.principalType, "group"),
-        ),
-      );
-    for (const row of groupRows as Array<{
-      principalId: string;
-      role: ShareRole;
-    }>) {
-      if (
-        await workspaceUserGroupsIncludeUser(
-          resource.orgId,
-          [row.principalId],
-          normalizedUserEmail,
-        )
-      ) {
-        if (!best || ROLE_RANK[row.role] > ROLE_RANK[best]) {
-          best = row.role;
+    if (await isOrgMember(reg, resource.orgId, normalizedUserEmail)) {
+      const groupRows = await db
+        .select({
+          principalId: reg.sharesTable.principalId,
+          role: reg.sharesTable.role,
+        })
+        .from(reg.sharesTable)
+        .where(
+          and(
+            eq(reg.sharesTable.resourceId, resourceId),
+            eq(reg.sharesTable.principalType, "group"),
+          ),
+        );
+      for (const row of groupRows as Array<{
+        principalId: string;
+        role: ShareRole;
+      }>) {
+        if (
+          await workspaceUserGroupsIncludeUser(
+            resource.orgId,
+            [row.principalId],
+            normalizedUserEmail,
+          )
+        ) {
+          if (!best || ROLE_RANK[row.role] > ROLE_RANK[best]) {
+            best = row.role;
+          }
         }
       }
     }

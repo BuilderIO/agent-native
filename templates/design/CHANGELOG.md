@@ -3,10 +3,26 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-04
+
+### Improved
+
+- The designs list now fills every row instead of leaving a single card stranded on the last one, and the card actions menu is readable in light mode.
+- The design system picker stays in the editor chat after a template fills the design, so later prompts can still target a specific system.
+
+### Fixed
+
+- Text drawn straight onto the canvas now takes a colour you can read against it, instead of always being white.
+- Design editor links now keep agent tools available.
+- Choosing "No design system" now clears the design's system instead of snapping back to your default.
+- Drawing the first shape on the board no longer flips the canvas to a different colour, and the Canvas swatch shows the colour it is painted with instead of "NONE".
+
 ## 2026-09-02
 
 ### Fixed
 
+- Fill and Stroke in the inspector now paint a pen path, line, polygon, or star itself rather than tinting its selection bounding box.
+- A closed pen path now takes the same fill and no stroke a drawn rectangle takes, instead of a black outline you had to hide.
 - Edit with AI now opens a focused editing prompt for selected elements in multi-screen view and reliably returns generated options without misclassifying an active request as superseded.
 - A greeting or question as the first message in a new design no longer ends with a false "couldn't confirm that a Design artifact was saved" reply.
 

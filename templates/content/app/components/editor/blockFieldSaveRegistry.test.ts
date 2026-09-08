@@ -6,6 +6,7 @@ import {
   acquireBlockFieldSaveController,
   activeControllerCount,
   blockFieldSaveImplRef,
+  flushBlockFieldSaveController,
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
@@ -58,7 +59,7 @@ describe("blockFieldSaveRegistry", () => {
 
     // Release the only reference → flush-then-evict begins. The flush issues the
     // save immediately, but the controller is NOT evicted until that save settles.
-    releaseBlockFieldSaveController(key);
+    const released = releaseBlockFieldSaveController(key);
     expect(saved).toEqual(["draft"]);
     expect(activeControllerCount()).toBe(1); // still present: flush in flight.
 
@@ -69,6 +70,7 @@ describe("blockFieldSaveRegistry", () => {
     await act(() => {
       resolvers[0]!();
     });
+    await expect(released).resolves.toBe(true);
     expect(activeControllerCount()).toBe(0);
     expect(peekBlockFieldSaveController(key)).toBeUndefined();
   });
@@ -230,6 +232,42 @@ describe("blockFieldSaveRegistry", () => {
     // Unblock k1 so the test leaves no dangling promise.
     resolveK1();
     await k1Flush;
+  });
+
+  it("flushes only the exact requested additional field", async () => {
+    const saved: string[] = [];
+    for (const key of ["doc-a:notes", "doc-a:draft", "doc-b:notes"]) {
+      blockFieldSaveImplRef(key).current = (value) => {
+        saved.push(`${key}=${value}`);
+        return Promise.resolve();
+      };
+      const controller = acquireBlockFieldSaveController(key, factoryFor(key));
+      controller.change("pending");
+    }
+
+    await flushBlockFieldSaveController("doc-a", "notes");
+
+    expect(saved).toEqual(["doc-a:notes=pending"]);
+    expect(peekBlockFieldSaveController("doc-a:draft")?.lastSaved).toBe("");
+    expect(peekBlockFieldSaveController("doc-b:notes")?.lastSaved).toBe("");
+  });
+
+  it("uses persisted SQL when the requested field is not mounted", async () => {
+    await expect(
+      flushBlockFieldSaveController("closed-document", "closed-field"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("fails when an additional field remains dirty after its save rejects", async () => {
+    const key = "doc:notes";
+    blockFieldSaveImplRef(key).current = () =>
+      Promise.reject(new Error("save failed"));
+    const controller = acquireBlockFieldSaveController(key, factoryFor(key));
+    controller.change("pending");
+
+    await expect(flushBlockFieldSaveController("doc", "notes")).rejects.toThrow(
+      "could not be saved",
+    );
   });
 });
 

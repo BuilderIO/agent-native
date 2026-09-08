@@ -27,7 +27,11 @@ import {
   isLocalFileDocumentId,
   localDocumentPathFromId,
 } from "./_local-file-documents.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -161,7 +165,7 @@ export default defineAction({
       documentsPositionScope(userEmail, null),
       async () => {
         const [{ max: maxPosition } = { max: -1 }] = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)
           .where(
             and(
@@ -179,7 +183,7 @@ export default defineAction({
           title: localDocument.title,
           content: localDocument.content,
           icon: localDocument.icon,
-          position: (maxPosition ?? -1) + 1,
+          position: nextAppendPosition(maxPosition),
           isFavorite: localDocument.isFavorite ? 1 : 0,
           hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
           visibility: "private",

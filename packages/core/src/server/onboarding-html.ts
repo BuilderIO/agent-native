@@ -66,7 +66,6 @@ import {
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
-import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 function hasGoogleOAuth(): boolean {
@@ -1126,6 +1125,10 @@ export interface OnboardingHtmlOptions {
    * default auth guard serves before a template-specific auth plugin.
    */
   requestHost?: string;
+  /** @deprecated Browser SSO was removed. The fields are retained for patch compatibility. */
+  identitySsoRequestHost?: string;
+  /** @deprecated Browser SSO was removed. The field is retained for patch compatibility. */
+  identitySsoRequestProtocol?: string;
   requestPath?: string;
   requestOrigin?: string;
   /**
@@ -1161,6 +1164,7 @@ function initialAuthView(
     if (requestedView === "login" || requestedView === "signup") {
       return requestedView;
     }
+    if (url.searchParams.get("c")) return "login";
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     if (pathname.endsWith("/login")) return "login";
     if (pathname.endsWith("/signup")) return "signup";
@@ -1261,14 +1265,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     opts.signupLegalNotice === false
       ? undefined
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
-  const identitySsoEnabled = Boolean(identitySsoLoginButtonHtml());
-  const embeddedAuthCss = identitySsoEnabled
-    ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
-    : "";
-  const identitySsoMagicLinkSelector = identitySsoEnabled
-    ? "  .card.magic-link-complete #identity-sso-btn,\n"
-    : "";
-
   const marketingStyles = hasMarketing
     ? `
   body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
@@ -1638,7 +1634,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     docsAuthUrl: docsUrl("authentication", {
       hash: "local-development-sign-in",
     }),
-    identitySsoEnabled,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -2175,7 +2170,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .card.magic-link-complete .subtitle,
   .card.magic-link-complete #google-signin,
-${identitySsoMagicLinkSelector}
   .card.magic-link-complete #auth-divider,
   .card.magic-link-complete #auth-tabs,
   .card.magic-link-complete #upgrade-note,
@@ -2245,7 +2239,6 @@ ${marketingStyles}
   /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
-${embeddedAuthCss}
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }

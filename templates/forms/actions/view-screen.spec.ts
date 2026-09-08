@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { summarizeFields } from "./view-screen.js";
+import { buildFormSelectionSummary, summarizeFields } from "./view-screen.js";
 
 /**
  * `patch-form-fields` upsert replaces a field wholesale. The screen preview
@@ -34,5 +34,57 @@ describe("summarizeFields option preview", () => {
     ];
     expect(field.options).toHaveLength(8);
     expect(field.optionsTruncated).toBe(false);
+  });
+});
+
+/**
+ * The form builder writes `forms-selection` for whichever form is open in
+ * that browser tab. It must only be surfaced for the form it names — a
+ * selection left over from a form the user has since navigated away from
+ * must never be attributed to a different form the agent is now looking at.
+ */
+describe("buildFormSelectionSummary", () => {
+  it("returns null when there is no selection", () => {
+    expect(buildFormSelectionSummary(null, "form-1")).toBeNull();
+  });
+
+  it("returns null when the selection names a different form", () => {
+    expect(
+      buildFormSelectionSummary(
+        {
+          formId: "form-2",
+          selectedFieldId: "f1",
+          selectedFieldLabel: "Name",
+          selectedFieldType: "text",
+        },
+        "form-1",
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null when the selection has no selected field", () => {
+    expect(
+      buildFormSelectionSummary({ formId: "form-1" }, "form-1"),
+    ).toBeNull();
+  });
+
+  it("surfaces the selected field with an actionable hint naming the form and field ids", () => {
+    const summary = buildFormSelectionSummary(
+      {
+        formId: "form-1",
+        selectedFieldId: "f1",
+        selectedFieldLabel: "Name",
+        selectedFieldType: "text",
+      },
+      "form-1",
+    );
+    expect(summary).toEqual({
+      fieldId: "f1",
+      label: "Name",
+      type: "text",
+      hint: expect.stringContaining("patch-form-fields"),
+    });
+    expect(summary?.hint).toContain('id="form-1"');
+    expect(summary?.hint).toContain('"f1"');
   });
 });

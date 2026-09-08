@@ -4,6 +4,10 @@ import {
   useRecentEdits,
   type AttributedRecentEdit,
 } from "@agent-native/core/client/collab";
+import {
+  getBrowserTabId,
+  setClientAppState,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
@@ -12,6 +16,7 @@ import {
   useCollabReconcile,
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -61,6 +66,7 @@ import type { CommentThread } from "@/hooks/use-comments";
 
 import { BubbleToolbar } from "./BubbleToolbar";
 import { resolveAnchor, type CommentTextAnchor } from "./comment-anchors";
+import { buildContentSelectionPayload } from "./content-selection";
 import { AudioNode } from "./extensions/AudioNode";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
@@ -721,6 +727,30 @@ const NormalizeTableHeaders = Extension.create({
     ];
   },
 });
+
+// Selection context for the agent, mirroring Design's `design-selection` and
+// Slides' `slides-selection`: a tab-scoped key plus a non-tab-scoped fallback
+// of the same name, so `view-screen` can read the requesting tab's selection
+// (or fall back to the only tab that has one).
+const SELECTION_APP_STATE_KEY = "content-selection";
+const SELECTION_SYNC_DEBOUNCE_MS = 300;
+
+function writeContentSelectionState(value: unknown) {
+  // The same tab id the navigation writer and agent chat use
+  // (use-navigation-state.ts), so the tab-scoped key matches the one
+  // `readAppStateForCurrentTab` resolves for this tab.
+  const tabId = getBrowserTabId();
+  const keys = [
+    appStateKeyForBrowserTab(SELECTION_APP_STATE_KEY, tabId),
+    SELECTION_APP_STATE_KEY,
+  ];
+  for (const key of keys) {
+    setClientAppState(key, value, {
+      keepalive: true,
+      requestSource: tabId,
+    }).catch(() => {});
+  }
+}
 
 interface VisualEditorProps {
   documentId?: string;
@@ -2329,6 +2359,9 @@ export function VisualEditor({
   };
 
   const historyEditorRef = useRef<CoreEditor | null>(null);
+  const selectionSyncTimerRef = useRef<
+    ReturnType<typeof setTimeout> | undefined
+  >(undefined);
   const editor = useEditor({
     extensions,
     // With Collaboration (ydoc) active, content is owned by the Y.XmlFragment —
@@ -2475,6 +2508,23 @@ export function VisualEditor({
         canRedo: editor.can().redo(),
       });
     },
+    // Selection context for the agent — see `content-selection.ts`. Debounced
+    // so rapid selection changes (dragging, arrow-key movement) don't spam
+    // application-state writes; cleared on unmount/document change below.
+    // Deliberately NOT cleared on blur: the user blurs this editor the moment
+    // they switch to the external agent's window to ask about "the selected
+    // text", and the browser keeps the highlight while the window is behind.
+    onSelectionUpdate: ({ editor }) => {
+      if (!documentId) return;
+      clearTimeout(selectionSyncTimerRef.current);
+      selectionSyncTimerRef.current = setTimeout(() => {
+        if (editor.isDestroyed) return;
+        const { from, to } = editor.state.selection;
+        writeContentSelectionState(
+          buildContentSelectionPayload(editor.state.doc, documentId, from, to),
+        );
+      }, SELECTION_SYNC_DEBOUNCE_MS);
+    },
     onUpdate: ({ editor, transaction }) => {
       const guards = guardsRef.current;
       // `shouldIgnoreUpdate` covers: not editable, mid-programmatic setContent,
@@ -2542,6 +2592,17 @@ export function VisualEditor({
     });
     return () => onHistoryControllerChange?.(null);
   }, [editor, onHistoryControllerChange, onHistoryStateChange]);
+
+  // Clear the agent's selection context when this document closes — on
+  // unmount, and on document change (the editor is reused across route
+  // navigation rather than remounted, so a documentId change alone would
+  // otherwise leave the previous document's selection stale).
+  useEffect(() => {
+    return () => {
+      clearTimeout(selectionSyncTimerRef.current);
+      writeContentSelectionState(null);
+    };
+  }, [documentId]);
 
   const handleImageFileInputChange = useCallback(
     async (event: Event) => {

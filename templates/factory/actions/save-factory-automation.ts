@@ -109,19 +109,19 @@ export default defineAction({
     }
     const nextSlackChannelId =
       input.slackChannelId !== undefined
-        ? input.slackChannelId.trim() || null
+        ? input.slackChannelId.trim()
         : current.slackChannelId;
     const nextRepository =
       input.repository !== undefined
-        ? input.repository.trim() || null
+        ? input.repository.trim()
         : current.repository;
     const nextSentryOrgSlug =
       input.sentryOrgSlug !== undefined
-        ? input.sentryOrgSlug.trim() || null
+        ? input.sentryOrgSlug.trim()
         : current.sentryOrgSlug;
     const nextSentryProjectSlug =
       input.sentryProjectSlug !== undefined
-        ? input.sentryProjectSlug.trim() || null
+        ? input.sentryProjectSlug.trim()
         : current.sentryProjectSlug;
     if (input.enabled) {
       if (current.source === "slack" && !nextSlackChannelId) {
@@ -159,14 +159,14 @@ export default defineAction({
       slackChannelId: nextSlackChannelId,
       slackChannelName:
         input.slackChannelName !== undefined
-          ? input.slackChannelName.trim() || null
+          ? input.slackChannelName.trim()
           : current.slackChannelName,
       repository: nextRepository,
       sentryOrgSlug: nextSentryOrgSlug,
       sentryProjectSlug: nextSentryProjectSlug,
       sentryEnvironment:
         input.sentryEnvironment !== undefined
-          ? input.sentryEnvironment.trim() || null
+          ? input.sentryEnvironment.trim()
           : current.sentryEnvironment,
       authorMode,
       authorIds,

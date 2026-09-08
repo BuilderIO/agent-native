@@ -27,7 +27,7 @@ export default defineAction({
       .set({ designSystemId, updatedAt: now })
       .where(eq(schema.decks.id, deckId));
 
-    notifyClients(deckId);
+    await notifyClients(deckId);
 
     return { deckId, designSystemId, applied: true };
   },

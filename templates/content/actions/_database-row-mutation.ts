@@ -30,6 +30,7 @@ import { ensureDocumentFilesMembership } from "./_content-files.js";
 import {
   databaseItemsPositionScope,
   documentsPositionScope,
+  nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
@@ -965,26 +966,6 @@ async function withMutationLocks<T>(
   );
 }
 
-export function nextPosition(max: unknown): number {
-  const raw = max ?? -1;
-  const value =
-    typeof raw === "number"
-      ? raw
-      : typeof raw === "string" && raw.trim() !== ""
-        ? Number(raw)
-        : Number.NaN;
-  const next = value + 1;
-  if (
-    !Number.isSafeInteger(value) ||
-    value < -1 ||
-    !Number.isSafeInteger(next) ||
-    next > 2_147_483_647
-  ) {
-    throw new Error("Database position is outside the supported range.");
-  }
-  return next;
-}
-
 async function createInsideTransaction(
   tx: Db,
   context: MutationContext,
@@ -999,7 +980,7 @@ async function createInsideTransaction(
   const documentId = args.documentId ?? nanoid();
   const itemId = args.itemId ?? nanoid();
   const [maxDoc] = await tx
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.documents)
     .where(
       and(
@@ -1008,7 +989,7 @@ async function createInsideTransaction(
       ),
     );
   const [maxItem] = await tx
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.databaseId, context.database.id));
   const shares = await tx
@@ -1028,7 +1009,7 @@ async function createInsideTransaction(
     title: args.title?.trim() ?? "",
     content: "",
     icon: null,
-    position: nextPosition(maxDoc?.max),
+    position: nextAppendPosition(maxDoc?.max),
     isFavorite: 0,
     hideFromSearch: context.databaseDocument.hideFromSearch ?? 0,
     visibility: context.databaseDocument.visibility ?? "private",
@@ -1041,7 +1022,7 @@ async function createInsideTransaction(
     orgId: context.database.orgId,
     databaseId: context.database.id,
     documentId,
-    position: nextPosition(maxItem?.max),
+    position: nextAppendPosition(maxItem?.max),
     createdAt: now,
     updatedAt: now,
   });
@@ -1101,7 +1082,6 @@ async function updateInsideTransaction(
     values: Map<string, string>;
   },
 ) {
-  await assertAccess("document", args.documentId, "editor");
   const [lockedDocument] = await tx
     .update(schema.documents)
     .set({ updatedAt: sql`${schema.documents.updatedAt}` })
@@ -1250,8 +1230,15 @@ export async function createDatabaseRow(
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1260,14 +1247,8 @@ export async function createDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       await touchContentDatabase(
@@ -1301,8 +1282,8 @@ export async function createDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
 }
 
@@ -1329,8 +1310,16 @@ export async function updateDatabaseRow(
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    await assertAccess("document", input.documentId, "editor");
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1339,14 +1328,8 @@ export async function updateDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       const updated = await updateInsideTransaction(
@@ -1391,8 +1374,8 @@ export async function updateDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
 }
 
@@ -1478,8 +1461,18 @@ export async function upsertDatabaseRow(
   if (initialClaim) {
     await assertAccess("document", initialClaim.documentId, "editor");
   }
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    if (initialClaim) {
+      await assertAccess("document", initialClaim.documentId, "editor");
+    }
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1488,14 +1481,8 @@ export async function upsertDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       if (locked.database.naturalKeyPropertyId !== keyPropertyId) {
@@ -1629,7 +1616,7 @@ export async function upsertDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
 }

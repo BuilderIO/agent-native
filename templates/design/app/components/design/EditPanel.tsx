@@ -263,6 +263,9 @@ interface EditPanelProps {
    */
   /** Design-level canvas background — the surround, not a screen's document. */
   canvasBackground?: string | null;
+  /** What the canvas is actually painted with when nothing is stored, so the
+   *  swatch reads as a colour rather than as an absent value. */
+  canvasBackgroundFallback?: string | null;
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
   onScreenGeometryChange?: (
     screenId: string,
@@ -457,6 +460,12 @@ interface EditPanelProps {
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
+  /**
+   * True when `onAlignSelection` would refuse this selection — a lone
+   * top-level frame, or fewer than two selected screens in overview. The row
+   * stays rendered and goes disabled, so the buttons never look live.
+   */
+  alignSelectionDisabled?: boolean;
   // -------------------------------------------------------------------------
   // Element interaction states (hover / focus / focus-visible / active /
   // disabled) — see shared/interaction-states.ts for the persisted format
@@ -1423,6 +1432,7 @@ function PageProperties({
   onStyleChange,
   onStylesChange,
   canvasBackground,
+  canvasBackgroundFallback,
   onCanvasBackgroundChange,
 }: {
   scope: "canvas" | "document";
@@ -1430,6 +1440,7 @@ function PageProperties({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   canvasBackground?: string | null;
+  canvasBackgroundFallback?: string | null;
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
 }) {
   const t = useT();
@@ -1456,7 +1467,7 @@ function PageProperties({
         <PanelSection title={t("editPanel.sections.canvas")}>
           <ColorInput
             label={t("editPanel.labels.background")}
-            value={canvasBackground ?? ""}
+            value={canvasBackground ?? canvasBackgroundFallback ?? ""}
             // meta carries phase: "preview" while dragging vs "commit" on
             // release. Dropping it persists every tick and the picker jumps.
             onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
@@ -1769,6 +1780,7 @@ export const EditPanel = memo(function EditPanel({
   selectedScreenLayoutGrid,
   onLayoutGridChange,
   canvasBackground,
+  canvasBackgroundFallback,
   onCanvasBackgroundChange,
   onScreenGeometryChange,
   pageStyles = {},
@@ -1814,6 +1826,7 @@ export const EditPanel = memo(function EditPanel({
   activeTool,
   onCreateScreenFromPreset,
   onAlignSelection,
+  alignSelectionDisabled = false,
   onDisableAutoLayout,
   onApplyLayoutFlow,
   onInteractionStateChange,
@@ -2349,6 +2362,7 @@ export const EditPanel = memo(function EditPanel({
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   canvasBackground={canvasBackground}
+                  canvasBackgroundFallback={canvasBackgroundFallback}
                   onCanvasBackgroundChange={onCanvasBackgroundChange}
                 />
               ) : null}
@@ -2371,6 +2385,7 @@ export const EditPanel = memo(function EditPanel({
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
                     onAlignSelection={onAlignSelection}
+                    alignSelectionDisabled={alignSelectionDisabled}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />

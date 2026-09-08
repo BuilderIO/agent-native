@@ -1,6 +1,36 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDispatchNavigationState } from "./use-navigation-state.js";
+import {
+  buildDispatchNavigationState,
+  dispatchApplicationStatePath,
+  dispatchNavigationQueryKey,
+} from "./use-navigation-state.js";
+
+describe("dispatchNavigationQueryKey", () => {
+  it("keeps command cache entries isolated by browser tab", () => {
+    expect(dispatchNavigationQueryKey("tab-a")).toEqual([
+      "navigate-command",
+      "tab-a",
+    ]);
+    expect(dispatchNavigationQueryKey("tab-b")).not.toEqual(
+      dispatchNavigationQueryKey("tab-a"),
+    );
+  });
+});
+
+describe("dispatchApplicationStatePath", () => {
+  it("uses the same tab-scoped key for navigation reads and commands", () => {
+    expect(dispatchApplicationStatePath("navigation", "tab-a")).toBe(
+      "/_agent-native/application-state/navigation:tab-a",
+    );
+    expect(dispatchApplicationStatePath("navigate", "tab-a")).toBe(
+      "/_agent-native/application-state/navigate:tab-a",
+    );
+    expect(dispatchApplicationStatePath("navigate", "tab-b")).not.toBe(
+      dispatchApplicationStatePath("navigate", "tab-a"),
+    );
+  });
+});
 
 describe("buildDispatchNavigationState", () => {
   it("recognizes the full-page chat route", () => {

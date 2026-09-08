@@ -2,19 +2,20 @@
  * SHARING + ACCESS CONTROL end-to-end matrix.
  *
  * Drives the REAL plan actions (create / list / get / update / publish) against
- * a REAL in-memory libSQL database with the REAL core sharing helpers
+ * a REAL in-memory PostgreSQL database with the REAL core sharing helpers
  * (accessFilter / resolveAccess / assertAccess) and the REAL request context.
  *
  * Only side effects that would touch the filesystem / network / email are
  * mocked (local-plan-files, comment-notifications); everything load-bearing for
  * access control runs for real, so any unauthorized read/write surfaces here.
  *
- * The shared `getDb` is swapped to the test libSQL instance via a mock of
+ * The shared `getDb` is swapped to the test PostgreSQL instance via a mock of
  * `../server/db/index.js` (the same physical module both the actions and
  * `server/plans.ts` import), and the plan resource is registered against that
  * DB in beforeAll.
  */
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
@@ -24,9 +25,13 @@ import {
   registerShareableResource,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { createClient, type Client } from "@libsql/client";
+
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 import { eq } from "drizzle-orm";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import {
   afterAll,
   beforeAll,
@@ -37,24 +42,43 @@ import {
   vi,
 } from "vitest";
 
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(client: PGliteClient, statement: SqlStatement) {
+  if (typeof statement === "string") {
+    let result;
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean)) {
+      result = await client.query(postgresSql(sql));
+    }
+    return result;
+  }
+  return client.query(postgresSql(statement.sql), statement.args ?? []);
+}
 import * as planSchema from "./db/schema.js";
 import {
   LOCAL_PLAN_OWNER_EMAIL,
   resolvePlanAccessContext,
 } from "./lib/local-identity.js";
 
-// Real libSQL access matrices run alongside every workspace suite in CI.
+// Real PostgreSQL access matrices run alongside every workspace suite in CI.
 vi.setConfig({ testTimeout: 60_000 });
 
 // ---------------------------------------------------------------------------
-// Test DB wiring. A single libSQL :memory: db is shared across the file; rows
+// Test DB wiring. A single PostgreSQL test database is shared across the file; rows
 // are reset between tests. The plan resource is registered against it so the
 // core sharing helpers reach this DB.
 // ---------------------------------------------------------------------------
-let client: Client;
-let db: LibSQLDatabase<typeof planSchema>;
+let client: PGliteClient;
+let db: PgliteDatabase<typeof planSchema>;
 let dbDir: string;
-let dbFile: string;
 
 vi.mock("./db/index.js", () => ({
   // eslint-disable-next-line @typescript-eslint/no-use-before-define
@@ -99,7 +123,9 @@ const ACCESS_MATRIX_SETUP_TIMEOUT_MS = 60_000;
 
 async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
-  await client.executeMultiple(`
+  await execute(
+    client,
+    `
     DELETE FROM plan_events;
     DELETE FROM plan_versions;
     DELETE FROM plan_comments;
@@ -108,7 +134,8 @@ async function resetTables() {
     DELETE FROM plans;
     DELETE FROM organizations;
     DELETE FROM org_members;
-  `);
+  `,
+  );
 }
 
 function asUser(
@@ -139,7 +166,7 @@ async function createPlanAs(
 }
 
 async function seedOrg(id: string, name: string) {
-  await client.execute({
+  await execute(client, {
     sql: `INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)`,
     args: [id, name, OWNER, Date.now()],
   });
@@ -147,7 +174,7 @@ async function seedOrg(id: string, name: string) {
 
 /** Real `org_members` row — `org`-visibility access checks real membership. */
 async function seedOrgMember(orgId: string, email: string) {
-  await client.execute({
+  await execute(client, {
     sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
     args: [`${orgId}:${email}`, orgId, email, "member", Date.now()],
   });
@@ -191,14 +218,15 @@ beforeAll(async () => {
   // test explicitly opts into local mode.
   process.env.PLAN_LOCAL_MODE = "0";
 
-  // A temp FILE db (not :memory:) so every pooled libSQL connection — drizzle
-  // queries, raw executeMultiple, the share actions — sees the same tables.
+  // A temporary PostgreSQL database keeps every query on the same connection.
+  // queries and share actions see the same tables.
   // ":memory:" gives each connection its own private database.
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-access-"));
-  dbFile = path.join(dbDir, "test.db");
-  client = createClient({ url: `file:${dbFile}` });
+  client = await PGlite.create(dbDir);
   db = drizzle(client, { schema: planSchema });
-  await client.executeMultiple(`
+  await execute(
+    client,
+    `
     CREATE TABLE plans (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -297,8 +325,8 @@ beforeAll(async () => {
       summary_source TEXT,
       block_count INTEGER,
       section_count INTEGER,
-      has_canvas INTEGER,
-      has_prototype INTEGER,
+      has_canvas BOOLEAN,
+      has_prototype BOOLEAN,
       preview_text TEXT
     );
     CREATE TABLE plan_shares (
@@ -323,18 +351,22 @@ beforeAll(async () => {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       created_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
+      created_at BIGINT NOT NULL,
       allowed_domain TEXT,
-      a2a_secret TEXT
+      a2a_secret TEXT,
+      identity_authority TEXT,
+      identity_id TEXT
     );
     CREATE TABLE org_members (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at INTEGER NOT NULL
+      joined_at BIGINT NOT NULL,
+      federation_removal_pending_at INTEGER
     );
-  `);
+  `,
+  );
 
   registerShareableResource({
     type: "plan",
@@ -373,8 +405,8 @@ beforeAll(async () => {
   ).default as AnyAction;
 }, ACCESS_MATRIX_SETUP_TIMEOUT_MS);
 
-afterAll(() => {
-  client?.close();
+afterAll(async () => {
+  await client?.close();
   if (dbDir) fs.rmSync(dbDir, { recursive: true, force: true });
 });
 

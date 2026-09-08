@@ -158,9 +158,9 @@ export async function claimForHeadlessRunner(row: QueueRow, payload: object) {
   ).toISOString();
   const result = await getDbExec().execute({
     sql: `UPDATE brain_ingest_queue
-      SET status = ?, attempts = ?, payload_json = ?, error = NULL,
-          run_after = NULL, lease_token = ?, lease_expires_at = ?, updated_at = ?
-      WHERE id = ? AND status = ? AND updated_at = ?`,
+      SET status = $1, attempts = $2, payload_json = $3, error = NULL,
+          run_after = NULL, lease_token = $4, lease_expires_at = $5, updated_at = $6
+      WHERE id = $7 AND status = $8 AND updated_at = $9`,
     args: [
       "processing",
       row.attempts + 1,

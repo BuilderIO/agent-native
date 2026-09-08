@@ -253,6 +253,9 @@ describe("callAction", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
       "X-Request-Source",
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
   });
 
   it("sends the browser session id so actions share the agent run's session", async () => {
@@ -304,6 +307,9 @@ describe("callAction", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
       "X-Request-Source",
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
   });
 
   it("times out hung requests with a typed, non-retryable error", async () => {

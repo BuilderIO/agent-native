@@ -24,7 +24,7 @@
  * secret fallback and bound to the exact MCP resource URL.
  *
  * Node-only (crypto + the A2A signer), bundled alongside the other framework
- * routes. Dialect-agnostic SQL lives in `connect-store.ts`.
+ * PostgreSQL SQL lives in `connect-store.ts`.
  */
 
 import { randomUUID } from "node:crypto";

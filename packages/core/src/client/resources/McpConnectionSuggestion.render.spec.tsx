@@ -32,7 +32,10 @@ vi.mock("./McpIntegrationDialog.js", () => ({
 
 vi.mock("./use-mcp-servers.js", () => mcpMocks);
 
-import type { DefaultMcpIntegration } from "./mcp-integration-catalog.js";
+import {
+  DEFAULT_MCP_INTEGRATIONS,
+  type DefaultMcpIntegration,
+} from "./mcp-integration-catalog.js";
 import { McpConnectionSuggestion } from "./McpConnectionSuggestion.js";
 
 const integration = {
@@ -132,6 +135,34 @@ describe("McpConnectionSuggestion render", () => {
     });
 
     renderSuggestion();
+
+    expect(container.querySelector("[data-mcp-connection-suggestion]")).toBe(
+      null,
+    );
+  });
+
+  it("recognizes a URL-less catalog preset by its connected provider host", () => {
+    const sigma = DEFAULT_MCP_INTEGRATIONS.find(
+      (candidate) => candidate.id === "sigma",
+    )!;
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: {
+        user: [
+          {
+            url: "https://acme.sigmacomputing.com/mcp",
+            status: { state: "connected" },
+          },
+        ],
+        org: [],
+      },
+      isSuccess: true,
+    });
+
+    act(() => {
+      root.render(
+        <McpConnectionSuggestion text="Connect Sigma" integrations={[sigma]} />,
+      );
+    });
 
     expect(container.querySelector("[data-mcp-connection-suggestion]")).toBe(
       null,

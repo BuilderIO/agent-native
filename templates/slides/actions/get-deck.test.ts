@@ -41,6 +41,16 @@ vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, run: () => Promise<unknown>) => run(),
 }));
 
+const mockGetDesignSystemRun = vi.fn(async ({ id }: { id: string }) => ({
+  id,
+  title: "Acme",
+  agentContext: "Use --brand-accent: #123456.",
+}));
+
+vi.mock("./get-design-system.js", () => ({
+  default: { run: (...args: unknown[]) => mockGetDesignSystemRun(...args) },
+}));
+
 import action from "./get-deck";
 
 beforeEach(() => {
@@ -81,10 +91,92 @@ beforeEach(() => {
 });
 
 describe("get-deck", () => {
-  it("advertises id as the required deck parameter", () => {
-    expect(action.schema.safeParse({}).success).toBe(false);
+  it("accepts the deck id under either `id` or `deckId`", () => {
     expect(action.schema.safeParse({ id: "deck-1" }).success).toBe(true);
-    expect((action.tool.parameters as any).required).toContain("id");
+    // Every sibling tool (create-deck, add-slide, update-slide, patch-deck)
+    // names this parameter `deckId`; rejecting it here cost agents a retry.
+    expect(action.schema.safeParse({ deckId: "deck-1" }).success).toBe(true);
+    expect(JSON.stringify(action.tool.parameters).includes("deckId")).toBe(
+      true,
+    );
+  });
+
+  it("rejects a read with neither `id` nor `deckId`", async () => {
+    await expect(action.run({} as any, { caller: "tool" })).rejects.toThrow(
+      /`id` or `deckId`/,
+    );
+  });
+
+  it("reads the same deck through the deckId alias", async () => {
+    const result = (await action.run(
+      { deckId: "deck-1" },
+      { caller: "cli" },
+    )) as any;
+
+    expect(result.id).toBe("deck-1");
+    expect(result.slides[0]).toMatchObject({ id: "slide-a" });
+  });
+
+  it("includes readable linked design-system context", async () => {
+    currentResource!.designSystemId = "ds-1";
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.designSystem).toMatchObject({
+      status: "available",
+      id: "ds-1",
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    });
+    expect(mockGetDesignSystemRun).toHaveBeenCalledWith(
+      expect.objectContaining({ compact: "true" }),
+    );
+  });
+
+  it("summarizes the deck's shared style and names a representative slide", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Quarterly Review",
+      slides: [
+        {
+          id: "slide-a",
+          layout: "title",
+          content:
+            '<div style="background: #0a0a0a; color: #faf9f5; font-family: Inter"><h1>Opening</h1></div>',
+        },
+        {
+          id: "slide-b",
+          layout: "content",
+          content:
+            '<div style="background: #0a0a0a; color: #faf9f5; font-family: Inter"><p>Metrics</p></div>',
+        },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.deckStyle.length).toBeGreaterThan(0);
+    expect(["slide-a", "slide-b"]).toContain(result.representativeSlideId);
+  });
+
+  it("omits deckStyle and representativeSlideId for an empty deck", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Empty Deck",
+      slides: [],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result).not.toHaveProperty("deckStyle");
+    expect(result).not.toHaveProperty("representativeSlideId");
   });
 
   it("bounds a full-deck read so a stalled lookup can return a tool error", () => {

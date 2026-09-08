@@ -20,6 +20,7 @@ import { wrapDocumentResponse } from "../../lib/analytics";
 import {
   applyCommunityAppSsrCacheHeaders,
   applyDocsSsrCacheKeyHeaders,
+  isCloudGettingStartedPath,
 } from "../../lib/ssr-cache";
 import {
   acceptsMarkdown,
@@ -78,7 +79,12 @@ export default async function docsPageHandler(event: H3Event) {
   ) {
     return buildMarkdownNotFoundResponse();
   }
-  return responseWithVaryAccept(response, getRequestURL(event).pathname);
+  const requestUrl = getRequestURL(event);
+  return responseWithVaryAccept(
+    response,
+    requestUrl.pathname,
+    isCloudGettingStartedPath(requestUrl),
+  );
 }
 
 function setSsrCacheHeaders(event: H3Event) {
@@ -100,10 +106,11 @@ function setSsrCacheHeaders(event: H3Event) {
 function responseWithVaryAccept(
   response: Response,
   pathname: string,
+  varyByQuery = false,
 ): Response {
   const headers = new Headers(response.headers);
   appendVary(headers, ["Accept", "Accept-Encoding"]);
-  applyDocsSsrCacheKeyHeaders(headers);
+  applyDocsSsrCacheKeyHeaders(headers, { varyByQuery });
   applyCommunityAppSsrCacheHeaders(headers, pathname, response.status);
   return new Response(response.body, {
     status: response.status,

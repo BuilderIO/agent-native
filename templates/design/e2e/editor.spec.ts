@@ -28,10 +28,13 @@ test.beforeEach(async ({ page }) => {
 test("editor renders the toolbar and the design iframe content", async ({
   page,
 }) => {
+  // Scoped to the toolbar: screen-card chrome carries its own "Interact"
+  // button for one frame, so an unscoped role query matches two controls.
+  const toolbar = page.locator("[data-design-bottom-toolbar]");
   for (const tool of ["Move", "Frame", "Text", "Pen", "Edit", "Interact"]) {
     // exact:true keeps "Move" from matching the "Move options" split button.
     await expect(
-      page.getByRole("button", { name: tool, exact: true }),
+      toolbar.getByRole("button", { name: tool, exact: true }),
     ).toBeVisible();
   }
   // Frame-locator reaches inside the sandboxed iframe and stays stable around overlays.
@@ -173,7 +176,8 @@ test("screen overview adds and targets frames from the unified breakpoint contro
   await breakpointControl
     .getByRole("button", { name: "Add breakpoint" })
     .click();
-  await page.getByRole("button", { name: /Phone/ }).click();
+  // The device menu lists every iPhone preset alongside the generic row.
+  await page.getByRole("button", { name: /^Phone \d+$/ }).click();
 
   const mobileTarget = breakpointControl.getByRole("button", { name: "390" });
   await expect(mobileTarget).toBeVisible();
@@ -319,17 +323,19 @@ test("left sidebar switches between all screens and focused screens", async ({
   await expect(allScreens).toHaveAttribute("aria-current", "page");
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 
+  const screenCards = page.locator("[data-screen-card]");
+  await expect(screenCards.first()).toBeVisible();
+
   await homeScreen.click();
   await expect(homeScreen).toHaveAttribute("aria-current", "page");
   await expect(allScreens).not.toHaveAttribute("aria-current", "page");
-  await expect
-    .poll(
-      async () =>
-        (await page.locator("iframe[data-design-preview-iframe]").boundingBox())
-          ?.width ?? 0,
-      { timeout: 10_000 },
-    )
-    .toBeGreaterThan(600);
+  // Leaving the board is the switch under test. The focused preview's width is
+  // the screen's own device width, so pinning a pixel floor here asserts the
+  // seed's frame geometry instead — 320 once the overview persists one.
+  await expect(screenCards).toHaveCount(0, { timeout: 10_000 });
+  await expect(
+    page.locator("iframe[data-design-preview-iframe]"),
+  ).toBeVisible();
 
   await allScreens.click();
   await expect(allScreens).toHaveAttribute("aria-current", "page");
@@ -496,7 +502,9 @@ test("selecting a different element changes the selection", async ({
 test("the layers panel lists layers and a layer row selects on the canvas", async ({
   page,
 }) => {
-  const rows = page.locator('[role="treeitem"][aria-selected]');
+  // :visible — a collapsed screen's descendant rows stay in the DOM, and
+  // clicking one that is not on screen can never select anything.
+  const rows = page.locator('[role="treeitem"][aria-selected]:visible');
   await expect(rows.first()).toBeVisible({ timeout: 15_000 });
   expect(await rows.count()).toBeGreaterThan(0);
 

@@ -326,6 +326,23 @@ const messages = {
       status: "Status",
       opens: "Opens",
       lastEvent: "Last event",
+      app: "App",
+      sendLogTitle: "Send log",
+      sendLogTemplate: "Template",
+      sendLogProvider: "Provider",
+      sendLogResponseStatus: "Response status",
+      sendLogError: "Error",
+      sendLogToFilter: "To contains…",
+      sendLogFromFilter: "From contains…",
+      sendLogAllStatuses: "All statuses",
+      sendLogSent: "Sent",
+      sendLogFailed: "Failed",
+      sendLogAllProviders: "All providers",
+      sendLogClearFilters: "Clear filters",
+      sendLogEmpty: "No sends match these filters in this date range.",
+      sendLogTimestamp: "Timestamp",
+      sendLogPrevious: "Previous",
+      sendLogNext: "Next",
     },
     pages: {
       appsDescription:
@@ -1289,6 +1306,14 @@ const messages = {
         useCase: "Product analytics, charts, dashboards, cohorts, experiments",
         setupNote:
           "Amplitude MCP uses OAuth over streaming HTTP. The default endpoint is for US data residency; use Amplitude's EU endpoint when the account requires EU residency.",
+      },
+      sigma: {
+        description:
+          "Search, explore, and analyze Sigma workbooks and dashboards.",
+        useCase:
+          "Analytics, dashboards, workbooks, data exploration, business intelligence",
+        setupNote:
+          "Sigma's MCP URL is organization-specific. In Sigma, open Profile > Integrations > Connect Sigma to AI tools, copy the URL, and paste it here. Sigma MCP currently supports search, metadata exploration, and analysis; dashboard or workbook creation and import are not exposed by this connection.",
       },
       notion: {
         description: "Search pages and team knowledge.",

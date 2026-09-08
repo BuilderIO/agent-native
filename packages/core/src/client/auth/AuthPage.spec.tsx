@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { getOnboardingHtml } from "../../server/onboarding-html.js";
 import {
   AuthPage,
+  isAuthenticatedAuthSession,
+  isConfirmedAnonymousAuthSession,
   oauthReturnTarget,
   resolveGoogleAuthUrlPath,
   type AuthPageProps,
@@ -18,9 +20,51 @@ function propsFromHtml(html: string): AuthPageProps {
 }
 
 describe("AuthPage", () => {
+  it("only confirms anonymous sessions from a readable auth response", () => {
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: true, status: 200 },
+        { error: "Not authenticated" },
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: true, status: 200 },
+        { error: "Session unavailable" },
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: false, status: 503 },
+        { error: "Not authenticated" },
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it("only treats a successful session response with an email as signed in", () => {
+    expect(
+      isAuthenticatedAuthSession({ ok: true }, { email: "person@example.com" }),
+    ).toBe(true);
+    expect(
+      isAuthenticatedAuthSession(
+        { ok: true },
+        { error: "Not authenticated", email: "person@example.com" },
+      ),
+    ).toBe(false);
+    expect(isAuthenticatedAuthSession({ ok: false }, {})).toBe(false);
+  });
+
   it("renders the password auth surface on the server without browser globals", () => {
+    const props = propsFromHtml(getOnboardingHtml());
     const html = renderToString(
-      <AuthPage {...propsFromHtml(getOnboardingHtml())} />,
+      <AuthPage
+        {...props}
+        identitySsoEnabled={false}
+        identitySsoAuto={false}
+      />,
     );
 
     expect(html).toContain('id="signup-form"');

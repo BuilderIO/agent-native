@@ -20,11 +20,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
+import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
 import { DesignColorPicker, imageFillToBackgroundStyles } from "../inspector";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
 import { selectionColorValues } from "./document-colors";
-import { isTextElement } from "./element-classification";
+import { isTextElement, isVectorShapeElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import {
@@ -134,7 +135,15 @@ export function FillProperties({
   const t = useT();
   const styles = element.computedStyles;
   const isTextFillElement = isTextElement(element);
-  const fillProperty = isTextFillElement ? "color" : "backgroundColor";
+  const isVectorFillElement = isVectorShapeElement(element);
+  // Text glyphs and SVG shapes both take a single solid paint — neither can
+  // host the background layer stack (gradient / image / shader).
+  const isSolidFillElement = isTextFillElement || isVectorFillElement;
+  const fillProperty = isTextFillElement
+    ? "color"
+    : isVectorFillElement
+      ? "fill"
+      : "backgroundColor";
   // Stash for a hidden layer's real pre-hide backgroundSize (e.g. a custom
   // cover/contain/percentage) so re-showing it restores that value instead
   // of permanently discarding it for "auto" — the same React-state stash
@@ -147,22 +156,24 @@ export function FillProperties({
   const fillStashKey = elementStableKey(element);
   const fillValue = isTextFillElement
     ? styles.color || ""
-    : styles.backgroundColor || "";
-  const backgroundLayers = isTextFillElement
+    : isVectorFillElement
+      ? styles.fill || ""
+      : styles.backgroundColor || "";
+  const backgroundLayers = isSolidFillElement
     ? []
     : splitCssLayers(styles.backgroundImage || "");
-  const backgroundSizeLayers = isTextFillElement
+  const backgroundSizeLayers = isSolidFillElement
     ? []
     : splitCssLayers(styles.backgroundSize || "");
-  const backgroundRepeatLayers = isTextFillElement
+  const backgroundRepeatLayers = isSolidFillElement
     ? []
     : splitCssLayers(styles.backgroundRepeat || "");
-  const backgroundPositionLayers = isTextFillElement
+  const backgroundPositionLayers = isSolidFillElement
     ? []
     : splitCssLayers(styles.backgroundPosition || "");
   const baseFillLayerProps = baseFillLayerSourceProps(
     styles,
-    isTextFillElement,
+    isSolidFillElement,
   );
   const fillIsMixed =
     isMixedValue(fillValue) ||
@@ -170,7 +181,7 @@ export function FillProperties({
     isMixedValue(styles.backgroundSize) ||
     isMixedValue(styles.backgroundRepeat) ||
     isMixedValue(styles.backgroundPosition);
-  const hasBackgroundLayer = !isTextFillElement && backgroundLayers.length > 0;
+  const hasBackgroundLayer = !isSolidFillElement && backgroundLayers.length > 0;
   const hasVisibleFill =
     isTextFillElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
 
@@ -192,7 +203,10 @@ export function FillProperties({
         ? rgbaToCss(withColorOpacity(parsed, 100))
         : isTextFillElement
           ? "#000000"
-          : "#ffffff";
+          : isVectorFillElement
+            ? DEFAULT_SHAPE_FILL
+            : // guard:allow-raw-color — restores an authored fill, not editor chrome.
+              "#ffffff";
       onStyleChange(fillProperty, restored);
     } else if (parsed) {
       onStyleChange(fillProperty, rgbaToCss(withColorOpacity(parsed, 0)));
@@ -301,6 +315,13 @@ export function FillProperties({
                 );
                 return;
               }
+              if (isVectorFillElement) {
+                onStyleChange(
+                  "fill",
+                  cssColorOrFallback(styles.fill, DEFAULT_SHAPE_FILL),
+                );
+                return;
+              }
               commitStylePatch(
                 addFillLayerPatch({
                   backgroundColor: styles.backgroundColor,
@@ -346,12 +367,12 @@ export function FillProperties({
                   // why all four are sourced together.
                   {...baseFillLayerProps}
                   blendMode={
-                    isTextFillElement
+                    isSolidFillElement
                       ? undefined
                       : styles.backgroundBlendMode || "normal"
                   }
                   onBlendModeChange={
-                    isTextFillElement
+                    isSolidFillElement
                       ? undefined
                       : (v) => onStyleChange("backgroundBlendMode", v)
                   }
@@ -365,9 +386,9 @@ export function FillProperties({
                   // other element the base fill is a real backgroundImage
                   // layer stack, so wire the same layered-fill handlers the
                   // page background row uses (see PageProperties above).
-                  supportsLayeredFills={!isTextFillElement}
+                  supportsLayeredFills={!isSolidFillElement}
                   onBackgroundImageChange={
-                    isTextFillElement
+                    isSolidFillElement
                       ? undefined
                       : (v) => onStyleChange("backgroundImage", v)
                   }
@@ -380,7 +401,7 @@ export function FillProperties({
                   // rebuilding a single-layer patch that would silently wipe
                   // those siblings.
                   onImageFillLayerChange={
-                    isTextFillElement
+                    isSolidFillElement
                       ? undefined
                       : (patch) =>
                           commitStylePatch(patch, onStyleChange, onStylesChange)
@@ -396,7 +417,7 @@ export function FillProperties({
                   // Code-backed GLSL Shader paint type — text fills can't
                   // host a shader canvas, so only container fills get it.
                   glslShaderContext={
-                    isTextFillElement ? undefined : glslShaderContext
+                    isSolidFillElement ? undefined : glslShaderContext
                   }
                 />
               </InspectorGridCell>
@@ -431,7 +452,7 @@ export function FillProperties({
                   <IconMinus className="size-3.5" />
                 </SectionIconButton>
               </InspectorGridCell>
-              {!isTextFillElement ? (
+              {!isSolidFillElement ? (
                 <InspectorGridCell span={1} className="flex justify-center">
                   <FieldTrailer
                     element={element}
@@ -444,7 +465,7 @@ export function FillProperties({
               ) : null}
             </InspectorPaintRow>
           ) : null}
-          {!isTextFillElement
+          {!isSolidFillElement
             ? backgroundLayers.map((layer, index) => {
                 const gradient = parseGradientLayer(layer);
                 // Hidden state itself lives in the real, persisted

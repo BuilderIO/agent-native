@@ -20,7 +20,6 @@ import {
   DEFAULT_CANVAS_MIN_ZOOM,
   getDraftGeometryFromPoints,
 } from "@shared/canvas-math";
-import { ensureCodeLayerNodeIdsInHtml } from "@shared/code-layer";
 import {
   appendPenNode,
   clonePenPath,
@@ -36,6 +35,7 @@ import {
   type PenPath,
   type PenPoint,
 } from "@shared/pen-path";
+import { normalizeScreenHtml } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
 import {
@@ -2219,7 +2219,7 @@ export function DesignCanvas({
         const sourceHtml = sanitizeLocalhostSourceSnapshotHtml(
           payload.html ?? "",
         );
-        const stamped = ensureCodeLayerNodeIdsInHtml(sourceHtml, {
+        const stamped = normalizeScreenHtml(sourceHtml, {
           source: {
             kind: "remote-url",
             sourceType: "localhost",

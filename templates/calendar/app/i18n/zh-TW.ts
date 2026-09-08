@@ -64,16 +64,6 @@ const messages = {
     testAndConnect: "測試並連線",
     testingConnection: "正在測試連線...",
     providers: {
-      turso: {
-        description: "邊緣 SQLite",
-        steps: {
-          step1: "安裝 CLI：curl -sSfL https://get.tur.so/install.sh | bash",
-          step2: "註冊/登入：turso auth login（開啟瀏覽器）",
-          step3: "建立資料庫：turso db create my-app",
-          step4: "複製 URL：turso db show my-app --url → 以 libsql:// 開頭",
-          step5: "建立認證權杖：turso db tokens create my-app → 貼上到下方",
-        },
-      },
       neon: {
         description: "無伺服器 Postgres",
         steps: {
@@ -93,17 +83,6 @@ const messages = {
           step4: "前往 Project Settings → Database → Connection string",
           step5:
             '選取 "URI" 標籤 → 複製 postgres://... 字串（將 [YOUR-PASSWORD] 替換為資料庫密碼）',
-        },
-      },
-      d1: {
-        description: "Cloudflare 邊緣 SQLite",
-        steps: {
-          step1: "前往 dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-          step2: '點選 "Create" → 為資料庫命名 → 點選 Create',
-          step3: "從資料庫概覽頁面複製 Database ID",
-          step4: "認證權杖：前往 My Profile → API Tokens → Create Token",
-          step5: '選取 "Edit Cloudflare Workers" 範本 → Create Token → 複製',
-          step6: "按 d1://<database-id> 填寫，並在下方提供 API token",
         },
       },
     },

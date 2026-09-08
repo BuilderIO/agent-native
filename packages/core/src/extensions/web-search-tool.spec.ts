@@ -22,8 +22,8 @@ describe("createWebSearchToolEntry", () => {
     const tool = createWebSearchToolEntry({
       resolveSecret: vi.fn().mockResolvedValue(null),
       resolveBuilderCredentials: vi.fn().mockResolvedValue({
-        privateKey: "bpk-builder",
-        publicKey: "space-123",
+        authorization: "Bearer bpk-builder",
+        spaceId: "space-123",
         userId: "user-123",
       }),
       getBuilderWebSearchBaseUrl: () =>
@@ -89,8 +89,9 @@ describe("createWebSearchToolEntry", () => {
     const tool = createWebSearchToolEntry({
       resolveSecret,
       resolveBuilderCredentials: vi.fn().mockResolvedValue({
-        privateKey: "bpk-builder",
-        publicKey: "space-123",
+        authorization: "Bearer bpk-builder",
+        spaceId: "space-123",
+        userId: null,
       }),
       getBuilderWebSearchBaseUrl: () =>
         "https://builder.test/agent-native/web-search/v1",
@@ -132,8 +133,9 @@ describe("createWebSearchToolEntry", () => {
     const tool = createWebSearchToolEntry({
       resolveSecret,
       resolveBuilderCredentials: vi.fn().mockResolvedValue({
-        privateKey: "bpk-builder",
-        publicKey: "space-123",
+        authorization: "Bearer bpk-builder",
+        spaceId: "space-123",
+        userId: null,
       }),
       getBuilderWebSearchBaseUrl: () =>
         "https://builder.test/agent-native/web-search/v1",
@@ -155,10 +157,7 @@ describe("createWebSearchToolEntry", () => {
   it("suggests Builder Connect when no backend is configured", async () => {
     const tool = createWebSearchToolEntry({
       resolveSecret: vi.fn().mockResolvedValue(null),
-      resolveBuilderCredentials: vi.fn().mockResolvedValue({
-        privateKey: null,
-        publicKey: null,
-      }),
+      resolveBuilderCredentials: vi.fn().mockResolvedValue(null),
     })["web-search"];
 
     const result = await tool.run({ query: "current docs" });
@@ -174,10 +173,7 @@ describe("createWebSearchToolEntry", () => {
     vi.stubGlobal("fetch", fetchMock);
     const tool = createWebSearchToolEntry({
       resolveSecret: vi.fn().mockResolvedValue(null),
-      resolveBuilderCredentials: vi.fn().mockResolvedValue({
-        privateKey: null,
-        publicKey: null,
-      }),
+      resolveBuilderCredentials: vi.fn().mockResolvedValue(null),
     })["web-search"];
 
     const result = await tool.run({ query: "current docs" });

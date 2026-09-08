@@ -19,7 +19,6 @@ import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useCollaborativeDoc,
   isReconcileLeadClient,
-  dedupeCollabUsersByEmail,
   emailToColor,
   emailToName,
   usePresence,
@@ -67,6 +66,7 @@ import {
 } from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
+  PresenceBar,
   RemoteSelectionRings,
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
@@ -92,13 +92,13 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
   buildCodeLayerTree,
-  ensureCodeLayerNodeIdsInHtml,
   removeCodeLayerNodeFromHtml,
   type CodeLayerNode,
   type CodeLayerProjection,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
 import { isComponentInstance } from "@shared/component-model";
+import { DESIGN_REVIEW_PANEL } from "@shared/design-flags";
 import type { A11yFinding } from "@shared/design-review";
 import {
   DESIGN_CAPABILITY_NAMES,
@@ -126,8 +126,8 @@ import {
   breakpointUpperBoundPx,
   utilityStem,
 } from "@shared/responsive-classes";
-import { createElementReviewAnchor } from "@shared/review-anchor";
 import { readDesignReviewSummary } from "@shared/review-summary";
+import { normalizeScreenHtml } from "@shared/screen-annotation";
 import {
   isRunningAppSourceType,
   normalizeDesignSourceType,
@@ -145,11 +145,14 @@ import {
   IconArchive,
   IconPhoto,
   IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
   IconCheck,
   IconDownload,
   IconClipboard,
   IconFileExport,
   IconFileStack,
+  IconLayoutSidebar,
   IconPlayerPlay,
   IconDeviceFloppy,
   IconRocket,
@@ -162,6 +165,7 @@ import {
   IconMessageCircle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
 import {
   useState,
   useEffect,
@@ -221,8 +225,6 @@ import {
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
-import type { DesignCollaborator } from "@/components/design/editor/DesignCollaborators";
-import { DesignCollaboratorsMenu } from "@/components/design/editor/DesignCollaborators";
 import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
@@ -501,7 +503,10 @@ import type {
 } from "./design-editor/command-types";
 import { runAddAutoLayout } from "./design-editor/commands/add-auto-layout";
 import { runAddScreen } from "./design-editor/commands/add-screen";
-import { runAlignSelection } from "./design-editor/commands/align-selection";
+import {
+  alignSelectionAvailability,
+  runAlignSelection,
+} from "./design-editor/commands/align-selection";
 import { runApplyDesignEditorCommand } from "./design-editor/commands/apply-design-editor-command";
 import { runApplyFileContentUpdate } from "./design-editor/commands/apply-file-content-update";
 import { runApplyLayoutFlow } from "./design-editor/commands/apply-layout-flow";
@@ -724,6 +729,7 @@ import {
 } from "./design-editor/layer-state-scope";
 import {
   type AlignableRect,
+  authoredPxLength,
   computeOverlapReflowGeometry,
   mergeAuthoredAndLiveRect,
   type ReflowCandidate,
@@ -1444,13 +1450,10 @@ function DesignEditor() {
   // resizable 220–420px content range.
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
-  // Figma's Minimize UI action hides the left rail, right inspector panel,
-  // and bottom toolbar chrome so the canvas fills the viewport. No prior
-  // panel-visibility state existed to hook into (grepped for
-  // leftPanelCollapsed/rightPanelCollapsed/showLeftPanel/etc. — none found),
-  // so this is a new single boolean gating those three chrome containers'
-  // rendering.
+  // Cmd/Ctrl+\ hides the sidebars while leaving the bottom tools available.
   const [uiHidden, setUiHidden] = useState(false);
+  const [minimalUi, setMinimalUi] = useState(false);
+  const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] = useState(false);
   const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -2620,6 +2623,22 @@ function DesignEditor() {
       );
     }, 4000);
   }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
+  const handleGenerationStopped = useCallback(() => {
+    clearGenerationCompleteTimer();
+    clearAutoRetryTimer();
+    clearStoredRunLivenessTimer();
+    clearPendingGeneration(id);
+    setGenerationChatTabId(null);
+    setHasPendingGeneration(false);
+    setGenerationIssue(null);
+    setRetryablePrompt(null);
+    staleToastShownRef.current = false;
+  }, [
+    clearAutoRetryTimer,
+    clearGenerationCompleteTimer,
+    clearStoredRunLivenessTimer,
+    id,
+  ]);
   const scheduleStoredRunLivenessCheck = useCallback(
     (runTabId: string) => {
       clearStoredRunLivenessTimer();
@@ -2653,6 +2672,7 @@ function DesignEditor() {
     track: trackAgentGeneration,
   } = useAgentGenerating({
     onComplete: handleGenerationComplete,
+    onStopped: handleGenerationStopped,
     onStale: markGenerationStale,
     shouldAdoptRunningTab: () =>
       Boolean(id) &&
@@ -4962,6 +4982,13 @@ function DesignEditor() {
           setViewMode,
           setZoomForView,
           viewModeRef,
+          requestCameraFit: (camera) => {
+            cameraCommandNonceRef.current += 1;
+            setCameraCommand({
+              ...camera,
+              nonce: cameraCommandNonceRef.current,
+            });
+          },
         },
         command,
       ),
@@ -5247,7 +5274,7 @@ function DesignEditor() {
   );
 
   // Collaborative editing for the active file
-  const { ydoc, awareness, isSynced, activeUsers, agentActive } =
+  const { ydoc, awareness, isSynced, activeUsers, agentPresent, agentActive } =
     useCollaborativeDoc({
       docId:
         isSignedIn && canEditDesign && viewMode === "single"
@@ -5601,6 +5628,10 @@ function DesignEditor() {
   // layer (see beginRename in LayersPanel.tsx).
   const layersPanelRef = useRef<LayersPanelHandle | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  /** Read by primitive creation, which runs far above where the colour is
+   *  derived. */
+  const canvasBackgroundRef = useRef<string | null>(null);
+  const { resolvedTheme } = useTheme();
   const activeEditorDragRef = useRef(false);
 
   // Live handle to the active DesignCanvas preview iframe. DesignCanvas owns the
@@ -6211,29 +6242,6 @@ function DesignEditor() {
     },
     [followingEmail, stopFollowing],
   );
-
-  const designCollaborators = useMemo<DesignCollaborator[]>(() => {
-    const currentEmail = currentUser?.email.trim().toLowerCase() ?? null;
-    const humans = dedupeCollabUsersByEmail([
-      ...(currentUser ? [currentUser] : []),
-      ...activeUsers,
-    ]).filter((user) => user.email.trim().toLowerCase() !== "agent@system");
-    const otherHumans = humans.filter(
-      (user) => user.email.trim().toLowerCase() !== currentEmail,
-    );
-    const collaborators = otherHumans.map((user) => ({ user }));
-
-    if (!currentUser) return collaborators;
-
-    return [
-      {
-        user: currentUser,
-        image: session?.image,
-        isCurrent: true,
-      },
-      ...collaborators,
-    ];
-  }, [activeUsers, currentUser, session?.image]);
 
   // Resolve the content to render: prefer collab content only after the
   // per-file reconcile state has reset for the current active file. Otherwise a
@@ -6942,6 +6950,7 @@ function DesignEditor() {
   }, [fusionApp?.source]);
 
   const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  const designReviewPanelEnabled = useFeatureFlag(DESIGN_REVIEW_PANEL.key);
 
   // Builder-hosted preview URL for fusion-source designs. Prefers the flat
   // `fusionUrl` written by the "Make it real" migration; falls back to the
@@ -7867,7 +7876,9 @@ function DesignEditor() {
   >(() => {
     // The Builder shell has no persisted Design action surface, so exposing
     // Run audit there only produces the shell's "API is disabled" error.
-    if (!id || !activeFile || shellMode) return undefined;
+    if (!designReviewPanelEnabled || !id || !activeFile || shellMode) {
+      return undefined;
+    }
     const reviewMatchesActiveFile = reviewFileId === activeFile.id;
     return {
       findings: reviewMatchesActiveFile ? reviewFindings : [],
@@ -7885,6 +7896,7 @@ function DesignEditor() {
     };
   }, [
     activeFile,
+    designReviewPanelEnabled,
     handleReviewFindingClick,
     handleReviewFixApplied,
     handleRunDesignAudit,
@@ -8005,56 +8017,6 @@ function DesignEditor() {
     [activeFile?.id],
   );
 
-  const selectedReviewLayerContext = useMemo(() => {
-    if (!activeFile?.id || !selectedElement) return null;
-
-    const selectedScreen = overviewScreens.find(
-      (screen) => screen.id === activeFile.id,
-    );
-    const frameGeometry = canvasFrameGeometryById[activeFile.id];
-    const nodeId =
-      selectedCodeLayerNode?.dataAttributes[
-        "data-agent-native-node-id"
-      ]?.trim() ||
-      selectedElement.sourceId?.trim() ||
-      selectedCodeLayerNode?.id.trim() ||
-      null;
-    const anchor = createElementReviewAnchor({
-      nodeId,
-      selector: selectedElement.selector,
-      rect: selectedElement.boundingRect,
-      viewportWidth:
-        activeBreakpointWidthState ??
-        frameGeometry?.width ??
-        selectedScreen?.width ??
-        activeScreenBaseWidthPx,
-      viewportHeight: frameGeometry?.height ?? selectedScreen?.height,
-    });
-    if (!anchor) return null;
-
-    const layerName =
-      selectedCodeLayerNode?.layerName.trim() ||
-      selectedElement.componentName?.trim() ||
-      selectedElement.id?.trim() ||
-      selectedElement.tagName.toLowerCase();
-    return {
-      anchor,
-      label: layerName,
-      metadata: {
-        layerName,
-        tagName: selectedElement.tagName.toLowerCase(),
-      },
-    };
-  }, [
-    activeBreakpointWidthState,
-    activeFile?.id,
-    activeScreenBaseWidthPx,
-    canvasFrameGeometryById,
-    overviewScreens,
-    selectedCodeLayerNode,
-    selectedElement,
-  ]);
-
   const reviewCommentsPanelProps = useMemo<
     ReviewCommentsPanelProps | undefined
   >(
@@ -8062,14 +8024,6 @@ function DesignEditor() {
       id
         ? {
             designId: id,
-            activeFileId: activeFile?.id,
-            commentAnchor: selectedReviewLayerContext?.anchor,
-            commentMetadata: selectedReviewLayerContext?.metadata,
-            commentContextLabel: selectedReviewLayerContext
-              ? t("review.commentingOn", {
-                  name: selectedReviewLayerContext.label,
-                })
-              : undefined,
             canComment: canCommentDesign,
             canResolve: canEditDesign,
             canDeleteComment: (comment) =>
@@ -8079,9 +8033,6 @@ function DesignEditor() {
             signInHref: signInToCommentHref,
             canDispatchToAgent: canEditDesign,
             sendingThreadId: reviewSendingThreadId,
-            onDispatchCommentToAgent: canEditDesign
-              ? handleDispatchCommentToAgent
-              : undefined,
             onSendThreadToAgent: canEditDesign
               ? handleSendReviewThreadToAgent
               : undefined,
@@ -8089,19 +8040,14 @@ function DesignEditor() {
           }
         : undefined,
     [
-      activeFile?.id,
+      canCommentDesign,
+      canEditDesign,
       handleReviewThreadSelect,
-      handleDispatchCommentToAgent,
       handleSendReviewThreadToAgent,
       id,
-      isSignedIn,
-      canEditDesign,
-      canCommentDesign,
       reviewSendingThreadId,
-      selectedReviewLayerContext,
       session?.email,
       signInToCommentHref,
-      t,
     ],
   );
 
@@ -8114,6 +8060,7 @@ function DesignEditor() {
           activeFile,
           applyLocalContentUpdate,
           boardFileId,
+          canvasBackground: canvasBackgroundRef.current,
           canEditDesign,
           collabContentFileIdRef,
           collabContentRef,
@@ -11462,89 +11409,148 @@ function DesignEditor() {
   );
 
   // ── Layout geometry: align, distribute, tidy, auto-layout ──────────────────
-  // Selection alignment (item 3) + distribute/tidy (item 4) + Shift+A add
-  // auto layout (item 5) share the same in-screen-layer building block: read
-  // each selected DOM node's authored geometry straight from its inline
-  // style (this codebase's code-layer substrate is static-HTML analysis, not
-  // a live rendered DOM). When a node's inline style omits left/top/width/
-  // height (e.g. a flex child, or anything positioned by class/transform
-  // rather than inline style), the authored-style read alone resolves to a
-  // degenerate 0,0,0,0 box — every rect looks "already aligned" and the
-  // whole operation silently no-ops. rectLiveFallbackForNode below recovers
-  // real geometry from the rendered single-screen preview iframe (same-origin
-  // for inline designs) for exactly that case.
-  const rectLiveFallbackForNode = useCallback(
-    (
-      nodeId: string,
-    ): { x: number; y: number; width: number; height: number } | null => {
+  // Address the live element by the node's own CSS selectors: `node.id` is a
+  // projection hash (`html:…`) and the stamped `data-agent-native-node-id`
+  // attribute is an `an-…` hash, so a DOM query by node id never matches.
+  const liveElementForNode = useCallback(
+    (node: CodeLayerNode): HTMLElement | null => {
+      // alignAvailability measures during render, and this route is SSR'd.
+      if (typeof document === "undefined") return null;
       const iframe = document.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
       );
       const doc = iframe?.contentDocument;
       if (!doc) return null;
-      const el = doc.querySelector<HTMLElement>(
-        `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
-      );
-      if (!el) return null;
-      const elRect = el.getBoundingClientRect();
-      // Use the immediate parent element (the containing block for the align
-      // math's purposes — matches how a subsequent left/top commit is read
-      // back by the same parent-relative authored-style convention) rather
-      // than offsetParent, since offsetParent skips non-positioned ancestors
-      // and would disagree with how children of a plain (static) parent are
-      // authored here.
-      const parentRect = el.parentElement?.getBoundingClientRect();
-      return {
-        x: elRect.x - (parentRect?.x ?? 0),
-        y: elRect.y - (parentRect?.y ?? 0),
-        width: elRect.width,
-        height: elRect.height,
-      };
+      const stableId = node.dataAttributes["data-agent-native-node-id"];
+      const selectors = [
+        ...(stableId
+          ? [`[data-agent-native-node-id="${CSS.escape(stableId)}"]`]
+          : []),
+        ...node.selectors,
+        node.selector,
+      ];
+      for (const selector of selectors) {
+        if (!selector) continue;
+        try {
+          // Only a selector that resolves to exactly one element identifies
+          // this node; a repeated class or tag would measure its first twin.
+          const found = doc.querySelectorAll<HTMLElement>(selector);
+          if (found.length === 1) return found[0]!;
+        } catch {
+          // coercion-ok: a projection selector may not be valid CSS
+        }
+      }
+      return null;
     },
     [],
   );
 
-  const liveComputedLayoutForNode = useCallback((nodeId: string) => {
-    const iframe = document.querySelector<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
-    );
-    const doc = iframe?.contentDocument;
-    if (!doc) return null;
-    const element = doc.querySelector<HTMLElement>(
-      `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
-    );
-    if (!element) return null;
-    const computed =
-      element.ownerDocument.defaultView?.getComputedStyle(element);
-    if (!computed) return null;
-    return {
-      display: computed.display,
-      transform: computed.transform,
-      rotate: computed.rotate,
-      scale: computed.scale,
-    };
-  }, []);
+  // Layout geometry only: offsetLeft and clientWidth ignore CSS transforms and
+  // sit in the containing block's padding box, the space a `left`/`top` commit
+  // resolves in. getBoundingClientRect folds transform, scale, and border in.
+  const liveBoxesForNode = useCallback(
+    (
+      node: CodeLayerNode,
+    ): {
+      self: { x: number; y: number; width: number; height: number } | null;
+      parent: { width: number; height: number } | null;
+    } | null => {
+      const el = liveElementForNode(node);
+      if (!el) return null;
+      const parent = el.parentElement;
+      const offsetParent = el.offsetParent;
+      const size = { width: el.offsetWidth, height: el.offsetHeight };
+      // Parent-relative offset, or null when no layout parent chain gives one
+      // (display:none and position:fixed both report a null offsetParent).
+      const self =
+        offsetParent && parent
+          ? offsetParent === parent
+            ? { x: el.offsetLeft, y: el.offsetTop, ...size }
+            : parent.offsetParent === offsetParent
+              ? {
+                  x: el.offsetLeft - parent.offsetLeft - parent.clientLeft,
+                  y: el.offsetTop - parent.offsetTop - parent.clientTop,
+                  ...size,
+                }
+              : null
+          : null;
+      return {
+        self,
+        // Bounds only when the DOM parent IS the containing block: otherwise
+        // the commit resolves `left`/`top` against a further ancestor than
+        // the box we aligned to, landing the node somewhere else entirely.
+        parent:
+          parent &&
+          offsetParent === parent &&
+          parent.clientWidth > 0 &&
+          parent.clientHeight > 0
+            ? { width: parent.clientWidth, height: parent.clientHeight }
+            : null,
+      };
+    },
+    [liveElementForNode],
+  );
+
+  const rectLiveFallbackForNode = useCallback(
+    (node: CodeLayerNode) => liveBoxesForNode(node)?.self ?? null,
+    [liveBoxesForNode],
+  );
+
+  // A rendered node's live verdict is final, refusal included: the authored
+  // box cannot tell whether the parent is the containing block, so it is only
+  // a fallback for a node with no live element at all.
+  const measureAlignParentBox = useCallback(
+    (node: CodeLayerNode, parentNode: CodeLayerNode) => {
+      const boxes = liveBoxesForNode(node);
+      if (boxes) return boxes.parent;
+      const width = authoredPxLength(parentNode.style.width);
+      const height = authoredPxLength(parentNode.style.height);
+      if (width === null || height === null) return null;
+      return width > 0 && height > 0 ? { width, height } : null;
+    },
+    [liveBoxesForNode],
+  );
+
+  const liveComputedLayoutForNode = useCallback(
+    (node: CodeLayerNode) => {
+      const element = liveElementForNode(node);
+      if (!element) return null;
+      const computed =
+        element.ownerDocument.defaultView?.getComputedStyle(element);
+      if (!computed) return null;
+      return {
+        display: computed.display,
+        transform: computed.transform,
+        rotate: computed.rotate,
+        scale: computed.scale,
+      };
+    },
+    [liveElementForNode],
+  );
 
   const rectFromCodeLayerNode = useCallback(
     (node: CodeLayerNode): AlignableRect => {
-      const authoredX = Number.parseFloat(node.style.left ?? "");
-      const authoredY = Number.parseFloat(node.style.top ?? "");
-      const authoredWidth = Number.parseFloat(node.style.width ?? "");
-      const authoredHeight = Number.parseFloat(node.style.height ?? "");
+      // Only px is authored geometry. `left:50%` parsed as 50px reads as a
+      // near-origin child and suppresses the live measurement that would have
+      // placed it correctly.
+      const authoredX = authoredPxLength(node.style.left);
+      const authoredY = authoredPxLength(node.style.top);
+      const authoredWidth = authoredPxLength(node.style.width);
+      const authoredHeight = authoredPxLength(node.style.height);
       const live =
-        Number.isFinite(authoredX) &&
-        Number.isFinite(authoredY) &&
-        Number.isFinite(authoredWidth) &&
-        Number.isFinite(authoredHeight)
+        authoredX !== null &&
+        authoredY !== null &&
+        authoredWidth !== null &&
+        authoredHeight !== null
           ? null
-          : rectLiveFallbackForNode(node.id);
+          : rectLiveFallbackForNode(node);
       return mergeAuthoredAndLiveRect({
         id: node.id,
         authored: {
-          x: authoredX,
-          y: authoredY,
-          width: authoredWidth,
-          height: authoredHeight,
+          x: authoredX ?? undefined,
+          y: authoredY ?? undefined,
+          width: authoredWidth ?? undefined,
+          height: authoredHeight ?? undefined,
         },
         live,
       });
@@ -11727,6 +11733,7 @@ function DesignEditor() {
           getActiveFileSelectedNodeIds,
           getFreshActiveContent,
           handleGeometryCommit,
+          measureAlignParentBox,
           overviewScreens,
           overviewSelectedScreenIds,
           rectFromCodeLayerNode,
@@ -11745,10 +11752,41 @@ function DesignEditor() {
       getActiveFileSelectedNodeIds,
       getFreshActiveContent,
       handleGeometryCommit,
+      measureAlignParentBox,
       overviewScreens,
       overviewSelectedScreenIds,
       selectedLayerIdsState,
       rectFromCodeLayerNode,
+    ],
+  );
+
+  // The inspector's six alignment buttons disable on the same verdict
+  // runAlignSelection refuses on, so the row is never an affordance that
+  // no-ops or aligns a lone top-level frame against nothing.
+  const alignAvailability = useMemo(
+    () =>
+      alignSelectionAvailability({
+        canEditDesign,
+        fileIds: files.map((file) => file.id),
+        measureAlignParentBox,
+        overviewSelectedScreenIds,
+        resolveNodesById: () =>
+          new Map(
+            activeCodeLayerProjection.nodes.map((node) => [node.id, node]),
+          ),
+        selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
+        viewMode,
+      }),
+    [
+      activeCodeLayerProjection,
+      canEditDesign,
+      files,
+      measureAlignParentBox,
+      overviewSelectedScreenIds,
+      selectedElement,
+      selectedLayerIdsState,
+      viewMode,
     ],
   );
 
@@ -11941,7 +11979,7 @@ function DesignEditor() {
       (node) => node.id === selectedIds[0],
     );
     const computedLayout = container
-      ? liveComputedLayoutForNode(container.id)
+      ? liveComputedLayoutForNode(container)
       : null;
     return Boolean(
       container &&
@@ -12106,9 +12144,20 @@ function DesignEditor() {
   );
 
   // ── UI toggles, ungroup, reparent, cut, screen deletion ────────────────────
-  // Figma's Minimize UI action. Fully wired: uiHidden gates the
-  // left rail, right inspector panel, and bottom toolbar chrome containers
-  // declared above.
+  const handleToggleMinimalUi = useCallback(() => {
+    setMinimalUi((current) => !current);
+    setUiHidden(false);
+    setMinimalRightSidebarOpen(false);
+  }, []);
+
+  const handleToggleMinimalRightSidebar = useCallback(() => {
+    if (uiHidden) {
+      setUiHidden(false);
+      return;
+    }
+    setMinimalRightSidebarOpen((current) => !current);
+  }, [uiHidden]);
+
   const handleToggleUi = useCallback(() => {
     setUiHidden((current) => !current);
   }, []);
@@ -13526,6 +13575,7 @@ function DesignEditor() {
   const handleShowKeyboardShortcutsFromMenu = useCallback(() => {
     keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
     suppressProjectMenuReturnFocusRef.current = true;
+    setMinimalUi(false);
     setUiHidden(false);
     setKeyboardShortcutsOpen(true);
   }, []);
@@ -13549,6 +13599,7 @@ function DesignEditor() {
     const activeElement = document.activeElement;
     keyboardShortcutsReturnFocusRef.current =
       activeElement instanceof HTMLElement ? activeElement : null;
+    setMinimalUi(false);
     setUiHidden(false);
     setKeyboardShortcutsOpen(true);
   }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen]);
@@ -13954,11 +14005,13 @@ function DesignEditor() {
   }, []);
 
   const handleShowLayersPanel = useCallback(() => {
+    setMinimalUi(false);
     setUiHidden(false);
     setActiveLeftPanel("file");
   }, []);
 
   const handleShowAssetsPanel = useCallback(() => {
+    setMinimalUi(false);
     setUiHidden(false);
     setActiveLeftPanel("assets");
   }, []);
@@ -14145,6 +14198,7 @@ function DesignEditor() {
     // Show/Hide UI and Show/Hide comments are view-only chrome toggles, not
     // editing actions, so they work regardless of canEditDesign.
     onToggleUi: handleToggleUi,
+    onToggleMinimalUi: handleToggleMinimalUi,
     onToggleComments: handleToggleComments,
     onToggleLayoutGrids: canEditDesign ? handleToggleLayoutGrids : undefined,
     onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
@@ -15228,7 +15282,7 @@ function DesignEditor() {
   useEffect(() => {
     if (viewMode === "overview" && !motionDockOpen) return;
     if (!activeFile || !activeContent.trim()) return;
-    const stamped = ensureCodeLayerNodeIdsInHtml(activeContent, {
+    const stamped = normalizeScreenHtml(activeContent, {
       source: {
         kind: "design-file",
         designId: id,
@@ -15705,7 +15759,7 @@ function DesignEditor() {
       })),
     [firstRunTemplatesQuery.data?.templates],
   );
-  const firstRunDesignSystems = useMemo(
+  const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
   );
@@ -15717,6 +15771,10 @@ function DesignEditor() {
   // first screen row exists.
   const [chatMessageCount, setChatMessageCount] = useState(0);
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
+  // The picked system is stored on the design and read by every later
+  // generation, so it outlives the starting-point row a template retires.
+  const showComposerDesignSystem =
+    designSystemsLoading || designSystemOptions.length > 0;
   const applyTemplate = useActionMutation("create-design-from-template");
   const handleFirstRunTemplate = useCallback(
     async (templateId: string) => {
@@ -15747,9 +15805,11 @@ function DesignEditor() {
       selectedPromptDesignSystemId,
     ],
   );
-  const handleFirstRunDesignSystem = useCallback(
+  const handleComposerDesignSystem = useCallback(
     (designSystemId: string | null) => {
-      setPromptDesignSystemId(designSystemId ?? undefined);
+      // null is the user picking "No design system"; only undefined means
+      // nothing has been chosen yet, which re-resolves the default.
+      setPromptDesignSystemId(designSystemId);
       persistPromptDesignSystem(designSystemId);
     },
     [persistPromptDesignSystem],
@@ -16261,6 +16321,29 @@ function DesignEditor() {
     string | null
   >(null);
   const canvasBackground = canvasBackgroundDraft ?? persistedCanvasBackground;
+  /** The inspector must show a colour, not "none", for a canvas the user has
+   *  not set — and the only honest source for that is what the container is
+   *  currently painted with, which follows the editor theme. */
+  const [themedCanvasBackground, setThemedCanvasBackground] = useState<
+    string | null
+  >(null);
+  canvasBackgroundRef.current = canvasBackground ?? themedCanvasBackground;
+  useEffect(() => {
+    if (canvasBackground) return;
+    // A throwaway element, not the raw token: the token is space-separated
+    // HSL, which the colour parser rejects. After a frame, because next-themes
+    // sets the `dark` class in an ancestor effect React runs after this one.
+    const frame = requestAnimationFrame(() => {
+      const probe = document.createElement("span");
+      probe.style.cssText =
+        "position:absolute;visibility:hidden;background-color:var(--design-editor-canvas-bg)";
+      document.body.append(probe);
+      const painted = window.getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      setThemedCanvasBackground(painted || null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [canvasBackground, resolvedTheme]);
   const handleCanvasBackgroundChange = useCallback(
     (value: string, meta?: { phase?: "preview" | "commit" }) => {
       if (!id || !canEditDesignRef.current) return;
@@ -19064,6 +19147,71 @@ function DesignEditor() {
       </span>
     );
 
+  const minimalUiToggle = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 rounded-md"
+          aria-label={
+            minimalUi
+              ? "Exit minimal UI" /* i18n-ignore minimal UI chrome */
+              : "Minimize UI" /* i18n-ignore minimal UI chrome */
+          }
+          aria-pressed={minimalUi}
+          data-design-minimal-toggle="ui"
+          onClick={handleToggleMinimalUi}
+        >
+          <IconLayoutSidebar className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {
+          minimalUi
+            ? "Exit minimal UI" /* i18n-ignore minimal UI chrome */
+            : "Minimize UI" /* i18n-ignore minimal UI chrome */
+        }
+      </TooltipContent>
+    </Tooltip>
+  );
+
+  const minimalRightSidebarToggle = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 rounded-md"
+          aria-expanded={minimalRightSidebarOpen && !uiHidden}
+          aria-label={
+            minimalRightSidebarOpen && !uiHidden
+              ? "Hide design panel" /* i18n-ignore minimal UI chrome */
+              : "Show design panel" /* i18n-ignore minimal UI chrome */
+          }
+          data-design-minimal-toggle="right"
+          disabled={initialGenerationChromeLimited}
+          onClick={handleToggleMinimalRightSidebar}
+        >
+          {minimalRightSidebarOpen && !uiHidden ? (
+            <IconChevronRight className="size-4" />
+          ) : (
+            <IconChevronLeft className="size-4" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {
+          minimalRightSidebarOpen && !uiHidden
+            ? "Hide design panel" /* i18n-ignore minimal UI chrome */
+            : "Show design panel" /* i18n-ignore minimal UI chrome */
+        }
+      </TooltipContent>
+    </Tooltip>
+  );
+
   // ── Zoom control, signed-out actions, node-rewrite control ─────────────────
   const renderZoomControl = (controlId: "toolbar" | "inspector") => (
     <DropdownMenu
@@ -19316,13 +19464,22 @@ function DesignEditor() {
         data-design-chrome-region="right-toolbar-actions"
         className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]"
       >
+        {minimalUi ? minimalRightSidebarToggle : null}
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
-            <DesignCollaboratorsMenu
-              collaborators={designCollaborators}
+            <PresenceBar
+              activeUsers={[
+                ...(currentUser ? [currentUser] : []),
+                ...(activeUsers ?? []),
+              ]}
+              agentPresent={agentPresent}
+              agentActive={agentActive}
+              currentUserEmail={currentUser?.email}
+              showCurrentUser
               followingEmail={followingEmail}
-              label={t("designEditor.collaborators")}
               onAvatarClick={handleAvatarClick}
+              disableAgentClick
+              className="shrink-0"
             />
           )}
         </div>
@@ -19600,6 +19757,12 @@ function DesignEditor() {
     activeLeftPanel === "code"
       ? Math.max(leftSidebarWidth, 640)
       : Math.max(Math.min(leftSidebarWidth, 420), 220);
+  const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
+  const rightSidebarVisible =
+    !hostOwnsChrome &&
+    !uiHidden &&
+    !initialGenerationChromeLimited &&
+    (!minimalUi || minimalRightSidebarOpen);
   const routeCodeFileId =
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
   const routeCodeFilename =
@@ -19615,6 +19778,7 @@ function DesignEditor() {
     selectedScreenLayoutGrid,
     onLayoutGridChange: canEditDesign ? handleLayoutGridChange : undefined,
     canvasBackground,
+    canvasBackgroundFallback: themedCanvasBackground,
     onCanvasBackgroundChange: canEditDesign
       ? handleCanvasBackgroundChange
       : undefined,
@@ -19687,6 +19851,7 @@ function DesignEditor() {
     reviewCommentsPanelProps,
     reviewCommentsCount: reviewOpenCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
+    alignSelectionDisabled: !alignAvailability.canAlign,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
     onApplyLayoutFlow: canEditDesign ? handleApplyLayoutFlow : undefined,
     onInteractionStateChange: handleInteractionStateChange,
@@ -19698,7 +19863,10 @@ function DesignEditor() {
     // so flex-1 on the child doesn't resolve to the available height. h-full
     // works because main itself has a definite height (flex-1 inside a
     // flex-col page shell). Without this the canvas collapses to ~150px.
-    <div className="h-full flex flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]">
+    <div
+      data-design-editor
+      className="relative flex h-full flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]"
+    >
       {/* ── Render: Builder embed preview ── */}
       {isBuilderDesignEmbed && builderPreviewUrl && (
         <div className="absolute inset-0 z-50 flex flex-col bg-[var(--design-editor-canvas-bg)]">
@@ -19730,7 +19898,7 @@ function DesignEditor() {
       )}
       {/* ── Render: main canvas area ── */}
       <div className="flex-1 flex overflow-hidden relative">
-        {!hostOwnsChrome && !uiHidden ? (
+        {leftSidebarVisible ? (
           <div
             data-design-chrome-region="left-shell"
             className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]"
@@ -19772,6 +19940,7 @@ function DesignEditor() {
                   className="flex h-[var(--design-section-height)] shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]"
                 >
                   {projectTitleControl}
+                  {minimalUiToggle}
                 </div>
                 <div className="min-h-0 flex-1">
                   <LayersPanel
@@ -19866,13 +20035,13 @@ function DesignEditor() {
                     }
                     composerSlot={
                       <>
-                        {showFirstRunStart ? (
+                        {showComposerDesignSystem ? (
                           <div data-design-system-picker className="px-3 pb-2">
                             <DesignSystemPickerControl
-                              designSystems={firstRunDesignSystems}
+                              designSystems={designSystemOptions}
                               loading={designSystemsLoading}
                               selectedId={selectedPromptDesignSystemId ?? null}
-                              onChange={handleFirstRunDesignSystem}
+                              onChange={handleComposerDesignSystem}
                             />
                           </div>
                         ) : null}
@@ -20040,7 +20209,6 @@ function DesignEditor() {
             infinite canvas, and ResponsiveInteractBar's Close is the way
             back. */}
         {!hostOwnsChrome &&
-          !uiHidden &&
           !responsiveInteractActive &&
           designBottomToolbarMode === "editor" &&
           // Not gated on activeFile: a new design has no file rows at all, so
@@ -20374,6 +20542,7 @@ function DesignEditor() {
                     BreakpointDeviceControl — see rightSidebarActions. */}
                 <div
                   ref={canvasContainerRef}
+                  data-design-canvas-container
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   // Overrides the themed canvas colour rather than a background
                   // shorthand, so every descendant reading the var follows.
@@ -20409,7 +20578,7 @@ function DesignEditor() {
                     <ReadOnlyDesignBanner
                       pinMode={pinMode}
                       onCommentPin={
-                        !hostOwnsChrome && !uiHidden && canCommentDesign
+                        !hostOwnsChrome && canCommentDesign
                           ? handlePinToolToggle
                           : undefined
                       }
@@ -21014,7 +21183,7 @@ function DesignEditor() {
         )}
 
         {/* ── Render: right rail ── */}
-        {!hostOwnsChrome && !uiHidden && !initialGenerationChromeLimited ? (
+        {rightSidebarVisible ? (
           <div
             ref={rightSidebarContentRef}
             data-design-chrome-region="right-panel"
@@ -21038,11 +21207,37 @@ function DesignEditor() {
             )}
           </div>
         ) : null}
+
+        {minimalUi && !hostOwnsChrome ? (
+          <div
+            data-design-minimal-ui
+            className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
+          >
+            <div
+              data-design-minimal-bar="left"
+              className="pointer-events-auto absolute left-3 top-3 flex h-10 min-w-0 max-w-[calc(100%-1.5rem)] items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
+            >
+              <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
+              <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
+              {minimalUiToggle}
+            </div>
+
+            {!minimalRightSidebarOpen || uiHidden ? (
+              <div
+                data-design-minimal-bar="right"
+                className="pointer-events-auto absolute right-3 top-3 max-w-[calc(100%-1.5rem)] overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
+              >
+                {rightSidebarActions}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {/* ── Render: mobile inspector sheet ── */}
       {!hostOwnsChrome &&
       !uiHidden &&
+      !minimalUi &&
       !initialGenerationChromeLimited &&
       mode === "edit" ? (
         <Sheet>

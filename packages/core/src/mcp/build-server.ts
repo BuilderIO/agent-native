@@ -88,6 +88,7 @@ import {
   hasMcpOAuthScope,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
 
@@ -113,6 +114,13 @@ export interface MCPConfig {
   description: string;
   /** Additional host-facing guidance included in the MCP initialize response. */
   instructions?: string;
+  /**
+   * Key tools to name in the MCP instructions so an external caller sees the
+   * app's short list up front instead of discovering it via `tool-search`.
+   * Defaults to the app's own `initialToolNames`; override to curate a
+   * different subset for external callers. See `mcp.keyToolNames`.
+   */
+  keyToolNames?: readonly string[];
   /** Optional canonical website URL for hosts that surface MCP app details. */
   websiteUrl?: string;
   /** Optional app icons for MCP hosts that render server branding. */
@@ -1590,7 +1598,7 @@ function isSuccessOnlyResult(value: Record<string, unknown>): boolean {
   });
 }
 
-function conciseToolResultText(
+export function conciseToolResultText(
   name: string,
   result: unknown,
   options?: { preserveObjectResult?: boolean },
@@ -1609,26 +1617,34 @@ function conciseToolResultText(
       const text = JSON.stringify(purged);
       return text === undefined ? `${name} completed.` : truncateToolText(text);
     }
+    const link = record.url ?? record.webUrl ?? record.urlPath ?? record.path;
+    const next =
+      typeof record.nextRequiredAction === "string" &&
+      record.nextRequiredAction.trim()
+        ? ` Next: ${record.nextRequiredAction.trim()}`
+        : "";
+    const tail = `${typeof link === "string" && link.trim() ? ` ${truncateToolText(link.trim(), 500)}` : ""}${next}`;
     const message = record.message ?? record.summary;
     if (typeof message === "string" && message.trim()) {
-      return truncateToolText(message.trim());
+      // Truncate the message alone so a long message cannot swallow the deep
+      // link and `Next:` marker external callers rely on.
+      return `${truncateToolText(message.trim())}${tail}`;
     }
     const id = record.id ?? record.planId ?? record.commentId;
     const title = record.title ?? record.name;
     if (typeof title === "string" && title.trim()) {
       const titleText = title.trim();
       return typeof id === "string" && id.trim()
-        ? `${titleText} (${id.trim()}) is ready.`
-        : `${titleText} is ready.`;
+        ? `${titleText} (${id.trim()}) is ready.${tail}`
+        : `${titleText} is ready.${tail}`;
     }
     if (typeof id === "string" && id.trim()) {
-      return `${name} completed for ${id.trim()}.`;
+      return `${name} completed for ${id.trim()}.${tail}`;
     }
-    const link = record.url ?? record.webUrl ?? record.path;
     if (typeof link === "string" && link.trim()) {
-      return `${name} completed: ${truncateToolText(link.trim(), 500)}`;
+      return `${name} completed:${tail}`;
     }
-    if (isSuccessOnlyResult(record)) return `${name} completed.`;
+    if (isSuccessOnlyResult(record)) return `${name} completed.${next}`;
   }
   const text = JSON.stringify(purged);
   return text === undefined ? `${name} completed.` : truncateToolText(text);
@@ -1856,8 +1872,18 @@ export async function createMCPServerForRequest(
     Object.values(advertisedActions).some((entry) =>
       Boolean(entry.mcpApp?.resource),
     );
+  // Only name tools this surface actually serves: a connector-catalog tier
+  // (or any other narrowing above) can leave app-level keyToolNames — e.g.
+  // Slides' view-screen/navigate — unserved, and advertising them anyway
+  // would send the agent looking for tools that don't exist here.
+  const servedKeyToolNames = config.keyToolNames?.filter(
+    (name) => name in advertisedActions,
+  );
   const server = new Server(mcpServerInfo(config, requestMeta), {
-    instructions: agentNativeMcpInstructions(config.instructions),
+    instructions: agentNativeMcpInstructions(
+      config.instructions,
+      servedKeyToolNames,
+    ),
     capabilities: {
       tools: {},
       ...(supportsMcpApps
@@ -1977,6 +2003,7 @@ export async function createMCPServerForRequest(
               await entry.needsApproval(args, {
                 userEmail: getRequestUserEmail(),
                 orgId: getRequestOrgId() ?? null,
+                appId: config.appId,
                 caller: "mcp",
                 actionName: name,
               }),
@@ -2087,10 +2114,7 @@ export async function createMCPServerForRequest(
               description: hasLink
                 ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
                 : baseDescription,
-              inputSchema: entry.tool.parameters ?? {
-                type: "object" as const,
-                properties: {},
-              },
+              inputSchema: mcpToolInputSchema(name, entry.tool.parameters),
               ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
               annotations,
             } as Tool;
@@ -2295,6 +2319,7 @@ export async function createMCPServerForRequest(
             {
               userEmail: getRequestUserEmail(),
               orgId: getRequestOrgId() ?? null,
+              appId: config.appId,
               caller: "mcp",
               actionName: name,
             },

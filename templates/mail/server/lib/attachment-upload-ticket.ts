@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import { getUserSetting } from "@agent-native/core/settings";
 import { nanoid } from "nanoid";
 
@@ -55,7 +55,7 @@ function settingStorageKey(ownerEmail: string): string {
 }
 
 function settingsTable(): string {
-  return isPostgres() ? "public.settings" : "settings";
+  return "public.settings";
 }
 
 function parseTickets(raw: string | null): AttachmentUploadTickets {
@@ -104,7 +104,7 @@ async function readTicketsRow(
   // per-request settings cache because compare-and-swap retries need fresh data.
   await getUserSetting(ownerEmail, SETTING_KEY);
   const { rows } = await getDbExec().execute({
-    sql: `SELECT value FROM ${settingsTable()} WHERE key = ?`,
+    sql: `SELECT value FROM ${settingsTable()} WHERE key = $1`,
     args: [settingStorageKey(ownerEmail)],
   });
   const raw = rows.length ? String(rows[0].value ?? rows[0][0]) : null;
@@ -121,15 +121,13 @@ async function compareAndSwapTickets(
   const client = getDbExec();
   if (expectedRaw === null) {
     const result = await client.execute({
-      sql: isPostgres()
-        ? `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`
-        : `INSERT OR IGNORE INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?)`,
+      sql: `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES ($1, $2, $3) ON CONFLICT (key) DO NOTHING`,
       args: [key, value, Date.now()],
     });
     return result.rowsAffected === 1;
   }
   const result = await client.execute({
-    sql: `UPDATE ${settingsTable()} SET value = ?, updated_at = ? WHERE key = ? AND value = ?`,
+    sql: `UPDATE ${settingsTable()} SET value = $1, updated_at = $2 WHERE key = $3 AND value = $4`,
     args: [value, Date.now(), key, expectedRaw],
   });
   return result.rowsAffected === 1;

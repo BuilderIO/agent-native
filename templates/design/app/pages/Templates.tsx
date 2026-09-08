@@ -319,15 +319,6 @@ export default function Templates() {
         </div>
       ) : null}
       <main className="mx-auto w-full max-w-[1480px] px-4 py-6 sm:px-6 sm:py-10">
-        <div className="mb-8 max-w-2xl">
-          <h1 className="text-lg font-semibold text-foreground">
-            {t("templatesPage.title")}
-          </h1>
-          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-            {t("templatesPage.description")}
-          </p>
-        </div>
-
         {isLoading ? (
           <TemplateGridSkeleton />
         ) : isError ? (
@@ -339,7 +330,6 @@ export default function Templates() {
           <div className="flex flex-col gap-10">
             <TemplateSection
               title={t("templatesPage.yourTemplates")}
-              description={t("templatesPage.yourTemplatesDescription")}
               templates={userTemplates}
               linkedTemplateId={linkedTemplateId}
               empty={t("templatesPage.yourTemplatesEmpty")}
@@ -428,7 +418,6 @@ export default function Templates() {
 
 function TemplateSection({
   title,
-  description,
   templates,
   linkedTemplateId,
   empty,
@@ -436,7 +425,6 @@ function TemplateSection({
   onDelete,
 }: {
   title: string;
-  description?: string;
   templates: DesignTemplateSummary[];
   linkedTemplateId?: string | null;
   empty?: string;
@@ -446,12 +434,7 @@ function TemplateSection({
   if (templates.length === 0 && !empty) return null;
   return (
     <section>
-      <div className="mb-3">
-        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-        {description ? (
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-        ) : null}
-      </div>
+      <h2 className="mb-3 text-sm font-semibold text-foreground">{title}</h2>
       {templates.length === 0 ? (
         <div className="flex min-h-32 items-center justify-center rounded-xl border border-dashed bg-muted/20 px-6 text-center text-sm text-muted-foreground">
           {empty}

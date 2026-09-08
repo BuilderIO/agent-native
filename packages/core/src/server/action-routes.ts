@@ -20,7 +20,11 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
-import { resolveOrgByDomain, resolveOrgIdForEmail } from "../org/context.js";
+import {
+  isFederationMembershipValidatedForEvent,
+  resolveOrgByDomain,
+  resolveOrgIdForEmail,
+} from "../org/context.js";
 import {
   agentNativeMcpInstructions,
   agentNativeToolTitle,
@@ -34,6 +38,7 @@ import {
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
+  readBrowserTabIdHeader,
   readAnalyticsClientPlatformHeader,
   readSyntheticTrafficHeader,
   seedAgentRunOwnerContext,
@@ -243,7 +248,7 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
         : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
@@ -327,6 +332,8 @@ export interface WebMcpManifestOptions {
   description: string;
   title?: string;
   instructions?: string;
+  /** Key tools to name in the instructions; see `MCPConfig.keyToolNames`. */
+  keyToolNames?: readonly string[];
   version?: string;
   websiteUrl?: string;
   icons?: Array<{
@@ -363,9 +370,8 @@ function normalizeOrgId(value: string | null | undefined): string | undefined {
 
 function isFirstBootMissingOrgTableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  return (
-    /no such table:?\s*["'`]?org_members["'`]?/i.test(error.message) ||
-    /relation\s+["'`]?org_members["'`]?\s+does not exist/i.test(error.message)
+  return /relation\s+["'`]?org_members["'`]?\s+does not exist/i.test(
+    error.message,
   );
 }
 
@@ -677,6 +683,7 @@ function mountActionRoutesInternal(
         const browserSessionId = readBrowserSessionIdHeader(event);
         const clientPlatform = readAnalyticsClientPlatformHeader(event);
         const isSyntheticTraffic = readSyntheticTrafficHeader(event);
+        const browserTabId = readBrowserTabIdHeader(event);
 
         return runWithRequestContext(
           {
@@ -687,8 +694,11 @@ function mountActionRoutesInternal(
             timezone,
             browserSessionId,
             clientPlatform,
+            ...(browserTabId ? { run: { browserTabId } } : {}),
             ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
             requestOrigin: getForwardedRequestOrigin(event),
+            federationMembershipValidated:
+              isFederationMembershipValidatedForEvent(event, userEmail, orgId),
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.
             isLoopbackRequest: isLoopbackRequest(event),
@@ -947,13 +957,23 @@ function buildWebMcpCompatibilityManifest(
     };
   });
 
+  // Only name tools this manifest actually lists: `options.keyToolNames`
+  // carries the app's full initialToolNames default, which can include
+  // actions this (possibly filtered) `actions` map doesn't serve.
+  const servedKeyToolNames = options?.keyToolNames?.filter(
+    (name) => name in actions,
+  );
+
   return {
     schema_version: "v1" as const,
     protocol: "WebMCP" as const,
     name: options?.name ?? "Agent",
     ...(options?.title ? { title: options.title } : {}),
     description: options?.description ?? "Agent-Native app agent",
-    instructions: agentNativeMcpInstructions(options?.instructions),
+    instructions: agentNativeMcpInstructions(
+      options?.instructions,
+      servedKeyToolNames,
+    ),
     version: options?.version ?? "1.0.0",
     ...(options?.websiteUrl ? { website_url: options.websiteUrl } : {}),
     ...(options?.icons ? { icons: options.icons } : {}),

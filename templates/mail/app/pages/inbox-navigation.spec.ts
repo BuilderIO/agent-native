@@ -82,7 +82,7 @@ describe("Inbox navigation commands", () => {
       "const clientSliceTab =\n    !combineInbox && isPinnedTab && !searchQuery && !mailboxWideLabelTab;",
     );
     expect(source).toContain(
-      'const emailView = activeSavedFilter\n    ? "all"',
+      'const emailView = activeSavedFilter\n    ? "inbox"',
     );
     expect(source).toContain(
       "useEmails(emailView, searchQuery, effectiveLabel)",
@@ -191,7 +191,11 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain(
       "const preparedMessages = messages.map((m: any) =>",
     );
-    expect(source).toContain(
+    const normalizedSource = source
+      .replace(/\s+/g, " ")
+      .replace(/\s*([(),])\s*/g, "$1")
+      .replace(/,([)\]])/g, "$1");
+    expect(normalizedSource).toContain(
       "latestPerThread(applyActiveInboxTab(preparedMessages))",
     );
     expect(source).toContain(

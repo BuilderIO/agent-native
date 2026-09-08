@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { buildLabelDisplayNames, labelTabHref } from "./AppLayout";
+import {
+  buildLabelDisplayNames,
+  getTabPrefetchTarget,
+  labelTabHref,
+  prefetchMailTabTargets,
+} from "./AppLayout";
 
 function appLayoutSource(): string {
   return readFileSync(new URL("./AppLayout.tsx", import.meta.url), "utf8");
@@ -59,7 +64,22 @@ describe("AppLayout inbox rail count", () => {
       'import { usePerAppChatOpen } from "@agent-native/core/client/hooks";',
     );
     expect(source).toContain(
-      "(sidebarPinned ? sidebarCollapsed : perAppChatOpen)",
+      "(sidebarPinned\n      ? sidebarCollapsed\n      : perAppChatOpen && !sidebarExpandedWhileChatOpen)",
+    );
+  });
+
+  it("keeps the unpinned rail toggleable while per-app chat is open", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =",
+    );
+    expect(source).toContain("perAppChatOpen && !sidebarExpandedWhileChatOpen");
+    expect(source).toContain(
+      "sidebarPinned || (perAppChatOpen && showSidebar)",
+    );
+    expect(source).toContain(
+      "setSidebarExpandedWhileChatOpen((value) => !value)",
     );
   });
 
@@ -113,9 +133,30 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("filtersLimitReached");
     expect(source).toContain("activeAccounts.size > 0");
     expect(source).toContain(
-      'useEmails("all", activeSavedFilter?.query, undefined,',
+      'useEmails("inbox", activeSavedFilter?.query, undefined,',
     );
     expect(source).toContain("activeFilterHasNextPage");
+  });
+
+  it("cycles filter tabs without leaving the client and warms visible queries", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("const cycleTab = useCallback(");
+    expect(source).toContain("const activeIdx = topBarTabs.findIndex(");
+    expect(source).toContain("(tab) => tab.isActive");
+    expect(source).toContain('key: "Tab"');
+    expect(source).toContain("shouldHandle: canCycleTab");
+    expect(source).toContain("handler: () => cycleTab(false)");
+    expect(source).toContain("handler: () => cycleTab(true)");
+    expect(source).toContain("void navigate(topBarTabs[nextIdx].href);");
+    expect(source).toContain('event.target.closest("[data-mail-tab-list]")');
+    expect(source).toContain("data-mail-tab-list");
+    expect(source).toContain("prefetchEmails(");
+    expect(source).toContain(
+      'queryClient.cancelQueries({ queryKey: ["email-prefetch"] })',
+    );
+    expect(source).toContain("if (tab.isActive) continue;");
+    expect(source).toContain("Promise.allSettled(");
   });
 
   it("does not show a false count for an inactive saved filter", () => {
@@ -218,6 +259,89 @@ describe("labelTabHref", () => {
     // inbox, so they keep the client-slice-of-inbox behavior on purpose.
     expect(labelTabHref("important")).toBe("/inbox?label=important");
     expect(labelTabHref("updates")).toBe("/inbox?label=updates");
+  });
+});
+
+describe("getTabPrefetchTarget", () => {
+  it("maps saved filters and label tabs to their real mailbox queries", () => {
+    expect(
+      getTabPrefetchTarget(
+        { id: "filter:pitch", href: "/inbox?filter=pitch", type: "filter" },
+        [{ id: "pitch", query: "from:pitch@example.com" }],
+      ),
+    ).toEqual({ view: "inbox", search: "from:pitch@example.com" });
+    expect(
+      getTabPrefetchTarget(
+        {
+          id: "pitch",
+          href: "/all?label=pitch",
+          type: "label",
+        },
+        [],
+      ),
+    ).toEqual({ view: "all", label: "pitch" });
+    expect(
+      getTabPrefetchTarget(
+        { id: "important", href: "/inbox?label=important", type: "label" },
+        [],
+      ),
+    ).toEqual({ view: "inbox" });
+  });
+});
+
+describe("prefetchMailTabTargets", () => {
+  it("warms every target with bounded concurrency", async () => {
+    const targets = ["pitch", "github", "other", "important"].map((view) => ({
+      view,
+    }));
+    const started: string[] = [];
+    let active = 0;
+    let maxActive = 0;
+
+    await prefetchMailTabTargets(targets, async (target) => {
+      started.push(target.view);
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active -= 1;
+    });
+
+    expect(started).toEqual(["pitch", "github", "other", "important"]);
+    expect(maxActive).toBe(2);
+  });
+
+  it("does not overlap a superseded queue when tabs change", async () => {
+    const started: string[] = [];
+    const releases: Array<() => void> = [];
+    let resolveStarted!: () => void;
+    const twoStarted = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+
+    const previous = prefetchMailTabTargets(
+      [{ view: "stale-1" }, { view: "stale-2" }, { view: "stale-3" }],
+      async (target) => {
+        started.push(target.view);
+        await new Promise<void>((resolve) => {
+          releases.push(resolve);
+          if (releases.length === 2) resolveStarted();
+        });
+      },
+    );
+    await twoStarted;
+
+    const current = prefetchMailTabTargets(
+      [{ view: "current" }],
+      async (target) => {
+        started.push(target.view);
+      },
+    );
+    expect(started).not.toContain("current");
+
+    for (const release of releases) release();
+    await Promise.all([previous, current]);
+
+    expect(started).toEqual(["stale-1", "stale-2", "current"]);
   });
 });
 

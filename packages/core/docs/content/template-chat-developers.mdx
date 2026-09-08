@@ -149,8 +149,8 @@ Every part of the app is editable source. Start here:
 - `app/routes/` — the UI. The app uses file-system routing (`flatRoutes()`
   in `app/routes.ts`), so adding a route file is enough to mount it.
 - `server/db/schema.ts` — add your own tables with Drizzle once you outgrow
-  the core tables above. Keep the code dialect-agnostic so the app runs on
-  SQLite, Postgres, Turso, D1, and Neon.
+  the core tables above. Keep the code PostgreSQL-specific so local PGlite and
+  hosted Postgres use the same semantics.
 - `AGENTS.md` — agent instructions. Update this when you teach the agent new
   capabilities or conventions.
 - `.agents/skills/` — detailed patterns the agent follows.
@@ -166,8 +166,8 @@ is what keeps the agent and the UI in parity.
   starter chat route, annotated, plus a full feature walkthrough
 - [**Actions**](/docs/actions-overview) — the action system this template is
   built on
-- [**Database**](/docs/server-database) — connecting a real database and the
-  portable-SQL model
+- [**Database**](/docs/server-database) — connecting PostgreSQL and the
+  framework data model
 - [**Agent Observability**](/docs/observability) — what the dashboard tracks
   and how
 - [**Extensions**](/docs/extensions) — building mini-apps inside a template
