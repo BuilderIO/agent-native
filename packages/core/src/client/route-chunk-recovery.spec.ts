@@ -144,6 +144,20 @@ describe("route chunk recovery", () => {
     expect(isDynamicImportFailureMessage("plain network error")).toBe(false);
   });
 
+  it("lets local Vite dev recovery own route failures without a transformed module env", () => {
+    const { fakeWindow, originalReload } = createFakeWindow(
+      "http://127.0.0.1:9327/chat/chat-new",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+    fakeWindow.console.error(
+      "Error loading route module `/chat/assets/route.js`, reloading page...",
+    );
+
+    expect(fakeWindow.location.assign).not.toHaveBeenCalled();
+    expect(originalReload).not.toHaveBeenCalled();
+  });
+
   it("keeps a fresh intended navigation target for recovery", () => {
     const state = createRouteChunkRecoveryState();
     rememberIntendedNavigation(

@@ -132,13 +132,20 @@ function hasViteDevRecovery(win: Window): boolean | undefined {
   // recovery layer from replaying an in-flight handoff in that window.
   try {
     const hostname = win.location.hostname;
+    const isLocalDevOrigin =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]" ||
+      hostname === "::1";
+    if (!isLocalDevOrigin) return false;
+
+    // The recovery module can be loaded from a prebuilt package artifact, so
+    // Vite may not transform import.meta.env.DEV even though the consuming app
+    // is running through Vite. Local origins are the host boundary for that
+    // dev-only script; never let the shared route hook replay a handoff there.
     return (
-      (hostname === "localhost" ||
-        hostname === "127.0.0.1" ||
-        hostname === "[::1]" ||
-        hostname === "::1") &&
-      (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV ===
-        true
+      (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV !==
+      false
     );
   } catch (error) {
     void error;
