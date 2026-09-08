@@ -1181,15 +1181,12 @@ export async function listDispatchUsageMetrics(input: {
     loadAppAdoption(usage, adoptionUsage, generatedAt),
   ]);
   const usageByDate = new Map(usageDaily.map((row) => [row.date, row]));
-  const weeklyActiveUsers =
-    usageDaily.length === 0
-      ? null
-      : await loadWeeklyActiveUsers(
-          weeklyLookbackUsage,
-          usersByDay,
-          new Date(visibleSinceMs).toISOString().slice(0, 10),
-          new Date(generatedAt).toISOString().slice(0, 10),
-        );
+  const weeklyActiveUsers = await loadWeeklyActiveUsers(
+    weeklyLookbackUsage,
+    usersByDay,
+    new Date(visibleSinceMs).toISOString().slice(0, 10),
+    new Date(generatedAt).toISOString().slice(0, 10),
+  );
   const daily = weeklyActiveUsers
     ? [...weeklyActiveUsers.entries()].map(([date, weeklyUsers]) => ({
         ...(usageByDate.get(date) ?? {

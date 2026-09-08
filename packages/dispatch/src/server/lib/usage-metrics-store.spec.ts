@@ -893,4 +893,44 @@ describe("listDispatchUsageMetrics", () => {
       weeklyActiveUsers: null,
     });
   });
+
+  it("shows WAU decay when activity is only just outside the selected window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T12:00:00Z"));
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("FROM token_usage") && sql.includes("day_bucket")) {
+        if (sql.includes("cost_cents_x100")) return { rows: [] };
+        return {
+          rows: [
+            {
+              day_bucket: Math.floor(Date.UTC(2026, 7, 12, 12) / 86_400_000),
+              owner_email: "owner@example.test",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 7,
+      scope: "me",
+    });
+
+    expect(metrics.daily).toHaveLength(8);
+    expect(
+      metrics.daily.find((row) => row.date === "2026-08-13"),
+    ).toMatchObject({
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 1,
+    });
+    expect(
+      metrics.daily.find((row) => row.date === "2026-08-19"),
+    ).toMatchObject({
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 0,
+    });
+  });
 });
