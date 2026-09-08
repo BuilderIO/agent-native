@@ -44,10 +44,15 @@ const INLINE_SUPPRESSION_RE =
 // `oxfmt` rewrites `type='search'` to `type="search"` but keeps the braces on
 // `type={"search"}`, so both bare and braced literals reach the repo.
 const SEARCH_TYPE_RE = /type=(?:["']search["']|\{\s*["']search["']\s*\})/;
-// A clear control belonging to this field: an icon button whose accessible
-// name says "clear", rendered inside the same relative wrapper.
-const CLEAR_CONTROL_RE =
-  /aria-label=(?:"[^"]*clear[^"]*"|\{[^}]*[Cc]lear[^}]*\})/i;
+// A clear control belonging to this field: a button (native or the shared
+// `Button` component) whose accessible name says "clear". Matching the
+// attribute alone, without confirming it sits on a button element, would
+// treat an unrelated "Clear filters" div elsewhere on the page as this
+// field's clear button — and named via `title` is as valid as `aria-label`.
+const BUTTON_OPEN_RE = /<(button|Button)\b/;
+const BUTTON_CLOSE_RE = /\/>|<\/(button|Button)>/;
+const ACCESSIBLE_CLEAR_RE =
+  /(?:aria-label|title)=(?:"[^"]*clear[^"]*"|\{[^}]*[Cc]lear[^}]*\})/i;
 const ALLOW_PRAGMA = /guard:allow-duplicate-search-clear\b/;
 // The wrapper that positions an absolute clear button. Scanning past it would
 // pick up unrelated "clear filters" controls elsewhere on the page.
@@ -89,6 +94,26 @@ function elementAround(lines, index) {
   return { start, end, text: lines.slice(start, end + 1).join("\n") };
 }
 
+/**
+ * Whether any button element within `lines` has an accessible name saying
+ * "clear". Walking each button's own span (rather than testing the whole
+ * block as one string) is what keeps an unrelated "Clear filters" control
+ * from being mistaken for this field's clear button.
+ */
+function hasOwnClearButton(lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!BUTTON_OPEN_RE.test(lines[index])) continue;
+    let end = index;
+    while (end < lines.length - 1 && !BUTTON_CLOSE_RE.test(lines[end])) {
+      end += 1;
+    }
+    const block = lines.slice(index, end + 1).join("\n");
+    if (ACCESSIBLE_CLEAR_RE.test(block)) return true;
+    index = end;
+  }
+  return false;
+}
+
 function main() {
   const violations = [];
   let checked = 0;
@@ -128,10 +153,11 @@ function main() {
         const optedIn =
           element.text.includes(OPT_IN_CLASS) ||
           INLINE_SUPPRESSION_RE.test(element.text);
-        const following = lines
-          .slice(element.end + 1, element.end + 1 + WRAPPER_LOOKAHEAD_LINES)
-          .join("\n");
-        const hasOwnClear = CLEAR_CONTROL_RE.test(following);
+        const following = lines.slice(
+          element.end + 1,
+          element.end + 1 + WRAPPER_LOOKAHEAD_LINES,
+        );
+        const hasOwnClear = hasOwnClearButton(following);
 
         if (hasOwnClear && !optedIn) {
           violations.push({
