@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-04
+
+### Improved
+
+- Dispatch metrics now handle unavailable active-user values, rank apps by tracked usage, show nine cards before expanding, and remove the Recent prompts panel.
+
 ## 2026-08-31
 
 ### Improved

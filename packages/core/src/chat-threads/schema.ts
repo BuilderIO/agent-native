@@ -1,4 +1,4 @@
-import { table, text, integer } from "../db/schema.js";
+import { table, text, integer, bigint } from "../db/schema.js";
 import { createSharesTable, ownableColumns } from "../sharing/schema.js";
 
 export const chatThreads = table("chat_threads", {
@@ -7,13 +7,13 @@ export const chatThreads = table("chat_threads", {
   preview: text("preview").notNull().default(""),
   threadData: text("thread_data").notNull().default("{}"),
   messageCount: integer("message_count").notNull().default(0),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   scopeType: text("scope_type"),
   scopeId: text("scope_id"),
   scopeLabel: text("scope_label"),
-  pinnedAt: integer("pinned_at"),
-  archivedAt: integer("archived_at"),
+  pinnedAt: bigint("pinned_at", { mode: "number" }),
+  archivedAt: bigint("archived_at", { mode: "number" }),
   shareTokenHash: text("share_token_hash"),
   sourcePlatform: text("source_platform"),
   sourceAppId: text("source_app_id"),

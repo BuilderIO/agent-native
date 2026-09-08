@@ -14,6 +14,7 @@ build
 .env.*
 !.env.example
 data/pglite/
+data/*.lock
 data/uploads/
 
 .DS_Store

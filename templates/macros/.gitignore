@@ -28,6 +28,7 @@ dist-ssr
 build/
 .output/
 data/pglite/
+data/*.lock
 .react-router/
 
 .generated/
