@@ -1959,6 +1959,7 @@ export default function RecordingPage() {
             segments={transcriptSegments}
             fullText={transcriptFullText}
             durationMs={recording.durationMs}
+            editsJson={recording.editsJson}
             currentMs={playbackMs}
             onSeek={(ms) => playerRef.current?.seek(ms)}
             status={

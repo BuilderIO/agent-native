@@ -437,20 +437,19 @@ const koKR = {
   },
   homepage: {
     hero: {
-      title: "에이전틱 앱을 위한 프레임워크.",
-      bodyLine1:
-        "UI와 에이전트를 갖춘 앱을 위한 오픈 소스 TypeScript 프레임워크입니다.",
-      bodyLine2: "각 Action을 한 번만 정의하고 어디서든 호출하세요.",
+      title: "에이전틱 애플리케이션 프레임워크",
+      bodyLine1: "직관적인 UI를 갖춘 자율형 에이전트를 구축하세요.",
+      bodyLine2: "원하는 LLM을 사용하고 어디에나 배포하세요.",
       tryAnApp: "앱 사용해 보기",
     },
     install: {
       copyCommand: "설치 명령 복사",
     },
     actions: {
-      title: "어디서든 하나의 Action을 호출하세요.",
-      bodyLine1: "defineAction()으로 기능을 정의하세요.",
+      title: "하나의 Action이 모든 표면을 구동합니다",
+      bodyLine1: "defineAction()으로 기능을 한 번만 정의하세요.",
       bodyLine2:
-        "React UI, 에이전트, HTTP 클라이언트와 통합 기능이 모두 같은 코드를 호출합니다.",
+        "에이전트, React UI, HTTP 클라이언트와 통합 기능이 모두 같은 코드를 호출합니다.",
       diagramAlt:
         "하나의 Action이 UI, MCP, 에이전트 채팅, A2A, HTTP API, CLI를 구동합니다",
     },
@@ -545,7 +544,7 @@ const koKR = {
         "만들고 싶은 것을 자연어로 설명하면 에이전트가 대신 만들어 줍니다.",
       stepThreeTitle: "배포",
       stepThreeBody:
-        "준비가 되면 Builder에서 한 번의 클릭으로 앱을 배포하세요.",
+        "준비가 되면 Builder에서 한 번의 클릭으로 에이전트와 UI를 배포하세요.",
     },
   },
   templatesPage: {
@@ -570,6 +569,7 @@ const koKR = {
     tryCommunityDemo: "데모 사용해 보기",
     customizeDescription: "이 앱을 시작점으로 사용하세요.",
     customizeOnline: "온라인",
+    customizeOnlineBadge: "대기자 명단 등록",
     customizeLocally: "로컬",
     communityNew: "새 앱",
     communityComingSoon: "곧 공개",
@@ -625,6 +625,18 @@ const koKR = {
     popoverTitle: "브라우저에서 빌드",
     popoverBody:
       "Builder.io를 사용해 클라우드에서 agent-native 앱을 빠르게 생성하세요.",
+    waitlistBody:
+      "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
+    emailLabel: "이메일",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "대기자 명단 참여",
+    joining: "참여 중…",
+    joined:
+      "대기자 명단에 등록되었습니다. 온라인 빌드 액세스가 열리면 이메일로 알려드릴게요.",
+    invalidEmail: "유효한 이메일 주소를 입력하세요.",
+    submitError: "대기자 명단에 참여하지 못했습니다. 다시 시도하세요.",
+    waitlistUnavailable:
+      "이 환경에서는 아직 대기자 명단에 등록할 수 없습니다. 대신 호스팅된 문서 사이트에서 시도해 보세요.",
     launchBuilder: "Builder 실행",
   },
   templateCard: {

@@ -332,7 +332,7 @@ export default defineAction({
             .designSystemId === "string"
             ? (access.resource as { designSystemId: string }).designSystemId
             : null,
-          async (id) => getDesignSystem.run({ id }),
+          getDesignSystem,
         );
         screen.design = {
           id: designId,

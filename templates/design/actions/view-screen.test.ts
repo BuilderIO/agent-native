@@ -21,6 +21,11 @@ const mocks = vi.hoisted(() => {
     queryReviewComments: vi.fn(),
     eq: vi.fn((left, right) => ({ left, right })),
     selectChain,
+    getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
   };
 });
 
@@ -84,13 +89,7 @@ vi.mock("../shared/canvas-frames.js", () => ({
 }));
 
 vi.mock("./get-design-system.js", () => ({
-  default: {
-    run: vi.fn(async ({ id }: { id: string }) => ({
-      id,
-      title: "Acme",
-      agentContext: "Use --brand-accent: #123456.",
-    })),
-  },
+  default: { run: mocks.getDesignSystemRun },
 }));
 
 import action from "./view-screen.js";
@@ -155,11 +154,16 @@ describe("view-screen", () => {
 
     const result = JSON.parse(await action.run({}));
 
+    expect(mocks.getDesignSystemRun).toHaveBeenCalledWith(
+      expect.objectContaining({ compact: "true" }),
+    );
     expect(result.design?.designSystemId).toBe("system-7");
     expect(result.design?.designSystem).toMatchObject({
       status: "available",
+      scope: "summary",
       id: "system-7",
       agentContext: "Use --brand-accent: #123456.",
+      next: expect.any(String),
     });
   });
 

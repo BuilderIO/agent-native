@@ -30,6 +30,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { isExcluded, parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 
 import { TranscriptSegmentRow } from "../transcript/transcript-segment-row";
@@ -46,6 +47,7 @@ export interface TranscriptPanelProps {
   segments: TranscriptSegment[];
   fullText?: string | null;
   durationMs?: number | null;
+  editsJson?: string | null;
   currentMs: number;
   onSeek: (ms: number) => void;
   status?: "pending" | "ready" | "failed";
@@ -145,6 +147,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     segments,
     fullText,
     durationMs,
+    editsJson,
     currentMs,
     onSeek,
     status,
@@ -156,9 +159,14 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   } = props;
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
+  const visibleSegments = useMemo(() => {
+    const edits = parseEdits(editsJson);
+    return segments.filter((segment) => !isExcluded(segment.startMs, edits));
+  }, [editsJson, segments]);
 
   const displaySegments = useMemo<TranscriptSegment[]>(() => {
-    if (segments.length > 0) return mergeTranscriptSegmentsForDisplay(segments);
+    if (segments.length > 0)
+      return mergeTranscriptSegmentsForDisplay(visibleSegments);
     const text = fullText?.trim();
     if (!text) return [];
     return [
@@ -168,7 +176,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         text,
       },
     ];
-  }, [segments, fullText, durationMs]);
+  }, [durationMs, fullText, segments.length, visibleSegments]);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return displaySegments;
@@ -200,7 +208,9 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   }
 
   function downloadSrt() {
-    const srt = toSrt(segments.length > 0 ? segments : displaySegments);
+    const srt = toSrt(
+      visibleSegments.length > 0 ? visibleSegments : displaySegments,
+    );
     const blob = new Blob([srt], { type: "text/srt;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -389,7 +399,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           <ul className="py-1">
             {filtered.map((seg) => {
               const isActive = displaySegments[activeIndex] === seg;
-              const seekMs = getTranscriptSeekMs(seg, query, segments);
+              const seekMs = getTranscriptSeekMs(seg, query, visibleSegments);
               return (
                 <li key={seg.startMs}>
                   <TranscriptSegmentRow

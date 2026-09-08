@@ -436,19 +436,19 @@ const hiIN = {
   },
   homepage: {
     hero: {
-      title: "एजेंटिक ऐप्स के लिए फ्रेमवर्क।",
-      bodyLine1: "UI और एजेंट वाले ऐप्स के लिए एक ओपन-सोर्स TypeScript फ्रेमवर्क।",
-      bodyLine2: "हर Action को एक बार परिभाषित करें और कहीं से भी कॉल करें।",
+      title: "एजेंटिक एप्लिकेशन फ्रेमवर्क",
+      bodyLine1: "सहज UI वाले स्वायत्त एजेंट बनाएं।",
+      bodyLine2: "अपना LLM लाएं। कहीं भी डिप्लॉय करें।",
       tryAnApp: "कोई ऐप आज़माएं",
     },
     install: {
       copyCommand: "इंस्टॉल कमांड कॉपी करें",
     },
     actions: {
-      title: "कहीं से भी एक Action को कॉल करें।",
-      bodyLine1: "defineAction() से एक क्षमता परिभाषित करें।",
+      title: "एक Action हर सतह को चलाता है",
+      bodyLine1: "defineAction() से एक क्षमता को एक बार परिभाषित करें।",
       bodyLine2:
-        "आपका React UI, एजेंट, HTTP क्लाइंट और इंटीग्रेशन सभी एक ही कोड को कॉल करते हैं।",
+        "आपका एजेंट, React UI, HTTP क्लाइंट और इंटीग्रेशन सभी एक ही कोड को कॉल करते हैं।",
       diagramAlt: "एक Action UI, MCP, एजेंट चैट, A2A, HTTP API और CLI को चलाता है",
     },
     builtIn: {
@@ -541,7 +541,8 @@ const hiIN = {
       stepTwoBody:
         "आप जो बनाना चाहते हैं उसे साधारण भाषा में बताएं और एजेंट उसे आपके लिए बना देगा।",
       stepThreeTitle: "डिप्लॉय करें",
-      stepThreeBody: "तैयार होने पर Builder में अपनी ऐप को एक क्लिक से डिप्लॉय करें।",
+      stepThreeBody:
+        "तैयार होने पर Builder में अपने एजेंट और उसके UI को एक क्लिक से डिप्लॉय करें।",
     },
   },
   templatesPage: {
@@ -565,6 +566,7 @@ const hiIN = {
     tryCommunityDemo: "डेमो आज़माएँ",
     customizeDescription: "इस ऐप को शुरुआती बिंदु के रूप में उपयोग करें।",
     customizeOnline: "ऑनलाइन",
+    customizeOnlineBadge: "वेटलिस्ट में शामिल हों",
     customizeLocally: "लोकल",
     communityNew: "नया",
     communityComingSoon: "जल्द आ रहा है",
@@ -619,6 +621,17 @@ const hiIN = {
     buildOnline: "ऑनलाइन बनाएँ",
     popoverTitle: "Browser में बनाएँ",
     popoverBody: "Builder.io के साथ क्लाउड में agent-native ऐप तेज़ी से बनाएं.",
+    waitlistBody:
+      "Builder.io क्लाउड में agent-native ऐप शुरू और कस्टमाइज़ कर सकता है — actions, auth, SQL state और agent chat सहित. शुरुआती पहुँच के लिए waitlist में शामिल हों.",
+    emailLabel: "ईमेल",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "Waitlist में शामिल हों",
+    joining: "शामिल हो रहे हैं…",
+    joined: "आप waitlist में हैं. build-online access खुलने पर हम आपको ईमेल करेंगे.",
+    invalidEmail: "एक मान्य ईमेल पता दर्ज करें.",
+    submitError: "Waitlist में शामिल नहीं हो सके. कृपया फिर से कोशिश करें.",
+    waitlistUnavailable:
+      "इस environment में अभी waitlist signups उपलब्ध नहीं हैं. इसके बजाय hosted docs site आज़माएँ.",
     launchBuilder: "Builder लॉन्च करें",
   },
   templateCard: {

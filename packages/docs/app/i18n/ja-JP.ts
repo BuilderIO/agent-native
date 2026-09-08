@@ -437,20 +437,19 @@ const jaJP = {
   },
   homepage: {
     hero: {
-      title: "agentic アプリのためのフレームワーク。",
-      bodyLine1:
-        "UI とエージェントを備えたアプリのためのオープンソース TypeScript フレームワークです。",
-      bodyLine2: "各 Action を一度定義すれば、どこからでも呼び出せます。",
+      title: "agentic アプリケーションのための framework",
+      bodyLine1: "直感的な UI を備えた自律型エージェントを構築できます。",
+      bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
       tryAnApp: "アプリを試す",
     },
     install: {
       copyCommand: "インストールコマンドをコピー",
     },
     actions: {
-      title: "どこからでも 1 つの Action を呼び出せます。",
-      bodyLine1: "defineAction() で機能を定義します。",
+      title: "1 つの Action があらゆる面を動かす",
+      bodyLine1: "defineAction() で機能を一度だけ定義します。",
       bodyLine2:
-        "React UI、エージェント、HTTP クライアント、連携先がすべて同じコードを呼び出します。",
+        "エージェント、React UI、HTTP クライアント、連携先がすべて同じコードを呼び出します。",
       diagramAlt:
         "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
     },
@@ -545,7 +544,7 @@ const jaJP = {
         "作りたいものを自然な言葉で説明すると、エージェントが作成します。",
       stepThreeTitle: "デプロイ",
       stepThreeBody:
-        "準備ができたら、Builderでアプリをワンクリックでデプロイします。",
+        "準備ができたら、Builderでエージェントとその UI をワンクリックでデプロイします。",
     },
   },
   templatesPage: {
@@ -570,6 +569,7 @@ const jaJP = {
     tryCommunityDemo: "デモを試す",
     customizeDescription: "このアプリを出発点として使えます。",
     customizeOnline: "オンライン",
+    customizeOnlineBadge: "ウェイトリストに登録",
     customizeLocally: "ローカル",
     communityNew: "新着",
     communityComingSoon: "近日公開",
@@ -627,6 +627,18 @@ const jaJP = {
     popoverTitle: "ブラウザで構築",
     popoverBody:
       "Builder.io を使って、クラウドで agent-native アプリをすばやく生成できます。",
+    waitlistBody:
+      "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
+    emailLabel: "メール",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "待機リストに参加",
+    joining: "参加中…",
+    joined:
+      "待機リストに登録されました。オンライン構築アクセスが開いたらメールでお知らせします。",
+    invalidEmail: "有効なメールアドレスを入力してください。",
+    submitError: "待機リストに参加できませんでした。もう一度お試しください。",
+    waitlistUnavailable:
+      "この環境ではまだ待機リストに登録できません。代わりにホストされたドキュメントサイトをお試しください。",
     launchBuilder: "Builderを起動",
   },
   templateCard: {

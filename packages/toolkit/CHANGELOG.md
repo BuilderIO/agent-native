@@ -1,5 +1,21 @@
 # @agent-native/toolkit
 
+## 0.19.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 58d9dc3: Allow callers to keep the AI presence avatar display-only.
+
+## 0.19.4
+
+### Patch Changes
+
+- e29fee8: Add a shared hook for browser-persisted sidebar collapse preferences.
+- cef8c06: Route Clips' shadcn UI primitives through the shared Toolkit while preserving its intentional line-tab variant.
+- Release all public npm packages with a patch version bump.
+- 73c36ce: Preserve non-overlapping local edits when a newer authoritative rich-document revision arrives, and report overlapping changes without replacing the local draft.
+
 ## 0.19.3
 
 ### Patch Changes

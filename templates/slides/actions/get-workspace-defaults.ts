@@ -37,26 +37,12 @@ export default defineAction({
         : { id: defaults.referenceDeckId, title: null, unavailable: true };
     }
 
-    let designSystem: DefaultRef = null;
-    if (defaults.designSystemId) {
-      const access = await resolveAccess(
-        "design-system",
-        defaults.designSystemId,
-      );
-      designSystem = access
-        ? { id: defaults.designSystemId, title: access.resource.title }
-        : { id: defaults.designSystemId, title: null, unavailable: true };
-    }
-
-    const designSystemContext = await loadAgentDesignSystemContext(
-      defaults.designSystemId,
-      async (id) => getDesignSystem.run({ id }),
-    );
-
     return {
       referenceDeck,
-      designSystem,
-      designSystemContext,
+      designSystem: await loadAgentDesignSystemContext(
+        defaults.designSystemId,
+        getDesignSystem,
+      ),
       canManage: await canManageWorkspaceDefaults(),
     };
   },

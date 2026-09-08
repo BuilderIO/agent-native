@@ -71,6 +71,7 @@ import {
   isDocumentUpdateConflict,
   patchDocumentCaches,
   documentQueryFilter,
+  documentQueryKey,
   useDocument,
   useDeleteDocument,
   useDocuments,
@@ -280,16 +281,83 @@ export function DocumentEditor({
   });
   const {
     data: queriedDocument,
+    dataUpdatedAt,
+    error,
+    errorUpdateCount,
+    errorUpdatedAt,
     isError,
     isFetchedAfterMount,
     isFetching,
   } = documentQuery;
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [manualRetryDocumentId, setManualRetryDocumentId] = useState<
+    string | null
+  >(null);
+  const admittedDocumentIdRef = useRef<string | null>(null);
+  const loadFailureRef = useRef<DocumentLoadFailureState | null>(null);
   const document =
     queriedDocument?.id === documentId ? queriedDocument : undefined;
+  const loadFailure = updateDocumentLoadFailureState({
+    previous: loadFailureRef.current,
+    documentId,
+    admitted: admittedDocumentIdRef.current === documentId,
+    dataUpdatedAt,
+    errorUpdateCount,
+    errorUpdatedAt,
+    isError,
+  });
+  loadFailureRef.current = loadFailure;
+  const loadState = documentEditorLoadState({
+    documentId,
+    admittedDocumentId: admittedDocumentIdRef.current,
+    hasDocument: Boolean(document),
+    isDocumentCreationPending: document
+      ? isDocumentCreationPending(document)
+      : false,
+    isFetchedAfterMount,
+    isFetching,
+    isError,
+    hasLoadFailure: loadFailure.failed,
+    isManualRetrying: manualRetryDocumentId === documentId,
+    error,
+  });
+  admittedDocumentIdRef.current = loadState.admittedDocumentId;
 
-  if (isError && !document) {
+  async function retryDocumentQuery() {
+    setManualRetryDocumentId(documentId);
+    try {
+      await queryClient.cancelQueries({
+        queryKey: documentQueryKey(documentId, {
+          databaseId,
+          databaseDocumentId,
+        }),
+        exact: true,
+      });
+      loadFailureRef.current = {
+        documentId,
+        baselineErrorUpdateCount: errorUpdateCount,
+        failed: false,
+      };
+      await documentQuery.refetch();
+    } finally {
+      setManualRetryDocumentId((current) =>
+        current === documentId ? null : current,
+      );
+    }
+  }
+
+  if (loadState.view === "unavailable") {
     return <DocumentUnavailable onOpenHome={() => navigate("/home")} />;
+  }
+
+  if (loadState.view === "error") {
+    return (
+      <QueryErrorState
+        onRetry={() => void retryDocumentQuery()}
+        retrying={manualRetryDocumentId === documentId}
+      />
+    );
   }
 
   // If we have a doc (real or optimistic from create) render the editor —
@@ -300,10 +368,7 @@ export function DocumentEditor({
   // already-current Y.Doc. Wait only for this mount's first dedicated
   // get-document response; later poll/SSE refetches remain live and reconcile
   // without replacing the editor.
-  if (
-    !document ||
-    shouldAwaitAuthoritativeDocument({ isFetching, isFetchedAfterMount })
-  ) {
+  if (!document || loadState.view === "skeleton") {
     return <DocumentEditorSkeleton />;
   }
 
@@ -317,14 +382,105 @@ export function DocumentEditor({
   );
 }
 
-export function shouldAwaitAuthoritativeDocument({
-  isFetching,
+export function documentEditorLoadState({
+  documentId,
+  admittedDocumentId,
+  hasDocument,
+  isDocumentCreationPending,
   isFetchedAfterMount,
+  isFetching,
+  isError,
+  hasLoadFailure,
+  isManualRetrying,
+  error,
 }: {
-  isFetching: boolean;
+  documentId: string;
+  admittedDocumentId: string | null;
+  hasDocument: boolean;
+  isDocumentCreationPending: boolean;
   isFetchedAfterMount: boolean;
+  isFetching: boolean;
+  isError: boolean;
+  hasLoadFailure: boolean;
+  isManualRetrying: boolean;
+  error: unknown;
 }) {
-  return isFetching && !isFetchedAfterMount;
+  const activeAdmittedDocumentId =
+    admittedDocumentId === documentId ? admittedDocumentId : null;
+
+  if (
+    hasDocument &&
+    (isDocumentCreationPending || activeAdmittedDocumentId === documentId)
+  ) {
+    return {
+      view: "editor" as const,
+      admittedDocumentId: documentId,
+    };
+  }
+  if (isManualRetrying || isError || hasLoadFailure) {
+    return {
+      view:
+        isError && isDocumentLoadUnavailableError(error)
+          ? ("unavailable" as const)
+          : ("error" as const),
+      admittedDocumentId: activeAdmittedDocumentId,
+    };
+  }
+  if (hasDocument && isFetchedAfterMount && !isFetching) {
+    return {
+      view: "editor" as const,
+      admittedDocumentId: documentId,
+    };
+  }
+  return {
+    view: "skeleton" as const,
+    admittedDocumentId: activeAdmittedDocumentId,
+  };
+}
+
+type DocumentLoadFailureState = {
+  documentId: string;
+  baselineErrorUpdateCount: number;
+  failed: boolean;
+};
+
+export function updateDocumentLoadFailureState({
+  previous,
+  documentId,
+  admitted,
+  dataUpdatedAt,
+  errorUpdateCount,
+  errorUpdatedAt,
+  isError,
+}: {
+  previous: DocumentLoadFailureState | null;
+  documentId: string;
+  admitted: boolean;
+  dataUpdatedAt: number;
+  errorUpdateCount: number;
+  errorUpdatedAt: number;
+  isError: boolean;
+}): DocumentLoadFailureState {
+  if (previous?.documentId !== documentId) {
+    return {
+      documentId,
+      baselineErrorUpdateCount: errorUpdateCount,
+      failed:
+        isError || (errorUpdateCount > 0 && errorUpdatedAt > dataUpdatedAt),
+    };
+  }
+  if (admitted || previous.failed) return previous;
+  return errorUpdateCount > previous.baselineErrorUpdateCount
+    ? { ...previous, failed: true }
+    : previous;
+}
+
+export function isDocumentLoadUnavailableError(error: unknown) {
+  const status =
+    error && typeof error === "object"
+      ? (error as { status?: unknown }).status
+      : undefined;
+  return status === 403 || status === 404;
 }
 
 export function updateAdditionalBlockContents(args: {
@@ -492,6 +648,61 @@ export function documentEditorTitleRegionClassName(hasDatabase: boolean) {
 
 export function documentEditorDatabaseRegionClassName() {
   return "shrink-0 min-w-0 w-full max-w-none px-4 pb-8 sm:px-8 lg:px-10";
+}
+
+export function resizeDocumentTitleTextarea(
+  textarea: Pick<HTMLTextAreaElement, "scrollHeight" | "style">,
+) {
+  textarea.style.height = "auto";
+  textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+export function documentTitleWidthChanged(
+  previousWidth: number,
+  nextWidth: number,
+) {
+  return Math.abs(nextWidth - previousWidth) >= 0.5;
+}
+
+export function shouldShowNewDocumentTypeChooser(args: {
+  canEdit: boolean;
+  isLocalFileDocument: boolean;
+  isDatabasePage: boolean;
+  initiallyEligible: boolean;
+  newDocumentTypeChosen: boolean;
+  description?: string | null;
+  content: string;
+}) {
+  return (
+    args.canEdit &&
+    !args.isLocalFileDocument &&
+    !args.isDatabasePage &&
+    args.initiallyEligible &&
+    !args.newDocumentTypeChosen &&
+    !args.description?.trim() &&
+    isEffectivelyEmptyDocumentContent(args.content)
+  );
+}
+
+export function documentTypeChooserInitiallyEligible(args: {
+  creationPending: boolean;
+  title: string;
+  description?: string | null;
+  content: string;
+}) {
+  return (
+    args.creationPending ||
+    (!args.title.trim() &&
+      !args.description?.trim() &&
+      isEffectivelyEmptyDocumentContent(args.content))
+  );
+}
+
+export function databaseConversionRequest(
+  documentId: string,
+  currentTitle: string,
+) {
+  return { documentId, title: currentTitle };
 }
 
 export function documentEditorDefaultIconKind(
@@ -786,6 +997,26 @@ function DocumentEditorBody({
     [],
   );
   const [newDocumentTypeChosen, setNewDocumentTypeChosen] = useState(false);
+  const newDocumentTypeChooserEligibilityRef = useRef({
+    documentId,
+    eligible: documentTypeChooserInitiallyEligible({
+      creationPending: isDocumentCreationPending(document),
+      title: document.title,
+      description: document.description,
+      content: document.content,
+    }),
+  });
+  if (newDocumentTypeChooserEligibilityRef.current.documentId !== documentId) {
+    newDocumentTypeChooserEligibilityRef.current = {
+      documentId,
+      eligible: documentTypeChooserInitiallyEligible({
+        creationPending: isDocumentCreationPending(document),
+        title: document.title,
+        description: document.description,
+        content: document.content,
+      }),
+    };
+  }
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
   >(document.updatedAt ?? null);
@@ -1020,9 +1251,41 @@ function DocumentEditorBody({
   useLayoutEffect(() => {
     const textarea = titleInputRef.current;
     if (!textarea) return;
-    textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight}px`;
+    resizeDocumentTitleTextarea(textarea);
   }, [localTitle]);
+
+  useLayoutEffect(() => {
+    const textarea = titleInputRef.current;
+    if (!textarea) return;
+
+    let previousWidth = textarea.getBoundingClientRect().width;
+    const resizeIfWidthChanged = (nextWidth: number) => {
+      if (!documentTitleWidthChanged(previousWidth, nextWidth)) return;
+      previousWidth = nextWidth;
+      resizeDocumentTitleTextarea(textarea);
+    };
+    const handleWindowResize = () =>
+      resizeIfWidthChanged(textarea.getBoundingClientRect().width);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver((entries) => {
+            const entry = entries.find(
+              (candidate) => candidate.target === textarea,
+            );
+            resizeIfWidthChanged(
+              entry?.contentRect.width ??
+                textarea.getBoundingClientRect().width,
+            );
+          });
+
+    observer?.observe(textarea);
+    if (!observer) window.addEventListener("resize", handleWindowResize);
+    return () => {
+      observer?.disconnect();
+      if (!observer) window.removeEventListener("resize", handleWindowResize);
+    };
+  }, []);
 
   // Current user info for cursor labels
   const { session } = useSession();
@@ -2445,21 +2708,24 @@ function DocumentEditorBody({
     document,
     createDatabase.isPending,
   );
-  const showNewDocumentTypeChooser =
-    canEdit &&
-    !isLocalFileDocument &&
-    !isDatabasePage &&
-    !newDocumentTypeChosen &&
-    !localTitle.trim() &&
-    !document.description?.trim() &&
-    isEffectivelyEmptyDocumentContent(localContent);
+  const showNewDocumentTypeChooser = shouldShowNewDocumentTypeChooser({
+    canEdit,
+    isLocalFileDocument,
+    isDatabasePage,
+    initiallyEligible: newDocumentTypeChooserEligibilityRef.current.eligible,
+    newDocumentTypeChosen,
+    description: document.description,
+    content: localContent,
+  });
   const handleChoosePage = useCallback(() => {
     setNewDocumentTypeChosen(true);
     requestAnimationFrame(() => titleInputRef.current?.focus());
   }, []);
   const handleChooseDatabase = useCallback(async () => {
     try {
-      await createDatabase.mutateAsync({ documentId });
+      await createDatabase.mutateAsync(
+        databaseConversionRequest(documentId, localTitleRef.current),
+      );
       setNewDocumentTypeChosen(true);
     } catch (error) {
       toast.error(t("sidebar.failedCreateDatabase"), {

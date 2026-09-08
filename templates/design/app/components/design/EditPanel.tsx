@@ -263,6 +263,9 @@ interface EditPanelProps {
    */
   /** Design-level canvas background — the surround, not a screen's document. */
   canvasBackground?: string | null;
+  /** What the canvas is actually painted with when nothing is stored, so the
+   *  swatch reads as a colour rather than as an absent value. */
+  canvasBackgroundFallback?: string | null;
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
   onScreenGeometryChange?: (
     screenId: string,
@@ -1432,6 +1435,7 @@ function PageProperties({
   onStyleChange,
   onStylesChange,
   canvasBackground,
+  canvasBackgroundFallback,
   onCanvasBackgroundChange,
 }: {
   scope: "canvas" | "document";
@@ -1439,6 +1443,7 @@ function PageProperties({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   canvasBackground?: string | null;
+  canvasBackgroundFallback?: string | null;
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
 }) {
   const t = useT();
@@ -1465,7 +1470,7 @@ function PageProperties({
         <PanelSection title={t("editPanel.sections.canvas")}>
           <ColorInput
             label={t("editPanel.labels.background")}
-            value={canvasBackground ?? ""}
+            value={canvasBackground ?? canvasBackgroundFallback ?? ""}
             // meta carries phase: "preview" while dragging vs "commit" on
             // release. Dropping it persists every tick and the picker jumps.
             onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
@@ -1778,6 +1783,7 @@ export const EditPanel = memo(function EditPanel({
   selectedScreenLayoutGrid,
   onLayoutGridChange,
   canvasBackground,
+  canvasBackgroundFallback,
   onCanvasBackgroundChange,
   onScreenGeometryChange,
   pageStyles = {},
@@ -2366,6 +2372,7 @@ export const EditPanel = memo(function EditPanel({
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   canvasBackground={canvasBackground}
+                  canvasBackgroundFallback={canvasBackgroundFallback}
                   onCanvasBackgroundChange={onCanvasBackgroundChange}
                 />
               ) : null}

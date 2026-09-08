@@ -1,13 +1,22 @@
 // @vitest-environment jsdom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
-import { BuildOnlinePopover } from "./BuilderWaitlistPopover";
+import {
+  BuildOnlinePopover,
+  BuilderWaitlistContent,
+} from "./BuilderWaitlistPopover";
 import { TemplateLandingActions } from "./template-landing/TemplateLandingActions";
 import { templates } from "./TemplateCard";
 
@@ -51,13 +60,16 @@ describe("docs popover controls", () => {
     expectAnimatedPopover(content as HTMLElement);
     expect(
       screen.getByText(
-        "Rapidly generate agent-native apps in the cloud with Builder.io.",
+        "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
       ),
     ).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: "Launch Builder" }).getAttribute("href"),
-    ).toBe("https://builder.io/signup");
-    expect(screen.queryByRole("textbox", { name: "Email" })).toBeNull();
+      screen
+        .getByRole("textbox", { name: "Email" })
+        .getAttribute("placeholder"),
+    ).toBe("you@company.com");
+    expect(screen.getByRole("button", { name: "Join waitlist" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Launch Builder" })).toBeNull();
   });
 
   it("keeps Customize It modes inside the shared animated popover", () => {
@@ -71,7 +83,7 @@ describe("docs popover controls", () => {
     const content = customizeOnline.closest("[role=dialog]");
     expect(content).not.toBeNull();
     expectAnimatedPopover(content as HTMLElement);
-    expect(screen.queryByText("Join waitlist")).toBeNull();
+    expect(screen.getByText("Join waitlist")).toBeTruthy();
 
     fireEvent.click(customizeOnline);
     expect(screen.getByText("Build in the browser")).toBeTruthy();
@@ -95,14 +107,69 @@ describe("docs popover controls", () => {
     expect(url.searchParams.get("utm_campaign")).toBe("launch");
   });
 
-  it("shows the Builder launch link for online customization", () => {
+  it("submits the selected template with customization waitlist requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ formSubmitted: true }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
     renderWithProviders(<TemplateLandingActions template={templates[0]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
     fireEvent.click(screen.getByRole("button", { name: /^Online/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
+      target: { value: "reader@example.com" },
+    });
+    const form = screen.getByRole("textbox", { name: "Email" }).closest("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form as HTMLFormElement);
 
+    const waitlistRequests = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/_agent-native/builder/branch-waitlist"),
+      );
+    await waitFor(() => expect(waitlistRequests()).toHaveLength(1));
+    const request = waitlistRequests()[0]?.[1] as RequestInit;
     expect(
-      screen.getByRole("link", { name: "Launch Builder" }).getAttribute("href"),
-    ).toBe("https://builder.io/signup");
+      JSON.parse(typeof request.body === "string" ? request.body : "{}"),
+    ).toMatchObject({
+      email: "reader@example.com",
+      source: "docs_template_customize",
+      template: templates[0].slug,
+      useCase: "docs_edit_online_waitlist",
+    });
+    await waitFor(() => {
+      const success = screen.getByText(
+        "You're on the waitlist. We'll email you when build-online access opens.",
+      );
+      expect(success.getAttribute("role")).toBe("status");
+      expect(success.getAttribute("aria-live")).toBe("polite");
+    });
+  });
+
+  it("shows an unavailable state when the waitlist route declines submission", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ formSubmitted: false }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithProviders(<BuilderWaitlistContent location="templates_index" />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
+      target: { value: "reader@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join waitlist" }));
+
+    await waitFor(() => {
+      const unavailable = screen.getByRole("status");
+      expect(unavailable.textContent).toBe(
+        "Waitlist signups aren't available in this environment yet. Please try the hosted docs site instead.",
+      );
+    });
+    expect(
+      screen.queryByText(
+        "You're on the waitlist. We'll email you when build-online access opens.",
+      ),
+    ).toBeNull();
   });
 });

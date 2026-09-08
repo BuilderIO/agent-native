@@ -431,18 +431,18 @@ const zhCN = {
   },
   homepage: {
     hero: {
-      title: "面向 agentic 应用的框架。",
-      bodyLine1: "一个面向带有 UI 和 agent 的应用的开源 TypeScript 框架。",
-      bodyLine2: "只需定义一次每个 Action，即可从任何地方调用。",
+      title: "面向 agentic 应用的框架",
+      bodyLine1: "构建配备直观 UI 的自主型 agent。",
+      bodyLine2: "使用你自己的 LLM，随处部署。",
       tryAnApp: "试用应用",
     },
     install: {
       copyCommand: "复制安装命令",
     },
     actions: {
-      title: "从任何地方调用一个 Action。",
-      bodyLine1: "使用 defineAction() 定义一项能力。",
-      bodyLine2: "你的 React UI、agent、HTTP 客户端和集成都会调用同一份代码。",
+      title: "一个 Action 驱动所有能力面",
+      bodyLine1: "使用 defineAction() 一次定义一项能力。",
+      bodyLine2: "你的 agent、React UI、HTTP 客户端和集成都调用同一份代码。",
       diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
     },
     builtIn: {
@@ -534,7 +534,7 @@ const zhCN = {
       stepTwoTitle: "开始输入提示",
       stepTwoBody: "用自然语言描述你想构建的内容，智能体会为你创建。",
       stepThreeTitle: "部署",
-      stepThreeBody: "准备好后，在 Builder 中一键部署你的应用。",
+      stepThreeBody: "准备好后，在 Builder 中一键部署你的 agent 及其 UI。",
     },
   },
   templatesPage: {
@@ -558,6 +558,7 @@ const zhCN = {
     tryCommunityDemo: "体验演示",
     customizeDescription: "以这个应用为起点。",
     customizeOnline: "在线",
+    customizeOnlineBadge: "加入等候名单",
     customizeLocally: "本地",
     communityNew: "新应用",
     communityComingSoon: "即将推出",
@@ -608,6 +609,16 @@ const zhCN = {
     buildOnline: "在线构建",
     popoverTitle: "在浏览器中构建",
     popoverBody: "使用 Builder.io 在云端快速生成 agent-native 应用。",
+    waitlistBody:
+      "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
+    emailLabel: "邮箱",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "加入候补名单",
+    joining: "正在加入…",
+    joined: "你已加入候补名单。在线构建访问开放后我们会发送邮件通知你。",
+    invalidEmail: "请输入有效的邮箱地址。",
+    submitError: "无法加入候补名单。请重试。",
+    waitlistUnavailable: "此环境暂不支持加入候补名单。请改用托管的文档网站。",
     launchBuilder: "启动 Builder",
   },
   templateCard: {

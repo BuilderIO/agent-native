@@ -41,14 +41,14 @@ vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, run: () => Promise<unknown>) => run(),
 }));
 
+const mockGetDesignSystemRun = vi.fn(async ({ id }: { id: string }) => ({
+  id,
+  title: "Acme",
+  agentContext: "Use --brand-accent: #123456.",
+}));
+
 vi.mock("./get-design-system.js", () => ({
-  default: {
-    run: vi.fn(async ({ id }: { id: string }) => ({
-      id,
-      title: "Acme",
-      agentContext: "Use --brand-accent: #123456.",
-    })),
-  },
+  default: { run: (...args: unknown[]) => mockGetDesignSystemRun(...args) },
 }));
 
 import action from "./get-deck";
@@ -125,12 +125,58 @@ describe("get-deck", () => {
       { caller: "tool" },
     )) as any;
 
-    expect(result.designSystem).toEqual({
+    expect(result.designSystem).toMatchObject({
       status: "available",
       id: "ds-1",
       title: "Acme",
       agentContext: "Use --brand-accent: #123456.",
     });
+    expect(mockGetDesignSystemRun).toHaveBeenCalledWith(
+      expect.objectContaining({ compact: "true" }),
+    );
+  });
+
+  it("summarizes the deck's shared style and names a representative slide", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Quarterly Review",
+      slides: [
+        {
+          id: "slide-a",
+          layout: "title",
+          content:
+            '<div style="background: #0a0a0a; color: #faf9f5; font-family: Inter"><h1>Opening</h1></div>',
+        },
+        {
+          id: "slide-b",
+          layout: "content",
+          content:
+            '<div style="background: #0a0a0a; color: #faf9f5; font-family: Inter"><p>Metrics</p></div>',
+        },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.deckStyle.length).toBeGreaterThan(0);
+    expect(["slide-a", "slide-b"]).toContain(result.representativeSlideId);
+  });
+
+  it("omits deckStyle and representativeSlideId for an empty deck", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Empty Deck",
+      slides: [],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result).not.toHaveProperty("deckStyle");
+    expect(result).not.toHaveProperty("representativeSlideId");
   });
 
   it("bounds a full-deck read so a stalled lookup can return a tool error", () => {

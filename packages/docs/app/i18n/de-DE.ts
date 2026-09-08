@@ -438,20 +438,20 @@ const deDE = {
   },
   homepage: {
     hero: {
-      title: "Das Framework für agentische Apps.",
+      title: "Das Framework für agentische Anwendungen",
       bodyLine1:
-        "Ein Open-Source-TypeScript-Framework für Apps mit einer UI und einem Agenten.",
-      bodyLine2: "Definiere jede Action einmal und rufe sie überall auf.",
+        "Entwickle autonome Agenten mit intuitiven Benutzeroberflächen.",
+      bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
       tryAnApp: "App ausprobieren",
     },
     install: {
       copyCommand: "Installationsbefehl kopieren",
     },
     actions: {
-      title: "Eine Action von überall aufrufen.",
-      bodyLine1: "Definiere eine Fähigkeit mit defineAction().",
+      title: "Eine Action treibt jede Oberfläche an",
+      bodyLine1: "Definiere eine Fähigkeit einmal mit defineAction().",
       bodyLine2:
-        "Deine React-UI, dein Agent, HTTP-Clients und Integrationen verwenden denselben Code.",
+        "Dein Agent, deine React-UI, HTTP-Clients und Integrationen verwenden denselben Code.",
       diagramAlt:
         "Eine Action treibt UI, MCP, Agent-Chat, A2A, HTTP API und CLI an",
     },
@@ -546,7 +546,7 @@ const deDE = {
         "Beschreiben Sie in klarer Sprache, was Sie bauen möchten, und der Agent erstellt es für Sie.",
       stepThreeTitle: "Bereitstellen",
       stepThreeBody:
-        "Wenn Sie bereit sind, stellen Sie Ihre App mit einem Klick in Builder bereit.",
+        "Wenn Sie bereit sind, stellen Sie Ihren Agenten und seine UI mit einem Klick in Builder bereit.",
     },
   },
   templatesPage: {
@@ -572,6 +572,7 @@ const deDE = {
     tryCommunityDemo: "Demo testen",
     customizeDescription: "Nutze diese App als Ausgangspunkt.",
     customizeOnline: "Online",
+    customizeOnlineBadge: "Warteliste beitreten",
     customizeLocally: "Lokal",
     communityNew: "Neu",
     communityComingSoon: "Demnächst",
@@ -629,6 +630,19 @@ const deDE = {
     popoverTitle: "Im Browser entwickeln",
     popoverBody:
       "Generiere schnell agent-native Apps in der Cloud mit Builder.io.",
+    waitlistBody:
+      "Builder.io kann eine agent-native App in der Cloud starten und anpassen — inklusive Actions, Auth, SQL-Status und Agent-Chat. Trag dich für frühen Zugriff in die Warteliste ein.",
+    emailLabel: "E-Mail",
+    emailPlaceholder: "du@firma.com",
+    joinWaitlist: "Warteliste beitreten",
+    joining: "Beitreten…",
+    joined:
+      "Du stehst auf der Warteliste. Wir mailen dir, sobald der Online-Build-Zugang verfügbar ist.",
+    invalidEmail: "Gib eine gültige E-Mail-Adresse ein.",
+    submitError:
+      "Beitritt zur Warteliste fehlgeschlagen. Bitte versuche es erneut.",
+    waitlistUnavailable:
+      "Wartelisten-Anmeldungen sind in dieser Umgebung noch nicht verfügbar. Bitte nutze stattdessen die gehostete Dokumentationsseite.",
     launchBuilder: "Builder starten",
   },
   templateCard: {

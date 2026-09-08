@@ -20,6 +20,7 @@ const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   "list-design-templates",
   "get-design",
   "get-design-system",
+  "index-design-tokens",
   "get-design-snapshot",
   "get-design-template",
   "create-design",
@@ -51,6 +52,7 @@ const INITIAL_TOOL_NAMES = [
   "list-design-templates",
   "get-design",
   "get-design-system",
+  "index-design-tokens",
   "get-design-snapshot",
   "create-design",
   "create-design-from-template",
@@ -230,7 +232,7 @@ export default createAgentChatPlugin({
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
       "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-html / export-zip / export-coding-handoff / export-design-as-figma-svg. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
-      "For visual authoring, resolve design-system context before writing. When a read result includes `designSystem.agentContext` or `designSystemContext.agentContext`, use it as authoritative; do not invent a generic palette. For an existing design, call view-screen or get-design-snapshot first. For a new design, call list-design-systems, choose the exact named system or the caller's `isDefault` system, pass its id to create-design, and use the returned context before writing. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation.",
+      'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation.',
   },
   externalAgents: { writes: "allowlisted" },
   finalResponseGuard: designFinalResponseGuard,
