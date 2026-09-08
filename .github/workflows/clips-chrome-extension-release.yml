@@ -166,12 +166,16 @@ jobs:
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
             "$status_url" > "$RUNNER_TEMP/clips-cws-status.json"
 
-          published_version="$(jq -r '.publishedItemRevisionStatus.distributionChannels[0].crxVersion // empty' "$RUNNER_TEMP/clips-cws-status.json")"
+          published_versions="$(jq -c '[.publishedItemRevisionStatus.distributionChannels[]?.crxVersion // empty] | map(select(type == "string" and length > 0))' "$RUNNER_TEMP/clips-cws-status.json")"
           submitted_state="$(jq -r '.submittedItemRevisionStatus.state // empty' "$RUNNER_TEMP/clips-cws-status.json")"
           async_upload_state="$(jq -r '.lastAsyncUploadState // empty' "$RUNNER_TEMP/clips-cws-status.json")"
-          echo "published_version=$published_version" >> "$GITHUB_OUTPUT"
+          if [[ "$published_versions" == "[]" ]]; then
+            echo "::error::The Chrome Web Store response did not identify a published version for any distribution channel."
+            exit 1
+          fi
+          echo "published_versions=$published_versions" >> "$GITHUB_OUTPUT"
           echo "submitted_state=$submitted_state" >> "$GITHUB_OUTPUT"
-          echo "Current published version: ${published_version:-none}"
+          echo "Current published versions: $(jq -r 'join(", ")' <<<"$published_versions")"
           echo "Current submitted state: ${submitted_state:-none}"
           echo "Current async upload state: ${async_upload_state:-none}"
 
@@ -186,16 +190,18 @@ jobs:
 
       - name: Require a newer extension version
         env:
-          CURRENT_STORE_VERSION: ${{ steps.store-status.outputs.published_version }}
+          CURRENT_STORE_VERSIONS: ${{ steps.store-status.outputs.published_versions }}
           EXTENSION_VERSION: ${{ steps.package.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
-          const current = process.env.CURRENT_STORE_VERSION;
+          const currentVersions = JSON.parse(process.env.CURRENT_STORE_VERSIONS ?? "[]");
           const next = process.env.EXTENSION_VERSION;
 
-          if (!current) process.exit(0);
+          if (!Array.isArray(currentVersions) || currentVersions.length === 0) {
+            throw new Error("No published Chrome Web Store versions were identified");
+          }
 
           const parseVersion = (value) => {
             const parts = value.split(".").map(Number);
@@ -208,19 +214,26 @@ jobs:
             return parts;
           };
 
-          const currentParts = parseVersion(current);
           const nextParts = parseVersion(next);
-          const length = Math.max(currentParts.length, nextParts.length);
-          for (let index = 0; index < length; index += 1) {
-            const currentPart = currentParts[index] ?? 0;
-            const nextPart = nextParts[index] ?? 0;
-            if (nextPart > currentPart) process.exit(0);
-            if (nextPart < currentPart) {
-              throw new Error(`${next} is not newer than the Store version ${current}`);
+          const compareVersions = (left, right) => {
+            const length = Math.max(left.length, right.length);
+            for (let index = 0; index < length; index += 1) {
+              const leftPart = left[index] ?? 0;
+              const rightPart = right[index] ?? 0;
+              if (leftPart !== rightPart) return leftPart > rightPart ? 1 : -1;
             }
-          }
+            return 0;
+          };
 
-          throw new Error(`${next} is not newer than the Store version ${current}`);
+          const currentMax = currentVersions
+            .map(parseVersion)
+            .reduce((max, version) =>
+              compareVersions(version, max) > 0 ? version : max,
+            );
+
+          if (compareVersions(nextParts, currentMax) <= 0) {
+            throw new Error(`${next} is not newer than the latest Store version`);
+          }
           NODE
 
       - name: Upload the package

@@ -297,7 +297,7 @@ repository values in GitHub Actions configuration, never in the repository.
 | `CWS_API_SCOPE`                  | Google OAuth scope requested for Chrome Web Store API access.                     |
 | `CWS_SERVICE_ACCOUNT`            | Service account email passed to the Google authentication action.                 |
 | `CWS_WORKLOAD_IDENTITY_PROVIDER` | Workload Identity Federation provider passed to the Google authentication action. |
-| `CURRENT_STORE_VERSION`          | Published Store version passed to the release version guard.                      |
+| `CURRENT_STORE_VERSIONS`         | JSON list of published Store versions passed to the release version guard.        |
 | `EXTENSION_VERSION`              | Built extension version passed to the release version guard.                      |
 
 ### Beta E2E browser suite
