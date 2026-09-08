@@ -249,7 +249,7 @@ export async function listPendingJobs(
   ownerEmail: string,
 ): Promise<ScheduledJobRecord[]> {
   // The scheduled_jobs table is created by the db-migrations plugin at
-  // startup. If migrations failed (e.g. fresh deploy where the DB driver
+  // startup. If migrations failed (e.g. fresh deploy where the database
   // couldn't initialize) the query throws — return an empty list instead
   // of bubbling a 500 to the inbox endpoint.
   try {

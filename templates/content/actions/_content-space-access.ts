@@ -55,8 +55,8 @@ export async function getContentOrganizationMembership(
   options: { db?: any } = {},
 ): Promise<{ role: string; name: string; createdBy: string } | null> {
   if (options.db) {
-    // The canonical tables carry the active database dialect. Loading them only
-    // for transaction-scoped checks avoids initializing auth timers elsewhere.
+    // Load the canonical tables only for transaction-scoped checks to avoid
+    // initializing auth timers elsewhere.
     const { organizations, orgMembers } =
       await import("@agent-native/core/org");
     const [row] = await options.db
@@ -95,7 +95,7 @@ export async function getContentOrganizationMembership(
                  o.identity_id AS "identityId"
           FROM org_members m
           INNER JOIN organizations o ON o.id = m.org_id
-          WHERE m.org_id = ? AND LOWER(m.email) = ?
+          WHERE m.org_id = $1 AND LOWER(m.email) = $2
             AND m.federation_removal_pending_at IS NULL
           LIMIT 1`,
     args: [orgId, normalizeContentSpaceEmail(userEmail)],
@@ -138,13 +138,13 @@ export async function listContentOrganizationMemberships(userEmail: string) {
                  o.identity_id AS "identityId"
           FROM org_members m
           INNER JOIN organizations o ON o.id = m.org_id
-          WHERE LOWER(m.email) = ?
+          WHERE LOWER(m.email) = $1
             AND m.federation_removal_pending_at IS NULL
           ORDER BY m.org_id ASC`,
       args: [normalizeContentSpaceEmail(userEmail)],
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("no such table")) {
+    if (error instanceof Error && error.message.includes("does not exist")) {
       return [];
     }
     throw error;

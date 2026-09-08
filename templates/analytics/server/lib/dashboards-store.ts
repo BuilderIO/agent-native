@@ -14,7 +14,6 @@
  */
 import { createHash } from "node:crypto";
 
-import { isPostgres } from "@agent-native/core/db";
 import { getRequestRunContext, recordChange } from "@agent-native/core/server";
 import {
   getOrgSetting,
@@ -538,8 +537,7 @@ function nanoidFallback(): string {
 }
 
 /**
- * Normalize affected-row metadata from every createGetDb backend: libSQL,
- * PGlite, Neon, postgres.js, better-sqlite3, and D1. Mirrors
+ * Normalize affected-row metadata from PGlite and hosted Postgres. Mirrors
  * templates/design/actions/update-design.ts's `affectedRowCount`.
  */
 function affectedRowCount(result: unknown): number | undefined {
@@ -980,33 +978,21 @@ export async function listDashboardSummaries(
   else if (hidden === "hidden")
     conditions.push(isNotNull(schema.dashboards.hiddenAt));
   const where = conditions.length === 1 ? conditions[0] : and(...conditions);
-  const parentId = isPostgres()
-    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'parentId')`
-    : sql<
-        string | null
-      >`json_extract(${schema.dashboards.config}, '$.parentId')`;
-  const description = isPostgres()
-    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'description')`
-    : sql<
-        string | null
-      >`json_extract(${schema.dashboards.config}, '$.description')`;
-  const configName = isPostgres()
-    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'name')`
-    : sql<string | null>`json_extract(${schema.dashboards.config}, '$.name')`;
-  const catalogTemplateId = isPostgres()
-    ? sql<
-        string | null
-      >`(${schema.dashboards.config}::jsonb -> 'catalog' ->> 'templateId')`
-    : sql<
-        string | null
-      >`json_extract(${schema.dashboards.config}, '$.catalog.templateId')`;
-  const demoId = isPostgres()
-    ? sql<
-        string | null
-      >`(${schema.dashboards.config}::jsonb -> 'demo' ->> 'id')`
-    : sql<
-        string | null
-      >`json_extract(${schema.dashboards.config}, '$.demo.id')`;
+  const parentId = sql<
+    string | null
+  >`(${schema.dashboards.config}::jsonb ->> 'parentId')`;
+  const description = sql<
+    string | null
+  >`(${schema.dashboards.config}::jsonb ->> 'description')`;
+  const configName = sql<
+    string | null
+  >`(${schema.dashboards.config}::jsonb ->> 'name')`;
+  const catalogTemplateId = sql<
+    string | null
+  >`(${schema.dashboards.config}::jsonb -> 'catalog' ->> 'templateId')`;
+  const demoId = sql<
+    string | null
+  >`(${schema.dashboards.config}::jsonb -> 'demo' ->> 'id')`;
   const rows = await db
     .select({
       id: schema.dashboards.id,
@@ -1476,7 +1462,7 @@ async function lockDashboardNames(db: any, names: string[]): Promise<void> {
       .insert(schema.dashboardNameLocks)
       .values({ nameKey, createdAt: nowIso() })
       .onConflictDoNothing();
-    if (isPostgres()) {
+    {
       await db.execute(
         sql`SELECT name_key FROM dashboard_name_locks WHERE name_key = ${nameKey} FOR UPDATE`,
       );
@@ -1612,7 +1598,7 @@ export async function createDashboardRevisionSnapshot(
  *
  * `expectedUpdatedAt` fences the update against concurrent writers: pass the
  * `updatedAt` observed by an earlier `getDashboard` call and the UPDATE only
- * applies `WHERE id = ? AND updated_at = ?`. If another writer already saved
+ * applies `WHERE id = $1 AND updated_at = $2`. If another writer already saved
  * in between, the fenced UPDATE affects zero rows and this throws
  * `DashboardConflictError` instead of silently clobbering their write. Omit
  * it (the default) to keep the prior unconditional last-write-wins behavior,
@@ -1682,7 +1668,7 @@ export async function upsertDashboard(
         const affected = affectedRowCount(updateResult);
         if (affected === undefined) {
           throw new Error(
-            "The database driver did not report an affected-row count for the fenced dashboard update.",
+            "The Postgres update did not report an affected-row count for the fenced dashboard update.",
           );
         }
         if (affected === 0) {
@@ -1876,7 +1862,7 @@ export async function certifyDashboardWithRetry(
     const affected = affectedRowCount(updateResult);
     if (affected === undefined) {
       throw new Error(
-        "The database driver did not report an affected-row count for the dashboard certification update.",
+        "The Postgres update did not report an affected-row count for the dashboard certification update.",
       );
     }
     if (affected === 0) {
@@ -2037,7 +2023,7 @@ export async function restoreDashboardRevision(
       const affected = affectedRowCount(updateResult);
       if (affected === undefined) {
         throw new Error(
-          "The database driver did not report an affected-row count for the fenced dashboard restore.",
+          "The Postgres update did not report an affected-row count for the fenced dashboard restore.",
         );
       }
       if (affected === 0) throw new DashboardConflictError(dashboardId);
@@ -2692,7 +2678,7 @@ export async function createAnalysisRevisionSnapshot(
  *
  * `expectedUpdatedAt` fences the update against concurrent writers: pass the
  * `updatedAt` observed by an earlier `getAnalysis` call and the UPDATE only
- * applies `WHERE id = ? AND updated_at = ?`. If another writer already saved
+ * applies `WHERE id = $1 AND updated_at = $2`. If another writer already saved
  * in between, the fenced UPDATE affects zero rows and this throws
  * `AnalysisConflictError` instead of silently clobbering their write. Omit it
  * (the default) to keep the prior unconditional last-write-wins behavior,
@@ -2805,7 +2791,7 @@ export async function upsertAnalysis(
       const affected = affectedRowCount(updateResult);
       if (affected === undefined) {
         throw new Error(
-          "The database driver did not report an affected-row count for the fenced analysis update.",
+          "The Postgres update did not report an affected-row count for the fenced analysis update.",
         );
       }
       if (affected === 0) {

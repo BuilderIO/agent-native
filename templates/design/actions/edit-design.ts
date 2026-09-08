@@ -153,7 +153,10 @@ export function applySearchReplaceEdits(
 export default defineAction({
   description:
     "Edit ONE file in a design after reading it with get-design-snapshot. " +
-    "For small localized refinements, apply surgical search/replace edits — the " +
+    '`mode` defaults to "search-replace" (apply edit blocks); use ' +
+    '`mode: "replace-file"` with `replacementContent` only for the ' +
+    "broad-replacement cases below. For small localized refinements, apply " +
+    "surgical search/replace edits — the " +
     "preferred way to refine an existing design without regenerating the whole " +
     "file (cheaper, faster, and it preserves everything you don't touch). Each " +
     "edit's `search` must match the current file exactly and uniquely, so " +
@@ -168,9 +171,10 @@ export default defineAction({
     "the representative placeholder with a complete but compact UI in the chosen " +
     "direction; prioritize the primary workflow and render secondary details " +
     "as visible controls, states, or affordances when needed. For a style change " +
-    "(colors, fonts, spacing, dark mode), call `index-design-tokens` first and " +
-    "reuse the design's existing tokens so the edited screen matches its " +
-    "siblings; introduce values the design does not already use only when asked. " +
+    "(colors, fonts, spacing, dark mode), use the linked `designSystem.agentContext` " +
+    "from `get-design-snapshot` first, then call `index-design-tokens` and reuse " +
+    "the design's existing tokens so the edited screen matches its siblings; " +
+    "introduce values the design does not already use only when asked. " +
     "Use `generate-design` instead only for brand-new files.",
   schema: z
     .object({

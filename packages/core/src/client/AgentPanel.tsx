@@ -58,6 +58,7 @@ import {
   type HostedHarnessRuntime,
 } from "../agent/harness/hosted.js";
 import type { AgentRun } from "../progress/types.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -773,6 +774,8 @@ export interface AgentPanelProps extends Omit<
   style?: React.CSSProperties;
   /** Called when the user clicks the collapse button. If provided, a collapse button appears in the header. */
   onCollapse?: () => void;
+  /** Whether to render the header collapse button when `onCollapse` is provided. Default: true. */
+  showCollapseButton?: boolean;
   /** Whether the panel is currently in fullscreen (Claude-style centered) mode. */
   isFullscreen?: boolean;
   /** @deprecated Fullscreen sidebar controls are no longer rendered. */
@@ -966,6 +969,7 @@ function AgentPanelInner({
   dynamicSuggestions,
   showHeader = true,
   onCollapse,
+  showCollapseButton = true,
   isFullscreen,
   onToggleFullscreen,
   onFullViewRequest,
@@ -1806,7 +1810,7 @@ function AgentPanelInner({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-        {onCollapse && (
+        {onCollapse && showCollapseButton && (
           <IconTooltip content={t("agentPanel.collapseSidebar")}>
             <button
               type="button"
@@ -1853,6 +1857,7 @@ function AgentPanelInner({
       selectCli,
       selectedCli,
       shareFromMenuOpen,
+      showCollapseButton,
       storageKey,
       switchMode,
       t,
@@ -3172,9 +3177,16 @@ export function AgentPanel(props: AgentPanelProps) {
     } catch {}
     setResetKey((key) => key + 1);
   }, [props.storageKey]);
+  const resolvedBrowserTabId =
+    props.browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   return (
     <AgentPanelErrorBoundary onReset={resetPanel}>
-      <AgentPanelInner key={resetKey} {...props} />
+      <AgentPanelInner
+        key={resetKey}
+        {...props}
+        browserTabId={resolvedBrowserTabId}
+      />
     </AgentPanelErrorBoundary>
   );
 }
@@ -3224,12 +3236,16 @@ export function AgentChatSurface({
   ...props
 }: AgentChatSurfaceProps) {
   const pageMode = mode === "page";
+  const resolvedBrowserTabId =
+    props.browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   const defaultShowPageNewChatButton =
     shouldDefaultAgentChatSurfacePageNewChatButton(mode, showTabBar);
 
   const panel = (
     <AgentPanel
       {...props}
+      browserTabId={resolvedBrowserTabId}
       defaultMode={defaultMode}
       showHeader={showHeader}
       showTabBar={showTabBar}
@@ -3251,7 +3267,7 @@ export function AgentChatSurface({
   if (!pageMode) return panel;
   return (
     <>
-      <URLSync browserTabId={props.browserTabId} />
+      <URLSync browserTabId={resolvedBrowserTabId} />
       {panel}
     </>
   );
@@ -3308,6 +3324,8 @@ export interface AgentSidebarProps {
   position?: "left" | "right";
   /** Whether the sidebar starts open. Default: false */
   defaultOpen?: boolean;
+  /** Whether to render the panel's header collapse button. Default: true. */
+  showCollapseButton?: boolean;
   /** Animate the mobile overlay in a sheet-style slide transition. Default: true */
   animateMobile?: boolean;
   /** Animate desktop open/close by resizing the sidebar. Default: true */
@@ -3421,6 +3439,7 @@ export function AgentSidebar({
   sidebarWidth,
   position = "right",
   defaultOpen = false,
+  showCollapseButton = true,
   animateMobile = true,
   animateDesktop = true,
   chatViewTransition = false,
@@ -3456,6 +3475,9 @@ export function AgentSidebar({
   thinkingDisplay,
   chatOnly = true,
 }: AgentSidebarProps) {
+  const resolvedBrowserTabId =
+    browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   const staticHostedHarnessEnabled = isHostedHarnessConfigured(
     injectedAgentNativeConfig().harness,
   );
@@ -4296,6 +4318,7 @@ export function AgentSidebar({
             missingApiKeySetupLayout="sidebar"
             defaultMode={defaultMode}
             onCollapse={() => setOpenPersisted(false)}
+            showCollapseButton={showCollapseButton}
             onSnapTo75Percent={isMobile ? undefined : snapTo75Percent}
             isWideDrawer={isMobile ? false : isWideDrawer}
             onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
@@ -4313,7 +4336,7 @@ export function AgentSidebar({
             chatHistory={chatHistory}
             isolateHistoryByScope={isolateHistoryByScope}
             showScopeBadge={showScopeBadge}
-            browserTabId={browserTabId}
+            browserTabId={resolvedBrowserTabId}
             threadUrlSync={threadUrlSync}
             agentPageHref={agentPageHref}
             thinkingDisplay={thinkingDisplay}
@@ -4345,7 +4368,7 @@ export function AgentSidebar({
 
   return (
     <AgentSidebarOnboardingContext.Provider value>
-      <RealtimeVoiceModeProvider browserTabId={browserTabId}>
+      <RealtimeVoiceModeProvider browserTabId={resolvedBrowserTabId}>
         {showFirstRunOnboarding && (
           <Suspense fallback={null}>
             <FirstRunOnboarding />
@@ -4384,7 +4407,9 @@ export function AgentSidebar({
           {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
-          {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
+          {shouldMountPanel ? (
+            <URLSync browserTabId={resolvedBrowserTabId} />
+          ) : null}
           {isResizing ? (
             <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
           ) : null}
@@ -4456,7 +4481,17 @@ function focusAgentChatComposer() {
  * Button to toggle the agent sidebar. Place this in your app's header/toolbar.
  * Dispatches a custom event that AgentSidebar listens for.
  */
-export function AgentToggleButton({ className }: { className?: string }) {
+export function AgentToggleButton({
+  className,
+  icon,
+  showWhenOpen = false,
+}: {
+  className?: string;
+  /** Icon rendered inside the toggle. */
+  icon?: React.ReactNode;
+  /** Keep the toggle visible while the sidebar is open. */
+  showWhenOpen?: boolean;
+}) {
   const t = useT();
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -4469,15 +4504,15 @@ export function AgentToggleButton({ className }: { className?: string }) {
     return () =>
       window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
   }, []);
-  // Hide the open-agent button while the agent pane is open; the pane has its
-  // own close button.
-  if (open) return null;
+  if (open && !showWhenOpen) return null;
   return (
     <DesignSystemTooltip
       trigger={
         <button
           type="button"
           aria-label={t("agentPanel.toggleAgent")}
+          aria-pressed={open}
+          data-state={open ? "open" : "closed"}
           onPointerEnter={() => void preloadAgentChatSurface()}
           onFocus={() => void preloadAgentChatSurface()}
           onPointerDown={() => void preloadAgentChatSurface()}
@@ -4490,10 +4525,11 @@ export function AgentToggleButton({ className }: { className?: string }) {
           }
           className={cn(
             "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            open && "bg-accent text-foreground",
             className,
           )}
         >
-          <IconMessageDots size={20} aria-hidden />
+          {icon ?? <IconMessageDots size={20} aria-hidden />}
         </button>
       }
       content={t("agentPanel.toggleAgent")}

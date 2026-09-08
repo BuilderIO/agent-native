@@ -1423,6 +1423,26 @@ describe("Builder callback CSRF state", () => {
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
+    it("returns a client-visible error when legacy credentials lack a public key", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+
+      await expect(
+        runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "dispatch+slack@integration.local",
+        }),
+      ).rejects.toMatchObject({
+        actionContractError: true,
+        errorCode: "builder_legacy_public_key_required",
+        message:
+          "Builder legacy credentials require BUILDER_PUBLIC_KEY for this request.",
+        statusCode: 400,
+      });
+    });
+
     it("attributes the branch to the requesting user, not the connected credential", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";

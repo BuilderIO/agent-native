@@ -4,8 +4,8 @@
  * On every chat turn, the framework appends a compact, always-fresh summary
  * of the app's SQL database — every table, every column, every foreign key —
  * so the agent knows exactly what data model it's working with. The schema
- * is pulled live from `information_schema` (Postgres) or `PRAGMA table_info`
- * (SQLite), cached briefly to keep latency down but never hard-coded.
+ * is pulled live from Postgres `information_schema`, cached briefly to keep
+ * latency down but never hard-coded.
  *
  * The block also:
  *   - points at the enabled db-* tools for runtime access
@@ -13,12 +13,7 @@
  *   - explains the current user/org data scoping so the agent doesn't re-filter
  *     by hand (which would be redundant and easy to get wrong)
  */
-import {
-  getDbExec,
-  getDatabaseUrl,
-  isPostgres,
-  type DbExec,
-} from "../db/client.js";
+import { getDbExec, getDatabaseUrl, type DbExec } from "../db/client.js";
 import {
   normalizeDatabaseToolsMode,
   type DatabaseToolsOption,
@@ -52,11 +47,10 @@ let _cache: {
   key: string;
   expires: number;
   tables: TableSchema[];
-  dialect: "postgres" | "sqlite";
 } | null = null;
 
 function cacheKey(): string {
-  return (isPostgres() ? "pg:" : "lite:") + (getDatabaseUrl() || "");
+  return `postgres:${getDatabaseUrl() || ""}`;
 }
 
 // ─── Postgres introspection ─────────────────────────────────────────────────
@@ -132,45 +126,6 @@ async function introspectPostgres(db: DbExec): Promise<TableSchema[]> {
   return tables;
 }
 
-// ─── SQLite / libSQL / D1 introspection ────────────────────────────────────
-
-async function introspectSqlite(db: DbExec): Promise<TableSchema[]> {
-  const tablesRes = await db.execute(
-    `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
-  );
-
-  const tables: TableSchema[] = [];
-
-  for (const row of tablesRes.rows as any[]) {
-    const name = row.name as string;
-    if (!name) continue;
-    // Quote the identifier for PRAGMA calls; SQLite requires doubling embedded quotes.
-    const escaped = name.replace(/"/g, '""');
-
-    const colsRes = await db.execute(`PRAGMA table_info("${escaped}")`);
-    const fksRes = await db.execute(`PRAGMA foreign_key_list("${escaped}")`);
-
-    tables.push({
-      name,
-      comment: null, // SQLite has no column/table comments
-      columns: (colsRes.rows as any[]).map((c) => ({
-        name: c.name as string,
-        type: ((c.type as string) || "").toLowerCase() || "any",
-        notnull: Number(c.notnull) === 1,
-        pk: Number(c.pk) === 1,
-        comment: null,
-      })),
-      foreignKeys: (fksRes.rows as any[]).map((f) => ({
-        from: f.from as string,
-        table: f.table as string,
-        to: f.to as string,
-      })),
-    });
-  }
-
-  return tables;
-}
-
 // ─── Cached entry point ─────────────────────────────────────────────────────
 
 // Coalesces concurrent cache-miss introspections (same pattern as poll.ts's
@@ -178,17 +133,14 @@ async function introspectSqlite(db: DbExec): Promise<TableSchema[]> {
 // otherwise each run the full multi-query DB introspection in parallel.
 let _inflight: {
   key: string;
-  promise: Promise<{ tables: TableSchema[]; dialect: "postgres" | "sqlite" }>;
+  promise: Promise<TableSchema[]>;
 } | null = null;
 
-async function getSchema(): Promise<{
-  tables: TableSchema[];
-  dialect: "postgres" | "sqlite";
-}> {
+async function getSchema(): Promise<TableSchema[]> {
   const key = cacheKey();
   const now = Date.now();
   if (_cache && _cache.key === key && _cache.expires > now) {
-    return { tables: _cache.tables, dialect: _cache.dialect };
+    return _cache.tables;
   }
   if (_inflight && _inflight.key === key) {
     return _inflight.promise;
@@ -196,14 +148,10 @@ async function getSchema(): Promise<{
 
   const promise = (async () => {
     const db = getDbExec();
-    const dialect: "postgres" | "sqlite" = isPostgres() ? "postgres" : "sqlite";
-    const tables =
-      dialect === "postgres"
-        ? await introspectPostgres(db)
-        : await introspectSqlite(db);
+    const tables = await introspectPostgres(db);
 
-    _cache = { key, expires: Date.now() + CACHE_TTL_MS, tables, dialect };
-    return { tables, dialect };
+    _cache = { key, expires: Date.now() + CACHE_TTL_MS, tables };
+    return tables;
   })();
   _inflight = { key, promise };
   try {
@@ -277,11 +225,8 @@ export async function loadSchemaPromptBlock(opts: {
   hasRawDbTools?: boolean;
 }): Promise<string> {
   let tables: TableSchema[];
-  let dialect: "postgres" | "sqlite";
   try {
-    const res = await getSchema();
-    tables = res.tables;
-    dialect = res.dialect;
+    tables = await getSchema();
   } catch {
     // DB not ready, or introspection blew up — don't take the chat down.
     return "";
@@ -315,7 +260,7 @@ export async function loadSchemaPromptBlock(opts: {
   const lines: string[] = [];
   lines.push("<sql-database>");
   lines.push(
-    `The app's state lives in a SQL database (${dialect}). The schema below is auto-introspected fresh each turn — treat it as authoritative.`,
+    "The app's state lives in PostgreSQL. The schema below is auto-introspected fresh each turn - treat it as authoritative.",
   );
   lines.push("");
 

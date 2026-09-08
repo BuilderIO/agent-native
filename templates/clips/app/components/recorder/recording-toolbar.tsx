@@ -1,4 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  MIC_AUDIBLE_LEVEL,
+  MIC_SILENCE_WARNING_MS,
+  micSignalWarning,
+} from "@shared/audio-meter";
 import { LiveWaveform } from "@shared/live-waveform";
 import type {
   RecordingPlayheadConfirmChange,
@@ -15,6 +20,7 @@ import type {
   RecordingPlayheadPosition,
   RecordingPlayheadSize,
 } from "@shared/recording-playhead-position";
+import { IconAlertTriangle } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 export interface RecordingToolbarProps {
@@ -23,6 +29,10 @@ export interface RecordingToolbarProps {
   active: boolean;
   /** Reads the current elapsed time from the recorder engine on each tick. */
   getElapsedMs: () => number;
+  /** Reads the microphone track already owned by the recorder engine. */
+  getMicrophoneTrack: () => MediaStreamTrack | null;
+  /** The recording was started with microphone capture enabled. */
+  microphoneEnabled: boolean;
   isPaused: boolean;
   onTogglePause: () => void;
   onStop: () => void;
@@ -47,10 +57,219 @@ const TOOLBAR_VERTICAL_SIZE: RecordingPlayheadSize = {
 // text (which sits at the viewport's vertical center) so the controls don't
 // overlap it.
 const TOOLBAR_TOP_OFFSET = 48;
+const MICROPHONE_TRACK_RETRY_MS = 250;
+
+function getAudioContextCtor(): typeof AudioContext | null {
+  return (
+    window.AudioContext ??
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext ??
+    null
+  );
+}
+
+function useLiveMicrophoneMeter({
+  active,
+  isPaused,
+  getMicrophoneTrack,
+  microphoneEnabled,
+}: Pick<
+  RecordingToolbarProps,
+  "active" | "isPaused" | "getMicrophoneTrack" | "microphoneEnabled"
+>) {
+  const [level, setLevel] = useState<number | null>(null);
+  const [silentForMs, setSilentForMs] = useState(0);
+  const hadLiveAnalyserRef = useRef(false);
+  const getMicrophoneTrackRef = useRef(getMicrophoneTrack);
+  getMicrophoneTrackRef.current = getMicrophoneTrack;
+
+  useEffect(() => {
+    setLevel(null);
+    setSilentForMs(0);
+    if (!active) {
+      hadLiveAnalyserRef.current = false;
+      return;
+    }
+    if (isPaused || !microphoneEnabled) return;
+
+    let disposed = false;
+    let trackRetryTimeoutId: number | null = null;
+    let cleanupAnalyser: (() => void) | null = null;
+    const missingTrackStartedAt = performance.now();
+
+    const attachAnalyser = (track: MediaStreamTrack) => {
+      const AudioContextCtor = getAudioContextCtor();
+      if (!AudioContextCtor) return;
+
+      let context: AudioContext | null = null;
+      let source: MediaStreamAudioSourceNode | null = null;
+      let analyser: AnalyserNode | null = null;
+      try {
+        context = new AudioContextCtor();
+        source = context.createMediaStreamSource(new MediaStream([track]));
+        analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.2;
+        source.connect(analyser);
+      } catch {
+        try {
+          source?.disconnect();
+          analyser?.disconnect();
+        } catch {
+          // A partial graph may already have been disconnected by the browser.
+        }
+        void context?.close().catch(() => {});
+        return;
+      }
+
+      const liveContext = context;
+      const liveSource = source;
+      const liveAnalyser = analyser;
+      hadLiveAnalyserRef.current = true;
+
+      let rafId: number | null = null;
+      let stopped = false;
+      let silenceStartedAt: number | null = null;
+      let silenceWarningTimeoutId: number | null = null;
+      const samples = new Uint8Array(analyser.fftSize);
+
+      const clearSilenceWarningTimeout = () => {
+        if (silenceWarningTimeoutId === null) return;
+        window.clearTimeout(silenceWarningTimeoutId);
+        silenceWarningTimeoutId = null;
+      };
+
+      const cleanup = () => {
+        if (stopped) return;
+        stopped = true;
+        if (rafId !== null) cancelAnimationFrame(rafId);
+        clearSilenceWarningTimeout();
+        track.removeEventListener("ended", handleTrackEnded);
+        try {
+          liveSource.disconnect();
+        } catch (error) {
+          console.debug(
+            "[recording-toolbar] audio source was already disconnected",
+            error,
+          );
+        }
+        try {
+          liveAnalyser.disconnect();
+        } catch (error) {
+          console.debug(
+            "[recording-toolbar] audio analyser was already disconnected",
+            error,
+          );
+        }
+        void liveContext.close().catch((error: unknown) => {
+          console.debug(
+            "[recording-toolbar] audio context was already closed",
+            error,
+          );
+        });
+      };
+
+      const handleTrackEnded = () => {
+        cleanup();
+        if (disposed) return;
+        setLevel(null);
+        setSilentForMs(MIC_SILENCE_WARNING_MS);
+      };
+
+      const sample = () => {
+        if (stopped) return;
+        liveAnalyser.getByteTimeDomainData(samples);
+        let squareSum = 0;
+        for (const value of samples) {
+          const normalized = (value - 128) / 128;
+          squareSum += normalized * normalized;
+        }
+        const rms = Math.sqrt(squareSum / samples.length);
+        const audible = rms >= MIC_AUDIBLE_LEVEL;
+        const now = performance.now();
+
+        if (audible) {
+          silenceStartedAt = null;
+          clearSilenceWarningTimeout();
+          setLevel(rms);
+          setSilentForMs(0);
+        } else {
+          setLevel(0);
+          if (silenceStartedAt === null) {
+            silenceStartedAt = now;
+            silenceWarningTimeoutId = window.setTimeout(() => {
+              silenceWarningTimeoutId = null;
+              if (stopped || silenceStartedAt === null) return;
+              setSilentForMs(MIC_SILENCE_WARNING_MS);
+            }, MIC_SILENCE_WARNING_MS);
+          }
+        }
+
+        rafId = requestAnimationFrame(sample);
+      };
+
+      cleanupAnalyser = cleanup;
+      track.addEventListener("ended", handleTrackEnded);
+      if (track.readyState === "ended") {
+        handleTrackEnded();
+        return;
+      }
+      if (liveContext.state === "suspended") {
+        void liveContext.resume().catch(() => {});
+      }
+      sample();
+    };
+
+    const checkForTrack = () => {
+      if (disposed) return;
+      const track = getMicrophoneTrackRef.current();
+      if (track && track.readyState !== "ended") {
+        attachAnalyser(track);
+        return;
+      }
+      if (hadLiveAnalyserRef.current) {
+        setSilentForMs(MIC_SILENCE_WARNING_MS);
+        return;
+      }
+
+      const remaining =
+        MIC_SILENCE_WARNING_MS - (performance.now() - missingTrackStartedAt);
+      if (remaining <= 0) {
+        setSilentForMs(MIC_SILENCE_WARNING_MS);
+        return;
+      }
+      trackRetryTimeoutId = window.setTimeout(
+        checkForTrack,
+        Math.min(MICROPHONE_TRACK_RETRY_MS, remaining),
+      );
+    };
+
+    checkForTrack();
+
+    return () => {
+      disposed = true;
+      if (trackRetryTimeoutId !== null) {
+        window.clearTimeout(trackRetryTimeoutId);
+      }
+      cleanupAnalyser?.();
+    };
+  }, [active, isPaused, microphoneEnabled]);
+
+  return {
+    level,
+    warning: micSignalWarning({
+      microphoneEnabled,
+      paused: isPaused || !active,
+      silentForMs,
+    }),
+  };
+}
 
 export function RecordingToolbar({
   active,
   getElapsedMs,
+  getMicrophoneTrack,
+  microphoneEnabled,
   isPaused,
   onTogglePause,
   onStop,
@@ -60,6 +279,12 @@ export function RecordingToolbar({
 }: RecordingToolbarProps) {
   const t = useT();
   const rootRef = useRef<HTMLDivElement>(null);
+  const microphoneMeter = useLiveMicrophoneMeter({
+    active,
+    isPaused,
+    getMicrophoneTrack,
+    microphoneEnabled,
+  });
   // Own the elapsed-time poll here instead of in the route component, so the
   // 4x/sec tick only re-renders this toolbar rather than the whole record page.
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -268,7 +493,23 @@ export function RecordingToolbar({
         orientation={pos.orientation}
         enabled={active}
         pendingAction={pendingAction}
-        meter={<LiveWaveform level={null} dimmed={!active || isPaused} />}
+        meter={
+          microphoneMeter.warning !== null ? (
+            <span
+              role="status"
+              aria-label={t("preRecord.noAudio")}
+              className="inline-flex size-[18px] items-center justify-center text-current"
+              style={{ color: "var(--playhead-rec)" }}
+            >
+              <IconAlertTriangle aria-hidden className="size-4" />
+            </span>
+          ) : (
+            <LiveWaveform
+              level={microphoneMeter.level}
+              dimmed={!active || isPaused}
+            />
+          )
+        }
         labels={{
           controls: t("recordingToolbar.controls"),
           stop: t("recordingToolbar.stop"),

@@ -1,8 +1,8 @@
-import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
@@ -44,7 +44,7 @@ const docShares = createSharesTable("qa_doc_shares");
 
 type Db = ReturnType<typeof drizzle>;
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: Db;
 
 async function insertDoc(values: {
@@ -63,8 +63,8 @@ async function insertDoc(values: {
 }
 
 let memberSeq = 0;
-function addOrgMember(memberOrgId: string, email: string) {
-  sqlite
+async function addOrgMember(memberOrgId: string, email: string) {
+  await pglite
     .prepare(
       `INSERT INTO org_members (id, org_id, email, role, joined_at)
        VALUES (?, ?, ?, ?, ?)`,
@@ -86,9 +86,9 @@ async function listVisible(
   });
 }
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
-  sqlite.exec(`
+beforeEach(async () => {
+  pglite = await createTestPglite();
+  await pglite.exec(`
     CREATE TABLE qa_docs (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -109,7 +109,7 @@ beforeEach(() => {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       created_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
+      created_at BIGINT NOT NULL,
       identity_authority TEXT,
       identity_id TEXT
     );
@@ -118,7 +118,7 @@ beforeEach(() => {
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at INTEGER NOT NULL,
+      joined_at BIGINT NOT NULL,
       federation_removal_pending_at INTEGER
     );
     CREATE TABLE workspace_user_groups (
@@ -127,11 +127,11 @@ beforeEach(() => {
       name TEXT NOT NULL,
       member_emails_json TEXT NOT NULL DEFAULT '[]',
       created_by_email TEXT NOT NULL DEFAULT '',
-      created_at INTEGER NOT NULL DEFAULT 0,
-      updated_at INTEGER NOT NULL DEFAULT 0
+      created_at BIGINT NOT NULL DEFAULT 0,
+      updated_at BIGINT NOT NULL DEFAULT 0
     );
   `);
-  db = drizzle(sqlite);
+  db = drizzle(pglite.db);
   registerShareableResource({
     type: resourceType,
     resourceTable: docs,
@@ -143,8 +143,8 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
 });
 
 describe("shareable resource access helpers", () => {
@@ -195,7 +195,7 @@ describe("shareable resource access helpers", () => {
 
   it("resolves organization share display names", async () => {
     await insertDoc({ id: "doc-org-share" });
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO organizations (id, name, created_by, created_at)
          VALUES (?, ?, ?, ?)`,
@@ -307,7 +307,7 @@ describe("shareable resource access helpers", () => {
 
   it("includes group-only shares in filtered listings while checking current membership", async () => {
     await insertDoc({ id: "shared-group", ownerEmail: outsiderEmail });
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO workspace_user_groups
          (id, org_id, name, member_emails_json)
@@ -323,13 +323,13 @@ describe("shareable resource access helpers", () => {
       createdBy: ownerEmail,
       createdAt: "2026-04-30T00:00:00.000Z",
     });
-    addOrgMember(orgId, viewerEmail);
+    await addOrgMember(orgId, viewerEmail);
 
     await expect(
       listVisible({ userEmail: viewerEmail, orgId }),
     ).resolves.toContain("shared-group");
 
-    sqlite
+    await pglite
       .prepare("DELETE FROM org_members WHERE org_id = ? AND email = ?")
       .run(orgId, viewerEmail);
     await expect(
@@ -361,7 +361,7 @@ describe("shareable resource access helpers", () => {
       createdBy: ownerEmail,
       createdAt: "2026-04-30T00:00:00.000Z",
     });
-    addOrgMember(orgId, viewerEmail);
+    await addOrgMember(orgId, viewerEmail);
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await expect(
@@ -442,7 +442,7 @@ describe("shareable resource access helpers", () => {
       orgId: otherOrgId,
       visibility: "org",
     });
-    addOrgMember(otherOrgId, viewerEmail);
+    await addOrgMember(otherOrgId, viewerEmail);
 
     await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
       await expect(
@@ -561,7 +561,7 @@ describe("shareable resource access helpers", () => {
     const driftShares = createSharesTable("qa_drift_doc_shares");
     const driftType = "qa-doc-schema-drift";
 
-    sqlite.exec(`
+    await pglite.exec(`
       CREATE TABLE qa_drift_docs (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -591,7 +591,7 @@ describe("shareable resource access helpers", () => {
         resource.data === '{"publicEdit":true}' ? "editor" : "viewer",
     });
 
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO qa_drift_docs (id, title, data, owner_email, org_id, visibility)
          VALUES (?, ?, ?, ?, ?, ?)`,
@@ -1087,7 +1087,7 @@ describe("resolveAccess / assertAccess opt-in projected load", () => {
         createdAt: "2026-04-30T00:00:00.000Z",
       },
     ]);
-    addOrgMember(orgId, viewerEmail);
+    await addOrgMember(orgId, viewerEmail);
 
     const cases: Array<{
       ctx: { userEmail?: string; orgId?: string };

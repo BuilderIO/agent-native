@@ -129,6 +129,9 @@ export interface AppProvidersProps {
    */
   disableWebMcp?: boolean;
 
+  /** Render the environment badge in the shared app shell. */
+  showEnvironmentBadge?: boolean;
+
   /**
    * Optional localization runtime configuration. When omitted, AppProviders
    * still mounts the i18n provider with an English fallback so templates can
@@ -306,6 +309,7 @@ function ProvidersInner({
   i18n,
   documentTitleFallback,
   showProductionEnvironmentBadge,
+  showEnvironmentBadge,
   children,
 }: {
   queryClient: QueryClient;
@@ -318,6 +322,7 @@ function ProvidersInner({
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
   showProductionEnvironmentBadge: boolean;
+  showEnvironmentBadge: boolean;
   children: React.ReactNode;
 }) {
   const localizedChildren =
@@ -344,7 +349,9 @@ function ProvidersInner({
           <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
           <RoutedAppEnhancements />
-          <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
+          {showEnvironmentBadge ? (
+            <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
+          ) : null}
           {toaster}
         </TooltipProvider>
       </ThemeProvider>
@@ -358,6 +365,7 @@ export function AppProviders({
   clientOnlyFallback,
   sessionBypass = false,
   disableWebMcp = false,
+  showEnvironmentBadge = true,
   defaultTheme,
   themeAttribute,
   tooltipDelayDuration,
@@ -382,6 +390,7 @@ export function AppProviders({
         i18n={i18n}
         documentTitleFallback={documentTitleFallback}
         showProductionEnvironmentBadge={false}
+        showEnvironmentBadge={showEnvironmentBadge}
       >
         {children}
       </ProvidersInner>
@@ -405,6 +414,7 @@ export function AppProviders({
           i18n={i18n}
           documentTitleFallback={documentTitleFallback}
           showProductionEnvironmentBadge={!sessionBypass}
+          showEnvironmentBadge={showEnvironmentBadge}
         >
           <RequireSession bypass={sessionBypass} fallback={fallback}>
             {sessionBypass ? (

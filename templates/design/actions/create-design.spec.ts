@@ -18,6 +18,13 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("nanoid", () => ({ nanoid: () => "generated_design_id" }));
 
+vi.mock("../server/lib/design-system-defaults.js", () => ({
+  resolveDefaultDesignSystemId: async () => null,
+  resolveDesignSystemIdByTitle: async () => {
+    throw new Error("not mocked");
+  },
+}));
+
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     insert: () => ({
@@ -37,6 +44,21 @@ import action from "./create-design.js";
 beforeEach(() => {
   testState.currentOrgId = "org_1";
   testState.insertedValues = null;
+});
+
+describe("create-design description and next-step steering", () => {
+  it("does not steer callers toward show-design-questions or waiting for the user", () => {
+    expect(action.tool.description).not.toMatch(/wait for the user/i);
+    expect(action.tool.description).not.toMatch(/show-design-questions/);
+  });
+
+  it("points nextRequiredAction at authoring and saving the screen directly", async () => {
+    const result = await action.run({ title: "Todo app" });
+
+    expect(result.nextRequiredAction).not.toMatch(/wait for the user/i);
+    expect(result.nextRequiredAction).not.toMatch(/show-design-questions/);
+    expect(result.nextRequiredAction).toMatch(/generate-design|create-file/);
+  });
 });
 
 describe("create-design org visibility", () => {

@@ -9,16 +9,20 @@ import { randomUUID } from "node:crypto";
  *   3. Size-cap rejection: single asset > 2 MB, total > 10 MB.
  *   4. External URL: stays untouched in export/import.
  *
- * Uses an in-process SQLite database (libsql :memory: via a temp file so
+ * Uses an in-process PostgreSQL database (PostgreSQL :memory: via a temp file so
  * all connections share state) with real schema rows. The route handler is
  * tested by calling its internals directly — no HTTP server required.
  */
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
-import { createClient, type Client } from "@libsql/client";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+const { PGlite } = createRequire(
+  new URL("../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import {
   afterAll,
   beforeAll,
@@ -47,10 +51,30 @@ import {
 // ---------------------------------------------------------------------------
 // In-memory test DB
 // ---------------------------------------------------------------------------
-let client: Client;
-let db: LibSQLDatabase<typeof planSchema>;
+
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(statement: SqlStatement) {
+  if (typeof statement === "string") {
+    const results = [];
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      results.push(await client.query(postgresSql(sql)));
+    return results[results.length - 1];
+  }
+  return client.query(postgresSql(statement.sql), statement.args ?? []);
+}
+
+let client: PGliteClient;
+let db: PgliteDatabase<typeof planSchema>;
 let dbDir: string;
-let dbFile: string;
 
 vi.mock("./db/index.js", () => ({
   // eslint-disable-next-line @typescript-eslint/no-use-before-define
@@ -76,7 +100,7 @@ async function insertPlan(
   visibility: "private" | "public" | "org" = "private",
 ) {
   // guard:allow-unscoped -- test-only fixture creates isolated plan rows.
-  await client.execute({
+  await execute({
     sql: `INSERT INTO plans (id, title, brief, kind, status, source, html, markdown, content, created_at, updated_at, owner_email, org_id, visibility)
           VALUES (?, 'Test Plan', 'A brief', 'plan', 'review', 'manual', NULL, NULL, NULL, ?, ?, ?, NULL, ?)`,
     args: [id, NOW, NOW, OWNER, visibility],
@@ -85,10 +109,9 @@ async function insertPlan(
 
 beforeAll(async () => {
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-assets-spec-"));
-  dbFile = path.join(dbDir, "test.db");
-  client = createClient({ url: `file:${dbFile}` });
+  client = await PGlite.create(dbDir);
   db = drizzle(client, { schema: planSchema });
-  await client.executeMultiple(`
+  await execute(`
     CREATE TABLE plans (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -143,13 +166,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  client.close();
+  await await client.close();
   fs.rmSync(dbDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
   // guard:allow-unscoped -- test-only cleanup resets the isolated temp DB.
-  await client.executeMultiple(`
+  await execute(`
     DELETE FROM plan_assets;
     DELETE FROM plans;
   `);

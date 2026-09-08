@@ -1,15 +1,10 @@
-import { getRuntimeDatabaseUrl } from "@agent-native/core/db";
-import { sql } from "drizzle-orm";
+import { getDbExec } from "@agent-native/core/db";
 import { defineEventHandler } from "h3";
-
-import { getDb } from "../../db/index.js";
 
 export default defineEventHandler(async () => {
   try {
-    const db = getDb();
-    await db.run(sql`SELECT 1`);
-    const url = getRuntimeDatabaseUrl("file:./data/app.db");
-    return { ok: true, local: url.startsWith("file:") };
+    await getDbExec().execute("SELECT 1");
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown" };
   }

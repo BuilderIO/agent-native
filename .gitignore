@@ -37,11 +37,15 @@ node-compile-cache/
 # Application state data files (ephemeral, may contain secrets)
 **/application-state/*.json
 
-# SQLite databases (local data, never commit)
+# Local PGlite databases (never commit)
+**/data/pglite/
+**/data/e2e-pglite/
+
+# Legacy local SQLite artifacts. Nothing reads these since the framework went
+# PostgreSQL-only; a stray one is tens of MB of local state, not a source file.
 **/data/*.db
-**/data/*.db-journal
-**/data/*.db-wal
 **/data/*.db-shm
+**/data/*.db-wal
 
 # React Router generated types
 .react-router/

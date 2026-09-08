@@ -29,9 +29,7 @@ dist
 .tmp/
 
 # Runtime data
-data/*.db
-data/*.db-shm
-data/*.db-wal
+data/pglite/
 data/uploads/
 data/settings.json
 data/.sessions.json

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   pickRepresentativeSlide,
   slideStyleFragment,
+  summarizeDeckStyle,
 } from "./representative-slide.js";
 
 const dark = (id: string, layout: string) => ({
@@ -109,5 +110,33 @@ describe("pickRepresentativeSlide", () => {
       },
     ];
     expect(pickRepresentativeSlide(slides, 2)).toBe(0);
+  });
+});
+
+describe("summarizeDeckStyle", () => {
+  it("pairs the formatted deck style with the representative slide's id", () => {
+    const slides = [
+      {
+        id: "light-title",
+        layout: "statement",
+        content: `<div style="background: #faf9f5; color: #171717"><h1>T</h1></div>`,
+      },
+      dark("c1", "content"),
+      dark("c2", "content"),
+      dark("dark-title", "statement"),
+    ];
+    const result = summarizeDeckStyle(slides, 0);
+    expect(result.deckStyle.join("\n")).toContain("backgrounds:");
+    expect(result.representativeSlideIndex).toBe(3);
+    expect(result.representativeSlideId).toBe("dark-title");
+  });
+
+  it("returns null id and index when there is no other slide", () => {
+    const result = summarizeDeckStyle(
+      [{ id: "only", layout: "content", content: "<p>a</p>" }],
+      0,
+    );
+    expect(result.representativeSlideIndex).toBeNull();
+    expect(result.representativeSlideId).toBeNull();
   });
 });

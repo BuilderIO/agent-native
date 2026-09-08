@@ -15,7 +15,8 @@ vi.mock("./federation.js", () => ({
     validateFederatedMembershipMock,
 }));
 
-const { isOrgMember } = await import("./membership.js");
+const { isMissingOrganizationTableError, isOrgMember } =
+  await import("./membership.js");
 
 describe("isOrgMember", () => {
   beforeEach(() => {
@@ -83,5 +84,17 @@ describe("isOrgMember", () => {
     await expect(isOrgMember("org-1", "member@example.com")).rejects.toThrow(
       "identity authority unavailable",
     );
+  });
+});
+
+describe("isMissingOrganizationTableError", () => {
+  it("recognizes a Postgres missing-relation error wrapped by a query helper", () => {
+    const cause = Object.assign(
+      new Error('relation "organizations" does not exist'),
+      { code: "42P01" },
+    );
+    const error = Object.assign(new Error("Failed query"), { cause });
+
+    expect(isMissingOrganizationTableError(error)).toBe(true);
   });
 });

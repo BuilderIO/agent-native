@@ -142,7 +142,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
               current: true,
               connected: true,
               databaseUrlEnv: null,
-              databaseAuthTokenEnv: null,
               canInspectAll: true,
             },
             {
@@ -152,7 +151,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
               current: false,
               connected: true,
               databaseUrlEnv: "MAIL_DATABASE_URL",
-              databaseAuthTokenEnv: null,
               canInspectAll: true,
             },
           ],

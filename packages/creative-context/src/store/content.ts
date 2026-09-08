@@ -188,7 +188,6 @@ function isUniqueConstraintError(error: unknown): boolean {
         : String(candidate.message as string | number | boolean | undefined);
     if (
       code === "23505" ||
-      code.includes("SQLITE_CONSTRAINT") ||
       /unique constraint|unique violation|duplicate key/i.test(message)
     ) {
       return true;

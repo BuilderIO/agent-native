@@ -61,7 +61,7 @@ export function ownableColumns() {
  * Uniqueness across `(resource_id, principal_type, principal_id)` is enforced
  * at the action layer via upsert-style logic. A composite DB-level unique
  * index can be added per template if desired — omitted here to keep the
- * factory dialect-agnostic.
+ * factory uses the shared Postgres schema helpers.
  */
 export function createSharesTable(tableName: string) {
   return table(tableName, {

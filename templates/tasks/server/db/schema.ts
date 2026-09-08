@@ -5,14 +5,13 @@ import {
   text,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const tasks = table("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
-  done: integer("done", { mode: "boolean" }).notNull().default(false),
-  promotedToTask: integer("promoted_to_task", { mode: "boolean" })
-    .notNull()
-    .default(true),
+  done: boolean("done").notNull().default(false),
+  promotedToTask: boolean("promoted_to_task").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   ownerEmail: text("owner_email").notNull(),
   createdAt: text("created_at").notNull().default(now()),

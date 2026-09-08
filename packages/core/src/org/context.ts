@@ -127,7 +127,7 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   ));
 }
 
-type MembershipRow = {
+export type OrgMembership = {
   orgId: string;
   role: OrgRole;
   orgName: string;
@@ -135,6 +135,8 @@ type MembershipRow = {
   identityAuthority: string | null;
   identityId: string | null;
 };
+
+type MembershipRow = OrgMembership;
 
 async function refreshFederatedMemberships(
   event: H3Event,
@@ -500,6 +502,38 @@ async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
   return cachedMemberships(email, () => loadMembershipsUncached(email));
 }
 
+export async function listOrgMemberships(
+  email: string,
+): Promise<OrgMembership[] | null> {
+  return loadMemberships(email);
+}
+
+export async function listOrgMembershipsForEvent(
+  event: H3Event,
+  email: string,
+  selectedOrgId: string | null,
+): Promise<OrgMembership[] | null> {
+  const memberships = await loadMembershipsForEvent(event, email);
+  if (memberships === null) return null;
+  const refreshed = await refreshFederatedMemberships(
+    event,
+    email,
+    memberships,
+    selectedOrgId,
+  );
+  if (refreshed !== memberships) {
+    updateMembershipsForEvent(event, email, refreshed);
+  }
+  return refreshed;
+}
+
+export async function getActiveOrgSettingForEvent(
+  event: H3Event,
+  email: string,
+): Promise<{ orgId: string | null } | null> {
+  return loadActiveOrgSettingForEvent(event, email);
+}
+
 async function loadMembershipsUncached(
   email: string,
 ): Promise<MembershipRow[] | null> {
@@ -783,8 +817,8 @@ const CLAIM_TTL_MS = 5 * 60 * 1000;
  *
  * Race protection: claims the user's auto-create slot via an atomic
  * INSERT into the framework `settings` table (PRIMARY KEY (key) — so
- * concurrent inserts for the same key throw uniqueness violations on
- * both SQLite and Postgres). Only the request that wins the claim
+ * concurrent inserts for the same key throw a Postgres uniqueness violation.
+ * Only the request that wins the claim
  * proceeds to create the org; losers bail. By the time a losing
  * request retries on a subsequent navigation, the winner's org is in
  * `org_members` and the auto-create branch is skipped entirely.

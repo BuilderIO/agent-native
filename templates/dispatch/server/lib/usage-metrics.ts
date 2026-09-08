@@ -228,7 +228,7 @@ async function getViewerOrgRole(
   if (!orgId) return null;
   const rows = await queryRows<{ role?: string }>(
     `SELECT role FROM org_members
-     WHERE org_id = ? AND LOWER(email) = ?
+     WHERE org_id = $1 AND LOWER(email) = $2
        AND federation_removal_pending_at IS NULL
      LIMIT 1`,
     [orgId, email.toLowerCase()],
@@ -241,7 +241,7 @@ async function listOrgMembers(orgId: string | null): Promise<MemberRecord[]> {
   if (!orgId) return [];
   const rows = await queryRows<Record<string, unknown>>(
     `SELECT email, role, joined_at AS joined_at FROM org_members
-     WHERE org_id = ? AND federation_removal_pending_at IS NULL
+     WHERE org_id = $1 AND federation_removal_pending_at IS NULL
      ORDER BY joined_at ASC`,
     [orgId],
   );
@@ -263,11 +263,13 @@ function metricScope(
   threadWhere: string;
   threadArgs: unknown[];
 } {
-  const placeholders = memberEmails.map(() => "?").join(", ");
+  const placeholders = memberEmails
+    .map((_, index) => `$${index + 2}`)
+    .join(", ");
   return {
-    usageWhere: `created_at >= ? AND owner_email IN (${placeholders})`,
+    usageWhere: `created_at >= $1 AND owner_email IN (${placeholders})`,
     usageArgs: [sinceMs, ...memberEmails],
-    threadWhere: `updated_at >= ? AND owner_email IN (${placeholders})`,
+    threadWhere: `updated_at >= $1 AND owner_email IN (${placeholders})`,
     threadArgs: [sinceMs, ...memberEmails],
   };
 }
@@ -308,9 +310,9 @@ async function usageBuckets(
         MAX(created_at) AS last_active_at
       FROM token_usage
       WHERE ${where}
-      GROUP BY ${columnExpression}
-      ORDER BY cost_x100 DESC
-      LIMIT ?`,
+        GROUP BY ${columnExpression}
+        ORDER BY cost_x100 DESC
+      LIMIT $${args.length + 1}`,
     [...args, limit],
   );
   return rows.map(bucketFromRow);

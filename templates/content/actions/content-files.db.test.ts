@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-files-${process.pid}-${Date.now()}.sqlite`,
+  `content-files-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "files-owner@example.com";
 const ORG_ID = "files-org";
@@ -28,7 +28,7 @@ let getContentDatabasePersonalViewAction: typeof import("./get-content-database-
 let getDocumentAction: typeof import("./get-document.js").default;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -55,15 +55,15 @@ beforeAll(async () => {
     federation_removal_pending_at INTEGER
   )`);
   await getDbExec().execute({
-    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
     args: [ORG_ID, "Files Org", OWNER, Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: ["files-owner-membership", ORG_ID, OWNER, "owner", Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: ["files-viewer-membership", ORG_ID, VIEWER, "member", Date.now()],
   });
   await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -72,8 +72,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"])
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function createLegacyDocument(args: {
@@ -1090,15 +1089,15 @@ describe("Content Files membership reconciliation", () => {
   it("lets an ordinary member backfill legacy organization pages without changing their content or ownership", async () => {
     const viewerOrgId = "files-viewer-org";
     await getDbExec().execute({
-      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
       args: [viewerOrgId, "Viewer Org", OWNER, Date.now()],
     });
     await getDbExec().execute({
-      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
       args: ["viewer-org-owner", viewerOrgId, OWNER, "owner", Date.now()],
     });
     await getDbExec().execute({
-      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
       args: ["viewer-org-viewer", viewerOrgId, VIEWER, "member", Date.now()],
     });
     await runWithRequestContext({ userEmail: OWNER }, () =>

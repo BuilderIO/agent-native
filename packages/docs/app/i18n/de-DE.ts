@@ -158,8 +158,8 @@ const deDE = {
           body: "Definiere Arbeit einmal und nutze sie aus UI, Agent, HTTP, MCP, A2A und CLI.",
         },
         sqlStateOrm: {
-          title: "SQL-Zustand und ORM",
-          body: "Dauerhafte App-Daten, Application State, Migrationen und providerneutrale Schemas.",
+          title: "PostgreSQL-Zustand und ORM",
+          body: "Dauerhafte App-Daten, Application State, Migrationen und PostgreSQL-/PGlite-Schemas.",
         },
         dbAdmin: {
           title: "Datenbank-Admin",
@@ -212,7 +212,7 @@ const deDE = {
       body1:
         "Agent-Native ist ein Open-Source-Framework zum Bau von agentic applications: Starte mit Chat, definiere gemeinsame actions und ergänze dann UI, jobs und Zusammenarbeit rund um denselben state.",
       body2:
-        "Bring deine eigene Datenbank, deinen Hosting-Anbieter, deinen Model-Stack und deinen app-Code mit.",
+        "Verwenden Sie lokales PGlite oder gehostetes PostgreSQL sowie Ihren Hosting-Anbieter, Model-Stack und app-Code.",
       cta: "Framework-Guide lesen",
       primitives: {
         actions: {
@@ -230,10 +230,10 @@ const deDE = {
           description:
             "Der app-agent loop, tools, skills, memory, jobs und Observability werden gemeinsam ausgeliefert.",
         },
-        backendAgnostic: {
-          title: "Backend-agnostisch",
+        postgresSpecific: {
+          title: "PostgreSQL-spezifisch",
           description:
-            "Schließe jede von Drizzle unterstützte SQL-Datenbank und jeden Nitro-kompatiblen Host an.",
+            "Verwenden Sie die PostgreSQL-Schema-Helfer des Frameworks mit lokalem PGlite oder gehostetem Postgres auf jedem Nitro-kompatiblen Host.",
         },
       },
     },
@@ -313,7 +313,7 @@ const deDE = {
     },
     quickStart: {
       title: "Mit einem Befehl starten",
-      body: "Ein Befehl erstellt eine chat-first lokale App mit actions, durable threads und SQLite. Nutze `--headless` nur für automation-first Workflows ohne Browser-UI.",
+      body: "Ein Befehl erstellt eine chat-first lokale App mit actions, durable threads und PGlite. Nutze `--headless` nur für automation-first Workflows ohne Browser-UI.",
     },
     finalCta: {
       title: "Software, gebaut für die agentic era",
@@ -438,20 +438,20 @@ const deDE = {
   },
   homepage: {
     hero: {
-      title: "Das Framework für agentische Anwendungen",
+      title: "Das Framework für agentische Apps.",
       bodyLine1:
-        "Entwickle autonome Agenten mit intuitiven Benutzeroberflächen.",
-      bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
+        "Ein Open-Source-TypeScript-Framework für Apps mit einer UI und einem Agenten.",
+      bodyLine2: "Definiere jede Action einmal und rufe sie überall auf.",
       tryAnApp: "App ausprobieren",
     },
     install: {
       copyCommand: "Installationsbefehl kopieren",
     },
     actions: {
-      title: "Eine Action treibt jede Oberfläche an",
-      bodyLine1: "Actions bestimmen, was dein Agent tun kann.",
+      title: "Eine Action von überall aufrufen.",
+      bodyLine1: "Definiere eine Fähigkeit mit defineAction().",
       bodyLine2:
-        "Definiere jede Fähigkeit einmal und nutze sie dann über den Agenten, die UI, HTTP API, MCP, A2A oder CLI.",
+        "Deine React-UI, dein Agent, HTTP-Clients und Integrationen verwenden denselben Code.",
       diagramAlt:
         "Eine Action treibt UI, MCP, Agent-Chat, A2A, HTTP API und CLI an",
     },
@@ -472,7 +472,7 @@ const deDE = {
           body: "Der Agent weiß, was Nutzer ansehen, auswählen und bearbeiten.",
         },
         sharedSql: {
-          title: "Geteilte SQL-Daten",
+          title: "Geteilte PostgreSQL-Daten",
           body: "Nutzer und Agenten lesen und aktualisieren dieselbe Quelle der Wahrheit.",
         },
         skillsMemory: {
@@ -498,13 +498,13 @@ const deDE = {
       },
     },
     stack: {
-      title: "Funktioniert mit deinem Stack",
-      body: "Bring dein LLM, deine Datenbank, Tools und Infrastruktur mit. Agent-Native ist quelloffenes TypeScript, sodass alles, was du baust, dir gehört.",
+      title: "Bring deinen eigenen Stack mit",
+      body: "Agent-Native ist Open-Source-TypeScript. Wähle dein Modell, deine Datenbank und dein Hosting und behalte den Anwendungscode in deinem Repository.",
       exploreApps: "Mit Agent-Native gebaute Apps entdecken",
     },
     showcase: {
-      title: "Was kannst du mit Agent-Native bauen?",
-      body: "Baue Agenten mit UIs für Meetings, Design, Präsentationen, Daten und mehr. Starte mit einer dieser Open-Source-Apps oder baue deinen eigenen.",
+      title: "Echte Apps mit Agent-Native",
+      body: "Open-Source-Agent-Native-Apps, die du kostenlos nutzen oder grenzenlos anpassen kannst.",
       browseApps: "Apps durchsuchen",
       scrollLeft: "Apps nach links scrollen",
       scrollRight: "Apps nach rechts scrollen",
@@ -523,7 +523,7 @@ const deDE = {
       download: "Herunterladen",
       apps: "Apps",
       privacyPolicy: "Datenschutzerklärung",
-      saasTerms: "Bedingungen für den gehosteten Dienst",
+      saasTerms: "SaaS-Bedingungen",
       legalResources: "Rechtliche Ressourcen",
     },
   },
@@ -572,6 +572,7 @@ const deDE = {
     tryCommunityDemo: "Demo testen",
     customizeDescription: "Nutze diese App als Ausgangspunkt.",
     customizeOnline: "Online",
+    customizeOnlineBadge: "Warteliste beitreten",
     customizeLocally: "Lokal",
     communityNew: "Neu",
     communityComingSoon: "Demnächst",
@@ -629,6 +630,19 @@ const deDE = {
     popoverTitle: "Im Browser entwickeln",
     popoverBody:
       "Generiere schnell agent-native Apps in der Cloud mit Builder.io.",
+    waitlistBody:
+      "Builder.io kann eine agent-native App in der Cloud starten und anpassen — inklusive Actions, Auth, SQL-Status und Agent-Chat. Trag dich für frühen Zugriff in die Warteliste ein.",
+    emailLabel: "E-Mail",
+    emailPlaceholder: "du@firma.com",
+    joinWaitlist: "Warteliste beitreten",
+    joining: "Beitreten…",
+    joined:
+      "Du stehst auf der Warteliste. Wir mailen dir, sobald der Online-Build-Zugang verfügbar ist.",
+    invalidEmail: "Gib eine gültige E-Mail-Adresse ein.",
+    submitError:
+      "Beitritt zur Warteliste fehlgeschlagen. Bitte versuche es erneut.",
+    waitlistUnavailable:
+      "Wartelisten-Anmeldungen sind in dieser Umgebung noch nicht verfügbar. Bitte nutze stattdessen die gehostete Dokumentationsseite.",
     launchBuilder: "Builder starten",
   },
   templateCard: {

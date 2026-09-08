@@ -326,6 +326,14 @@ const PATTERNS = [
     fixedBy: ".agents/skills/reporting-progress (2026-08-12)",
     re: /\b(other (chats?|threads?|agents?)|pause (their|other)|don'?t (tell|message) (other|the other)|didn'?t ask you to (touch|message))\b/i,
   },
+  {
+    key: "agent-tool-misuse",
+    label:
+      "Had to tell an agent which tool to call, or to author content itself instead of delegating to ask_app / the in-app agent",
+    fixedBy:
+      "external-agents skill + initialToolNames→MCP instructions (2026-09-05)",
+    re: /\b(?:use|call) (?:the )?(?:right |correct |named )?tool\b|\bwrong tool\b|\bdon['’]t (?:use|call) ask_app\b|\b(?:write|author) (?:it|the (?:content|copy|text|deck|slide|design)) yourself\b|\bdon['’]t delegate (?:this|that|authoring)\b|\bstop waiting (?:on|for) the (?:in-app agent|app['’]s agent)\b/i,
+  },
   // Measured for the first time on 2026-08-12, after three prose rewrites of the
   // same rule (c497c859fa, 061896a301, 44ac2c4acf) shipped with no key at all.
   // That is why the 2026-08-09 attempt could delete its own concrete rules nine

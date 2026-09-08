@@ -159,8 +159,8 @@ describe("getOnboardingHtml", () => {
     ).toBe(false);
   });
 
-  describe("federated SSO button (AGENT_NATIVE_IDENTITY_HUB_URL)", () => {
-    it("env unset → login HTML is byte-for-byte identical (no SSO button, no residue)", () => {
+  describe("browser federated SSO", () => {
+    it("env unset → login HTML is byte-for-byte identical (no SSO entry, no residue)", () => {
       // Capture baseline with the env unequivocally absent.
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
       const baseline = getOnboardingHtml();
@@ -205,10 +205,20 @@ describe("getOnboardingHtml", () => {
       );
     });
 
-    it("malformed env value is treated as OFF (no button, no throw)", () => {
+    it("malformed hub configuration does not change the auth surface", () => {
       vi.stubEnv("AGENT_NATIVE_IDENTITY_HUB_URL", "not a url");
       const html = getOnboardingHtml();
       expect(html).not.toContain("identity-sso-btn");
+    });
+
+    it("ignores the removed browser SSO request fields", () => {
+      const html = getOnboardingHtml({
+        identitySsoRequestHost: "dispatch.agent-native.com",
+        identitySsoRequestProtocol: "https",
+      });
+
+      expect(html).not.toContain("identity-sso-btn");
+      expect(html).not.toContain("Sign in with Agent-Native");
     });
   });
 

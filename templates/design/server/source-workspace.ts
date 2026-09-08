@@ -56,8 +56,7 @@ export interface SourceWorkspaceFile {
 const _writeLocks = new Map<string, Promise<void>>();
 
 /**
- * Normalize affected-row metadata from every createGetDb backend: libSQL,
- * PGlite, Neon, postgres.js, better-sqlite3, and D1.
+ * Normalize affected-row metadata from PGlite and hosted Postgres.
  */
 function affectedRowCount(result: unknown): number | undefined {
   const candidate = result as

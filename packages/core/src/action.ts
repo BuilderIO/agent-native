@@ -579,7 +579,10 @@ interface DefineActionWithSchema<
    *  Membership is not permission: an external caller still passes the OAuth
    *  scope, `externalAgents` policy, and `publicAgent` checks. Resolved by
    *  `isActionExposedToExternalAgents` below, which every external surface
-   *  reads instead of testing these two fields itself. */
+   *  reads instead of testing these two fields itself — including the rule
+   *  that an action ending the in-app agent's turn is in-app only by default,
+   *  because the user's answer flows back through the in-app chat that an
+   *  external caller is not on. */
   mcpTool?: boolean;
   /** Whether this action's schema is held back from the agent's FIRST-REQUEST
    *  tool list and loaded on demand through `tool-search` instead. The
@@ -1223,6 +1226,7 @@ export function defineAction(options: any) {
  *   agentTool: false, mcpTool: true → MCP-only: external agents get it, the
  *                                     app's own agent does not
  *   mcpTool: false                  → in-app only, whatever `agentTool` says
+ *   endsTurn: true                  → in-app only, unless `mcpTool: true` is explicit
  *
  * The MCP-only combination needs the plugin to route those actions around the
  * `filterAgentTools` gate — see `mcpOnlyActions` in `agent-chat-plugin.ts`.
@@ -1230,7 +1234,14 @@ export function defineAction(options: any) {
 export function isActionExposedToExternalAgents(entry: {
   agentTool?: boolean;
   mcpTool?: boolean;
+  endsTurn?: boolean;
 }): boolean {
+  // An action that ends the in-app agent's turn is in-app only by default,
+  // because the user's answer flows back through the in-app chat that an
+  // external caller is not on — only an explicit `mcpTool: true` opts back in.
+  if (entry.endsTurn === true) {
+    return entry.mcpTool === true;
+  }
   return typeof entry.mcpTool === "boolean"
     ? entry.mcpTool
     : entry.agentTool !== false;

@@ -1,12 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeMock = vi.hoisted(() => vi.fn());
-const isPostgresMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
-  intType: () => "INTEGER",
-  isPostgres: isPostgresMock,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -19,7 +16,6 @@ describe("integration config compare-and-swap", () => {
   beforeEach(() => {
     currentRevision = 100;
     executeMock.mockReset();
-    isPostgresMock.mockReturnValue(false);
     executeMock.mockImplementation(
       async (input: string | { sql: string; args?: unknown[] }) => {
         if (typeof input === "string") return { rows: [], rowsAffected: 0 };

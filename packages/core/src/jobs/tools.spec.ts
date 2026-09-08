@@ -43,7 +43,7 @@ vi.mock("../server/request-context.js", () => ({
 }));
 
 // Partial-mock db/client so the org-admin lookup is stubbed while other
-// exports (getDialect, etc.) used transitively by db/schema stay real.
+// exports used transitively by db/schema stay real.
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return {

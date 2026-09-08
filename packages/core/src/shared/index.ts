@@ -36,6 +36,13 @@ export {
 } from "./document-title.js";
 export { injectDocumentMarkup } from "./html-document.js";
 export {
+  formatAgentDesignSystemContext,
+  loadAgentDesignSystemContext,
+  type AgentDesignSystemContext,
+  type AgentDesignSystemContextAvailable,
+  type AgentDesignSystemContextUnavailable,
+} from "./design-system-agent-context.js";
+export {
   formatHtmlStyleSummary,
   summarizeHtmlStyles,
   type HtmlStyleFragment,

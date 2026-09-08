@@ -25,7 +25,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
 import {
-  resolveBuilderCredentials,
+  resolveHasBuilderGatewayCredential,
   resolveSecret,
   FeatureNotConfiguredError,
 } from "@agent-native/core/server";
@@ -132,14 +132,11 @@ export default defineAction({
       transcript.length,
     );
 
-    // 1) Builder gateway (preferred — uses Builder.io Connect credentials).
-    const builderCreds = await resolveBuilderCredentials();
-    const builderConfigured = Boolean(
-      builderCreds.privateKey && builderCreds.publicKey,
-    );
-    const builderPartiallyConfigured = Boolean(
-      builderCreds.privateKey || builderCreds.publicKey,
-    );
+    // 1) Builder gateway (preferred — OAuth custody wins when connected,
+    // falls back to a legacy private key otherwise; same precedence engine.stream()
+    // applies internally, so this gate must recognize the same two credential kinds
+    // or an OAuth-only-connected user gets routed straight to the BYOK fallback).
+    const builderConfigured = await resolveHasBuilderGatewayCredential();
     let builderReturnedEmpty = false;
     let builderFailureMessage: string | null = null;
 
@@ -191,7 +188,6 @@ export default defineAction({
 
     throw buildCleanupConfigurationError({
       builderConfigured,
-      builderPartiallyConfigured,
       builderReturnedEmpty,
       builderFailureMessage,
     });
@@ -262,12 +258,10 @@ async function callBuilderGateway({
 
 function buildCleanupConfigurationError({
   builderConfigured,
-  builderPartiallyConfigured,
   builderReturnedEmpty,
   builderFailureMessage,
 }: {
   builderConfigured: boolean;
-  builderPartiallyConfigured: boolean;
   builderReturnedEmpty: boolean;
   builderFailureMessage: string | null;
 }): FeatureNotConfiguredError {
@@ -283,9 +277,6 @@ function buildCleanupConfigurationError({
         ? `${builderFailureMessage.slice(0, 240)}...`
         : builderFailureMessage;
     message = `Builder.io is connected, but the cleanup/title service failed: ${detail}`;
-  } else if (builderPartiallyConfigured) {
-    message =
-      "Builder.io Connect is incomplete. Reconnect Builder.io (free tier available) in Settings or add a fallback AI key.";
   }
 
   return new FeatureNotConfiguredError({

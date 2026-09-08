@@ -3,16 +3,30 @@ import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 
 export function isMissingOrganizationTableError(error: unknown): boolean {
-  const candidate = error as { code?: unknown; message?: unknown };
-  const message = String(candidate?.message ?? error);
-  if (candidate?.code === "42P01") {
-    return /(?:relation\s+)?["'`]?organizations["'`]?(?:\s+does not exist)?/i.test(
-      message,
-    );
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (
+    current &&
+    (typeof current === "object" || typeof current === "function") &&
+    !seen.has(current)
+  ) {
+    seen.add(current);
+    const candidate = current as {
+      code?: unknown;
+      message?: unknown;
+      cause?: unknown;
+    };
+    const message = String(candidate.message ?? "");
+    if (
+      /no such table:\s*["'`]?organizations["'`]?|relation\s+["'`]?organizations["'`]?\s+does not exist/i.test(
+        message,
+      )
+    ) {
+      return true;
+    }
+    current = candidate.cause;
   }
-  return /no such table:\s*["'`]?organizations["'`]?|relation\s+["'`]?organizations["'`]?\s+does not exist/i.test(
-    message,
-  );
+  return false;
 }
 
 /**

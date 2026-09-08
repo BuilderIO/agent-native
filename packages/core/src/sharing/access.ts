@@ -15,7 +15,6 @@
 
 import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
 
-import { isPostgres } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
@@ -280,18 +279,12 @@ export function accessFilter(
                 or federation_org.identity_id is not null
               )
           )`;
-    const groupMemberPredicate = isPostgres()
-      ? sql`exists (
+    const groupMemberPredicate = sql`exists (
           select 1
           from jsonb_array_elements_text(
             workspace_group.member_emails_json::jsonb
           ) as group_member(email)
           where lower(group_member.email) = ${normalizedUserEmail}
-        )`
-      : sql`exists (
-          select 1
-          from json_each(workspace_group.member_emails_json) as group_member
-          where lower(group_member.value) = ${normalizedUserEmail}
         )`;
     clauses.push(
       sql`exists (select 1 from ${sharesTable}
@@ -463,18 +456,20 @@ function columnName(column: unknown): string | null {
 }
 
 function missingColumnName(err: unknown): string | null {
-  const error = err as { code?: string; message?: string } | undefined;
-  const message = error?.message ?? "";
-  if (
-    error?.code !== "42703" &&
-    !/no such column|does not exist/i.test(message)
-  ) {
-    return null;
+  let current = err as
+    | { code?: unknown; message?: unknown; cause?: unknown }
+    | undefined;
+  for (let attempt = 0; current && attempt < 4; attempt++) {
+    const code = typeof current.code === "string" ? current.code : "";
+    const message = typeof current.message === "string" ? current.message : "";
+    if (code === "42703" || /column .* does not exist/i.test(message)) {
+      return message.match(/column ["']?([\w.]+)["']?/i)?.[1] ?? null;
+    }
+    current =
+      current.cause && typeof current.cause === "object"
+        ? (current.cause as typeof current)
+        : undefined;
   }
-  const quoted = message.match(/column\s+"([^"]+)"\s+does not exist/i)?.[1];
-  if (quoted) return quoted;
-  const sqlite = message.match(/no such column:\s+["`]?([\w.]+)["`]?/i)?.[1];
-  if (sqlite) return sqlite.split(".").pop() ?? sqlite;
   return null;
 }
 

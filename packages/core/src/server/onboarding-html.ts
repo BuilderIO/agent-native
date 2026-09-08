@@ -1129,8 +1129,9 @@ export interface OnboardingHtmlOptions {
    * default auth guard serves before a template-specific auth plugin.
    */
   requestHost?: string;
-  /** Exact host and protocol used by the SSO route's request-boundary check. */
+  /** @deprecated Browser SSO was removed. The fields are retained for patch compatibility. */
   identitySsoRequestHost?: string;
+  /** @deprecated Browser SSO was removed. The field is retained for patch compatibility. */
   identitySsoRequestProtocol?: string;
   requestPath?: string;
   requestOrigin?: string;
@@ -1280,7 +1281,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       identitySsoRequestHost,
       opts.identitySsoRequestProtocol,
     );
-
   const marketingStyles = hasMarketing
     ? `
   body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }

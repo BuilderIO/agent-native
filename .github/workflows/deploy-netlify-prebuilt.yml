@@ -104,6 +104,8 @@ on:
     secrets:
       NETLIFY_AUTH_TOKEN:
         required: true
+      ANALYTICS_DATABASE_URL:
+        required: false
       PLAN_DATABASE_URL:
         required: false
       CLIPS_DATABASE_URL:
@@ -289,6 +291,7 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+          ANALYTICS_DATABASE_URL_SECRET: ${{ inputs.target == 'production' && steps.target.outputs.source_template == 'analytics' && secrets.ANALYTICS_DATABASE_URL || '' }}
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
@@ -296,7 +299,8 @@ jobs:
           # The Netlify CLI uses DEPLOY_ID=0 during local prebuilt builds. Use
           # the checked-out source revision so fixed auth assets get a new URL
           # on every source deploy, including branch and beta deployments.
-          export AGENT_NATIVE_BUILD_ID="$(git rev-parse HEAD)"
+          AGENT_NATIVE_BUILD_ID="$(git rev-parse HEAD)"
+          export AGENT_NATIVE_BUILD_ID
           if [[ "$TARGET" == "beta" ]]; then
             # Beta is built from the release commit with branch-deploy context,
             # so production-scoped Netlify variables are not applied. Export
@@ -310,6 +314,7 @@ jobs:
               fi
             else
               export AGENT_NATIVE_BETA_SCHEMA_OWNER=production
+              export AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH=x64
             fi
             export AGENT_NATIVE_ENABLE_KEEP_WARM=1
             export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1
@@ -343,6 +348,14 @@ jobs:
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
+          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "analytics" ]]; then
+            : "${ANALYTICS_DATABASE_URL_SECRET:?ANALYTICS_DATABASE_URL secret is required for prebuilt Analytics deployments}"
+            # Netlify's local prebuilt runner overlays site-scoped variables
+            # with masked values. Keep the real URL under a workflow-only name
+            # so the Analytics netlify.toml command can rebind it after that
+            # overlay, before its build and release migrations run.
+            export ANALYTICS_DATABASE_URL_SECRET
+          fi
           if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
@@ -353,6 +366,7 @@ jobs:
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
+          unset ANALYTICS_DATABASE_URL_SECRET
 
       - name: Run Plan release migrations
         if: >-
@@ -993,7 +1007,7 @@ jobs:
           set -euo pipefail
           url="$DEPLOY_URL"
           # A status-only `curl --fail` cannot see a green deploy silently
-          # running on local SQLite or 500ing on Better Auth's jwks route —
+          # failing on database health or 500ing on Better Auth's jwks route —
           # smoke-check-health.ts asserts the health body, not just the code.
           if [[ "$DEPLOY_MODE" == "production" ]]; then
             url="https://$HOST"

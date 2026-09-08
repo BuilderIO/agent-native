@@ -6,7 +6,7 @@
  *   {{?name}}...{{/name}}          — entire block emitted only when vars[name] is truthy
  *
  * Quote escaping doubles single quotes (' -> ''), which is standard SQL and works on
- * both BigQuery and SQLite/Postgres. Missing variables interpolate to empty string so
+ * both BigQuery and Postgres. Missing variables interpolate to empty string so
  * optional filters don't break SQL — wrap optional clauses in {{?name}}...{{/name}}.
  */
 
