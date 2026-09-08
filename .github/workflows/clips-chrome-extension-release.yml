@@ -3,10 +3,6 @@ name: Publish Clips Chrome extension
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-  id-token: write
-
 concurrency:
   # ponytail: one Store item, so a global lock is enough; split by item if this expands.
   group: clips-chrome-extension-publish
@@ -21,10 +17,14 @@ env:
   CWS_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.CLIPS_CWS_WORKLOAD_IDENTITY_PROVIDER }}
 
 jobs:
-  publish:
-    name: Publish Clips Chrome extension
+  build:
+    name: Build Clips Chrome extension
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.package.outputs.version }}
     steps:
       - name: Require the main branch
         env:
@@ -37,20 +37,9 @@ jobs:
             exit 1
           fi
 
-      - name: Validate Chrome Web Store configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          for variable in CWS_ITEM_ID CWS_PUBLISHER_ID CWS_SERVICE_ACCOUNT CWS_WORKLOAD_IDENTITY_PROVIDER; do
-            if [[ -z "${!variable:-}" ]]; then
-              echo "::error::Repository variable for $variable is not configured."
-              exit 1
-            fi
-          done
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 1
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -82,9 +71,77 @@ jobs:
           zip_path="templates/clips/chrome-extension/releases/clips-chrome-extension-${version}.zip"
           test -s "$manifest_path"
           test -s "$zip_path"
+          mkdir -p "$RUNNER_TEMP/clips-release"
+          cp "$manifest_path" "$RUNNER_TEMP/clips-release/manifest.json"
+          cp "$zip_path" "$RUNNER_TEMP/clips-release/"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Prepared Clips Chrome extension version $version."
+
+      - name: Upload the package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: clips-chrome-extension-package
+          path: |
+            ${{ runner.temp }}/clips-release/*.zip
+            ${{ runner.temp }}/clips-release/manifest.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish Clips Chrome extension
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Require the main branch
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$WORKFLOW_REF" != "refs/heads/main" ]]; then
+            echo "::error::Run this workflow from the main branch."
+            exit 1
+          fi
+
+      - name: Validate Chrome Web Store configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variable in CWS_ITEM_ID CWS_PUBLISHER_ID CWS_SERVICE_ACCOUNT CWS_WORKLOAD_IDENTITY_PROVIDER; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::Repository variable for $variable is not configured."
+              exit 1
+            fi
+          done
+
+      - name: Download the package artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: clips-chrome-extension-package
+          path: ${{ runner.temp }}/clips-release
+
+      - name: Resolve the package artifact
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest_path="$RUNNER_TEMP/clips-release/manifest.json"
+          zip_path="$(find "$RUNNER_TEMP/clips-release" -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          version="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$manifest_path")"
+          test -s "$manifest_path"
+          test -n "$zip_path"
+          test -s "$zip_path"
+          if [[ "$version" != "${{ needs.build.outputs.version }}" ]]; then
+            echo "::error::Package version changed while crossing the build boundary."
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
-          echo "Prepared Clips Chrome extension version $version."
+          echo "Verified Clips Chrome extension version $version."
 
       - name: Authenticate to Google Cloud
         id: google-auth
@@ -111,13 +168,19 @@ jobs:
 
           published_version="$(jq -r '.publishedItemRevisionStatus.distributionChannels[0].crxVersion // empty' "$RUNNER_TEMP/clips-cws-status.json")"
           submitted_state="$(jq -r '.submittedItemRevisionStatus.state // empty' "$RUNNER_TEMP/clips-cws-status.json")"
+          async_upload_state="$(jq -r '.lastAsyncUploadState // empty' "$RUNNER_TEMP/clips-cws-status.json")"
           echo "published_version=$published_version" >> "$GITHUB_OUTPUT"
           echo "submitted_state=$submitted_state" >> "$GITHUB_OUTPUT"
           echo "Current published version: ${published_version:-none}"
           echo "Current submitted state: ${submitted_state:-none}"
+          echo "Current async upload state: ${async_upload_state:-none}"
 
           if [[ "$submitted_state" == "PENDING_REVIEW" || "$submitted_state" == "STAGED" ]]; then
             echo "::error::The Store item already has a submitted revision in state $submitted_state. Wait for it to finish before releasing another version."
+            exit 1
+          fi
+          if [[ "$async_upload_state" == "IN_PROGRESS" ]]; then
+            echo "::error::The Store item already has an asynchronous upload in progress. Wait for it to finish before releasing another version."
             exit 1
           fi
 
@@ -238,8 +301,19 @@ jobs:
           echo "Chrome Web Store submission state: $publish_state"
           jq -r '.warningInfo.warnings[]? | "Warning: \(.reason): \(.description)"' "$RUNNER_TEMP/clips-cws-publish.json"
           case "$publish_state" in
-            PENDING_REVIEW|STAGED|PUBLISHED|PUBLISHED_TO_TESTERS)
-              echo "Submitted Clips Chrome extension version ${{ steps.package.outputs.version }}: https://chromewebstore.google.com/detail/${CWS_ITEM_ID}"
+            PENDING_REVIEW)
+              echo "Submitted Clips Chrome extension version ${{ steps.package.outputs.version }} for Store review: https://chromewebstore.google.com/detail/${CWS_ITEM_ID}"
+              ;;
+            PUBLISHED)
+              echo "Published Clips Chrome extension version ${{ steps.package.outputs.version }} publicly: https://chromewebstore.google.com/detail/${CWS_ITEM_ID}"
+              ;;
+            PUBLISHED_TO_TESTERS)
+              echo "::error::Chrome Web Store returned PUBLISHED_TO_TESTERS; refusing to report a public release."
+              exit 1
+              ;;
+            STAGED)
+              echo "::error::Chrome Web Store returned STAGED; the workflow requested DEFAULT_PUBLISH but the item is not public."
+              exit 1
               ;;
             *)
               echo "::error::Chrome Web Store returned an unexpected publication state: ${publish_state:-unknown}"
