@@ -309,6 +309,9 @@ describe("view-screen", () => {
     expect(result).toContain("### Current visual selection");
     expect(result).toContain("selectionSlideId: slide-b");
     expect(result).toContain("differs from currentSlideId slide-a");
+    expect(result).toContain(
+      `selectionSlideContentHash: ${hashSlideContent("<h1>The 4-Step Journey</h1>")}`,
+    );
     expect(result).toContain("selectedText: 4-Step");
   });
 

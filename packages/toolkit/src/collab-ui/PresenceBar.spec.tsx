@@ -78,4 +78,44 @@ describe("PresenceBar", () => {
     );
     expect(onAvatarClick).not.toHaveBeenCalled();
   });
+
+  it("keeps overflow collaborators available for follow mode", () => {
+    const onAvatarClick = vi.fn();
+    const activeUsers = Array.from({ length: 6 }, (_, index) => ({
+      email: `user-${index}@example.com`,
+      name: `User ${index}`,
+      color: "#123456",
+    }));
+
+    act(() => {
+      root.render(
+        <PresenceBar activeUsers={activeUsers} onAvatarClick={onAvatarClick} />,
+      );
+    });
+
+    const overflow = container.querySelector<HTMLButtonElement>(
+      '[aria-label="1 more collaborator"]',
+    );
+    expect(overflow).not.toBeNull();
+
+    act(() => {
+      overflow?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+
+    const hiddenUser = Array.from(
+      document.querySelectorAll('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("User 5"));
+    expect(hiddenUser).not.toBeUndefined();
+
+    act(() => {
+      hiddenUser?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      hiddenUser?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onAvatarClick).toHaveBeenCalledWith(activeUsers[5]);
+  });
 });

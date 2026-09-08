@@ -1,6 +1,13 @@
 import { useMemo, type CSSProperties } from "react";
 
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -224,26 +231,74 @@ function AgentAvatar({
   );
 }
 
-function OverflowBadge({
-  count,
-  isFirst,
+function OverflowMenu({
+  users,
+  followingEmail,
+  onSelect,
 }: {
-  count: number;
-  isFirst: boolean;
+  users: CollabUser[];
+  followingEmail?: string | null;
+  onSelect?: (user: CollabUser) => void;
 }) {
+  const followingLower = followingEmail?.trim().toLowerCase() ?? null;
+
   return (
-    <div
-      style={{
-        ...baseAvatarStyle,
-        backgroundColor: "rgba(255,255,255,0.1)",
-        color: "rgba(255,255,255,0.5)",
-        marginLeft: isFirst ? 0 : OVERLAP,
-        fontSize: 10,
-      }}
-      title={`${count} more collaborator${count === 1 ? "" : "s"}`}
-    >
-      +{count}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          style={{
+            ...baseAvatarStyle,
+            backgroundColor: "hsl(var(--muted))",
+            color: "hsl(var(--muted-foreground))",
+            marginLeft: OVERLAP,
+            fontSize: 10,
+            cursor: "pointer",
+          }}
+          aria-label={`${users.length} more collaborator${users.length === 1 ? "" : "s"}`}
+        >
+          +{users.length}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuLabel>More collaborators</DropdownMenuLabel>
+        {users.map((user) => {
+          const name = user.name || emailToName(user.email);
+          const isFollowing =
+            followingLower != null &&
+            user.email.trim().toLowerCase() === followingLower;
+          return (
+            <DropdownMenuItem
+              key={user.email}
+              onSelect={() => onSelect?.(user)}
+            >
+              <span
+                style={{
+                  ...baseAvatarStyle,
+                  width: 24,
+                  height: 24,
+                  backgroundColor: user.color || emailToColor(user.email),
+                  fontSize: 10,
+                }}
+              >
+                {name.charAt(0).toUpperCase()}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {name}
+                </span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {user.email}
+                </span>
+              </span>
+              {isFollowing ? (
+                <span className="text-xs text-muted-foreground">Following</span>
+              ) : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -275,7 +330,7 @@ export function PresenceBar({
   }, [activeUsers, currentUserEmail, agentPresent, agentActive]);
 
   const visibleUsers = humanUsers.slice(0, maxVisible);
-  const overflowCount = humanUsers.length - visibleUsers.length;
+  const overflowUsers = humanUsers.slice(maxVisible);
 
   if (!showAgent && humanUsers.length === 0) return null;
 
@@ -316,8 +371,12 @@ export function PresenceBar({
                 }
               />
             ))}
-            {overflowCount > 0 && (
-              <OverflowBadge count={overflowCount} isFirst={false} />
+            {overflowUsers.length > 0 && (
+              <OverflowMenu
+                users={overflowUsers}
+                followingEmail={followingEmail}
+                onSelect={onAvatarClick ?? undefined}
+              />
             )}
           </div>
         )}

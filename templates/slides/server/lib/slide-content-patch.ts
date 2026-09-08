@@ -311,7 +311,7 @@ function findObjectTargets(
     }
     const openingTag = html.slice(tagStart, tagEnd + 1);
     if (hasObjectId(openingTag, objectId)) {
-      const isVoid = isVoidTag(tagName, openingTag);
+      const isVoid = isVoidTag(tagName);
       if (isVoid) {
         targets.push({
           innerStart: tagEnd + 1,
@@ -335,7 +335,7 @@ function findObjectTargets(
       }
     }
 
-    if (RAW_TEXT_TAG_NAMES.has(tagName) && !isVoidTag(tagName, openingTag)) {
+    if (RAW_TEXT_TAG_NAMES.has(tagName) && !isVoidTag(tagName)) {
       const rawClose = rawTextCloseIndex(html, tagName, tagEnd + 1);
       cursor = rawClose === -1 ? html.length : rawClose + tagName.length + 3;
     } else {
@@ -432,7 +432,7 @@ function findMatchingCloseTag(
     } else if (
       !closing &&
       nestedTagName === tagName &&
-      !isVoidTag(nestedTagName, html.slice(tagStart, tagEnd + 1))
+      !isVoidTag(nestedTagName)
     ) {
       depth += 1;
     }
@@ -449,8 +449,8 @@ function findMatchingCloseTag(
   return null;
 }
 
-function isVoidTag(tagName: string, source: string): boolean {
-  return VOID_TAG_NAMES.has(tagName) || /\/\s*>$/.test(source);
+function isVoidTag(tagName: string): boolean {
+  return VOID_TAG_NAMES.has(tagName);
 }
 
 function tagEndIndex(html: string, start: number): number {

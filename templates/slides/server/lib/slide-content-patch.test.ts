@@ -66,6 +66,15 @@ describe("applySlideContentEdits", () => {
     );
   });
 
+  it("treats self-closing ordinary elements as non-void", async () => {
+    const result = await applySlideContentEdits(
+      '<div data-slide-object-id="title"/><span>Keep</span></div>',
+      [{ objectId: "title", replace: "New" }],
+    );
+
+    expect(result.content).toBe('<div data-slide-object-id="title"/>New</div>');
+  });
+
   it("applies several exact edits in order without regenerating untouched source", async () => {
     const result = await applySlideContentEdits(
       '<section data-id="hero"><h1>Old</h1><p>Keep\nthis</p></section>',

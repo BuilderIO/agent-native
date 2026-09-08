@@ -153,6 +153,7 @@ export default createAgentChatPlugin({
   mcp: {
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
+      "Cross-slide selection rule: when view-screen returns selectionSlideId different from currentSlideId, use selectionSlideId and selectionSlideContentHash for the update; never pair a selectionSlideId with currentSlideContentHash. " +
       'Design system: every deck read (get-deck, view-screen, get-workspace-defaults, get-deck-reference-context) returns `designSystem` — a bounded summary with scope "summary" and a `next` line — and get-deck also returns `deckStyle` plus `representativeSlideId`. Before the first slide you author in a deck, call get-design-system { id } once for the full tokens, assets, docs, and custom instructions (create-deck already returns it in full); reuse it for every later slide instead of re-reading it. Apply designSystem.agentContext and deckStyle before authoring or restyling. If designSystem.status is "unavailable", follow its message; never invent a generic style. For a new deck, pass the exact title as `designSystem` or a designSystemId; omit both to get the caller\'s personal default, then the workspace default. When view-screen returns an exact selectedText range, edit immediately with one update-slide literal edits replacement and expectedMatches=1, passing currentSlideContentHash as baseContentHash when available; when it returns a stable objectId without exact selectedText, use one update-slide replace edit with that objectId and the same hash when available instead of fetching the full deck. Use targeted get-deck with slideId only for ambiguous, truncated, or structural text. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove a deck. Read back the same slide after writing; a delegated ask_app response is unverified until that readback confirms it.',
   },
   externalAgents: { writes: "allowlisted" },
@@ -196,16 +197,19 @@ When a request includes a public URL as source material, fetch it with web-reque
 When the user asks to improve, beautify, restyle, or make an uploaded/existing deck on-brand, treat it as an in-place source-preserving edit unless the user explicitly asks to rewrite the story or change slide count. First call view-screen when the active deck is unclear, then get-deck with compact=true for deck orientation. If you need slide markup, call get-deck with compact=false explicitly and only when the edit requires the full HTML. If get-deck.sourceImport exists, preserve its slide count, order, IDs, factual copy, notes, images, charts, tables, diagrams, freeform objects, and source aspect ratio. The ordered source manifest is sourceImport.slideIds. For a deck-wide restyle, use one patch-deck call with requireAllSourceSlides=true and one patch-slide operation with fields.content for every source slide ID; the action rejects partial coverage. Do not split a full-deck restyle into arbitrary batches or use one-by-one update-slide calls - reserve update-slide for targeted one-slide edits. After the patch succeeds, verify with get-deck using compact=true so the verification does not retransmit every slide's HTML. Completion requires sourceCoverage.complete=true with expectedSlideIds and actualSlideIds matching in order. Do not claim a partial or initial pass. Do not use add-slide, delete, reorder, or replace source imagery with generic cards for this workflow. If sourceImport.fidelity is partial or imagesSkipped is nonzero, stop and report the exact fidelity warning instead of claiming a reliable improvement.
 For a focused text edit or translation of the current selection, treat the
 selection as the target. If view-screen or the request context provides
-deckId, currentSlideId, and exact selectedText from a browser range, call
-update-slide immediately with one literal edits replace using that exact text
-and expectedMatches=1;
-pass currentSlideContentHash as baseContentHash when available. Do not call
+deckId, a selectionSlideId when present, and exact selectedText from a browser
+range, call update-slide immediately with one literal edits replace using that
+exact text and expectedMatches=1; use selectionSlideId as slideId when it is
+present. Pass selectionSlideContentHash as baseContentHash when the selection
+slide differs from currentSlideId; otherwise pass currentSlideContentHash when
+available. Never pair a selectionSlideId with the current slide's hash. Do not call
 get-deck without slideId, enumerate the deck, or request full HTML for this
 path. If no exact selectedText range is available, the value is an element
-preview or truncated, call update-slide with the supplied objectId and pass
-currentSlideContentHash as baseContentHash when available; otherwise, when the
-literal match fails or the request changes markup or layout, call get-deck with
-slideId only. First classify the
+preview or truncated, call update-slide with the supplied objectId and the
+selectionSlideId when present, passing selectionSlideContentHash when it differs
+from currentSlideId or currentSlideContentHash otherwise. When the literal
+match fails or the request changes markup or layout, call get-deck with slideId
+only. First classify the
 remaining request scope. For a
 styling-only request, set styleOnly=true, change only the requested CSS
 declarations on the identified elements, and preserve text, element order,

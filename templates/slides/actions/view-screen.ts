@@ -304,6 +304,11 @@ export default defineAction({
               ? `   (matches currentSlideId)`
               : `   (differs from currentSlideId ${currentSlide?.id ?? "(none)"} — use selectionSlideId, the slide this selection was made on)`),
         );
+        if (selectionSlide.id !== currentSlide?.id) {
+          lines.push(
+            `selectionSlideContentHash: ${hashSlideContent(String(selectionSlide.content ?? ""))}   ← use as baseContentHash with selectionSlideId`,
+          );
+        }
         lines.push(`mode: ${selection.mode ?? "unknown"}`);
         lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
         if (Array.isArray(selection.items) && selection.items.length > 0) {
