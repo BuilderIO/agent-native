@@ -10,9 +10,10 @@
  * like a large-type marketing page on purpose — at 0.4 a normal 16px body line
  * lands at 6.4px and turns to mush, so the design itself is authored chunky.
  *
- * Imagery is deliberately unresolved: `ImageSlot` draws a labelled placeholder
- * box the way a real in-progress file does. Swapping one for a real asset means
- * replacing the slot, not restyling around it.
+ * `ImageSlot` renders either a resolved asset or, without a `src`, a labelled
+ * placeholder box the way a real in-progress file does. Most slots are still
+ * awaiting artwork; pass `src` plus an `objectPosition` to fill one, since these
+ * photos are rarely centred on their subject.
  *
  * i18n-raw-literal-disable-file -- artwork, not UI copy. See the header comment
  * in DesignOverviewMock.tsx; the whole tree renders inside an `aria-hidden`
@@ -39,6 +40,16 @@ export const SELECTED_CTA_HEIGHT = 52;
  * 3.75px is still a crisp 1.5px.
  */
 const inverse = (screenPx: number) => `${screenPx / BOARD_SCALE}px`;
+
+/**
+ * The runner sits in the right third of the frame, so the near-square hero crop
+ * has to bias right or it cuts him in half. `width` is ~2x the 460px slot for
+ * retina; no `height`, so the CDN keeps the source aspect ratio and
+ * `object-fit: cover` does the cropping.
+ */
+const HERO_ATHLETE_SRC =
+  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcc5bd41b153b48d39f60ae618963dd01?format=webp&width=920";
+const HERO_ATHLETE_POSITION = "75% center";
 
 const NAV_LINKS = ["Programs", "Classes", "Coaches", "Pricing"];
 
@@ -69,19 +80,41 @@ function ImageSlot({
   size,
   className = "",
   round,
+  src,
+  objectPosition,
 }: {
   label: string;
   size: string;
   className?: string;
   round?: boolean;
+  /** When set, the slot renders the asset instead of the placeholder. */
+  src?: string;
+  /** Crop focus, since these photos are rarely centred on their subject. */
+  objectPosition?: string;
 }) {
+  const classes = ["ft-slot"];
+  if (round) classes.push("is-round");
+  if (src) classes.push("is-filled");
+  if (className) classes.push(className);
+
   return (
-    <div className={`ft-slot ${round ? "is-round" : ""} ${className}`}>
-      <span className="ft-slot-cross" />
-      <span className="ft-slot-text">
-        <span className="ft-slot-label">{label}</span>
-        <span className="ft-slot-size">{size}</span>
-      </span>
+    <div className={classes.join(" ")}>
+      {src ? (
+        <img
+          className="ft-slot-img"
+          src={src}
+          alt=""
+          style={{ objectPosition }}
+        />
+      ) : (
+        <>
+          <span className="ft-slot-cross" />
+          <span className="ft-slot-text">
+            <span className="ft-slot-label">{label}</span>
+            <span className="ft-slot-size">{size}</span>
+          </span>
+        </>
+      )}
     </div>
   );
 }
@@ -159,6 +192,8 @@ export function FitnessDesktopArtboard() {
           label="Hero athlete"
           size="460 × 420"
           className="ft-hero-art"
+          src={HERO_ATHLETE_SRC}
+          objectPosition={HERO_ATHLETE_POSITION}
         />
       </section>
 
@@ -232,6 +267,8 @@ export function FitnessMobileArtboard() {
           label="Hero athlete"
           size="294 × 200"
           className="ft-hero-art"
+          src={HERO_ATHLETE_SRC}
+          objectPosition={HERO_ATHLETE_POSITION}
         />
       </section>
 
@@ -278,6 +315,9 @@ export const DESIGN_FITNESS_CSS = [
   // Image placeholders
   ".design-mock .ft-slot { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 2px dashed rgba(20, 12, 46, 0.28); border-radius: 16px; background: rgba(124, 77, 255, 0.08); }",
   ".design-mock .ft-slot.is-round { border-radius: 999px; }",
+  // A resolved asset drops the dashed placeholder treatment entirely.
+  ".design-mock .ft-slot.is-filled { border: none; background: none; }",
+  ".design-mock .ft-slot-img { width: 100%; height: 100%; display: block; object-fit: cover; }",
   ".design-mock .ft-slot-cross { position: absolute; inset: 0; background: linear-gradient(to top right, transparent calc(50% - 1px), rgba(20, 12, 46, 0.18) 50%, transparent calc(50% + 1px)), linear-gradient(to bottom right, transparent calc(50% - 1px), rgba(20, 12, 46, 0.18) 50%, transparent calc(50% + 1px)); }",
   ".design-mock .ft-slot-text { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 10px; border-radius: 8px; background: rgba(255, 253, 248, 0.86); text-align: center; }",
   ".design-mock .ft-slot-label { color: var(--ft-ink-soft); font-size: 15px; font-weight: 600; letter-spacing: 0.02em; }",
@@ -314,11 +354,7 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-proof-avatars .ft-slot-cross { display: none; }",
   ".design-mock .ft-proof-avatars .ft-slot-label { color: rgba(255, 253, 248, 0.66); font-size: 9px; }",
   ".design-mock .ft-proof-text { color: rgba(255, 253, 248, 0.6); font-size: 15px; font-weight: 500; }",
-  ".design-mock .ft-hero-art { width: 460px; height: 420px; flex-shrink: 0; border-color: rgba(255, 253, 248, 0.34); border-radius: 28px; background: rgba(255, 253, 248, 0.1); }",
-  ".design-mock .ft-hero-art .ft-slot-cross { background: linear-gradient(to top right, transparent calc(50% - 1px), rgba(255, 253, 248, 0.22) 50%, transparent calc(50% + 1px)), linear-gradient(to bottom right, transparent calc(50% - 1px), rgba(255, 253, 248, 0.22) 50%, transparent calc(50% + 1px)); }",
-  ".design-mock .ft-hero-art .ft-slot-text { background: rgba(20, 12, 46, 0.72); }",
-  ".design-mock .ft-hero-art .ft-slot-label { color: var(--ft-surface); }",
-  ".design-mock .ft-hero-art .ft-slot-size { color: rgba(255, 253, 248, 0.6); }",
+  ".design-mock .ft-hero-art { width: 460px; height: 420px; flex-shrink: 0; border-radius: 28px; }",
 
   // The selected `Start free trial` CTA and its editor chrome.
   ".design-mock .ft-selected { position: relative; width: 160px; }",
