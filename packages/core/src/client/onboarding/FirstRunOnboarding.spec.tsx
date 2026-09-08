@@ -370,6 +370,21 @@ describe("FirstRunOnboarding", () => {
     expect(document.getElementById(titleId ?? "")?.textContent).toContain(
       "Also included with Builder.io free credits",
     );
+    expect(moreServicesPopover?.querySelector("ul")).toBeTruthy();
+    expect(
+      [...(moreServicesPopover?.querySelectorAll("li") ?? [])].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual([
+      "Voice input",
+      "Background agents",
+      "Image generation",
+      "Video generation",
+      "Connected agents",
+      "Hosting and deployment",
+      "Browser automation",
+      "Embeddings",
+    ]);
   });
 
   it("uses the existing-account connection flow from the consent popover", () => {
@@ -541,7 +556,7 @@ describe("FirstRunOnboarding", () => {
 
     act(() => {
       [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
+        .find((button) => button.textContent === "Skip for now")
         ?.click();
     });
 
@@ -638,9 +653,9 @@ describe("FirstRunOnboarding", () => {
     });
 
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(
@@ -673,9 +688,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     act(() => {
@@ -715,9 +730,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(completedSteps()).toEqual(["intro", "choice", "manual"]);
@@ -754,9 +769,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
       document.body
@@ -824,9 +839,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(
@@ -869,9 +884,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     const search = document.body.querySelector(
@@ -923,9 +938,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     const search = document.body.querySelector(
@@ -1006,9 +1021,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
       [...document.body.querySelectorAll("button")]
@@ -1077,9 +1092,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(document.body.textContent).toContain("Personalicemos esto para ti.");
@@ -1088,12 +1103,10 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toMatch(/\bProduct\b/);
   });
 
-  // Regression: `statusResolved` flips only on a *successful* status response,
-  // so a failed one used to leave a fully styled CTA that swallowed every click
-  // for the rest of the session with nothing rendered and nothing logged. The
-  // contract is that a failed read is visible, not that it silently picks the
-  // existing-account path (which would bypass the free-credits consent).
-  it("surfaces a failed Builder status read next to the connect CTA", () => {
+  // A failed initial status read must not leave the free-credits CTA inert.
+  // The click can still start the provisioning flow, which performs its own
+  // fresh status read without bypassing the consent step.
+  it("keeps the free-credits CTA actionable after a failed status read", () => {
     const start = vi.fn();
     const retry = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -1130,14 +1143,105 @@ describe("FirstRunOnboarding", () => {
     const cta = document.body.querySelector(
       '[data-testid="first-run-connect-builder"]',
     );
-    expect(cta?.getAttribute("aria-disabled")).toBe("true");
+    expect(cta?.getAttribute("aria-disabled")).toBeNull();
 
     act(() => {
       cta?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(retry).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+    expect(
+      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
+    ).not.toBeNull();
     expect(start).not.toHaveBeenCalled();
+
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-and-activate"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: true }),
+    );
+  });
+
+  it("opens the AI key settings page without opening the agent sidebar", async () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe("/settings/agent/llm");
+    expect(mocks.completeFirstRun).toHaveBeenCalled();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("keeps the manual setup step visible when completion fails", async () => {
+    mocks.completeFirstRun.mockRejectedValue(
+      new Error("first-run completion failed: 500"),
+    );
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe("/");
+    expect(document.body.textContent).toContain(
+      "first-run completion failed: 500",
+    );
   });
 
   it("shows no status error while the first Builder status read is in flight", () => {

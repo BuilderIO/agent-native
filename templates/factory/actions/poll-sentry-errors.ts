@@ -254,7 +254,9 @@ export default defineAction({
           inboxLimit,
           added,
           updated,
-          authorFiltered: 0,
+          // No authorFiltered: Sentry issues carry no author to filter on, and
+          // reporting 0 would read as "nothing was excluded" rather than "not
+          // applicable here".
           newlyObserved: added,
           truncated: added + updated < observedIssues.length,
           itemIds: addedIds,
