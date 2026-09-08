@@ -16,6 +16,7 @@ import {
   getScopedEmailProviderCategory,
   recordEmailSend,
 } from "../email-catalog/log.js";
+import { redactSensitiveEmailBodyContent } from "../email-catalog/redact-body.js";
 import {
   readDeployCredentialEnv,
   resolveSecret,
@@ -337,9 +338,11 @@ class EmailProviderError extends Error {
  * with no diagnostic value for "who did this go to". The body itself is
  * logged separately via `htmlBody`/`textBody` on `recordEmailSend` (below)
  * rather than inline here, so it is stored once instead of once per provider
- * shape. Read access to `email_log` — and therefore to any bearer-token-
- * equivalent link a body contains, such as a magic link or password reset —
- * is restricted to org admins by `authorizeTransactionalEmailRead`.
+ * shape. Before it is stored, `redactSensitiveEmailBodyContent` scrubs magic
+ * links, reset links, and OTP/verification codes, since `email_log` is
+ * readable by every org admin via `authorizeTransactionalEmailRead` and a
+ * live credential in the body would let any of them impersonate or reset the
+ * recipient.
  */
 const MAX_LOGGED_TEXT_LENGTH = 8_000;
 
@@ -578,8 +581,10 @@ async function sendEmailWithSignal(
     orgId: args.orgId ?? getRequestOrgId(),
     recipient: args.to,
     subject: args.subject,
-    htmlBody: truncateForLog(args.html),
-    textBody: args.text ? truncateForLog(args.text) : undefined,
+    htmlBody: truncateForLog(redactSensitiveEmailBodyContent(args.html)),
+    textBody: args.text
+      ? truncateForLog(redactSensitiveEmailBodyContent(args.text))
+      : undefined,
   };
   let outcome: DeliveryOutcome | undefined;
   try {

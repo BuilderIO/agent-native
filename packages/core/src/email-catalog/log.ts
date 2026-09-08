@@ -101,9 +101,14 @@ export interface RecordEmailSendArgs {
   responseStatus?: number;
   /** Raw HTTP response body text from the provider, when a response was received. */
   responseBody?: string;
-  /** Rendered HTML body of the message that was sent. */
+  /**
+   * Rendered HTML body of the message that was sent. Callers must pass this
+   * through `redactSensitiveEmailBodyContent` first — this table is org-admin
+   * readable, and an un-redacted body can carry a live magic-link, reset
+   * link, or OTP code.
+   */
   htmlBody?: string;
-  /** Rendered plain-text body, when the send included one. */
+  /** Rendered plain-text body, when the send included one. Same redaction requirement as `htmlBody`. */
   textBody?: string;
 }
 
