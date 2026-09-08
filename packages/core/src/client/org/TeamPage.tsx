@@ -70,10 +70,6 @@ import {
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
-import {
-  canChangeOrgMemberRole,
-  canRemoveOrgMember,
-} from "../../org/permissions.js";
 import type { DomainMatchOrg, OrgRole } from "../../org/types.js";
 import { docsUrl } from "../../shared/docs-url.js";
 import type { WorkspaceUserGroup } from "../../workspace-connections/groups.js";
@@ -1699,13 +1695,12 @@ export function MemberRow({
   const avatarUrl = image?.trim() || null;
   const displayName = name?.trim() || email;
 
-  // Only the owner may promote or demote members. Admins retain their valid
-  // ability to remove ordinary members without seeing a role control that the
-  // server will reject.
-  const canChangeRole =
-    !isCurrentUser && canChangeOrgMemberRole(currentUserRole, role);
-  const canRemove = !isCurrentUser && canRemoveOrgMember(currentUserRole, role);
-  const canManage = canChangeRole || canRemove;
+  const canManage =
+    role !== "owner" &&
+    !isCurrentUser &&
+    (currentUserRole === "owner" ||
+      (currentUserRole === "admin" && role === "member"));
+  const canChangeRole = canManage && currentUserRole === "owner";
 
   return (
     <div className="flex flex-col gap-3 rounded-lg bg-card px-5 py-3.5 sm:flex-row sm:items-center">
@@ -1795,7 +1790,7 @@ export function MemberRow({
                 <TooltipContent>{t("org.changeRole")}</TooltipContent>
               </Tooltip>
             ) : null}
-            {canRemove && confirmingRemove ? (
+            {confirmingRemove ? (
               <div className="flex items-center gap-1">
                 <Button
                   type="button"
@@ -1821,7 +1816,7 @@ export function MemberRow({
                   {t("org.remove")}
                 </Button>
               </div>
-            ) : canRemove ? (
+            ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1838,7 +1833,7 @@ export function MemberRow({
                 </TooltipTrigger>
                 <TooltipContent>{t("org.removeMember")}</TooltipContent>
               </Tooltip>
-            ) : null}
+            )}
           </div>
         )}
       </div>

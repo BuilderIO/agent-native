@@ -70,11 +70,9 @@ export {
   type VisibleOrgAppLinks,
 } from "./workspace-app-links.js";
 export {
-  canChangeOrgMemberRole,
   canInviteOrgMembers,
   canManageOrg,
   canManageOrgDomain,
-  canRemoveOrgMember,
   orgRoleAtLeast,
   orgRoleRank,
 } from "../../org/permissions.js";

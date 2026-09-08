@@ -231,11 +231,4 @@ export const ORG_MIGRATIONS = [
       ALTER TABLE workspace_apps ALTER COLUMN updated_at TYPE BIGINT;
     `,
   },
-  {
-    version: 1022,
-    name: "organization-federation-removal-pending-bigint",
-    // guard:allow-destructive-ddl — PostgreSQL int4 to int8 is a lossless, additive widening required for millisecond markers.
-    sql: `ALTER TABLE org_members
-          ALTER COLUMN federation_removal_pending_at TYPE BIGINT`,
-  },
 ];
