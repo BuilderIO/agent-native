@@ -63,4 +63,28 @@ describe("appMountPath", () => {
 
     expect(appMountPath(SETTINGS)).toBe("");
   });
+
+  it("does not accept a route marker inside the mount segment", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/foo-settings/integrations" },
+    });
+
+    expect(appMountPath(SETTINGS)).toBe("");
+  });
+
+  it("keeps the longest known nested mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "nested", path: "/foo/settings" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/foo/settings/settings/account" },
+    });
+
+    expect(appMountPath(SETTINGS)).toBe("/foo/settings");
+    expect(appMountedPath("/settings/profile", SETTINGS)).toBe(
+      "/foo/settings/settings/profile",
+    );
+  });
 });

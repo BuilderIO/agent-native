@@ -190,21 +190,31 @@ export function appMountPath(appLocalRoute: string): string {
 
   const marker = normalizeBasePath(appLocalRoute);
   if (!marker) return basePath;
+  const markerSegment = marker.slice(1);
 
-  // Use the first whole-segment match so user-named trailing segments cannot
-  // masquerade as part of the mount.
+  const mounts = workspaceAppMountPaths();
+  const candidates: string[] = [];
   for (
-    let index = pathname.indexOf(marker);
+    let index = pathname.indexOf(markerSegment);
     index >= 0;
-    index = pathname.indexOf(marker, index + 1)
+    index = pathname.indexOf(markerSegment, index + 1)
   ) {
-    const boundary = index + marker.length;
-    if (boundary === pathname.length || pathname[boundary] === "/") {
-      return normalizeBasePath(pathname.slice(0, index));
+    const boundary = index + markerSegment.length;
+    if (
+      (index === 0 || pathname[index - 1] === "/") &&
+      (boundary === pathname.length || pathname[boundary] === "/")
+    ) {
+      candidates.push(normalizeBasePath(pathname.slice(0, index)));
     }
   }
 
-  return basePath;
+  const knownCandidates = mounts
+    ? candidates.filter((candidate) => mounts.has(candidate))
+    : candidates;
+  if (mounts && knownCandidates.length) {
+    return knownCandidates.sort((a, b) => b.length - a.length)[0];
+  }
+  return candidates[0] ?? basePath;
 }
 
 /** Prefix an app-local browser URL with the mount resolved from the live route. */

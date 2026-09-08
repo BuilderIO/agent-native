@@ -1664,6 +1664,20 @@ export function shouldRunCoreRouteBootDatabaseWork(
   return !isProductionServerlessFunctionRuntime(env);
 }
 
+export function getBuilderConnectErrorDisposition(
+  error: unknown,
+  connectAttemptId: string | null,
+): "correlated" | "legacy" | null {
+  if (!error || typeof error !== "object" || !("message" in error)) {
+    return null;
+  }
+  const attemptId = "attemptId" in error ? error.attemptId : undefined;
+  if (typeof attemptId === "string") {
+    return attemptId === connectAttemptId ? "correlated" : null;
+  }
+  return "legacy";
+}
+
 /**
  * Creates a Nitro plugin that mounts all standard agent-native framework routes.
  *
@@ -2728,17 +2742,16 @@ export function createCoreRoutesPlugin(
               if (userEmail) {
                 const errKey = `builder-connect-error:${userEmail}`;
                 const errRow = await getSetting(errKey);
-                const isCorrelatedProvisioningError =
-                  errRow?.code === "account_exists" &&
-                  typeof connectAttemptId === "string" &&
-                  errRow.attemptId === connectAttemptId;
-                const isLegacyConnectError = errRow?.code !== "account_exists";
+                const errorDisposition = getBuilderConnectErrorDisposition(
+                  errRow,
+                  connectAttemptId,
+                );
                 if (
                   errRow &&
                   typeof errRow.message === "string" &&
-                  (isCorrelatedProvisioningError || isLegacyConnectError)
+                  errorDisposition
                 ) {
-                  if (isLegacyConnectError) {
+                  if (errorDisposition === "legacy") {
                     await deleteSetting(errKey).catch(() => {});
                   }
                   return withConnectToken({
