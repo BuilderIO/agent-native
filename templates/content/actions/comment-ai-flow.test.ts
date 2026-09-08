@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   addComment: vi.fn(),
   editDocument: vi.fn(),
   createSuggestion: vi.fn(),
+  listSuggestions: vi.fn(),
   assertSourceUnchanged: vi.fn(),
   requireRequest: vi.fn(),
   updateRequest: vi.fn(),
@@ -79,6 +80,13 @@ vi.mock(
 vi.mock("../server/lib/suggested-edits.js", () => ({
   CONTENT_DOCUMENT_SUGGESTION_ADAPTER: "content-document",
 }));
+
+vi.mock(
+  "@agent-native/core/review/suggestions/actions/list-resource-suggestions",
+  () => ({
+    default: { run: (...args: unknown[]) => mocks.listSuggestions(...args) },
+  }),
+);
 
 vi.mock("../shared/document-text-edits.js", () => ({
   resolveDocumentTextEdits: (
@@ -159,6 +167,7 @@ function run(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.listSuggestions.mockResolvedValue({ suggestions: [] });
   state.documentRevision = "base-revision";
   state.request = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -436,4 +445,53 @@ it("returns current running context when retrying an incomplete operation", asyn
     operationCompleted: false,
     nextAction: "reply-to-comment-ai-request",
   });
+});
+
+it("reports prior proposal decisions without treating them as the current result", async () => {
+  state.request.intent = "suggest";
+  state.request.snapshotJson = "[]";
+  state.source.root = { quotedText: null };
+  const prior = (
+    id: string,
+    status: string,
+    sourceThreadId = "thread-1",
+    adapterKind = "content-document",
+    commentAiRequestId = "prior-request",
+  ) => ({
+    id,
+    status,
+    adapterKind,
+    summary: "Earlier proposal",
+    metadata: { sourceThreadId, commentAiRequestId },
+  });
+  mocks.listSuggestions.mockResolvedValue({
+    suggestions: [
+      ...["pending", "accepted", "rejected", "stale", "superseded"].map(
+        (status) => prior(status, status),
+      ),
+      prior("other-thread", "pending", "thread-2"),
+      prior("other-adapter", "pending", "thread-1", "another-adapter"),
+      prior(
+        "current",
+        "pending",
+        "thread-1",
+        "content-document",
+        state.request.id,
+      ),
+    ],
+  });
+  const result = (await run(getContext, {})) as any;
+  expect(result.operationCompleted).toBe(false);
+  expect(result.nextAction).toBe("create-comment-ai-suggestion");
+  expect(result.priorSuggestions.map((s: any) => s.status)).toEqual([
+    "pending",
+    "accepted",
+    "rejected",
+    "stale",
+    "superseded",
+  ]);
+  expect(mocks.listSuggestions).toHaveBeenCalledWith(
+    { resourceType: "document", resourceId: "page-1" },
+    ctx,
+  );
 });

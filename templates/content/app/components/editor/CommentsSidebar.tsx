@@ -101,6 +101,22 @@ function renderCommentBody(content: string, mentions: CommentMention[]) {
       content={content}
       inline
       protectedSpans={commentMentionSpans(mentions)}
+      renderLink={(href, children, className) =>
+        href.startsWith("/page/") ? (
+          <Link to={href} className={className}>
+            {children}
+          </Link>
+        ) : (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={className}
+          >
+            {children}
+          </a>
+        )
+      }
     />
   );
 }
@@ -1769,7 +1785,7 @@ function CommentEntry({
         if (
           editing ||
           (event.target as HTMLElement).closest(
-            "button, textarea, [role=menuitem]",
+            "a, button, textarea, [role=menuitem]",
           )
         )
           event.stopPropagation();
