@@ -73,12 +73,13 @@ Organization federation uses a separate credential for each registered source
 app:
 
 - Set <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> on the source app.
-- Set the matching <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>
-  on Dispatch.
+- Set the matching
+  `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<NORMALIZED_APP_ID>` on Dispatch.
 - Do not reuse <code>A2A_SECRET</code> for this authority boundary.
 
 The app ID suffix replaces every run of non-alphanumeric characters with an
 underscore and uppercases the result. For example, the app ID
+
 <code>workspace-reports</code> uses
 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
 
@@ -91,17 +92,17 @@ credentials.
 
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> is used only by the remaining
 server-side and Desktop path when a self-hosted app needs an explicit Dispatch
-deployment. It does not add a browser login option or automatic browser
-handoff.
+deployment. It does not add a browser login option or automatic browser handoff.
 
 For a self-hosted Dispatch deployment, register every custom app with its
 exact app ID, client ID, HTTPS origin, callback path, and
+
 <code>identity-sso</code> capability through
 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code>. An example registration is:
 
-~~~bash
+```bash
 IDENTITY_SSO_APP_REGISTRY_JSON='[{"appId":"workspace-reports","clientId":"workspace-reports","origin":"https://reports.example.com","callbackPath":"/_agent-native/identity/callback","capabilities":["identity-sso"]}]'
-~~~
+```
 
 Production registrations must use HTTPS and an exact callback path. Localhost
 is allowed only for local development. Unknown subdomains, mismatched app IDs,

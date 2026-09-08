@@ -55,6 +55,7 @@ erscheint nie in einer Browser-URL und ist kein wiederverwendbares Bearer-Token.
 Das Flag <code>organization.cross-app-federation</code> ist standardmäßig
 deaktiviert. Wenn es aktiviert ist, registriert die Quell-App ihre lokale
 Organisation bei Dispatch und speichert die exakte Zuordnung
+
 <code>(identity_authority, identity_id)</code>. Die Ziel-App akzeptiert die
 kanonische Organisations-ID, den Namen und die verifizierte Rolle nur aus der
 serverseitig geprüften Assertion.
@@ -68,11 +69,13 @@ Die Föderation verwendet ein eigenes Secret pro registrierter Quell-App:
 
 - Setze <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> in der Quell-App.
 - Setze das passende
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> in Dispatch.
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>
+  in Dispatch.
 - Verwende <code>A2A_SECRET</code> nicht erneut für diese Autoritätsgrenze.
 
 Das Suffix der App-ID ersetzt jede Folge nicht alphanumerischer Zeichen durch
 einen Unterstrich und schreibt das Ergebnis in Großbuchstaben. Die App-ID
+
 <code>workspace-reports</code> verwendet zum Beispiel
 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
 
@@ -83,14 +86,15 @@ keine Daten.
 
 ## Konfiguration
 
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> wird nur vom verbleibenden serverseitigen
-und Desktop-Pfad verwendet, wenn eine selbst gehostete App eine explizite
-Dispatch-Bereitstellung benötigt. Es fügt keine Browser-Anmeldeoption und keine
-automatische Browser-Weiterleitung hinzu.
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> wird nur vom verbleibenden
+serverseitigen und Desktop-Pfad verwendet, wenn eine selbst gehostete App eine
+explizite Dispatch-Bereitstellung benötigt. Es fügt keine Browser-Anmeldeoption
+und keine automatische Browser-Weiterleitung hinzu.
 
 Für eine selbst gehostete Dispatch-Bereitstellung registrierst du jede eigene
 App mit exakter App-ID, Client-ID, HTTPS-Origin, Callback-Pfad und der
 Fähigkeit <code>identity-sso</code> über
+
 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code>.
 
 Produktionsregistrierungen müssen HTTPS und einen exakten Callback-Pfad verwenden.
@@ -111,9 +115,10 @@ Nach dem Deployment:
    und die Mitgliedschaftsrolle in der Ziel-App.
 
 Zum Zurücksetzen deaktiviere das zuständige Flag und entferne
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> aus der selbst gehosteten Bereitstellung.
-Danach erneut deployen. Die additiven Datensätze bleiben für die normale lokale
-Authentifizierung verfügbar.
+
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> aus der selbst gehosteten
+Bereitstellung. Danach erneut deployen. Die additiven Datensätze bleiben für die
+normale lokale Authentifizierung verfügbar.
 
 ## Verwandte Dokumentation
 

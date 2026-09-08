@@ -1126,7 +1126,7 @@ const frFR = {
       s004: "Affiner",
       s005: "Tous les modèles",
       s006: "Le studio de prototypage open source AI HTML",
-      s007: "Générez des prototypes interactifs Alpine/Tailwind à partir d'une invite, comparez les variantes, affinez avec des contrôles d'ajustement et exportez les fichiers réels que vous possédez.",
+      s007: "Créez des designs et des prototypes interactifs. Affinez avec des outils familiers ou effectuez des modifications conversationnelles. Exportez où vous voulez.",
       s008: "Créez quelque chose",
       s009: "Comment ça marche",
       s010: "Tout ce dont vous avez besoin",
@@ -1180,6 +1180,7 @@ const frFR = {
       s058: "Partez du modèle et commencez à générer des prototypes interactifs avec un agent qui édite la source.",
       s059: "Lire la documentation",
       s060: "Afficher tous les modèles",
+      s061: "100 % gratuit, open source et personnalisable.",
     },
     dispatch: {
       faq: {
