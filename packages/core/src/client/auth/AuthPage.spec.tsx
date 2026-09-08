@@ -106,7 +106,7 @@ describe("AuthPage", () => {
       "box-shadow: 0 18px 50px rgba(0,0,0,0.62)",
     );
     expect(onboardingHtml).toContain(
-      "position: fixed;\n    inset: 0;\n    z-index: 1;\n    display: flex;\n    align-items: center;\n    justify-content: center;",
+      "position: fixed;\n    inset: 0;\n    z-index: 1;\n    display: flex;\n    align-items: center;\n    justify-content: safe center;",
     );
     expect(onboardingHtml).not.toContain(
       ".auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }",

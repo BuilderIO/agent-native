@@ -2324,7 +2324,7 @@ ${embeddedAuthCss}
     z-index: 1;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: safe center;
     width: 100%;
     min-width: 0;
     max-width: none;
