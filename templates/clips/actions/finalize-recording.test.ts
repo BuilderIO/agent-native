@@ -79,7 +79,6 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: mockDbExecute }),
-  isPostgres: () => false,
 }));
 
 vi.mock("@agent-native/core/event-bus", () => ({

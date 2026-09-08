@@ -4,8 +4,6 @@ const execute = vi.fn(async () => ({ rows: [] }));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
-  getDialect: () => "sqlite",
-  isPostgres: () => false,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({

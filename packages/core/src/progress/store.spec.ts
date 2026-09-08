@@ -22,8 +22,6 @@ const mockDb = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
   isUniqueViolation: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
   safeJsonParse: (value: string, fallback: unknown) => {
@@ -33,6 +31,11 @@ vi.mock("../db/client.js", () => ({
       return fallback;
     }
   },
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/poll.js", () => ({

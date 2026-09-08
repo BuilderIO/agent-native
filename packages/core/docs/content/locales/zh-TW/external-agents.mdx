@@ -509,6 +509,8 @@ CSP 和沙箱權限等安全中繼資料存在於資源中
 
 實際上，每個 Agent-Native 應用程式都應使用以下兩種方式編寫：用於在有能力的主機中進行行內審查/編輯的 MCP 應用程式，以及用於通用往返返回完整應用程式的 `link` 應用程式。不渲染 iframe 的 CLI/程式碼編輯器用戶端會回退到深層連結。人工選取工具可以向回退新增貼上步驟：例如，資產選取器從回退連結開啟，讓使用者在瀏覽器中選取媒體，然後複製使用者貼上回聊天中的交接摘要。
 
+外部代理可以使用應用程式真正的建立/更新工具——與應用程式內代理呼叫的是同一批具名操作——因此當使用者要求新內容(設計、簡報、表單、文件)時,應直接撰寫並用這些工具儲存,而不是把工作委託給 `ask_app`。標記為 `endsTurn: true` 的操作(例如在該應用程式自身聊天中等待使用者回答的應用程式內提問表單),除非設定 `mcpTool: true`,否則會對 MCP、WebMCP 和 A2A 隱藏——請參閱[定義 Actions 中的 endsTurn](/docs/actions-defining)。工具的輸入與結果在 WebMCP 上最多可攜帶 500,000 個字元,因此整個畫面、簡報或文件可以一次寫入——請參閱[WebMCP](/docs/webmcp)。頁面本地的 WebMCP 呼叫也會攜帶瀏覽器分頁 ID(與 UI 使用的是同一個 `getBrowserTabId()` 值——請參閱[情境意識](/docs/context-awareness)),因此按分頁劃分的導覽與選取會解析到代理正在操作的那個分頁,即使它被隱藏。
+
 ### 一流的 MCP 應用橋 {#mcp-app-bridge}
 
 `embedApp()` 從操作的 `link` 目標開始，建立一個短期嵌入工作階段，並啟動該簽名的應用程式路由。 Claude web采用單框架移植路徑； ChatGPT 透過 `window.openai` 主機 API 獲得受控路由 iframe。所有路徑均呈現正常的 React 路由。直接水合路由透過主橋呼叫`ui/update-model-context`、`ui/message`、`ui/open-link`、`ui/request-display-mode`； ChatGPT 路徑透過 `agentNative.mcpHost.*` postMessage 中繼相同的請求。 `embedApp({ height })` 預設為 `560px`，並鉗位為 `320-900px`。
@@ -815,6 +817,7 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 ## 相關 {#related}
 
 - [MCP Apps](/docs/mcp-apps) — 編寫 MCP 應用程式 UI、嵌入橋和主橋 API。
+- [WebMCP](/docs/webmcp) — 頁面本地工具、500,000 字元的輸入/結果上限，以及瀏覽器分頁 ID 標頭。
 - [MCP Protocol](/docs/mcp-protocol) — 自動安裝的 MCP 伺服器和 `ask-agent` 元工具。
 - [MCP Clients](/docs/mcp-clients) — 對稱方向：您的應用使用本機/遠端 MCP 伺服器。
 - [A2A Protocol](/docs/a2a-protocol) — `ask-agent` 元工具和 JSON-RPC 對等呼叫。

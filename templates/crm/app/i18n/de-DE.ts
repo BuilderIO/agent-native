@@ -61,7 +61,7 @@ const messages = {
   settings: {
     title: "CRM-Einstellungen",
     description:
-      "Native SQL hält CRM-eigene Datensätze lokal und portabel. HubSpot und Salesforce nutzen Arbeitsbereich-Verbindungen; ihre Spiegel speichern nur freigegebene Felder, begrenzte Metadaten und Referenzen auf Belege.",
+      "Native SQL hält CRM-eigene Datensätze in Postgres. HubSpot und Salesforce nutzen Arbeitsbereich-Verbindungen; ihre Spiegel speichern nur freigegebene Felder, begrenzte Metadaten und Referenzen auf Belege.",
     languageTitle: "Sprache",
     languageDescription:
       "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",

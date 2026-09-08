@@ -316,6 +316,7 @@ export {
   renderAgentNativeOgImageSvg,
   type AgentNativeOgImageInput,
 } from "./social-og-image.js";
+export { AGENT_NATIVE_OG_BACKGROUND_DATA_URL } from "./og-background-data.js";
 export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
 export {
   createBrowserSessionActionEntries,

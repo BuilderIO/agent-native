@@ -21,8 +21,12 @@ export interface CalendarEvent {
   accountEmail?: string;
   /** Provenance for a discovered Google calendar source. */
   calendarSourceKey?: string;
+  /** Opaque stable identity for the provider calendar across account paths. */
+  canonicalKey?: string;
   calendarId?: string;
   calendarName?: string;
+  /** Provider color inherited from the event's calendar. */
+  calendarColor?: string;
   calendarAccessRole?: GoogleCalendarSource["accessRole"];
   calendarPrimary?: boolean;
   calendarReadOnly?: boolean;
@@ -368,7 +372,11 @@ export interface GoogleAuthStatus {
 }
 
 export interface GoogleCalendarSource {
+  /** Opaque selected account-backed fetch path. */
   sourceKey: string;
+  /** Opaque stable identity for this provider calendar across account paths. */
+  canonicalKey: string;
+  /** Deterministically selected connected account path used for provider reads. */
   accountEmail: string;
   calendarId: string;
   name: string;
@@ -378,6 +386,13 @@ export interface GoogleCalendarSource {
   accessRole: "freeBusyReader" | "reader" | "writer" | "owner";
   /** Sources without event detail access are discoverable but cannot be read. */
   readOnly: boolean;
+  /** Every connected-account path that can reach this canonical source. */
+  sourcePaths?: Array<{
+    sourceKey: string;
+    accountEmail: string;
+    accessRole: "freeBusyReader" | "reader" | "writer" | "owner";
+    primary: boolean;
+  }>;
 }
 
 export interface ExternalCalendar {

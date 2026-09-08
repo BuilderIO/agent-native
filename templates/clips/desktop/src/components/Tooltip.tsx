@@ -5,12 +5,10 @@ import * as React from "react";
  * shadcn-style Tooltip for the Tauri tray app.
  *
  * Mirrors shadcn/ui's tooltip API (Tooltip / TooltipTrigger / TooltipContent),
- * but styled with the desktop app's plain-CSS theme tokens instead of Tailwind
- * — this app has no Tailwind/shadcn build. Radix gives us a portaled,
- * collision-aware tooltip so it never gets clipped by the small scrollable
- * settings popover (a hand-rolled `position:absolute` tooltip would), plus
- * keyboard focus support and an instant show that the slow native
- * `title="..."` attribute can't provide.
+ * styled with the desktop app's existing theme tokens. Radix provides the
+ * portaled, collision-aware positioning and keyboard focus behavior; the
+ * viewport cap below keeps that positioning honest inside the small native
+ * tray window.
  */
 
 function TooltipProvider({
@@ -44,19 +42,29 @@ const TooltipTrigger = TooltipPrimitive.Trigger;
 const TooltipContent = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
->(({ className, sideOffset = 6, children, ...props }, ref) => (
-  <TooltipPrimitive.Portal>
-    <TooltipPrimitive.Content
-      ref={ref}
-      sideOffset={sideOffset}
-      className={["tooltip-content", className].filter(Boolean).join(" ")}
-      {...props}
-    >
-      {children}
-      <TooltipPrimitive.Arrow className="tooltip-arrow" width={10} height={5} />
-    </TooltipPrimitive.Content>
-  </TooltipPrimitive.Portal>
-));
+>(
+  (
+    { className, sideOffset = 6, collisionPadding = 8, children, ...props },
+    ref,
+  ) => (
+    <TooltipPrimitive.Portal>
+      <TooltipPrimitive.Content
+        ref={ref}
+        sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
+        className={["tooltip-content", className].filter(Boolean).join(" ")}
+        {...props}
+      >
+        {children}
+        <TooltipPrimitive.Arrow
+          className="tooltip-arrow"
+          width={10}
+          height={5}
+        />
+      </TooltipPrimitive.Content>
+    </TooltipPrimitive.Portal>
+  ),
+);
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };

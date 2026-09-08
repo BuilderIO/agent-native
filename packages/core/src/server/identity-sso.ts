@@ -143,7 +143,7 @@ function normalizeAuthority(raw: string): string | null {
   }
 }
 
-function resolveAppId(event: H3Event): string {
+export function resolveIdentitySsoAppId(event: H3Event): string {
   // Generic id first here, unlike credential scoping: SSO identifies this app
   // instance to an authority, it does not look up a row keyed by the id a
   // workspace deploy assigned.
@@ -211,7 +211,7 @@ function resolveClientBinding(
   event: H3Event,
   hub: string,
 ): SsoClientBinding | null {
-  const appId = resolveAppId(event);
+  const appId = resolveIdentitySsoAppId(event);
   const clientId = resolveClientId(appId);
   const redirectUri = `${getOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
   const authority = normalizeAuthority(hub);
@@ -260,6 +260,9 @@ interface VerifiedIdentity {
   email: string;
   name: string;
   orgDomain?: string;
+  orgId?: string;
+  orgName?: string;
+  orgRole?: "owner" | "admin" | "member";
   authProvider?: "google";
   sub: string;
   jti: string;
@@ -300,6 +303,23 @@ async function verifyIdentityAssertion(
     }
     const jti = typeof payload.jti === "string" ? payload.jti : "";
     if (!jti) return null;
+    const orgId =
+      typeof payload.org_id === "string" && payload.org_id.trim()
+        ? payload.org_id.trim()
+        : undefined;
+    const orgName =
+      typeof payload.org_name === "string" && payload.org_name.trim()
+        ? payload.org_name.trim()
+        : undefined;
+    const orgRole =
+      payload.org_role === "owner" ||
+      payload.org_role === "admin" ||
+      payload.org_role === "member"
+        ? payload.org_role
+        : undefined;
+    if ((orgId || orgName || orgRole) && (!orgId || !orgName || !orgRole)) {
+      return null;
+    }
     return {
       email,
       name:
@@ -310,6 +330,9 @@ async function verifyIdentityAssertion(
         typeof payload.org_domain === "string" && payload.org_domain
           ? payload.org_domain
           : undefined,
+      ...(orgId ? { orgId } : {}),
+      ...(orgName ? { orgName } : {}),
+      ...(orgRole ? { orgRole } : {}),
       authProvider:
         payload.identity_auth_provider === "google" ? "google" : undefined,
       sub: typeof payload.sub === "string" && payload.sub ? payload.sub : email,
@@ -643,6 +666,17 @@ export async function handleIdentitySso(
             linkIdentity,
           )
         : linkIdentity());
+      if (identity.orgId && identity.orgName && identity.orgRole) {
+        const { provisionFederatedOrganization } =
+          await import("../org/federation.js");
+        await provisionFederatedOrganization({
+          authority: binding.authority,
+          id: identity.orgId,
+          name: identity.orgName,
+          role: identity.orgRole,
+          email: identity.email,
+        });
+      }
     } catch {
       return errorPage(
         "Could not finish linking your account. Please try again.",

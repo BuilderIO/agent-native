@@ -3,7 +3,6 @@ import {
   AGENT_NATIVE_ACTION_EVENTS,
   normalizeTrackingDimension,
 } from "../shared/analytics-events.js";
-import { track } from "./registry.js";
 
 const IGNORED_ACTION_NAMES = new Set(["refresh-list"]);
 const IGNORED_ACTION_PATTERN =
@@ -73,6 +72,10 @@ export function wrapRunWithActionTracking(
   return async function trackedRun(args: any, ctx?: ActionRunContext) {
     if (!ctx || !shouldTrackAction(ctx)) return run(args, ctx);
 
+    // Loaded here, not at module scope: action.ts is re-exported by the
+    // browser entry, and the registry reads request context and the deploy
+    // environment (node:url), which crashes a client bundle at load.
+    const { track } = await import("./registry.js");
     const startedAt = Date.now();
     track(AGENT_NATIVE_ACTION_EVENTS.started, actionProperties(ctx), ctx);
     try {

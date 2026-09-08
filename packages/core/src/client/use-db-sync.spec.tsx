@@ -238,6 +238,26 @@ describe("useDbSync", () => {
     ]);
   });
 
+  it("invalidates only the originating tab's navigate command cache", async () => {
+    const result = await renderWithEvent({
+      version: 1,
+      source: "app-state",
+      type: "change",
+      key: "navigate:tab-a",
+      requestSource: "agent",
+    });
+    roots.push(result.root);
+    containers.push(result.container);
+
+    expect(invalidatedQueryKeys(result.queryClient.calls)).toContainEqual([
+      "navigate-command",
+      "tab-a",
+    ]);
+    expect(invalidatedQueryKeys(result.queryClient.calls)).not.toContainEqual([
+      "navigate-command",
+    ]);
+  });
+
   it("can scope the broad action invalidate away from expensive query keys", async () => {
     const queryClient = new QueryClientProbe();
     const observedEvents: Array<readonly { source?: string; key?: string }[]> =

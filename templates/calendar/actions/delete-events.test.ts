@@ -142,6 +142,48 @@ describe("delete-events", () => {
     bookingRowsMock.mockResolvedValue([]);
   });
 
+  it("rejects a shared source id before a bulk delete can target primary", async () => {
+    await expect(
+      run({
+        ids: ["google-google-calendar:opaque-source-shared-event"],
+        accountEmail: OWNER,
+        dryRun: true,
+        scope: "single",
+      }),
+    ).rejects.toThrow("Shared Google calendar events are read-only");
+
+    expect(deleteEventMock).not.toHaveBeenCalled();
+  });
+
+  it("skips read-only shared events discovered by a filtered bulk delete", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        googleEvent({
+          id: "shared-event",
+          start: "2026-04-11T18:00:00.000Z",
+          calendarReadOnly: true,
+        }),
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-04-11",
+      to: "2026-04-12",
+      scope: "single",
+      dryRun: true,
+    });
+
+    expect(result.skipped).toBe(1);
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        outcome: "skipped",
+        reason: "Comes from a read-only Google calendar source",
+      }),
+    );
+    expect(deleteEventMock).not.toHaveBeenCalled();
+  });
+
   it("deletes weekend events using the calendar timezone, not UTC", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [

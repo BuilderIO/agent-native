@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { isLocalDatabase, isPostgres } from "@agent-native/core/db";
+import { isLocalDatabase } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -130,7 +130,7 @@ export async function runMigration(args: MigrationInput) {
       ? args.plan.databaseId
       : args.databaseId;
   const localDatabase = isLocalDatabase();
-  const flushUnderDurableLock = isPostgres() && !localDatabase;
+  const flushUnderDurableLock = true && !localDatabase;
   return withContentDatabaseMutationLock(databaseId, async () => {
     const [database] = await db
       .select()
@@ -182,7 +182,7 @@ export async function runMigration(args: MigrationInput) {
       if (replay) return replay;
       if (!localDatabase && !flushUnderDurableLock) {
         throw new Error(
-          "Database row migration requires PostgreSQL or a local SQLite/PGlite database so live editor saves can be serialized safely.",
+          "Database row migration requires PostgreSQL or local PGlite so live editor saves can be serialized safely.",
         );
       }
       if (!flushUnderDurableLock) {
@@ -236,7 +236,7 @@ export async function runMigration(args: MigrationInput) {
       if (preflight.replay) return preflight.replay;
       if (!localDatabase && !flushUnderDurableLock) {
         throw new Error(
-          "Database row migration requires PostgreSQL or a local SQLite/PGlite database so live editor saves can be serialized safely.",
+          "Database row migration requires PostgreSQL or local PGlite so live editor saves can be serialized safely.",
         );
       }
       if (!flushUnderDurableLock) {
@@ -822,7 +822,7 @@ export async function runMigration(args: MigrationInput) {
     if (mutated)
       await writeAppState("refresh-signal", { ts: Date.now() }).catch(() => {
         // The receipt is already committed; polling reconciles this optional
-        // UI hint when a concurrent SQLite writer briefly holds the database.
+        // UI hint when a concurrent Postgres writer briefly holds the database.
       });
     return result;
   });

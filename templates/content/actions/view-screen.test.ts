@@ -2,11 +2,71 @@ import { describe, expect, it } from "vitest";
 
 import type { ContentDatabaseResponse, DocumentProperty } from "../shared/api";
 import {
+  buildSelectionScreenSection,
   databaseCurrentViewSnapshot,
   documentContentPreview,
   serializeDocumentTreeItemForScreen,
   SCREEN_DOCUMENT_PREVIEW_CHARS,
 } from "./view-screen";
+
+describe("buildSelectionScreenSection", () => {
+  it("returns null when there is no selection state", () => {
+    expect(buildSelectionScreenSection(null, "doc1")).toBeNull();
+  });
+
+  it("returns null when the selection belongs to a different document", () => {
+    const selection = {
+      documentId: "doc-other",
+      collapsed: false,
+      selectedText: "hello",
+    };
+    expect(buildSelectionScreenSection(selection, "doc1")).toBeNull();
+  });
+
+  it("returns null when no document is currently open", () => {
+    const selection = { documentId: "doc1", selectedText: "hello" };
+    expect(buildSelectionScreenSection(selection, undefined)).toBeNull();
+  });
+
+  it("builds a collapsed-selection section with a cursor-only hint", () => {
+    const selection = {
+      documentId: "doc1",
+      collapsed: true,
+      blockText: "Some paragraph text",
+      heading: "Intro",
+    };
+    const section = buildSelectionScreenSection(selection, "doc1");
+    expect(section).toMatchObject({
+      documentId: "doc1",
+      collapsed: true,
+      blockText: "Some paragraph text",
+      heading: "Intro",
+    });
+    expect(section?.hint).toMatch(/no text is selected/i);
+  });
+
+  it("builds a real-selection section naming the edit-document call", () => {
+    const selection = {
+      documentId: "doc1",
+      collapsed: false,
+      selectedText: "the quick brown fox",
+      textTruncated: false,
+      blockText: "The quick brown fox jumps.",
+      heading: "Section A",
+    };
+    const section = buildSelectionScreenSection(selection, "doc1");
+    expect(section).toMatchObject({
+      documentId: "doc1",
+      collapsed: false,
+      selectedText: "the quick brown fox",
+      textTruncated: false,
+      heading: "Section A",
+    });
+    expect(section?.hint).toContain("edit-document");
+    expect(section?.hint).toContain("baseRevision");
+    expect(section?.hint).toContain("idempotencyKey");
+  });
+});
 
 function property(
   id: string,

@@ -13,6 +13,7 @@ vi.mock("../SearchModal", () => ({
 }));
 
 import { docsI18nCatalog } from "../../i18n";
+import { SnackbarProvider } from "./ds/snackbar";
 import { SiteHeader } from "./site-header";
 
 function LocationProbe() {
@@ -50,7 +51,9 @@ function renderHeader() {
         initialPreference="en-US"
         persistPreference={false}
       >
-        <SiteHeader starCount={1234} />
+        <SnackbarProvider>
+          <SiteHeader starCount={1234} />
+        </SnackbarProvider>
         <LocationProbe />
       </AgentNativeI18nProvider>
     </MemoryRouter>,

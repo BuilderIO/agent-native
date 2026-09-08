@@ -50,6 +50,13 @@ describe("isForbiddenHostedTemplateEnvKey", () => {
   it("rejects the backend Demo mode switch", () => {
     expect(isForbiddenHostedTemplateEnvKey("DEMO_MODE")).toBe(true);
   });
+
+  it("rejects Amplitude tracking keys", () => {
+    expect(isForbiddenHostedTemplateEnvKey("AMPLITUDE_API_KEY")).toBe(true);
+    expect(isForbiddenHostedTemplateEnvKey("VITE_AMPLITUDE_API_KEY")).toBe(
+      true,
+    );
+  });
 });
 
 describe("normalizeProductionUrlEntry", () => {

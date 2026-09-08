@@ -1,10 +1,8 @@
-// Integration tests for the bitemporal attribute writer. Boots a real libsql
-// (SQLite) database on disk, seeds the PRE-bitemporal shape of
-// `crm_record_fields` with rows, then runs the actual versioned migrations over
-// it — so every test here runs against an upgraded database, not a fresh one.
-// That distinction is load-bearing: SQLite accepts `ADD COLUMN … NOT NULL
-// DEFAULT (datetime('now'))` on an empty table and rejects it on a populated
-// one, so a fresh-database-only test passes while every real upgrade fails.
+// Integration tests for the bitemporal attribute writer. Boots a real PGlite
+// database on disk, seeds the PRE-bitemporal shape of `crm_record_fields` with
+// rows, then runs the actual versioned migrations over it. Every test here runs
+// against an upgraded database, not a fresh one, so the production upgrade path
+// remains covered.
 
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +16,7 @@ import type { CrmWritableAttribute } from "./record-fields.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-record-fields-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-record-fields-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -45,15 +43,15 @@ const LEGACY_RECORD_FIELDS_DDL = `CREATE TABLE IF NOT EXISTS crm_record_fields (
   access_scope_key TEXT NOT NULL DEFAULT 'unverified',
   access_scope_json TEXT NOT NULL DEFAULT '{}',
   remote_revision TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private'
 )`;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -77,9 +75,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;

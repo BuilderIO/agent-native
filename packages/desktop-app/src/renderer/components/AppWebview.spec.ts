@@ -105,6 +105,14 @@ describe("Desktop identity lazy child synchronization", () => {
         sessionReady: false,
         status: "failed",
       }),
+    ).toBe(true);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: true,
+        status: "failed",
+      }),
     ).toBe(false);
   });
 

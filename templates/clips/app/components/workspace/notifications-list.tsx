@@ -10,6 +10,12 @@ import {
 import { Link } from "react-router";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 
 export type NotificationKind = "comment" | "reaction" | "mention" | "share";
 
@@ -61,10 +67,16 @@ export function NotificationsList({ items, onReply }: NotificationsListProps) {
   ) => formatters.formatRelativeTime(value, unit);
   if (!items.length) {
     return (
-      <div className="text-center py-16 text-sm text-muted-foreground">
-        <IconBell className="size-10 mx-auto mb-3 text-muted-foreground/50" />
-        {t("clipsFinalRaw.allCaughtUp")}
-      </div>
+      <Empty className="gap-3 rounded-none py-16">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <IconBell />
+          </EmptyMedia>
+          <EmptyTitle className="text-sm font-medium text-muted-foreground">
+            {t("clipsFinalRaw.allCaughtUp")}
+          </EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 

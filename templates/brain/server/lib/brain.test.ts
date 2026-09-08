@@ -227,7 +227,7 @@ const mocks = vi.hoisted(() => {
   };
   const dbExec = {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
-      if (sql.includes("WHERE id = ? AND capture_id = ?")) {
+      if (sql.includes("WHERE id = $3 AND capture_id = $4")) {
         const [status, updatedAt, id, captureId, leaseToken] = args;
         const row = rows.ingestQueue.find(
           (item) =>
@@ -4991,7 +4991,7 @@ describe("Brain demo eval", () => {
       kind: "message",
       content: [
         "Slack #dev-fusion thread",
-        "Engineering architecture: Brain retrieval starts with portable SQL over brain_knowledge.",
+        "Engineering architecture: Brain retrieval starts with Postgres SQL over brain_knowledge.",
         "Raw capture fallback only runs when source policy allows.",
         "V1 has no vector database requirement.",
       ].join("\n"),

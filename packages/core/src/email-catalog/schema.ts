@@ -13,7 +13,7 @@
  * joins on `template_id`.
  */
 
-import { table, text, integer } from "../db/schema.js";
+import { table, text, bigint } from "../db/schema.js";
 
 export const emailLog = table("email_log", {
   id: text("id").primaryKey(),
@@ -47,10 +47,10 @@ export const emailLog = table("email_log", {
    */
   requestPayload: text("request_payload"),
   /** Raw HTTP status code from the provider, when a response was received. */
-  responseStatus: integer("response_status"),
+  responseStatus: bigint("response_status", { mode: "number" }),
   /** Raw HTTP response body text from the provider, when a response was received. */
   responseBody: text("response_body"),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
 export const EMAIL_LOG_CREATE_SQL = `CREATE TABLE IF NOT EXISTS email_log (

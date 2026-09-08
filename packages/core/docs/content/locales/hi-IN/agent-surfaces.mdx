@@ -460,7 +460,7 @@ export default defineAction({
 
 </Endpoint>
 
-यह no-database या stateless mode नहीं है। App-agent loop SQL में sessions, threads, runs, settings, credentials, application state, और share records store करता है। Local development defaults SQLite पर; hosted automation-first apps को persistent SQL database का उपयोग करना चाहिए।
+यह no-database या stateless mode नहीं है। App-agent loop SQL में sessions, threads, runs, settings, credentials, application state, और share records store करता है। Local development defaults PGlite पर; hosted automation-first apps को persistent PostgreSQL database का उपयोग करना चाहिए।
 
 यदि आपको project folder से पूरे agent loop को headlessly चलाने की आवश्यकता है, तो उपयोग करें:
 

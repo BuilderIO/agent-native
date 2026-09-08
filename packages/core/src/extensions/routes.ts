@@ -8,7 +8,7 @@ import {
   type H3Event,
 } from "h3";
 
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { getOrgContext } from "../org/context.js";
 import {
   resolveKeyReferencesWithRequestScopes,
@@ -602,7 +602,7 @@ async function handleExtensionDataUpsert(
 
   const scopeKey = scope === "org" ? `org:${orgId}` : userEmail;
   const client = getDbExec();
-  const pg = isPostgres();
+  const pg = true;
   const conflictClause = pg
     ? `ON CONFLICT (tool_id, collection, scope_key, item_id)
        DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`
@@ -998,7 +998,7 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
 // blocklisted token literally (string concat, dynamic SQL, etc). The temp-
 // view scoping in scripts/db/scoping.ts is the actual ownership boundary.
 export const DESTRUCTIVE_SQL_RE =
-  /\b(CREATE\s+(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP)?\s*(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE|TABLESPACE|PUBLICATION|SUBSCRIPTION)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+(TABLE|VIEW|SCHEMA|DATABASE|FUNCTION|ROLE|EXTENSION|PUBLICATION)\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA|GRANT|REVOKE|SET\s+ROLE|RESET\s+ROLE|COPY)\b/i;
+  /\b(CREATE\s+(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP)?\s*(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE|TABLESPACE|PUBLICATION|SUBSCRIPTION)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+(TABLE|VIEW|SCHEMA|DATABASE|FUNCTION|ROLE|EXTENSION|PUBLICATION)\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|GRANT|REVOKE|SET\s+ROLE|RESET\s+ROLE|COPY)\b/i;
 
 // Sensitive tables that extensions must not touch directly. Includes Better Auth
 // identity tables, framework infrastructure (tracing, evals, automations,

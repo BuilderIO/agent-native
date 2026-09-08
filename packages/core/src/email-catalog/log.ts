@@ -8,12 +8,13 @@
 
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -30,75 +31,44 @@ export async function ensureTable(): Promise<void> {
         EMAIL_LOG_ORG_STATUS_INDEX_SQL,
         EMAIL_LOG_ORG_PROVIDER_INDEX_SQL,
       } = await import("./schema.js");
-      const client = getDbExec();
       // Generic INTEGER maps to BIGINT on Postgres, which millisecond
       // timestamps need.
-      const createSql = isPostgres()
-        ? EMAIL_LOG_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT")
-        : EMAIL_LOG_CREATE_SQL;
-      if (isPostgres()) {
-        await ensureTableExists("email_log", createSql);
+      const createSql = EMAIL_LOG_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT");
+      await ensureTableExists("email_log", createSql);
+      await widenIntColumnsToBigInt("email_log", ["created_at"]);
+      await ensureColumnExists(
+        "email_log",
+        "org_id",
+        "ALTER TABLE email_log ADD COLUMN IF NOT EXISTS org_id TEXT",
+      );
+      for (const column of ADDITIVE_TEXT_COLUMNS) {
         await ensureColumnExists(
           "email_log",
-          "org_id",
-          "ALTER TABLE email_log ADD COLUMN IF NOT EXISTS org_id TEXT",
+          column,
+          `ALTER TABLE email_log ADD COLUMN IF NOT EXISTS ${column} TEXT`,
         );
-        for (const column of ADDITIVE_TEXT_COLUMNS) {
-          await ensureColumnExists(
-            "email_log",
-            column,
-            `ALTER TABLE email_log ADD COLUMN IF NOT EXISTS ${column} TEXT`,
-          );
-        }
-        await ensureColumnExists(
-          "email_log",
-          "response_status",
-          "ALTER TABLE email_log ADD COLUMN IF NOT EXISTS response_status BIGINT",
-        );
-        await ensureIndexExists(
-          "email_log_template_created_idx",
-          EMAIL_LOG_TEMPLATE_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "email_log_org_app_created_idx",
-          EMAIL_LOG_ORG_APP_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "email_log_org_status_created_idx",
-          EMAIL_LOG_ORG_STATUS_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "email_log_org_provider_created_idx",
-          EMAIL_LOG_ORG_PROVIDER_INDEX_SQL,
-        );
-        return;
       }
-
-      await client.execute(createSql);
-      const addColumn = async (column: string, type: string) => {
-        try {
-          await client.execute(
-            `ALTER TABLE email_log ADD COLUMN ${column} ${type}`,
-          );
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          if (!/already exists|duplicate column name/i.test(message)) {
-            throw error;
-          }
-          console.info(
-            `[agent-native:email] email_log.${column} already exists during local bootstrap`,
-          );
-        }
-      };
-      await addColumn("org_id", "TEXT");
-      await addColumn("request_payload", "TEXT");
-      await addColumn("response_status", "INTEGER");
-      await addColumn("response_body", "TEXT");
-      await client.execute(EMAIL_LOG_TEMPLATE_INDEX_SQL);
-      await client.execute(EMAIL_LOG_ORG_APP_INDEX_SQL);
-      await client.execute(EMAIL_LOG_ORG_STATUS_INDEX_SQL);
-      await client.execute(EMAIL_LOG_ORG_PROVIDER_INDEX_SQL);
+      await ensureColumnExists(
+        "email_log",
+        "response_status",
+        "ALTER TABLE email_log ADD COLUMN IF NOT EXISTS response_status BIGINT",
+      );
+      await ensureIndexExists(
+        "email_log_template_created_idx",
+        EMAIL_LOG_TEMPLATE_INDEX_SQL,
+      );
+      await ensureIndexExists(
+        "email_log_org_app_created_idx",
+        EMAIL_LOG_ORG_APP_INDEX_SQL,
+      );
+      await ensureIndexExists(
+        "email_log_org_status_created_idx",
+        EMAIL_LOG_ORG_STATUS_INDEX_SQL,
+      );
+      await ensureIndexExists(
+        "email_log_org_provider_created_idx",
+        EMAIL_LOG_ORG_PROVIDER_INDEX_SQL,
+      );
     })().catch((error) => {
       // Don't memoize a failed bootstrap — the next send should retry rather
       // than log nothing forever.

@@ -17,7 +17,7 @@ import {
   CHAT_THREAD_SCHEMA_MIGRATIONS,
   CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
 } from "../chat-threads/schema-migrations.js";
-import { getDatabaseUrl, isLocalDatabase } from "../db/client.js";
+import { getDatabaseUrl } from "../db/client.js";
 import { runMigrations } from "../db/migrations.js";
 import {
   REMOTE_DEVICE_MIGRATIONS,
@@ -44,13 +44,11 @@ import { IDENTITY_SSO_MIGRATIONS } from "./identity-sso-migrations.js";
 import { runFrameworkSchemaEnsures } from "./release-schema.js";
 
 /**
- * A release deploy whose `DATABASE_URL` resolves to a local SQLite file
- * migrated nothing: the file dies with the build container while the deployed
- * functions keep talking to the real database. Every later signal still reports
- * success — `Applied migration ...` lines, a zero exit, a published deploy — so
- * this has to fail here or it fails silently forever. CRM shipped this way and
- * served 500s on every write because its `jwks`/`user` tables were never
- * created on the database its functions actually use.
+ * A release deploy whose `DATABASE_URL` resolves to a local development
+ * database migrates nothing: that database dies with the build container while
+ * deployed functions keep talking to the real database. Every later signal
+ * still reports success — `Applied migration ...` lines, a zero exit, a
+ * published deploy — so this has to fail here or it fails silently forever.
  *
  * Scoped to `CONTEXT=production` on purpose. The beta lane deliberately builds
  * with `AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1` under a branch-deploy context
@@ -63,11 +61,9 @@ function assertReleaseMigrationTargetsRemoteDatabase(): void {
   const url = getDatabaseUrl();
   // `isLocalDatabase()` alone is not enough. Netlify hands the CLI a MASKED
   // secret ("****************uire") outside its own build infra, and that is
-  // neither empty nor a `file:` URL — so it reads as "not local" while being
-  // unconnectable, and the driver falls back to a local SQLite file anyway.
-  // Factory published green off exactly that, having applied 93 migrations to
-  // a file that died with the build container. Require a real scheme too.
-  if (!isLocalDatabase() && url.includes("://")) return;
+  // neither empty nor a local URL — so it reads as "not local" while being
+  // unconnectable. Require a real remote scheme too.
+  if (url.includes("://")) return;
   throw new Error(
     `Release migrations resolved to an unusable database (${describeReleaseMigrationUrl(url)}). ` +
       "In a production deploy the schema must be applied to the same remote " +
@@ -83,7 +79,7 @@ function assertReleaseMigrationTargetsRemoteDatabase(): void {
 /** Describes the URL shape without ever echoing a credential into build logs. */
 function describeReleaseMigrationUrl(url: string): string {
   if (!url) return "unset";
-  if (url.startsWith("file:")) return "local file";
+  if (url.startsWith("pglite:")) return "local database";
   const scheme = url.includes("://") ? url.split("://")[0] : undefined;
   return scheme ? `${scheme} url` : "no scheme — likely a masked secret";
 }

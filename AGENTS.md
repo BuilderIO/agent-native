@@ -143,10 +143,11 @@ exist, and both are narrow on purpose.
 
 **Guards** (`pnpm guards`, and CI on every PR — these apply to Codex, Claude
 Code, and a human equally). `pnpm guards --list` prints the current set;
-`no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`, and
-`no-heavy-dashboard-list-reads` check only lines this branch added, so the
-pre-existing backlog stays a separate cleanup. Each guard has a documented
-opt-out pragma, and every opt-out is a decision a reviewer should see.
+`no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
+`no-heavy-dashboard-list-reads`, and `external-result-contract` check only
+lines this branch added, so the pre-existing backlog stays a separate
+cleanup. Each guard has a documented opt-out pragma, and every opt-out is a
+decision a reviewer should see.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
@@ -200,15 +201,14 @@ argument rots into exactly the patchwork it warns about.
 
 ## Architecture Contract
 
-- Data lives in SQL via Drizzle by default. Explicit Local File Mode artifacts
+- Data lives in PostgreSQL via Drizzle by default. Explicit Local File Mode artifacts
   declared through `agent-native.json` may use repo files as the source of truth,
   but app state, auth, settings, and hosted/collaborative mode still use SQL.
-  Keep schemas provider-agnostic.
-- Keep app and template database code dialect-agnostic. Never call adapter-only
-  methods such as libSQL/SQLite `run()`, `all()`, or `get()`, or PostgreSQL-only
-  client APIs. Use Drizzle's shared query builder for normal reads and writes
-  and `getDbExec().execute()` for reviewed portable raw SQL; keep dialect
-  branching inside core database helpers.
+  Keep schemas PostgreSQL-specific.
+- Keep app and template database code PostgreSQL-specific. Use Drizzle's
+  PostgreSQL query builder for normal reads and writes and
+  `getDbExec().execute()` for reviewed PostgreSQL raw SQL. Never call
+  adapter-specific `run()`, `all()`, or `get()` methods.
 - Actions are the single source of truth. Define app operations in `actions/`
   with `defineAction`; the agent calls them as tools and the frontend calls the
   shared action surface through `useActionQuery` / `useActionMutation`.

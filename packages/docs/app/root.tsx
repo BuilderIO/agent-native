@@ -49,6 +49,7 @@ import {
   docsAlternateLinksForPath,
   docsMarkdownPathForPath,
 } from "./components/docs-seo";
+import { SnackbarProvider } from "./components/website-redesign/ds/snackbar";
 import { Footer } from "./components/website-redesign/footer";
 import { SiteHeader } from "./components/website-redesign/site-header";
 import { isStaleDocsChunkError } from "./docs-error-classification.js";
@@ -268,9 +269,11 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
     // here is what actually decides the page color, on every route.
     <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]">
       <ScrollManager />
-      <SiteHeader starCount={starCount} />
-      {children}
-      <Footer />
+      <SnackbarProvider>
+        <SiteHeader starCount={starCount} />
+        {children}
+        <Footer />
+      </SnackbarProvider>
     </div>
   );
 }

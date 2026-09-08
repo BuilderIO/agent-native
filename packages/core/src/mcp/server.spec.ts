@@ -18,7 +18,9 @@ import * as jose from "jose";
  * Node fast-path is still taken (and unchanged) when `event.node` is present.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
+import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 const builtinToolMocks = vi.hoisted(() => ({
@@ -1092,6 +1094,80 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         theme: "light",
       },
     ]);
+  });
+
+  it.each([false, true])(
+    "discovers composed object inputs through the SDK (full catalog: %s)",
+    async (fullCatalog) => {
+      const actions = {
+        "union-input": defineAction({
+          schema: z.discriminatedUnion("phase", [
+            z.object({ phase: z.literal("validate"), plan: z.object({}) }),
+            z.object({ phase: z.literal("verify"), digest: z.string() }),
+          ]),
+          run: async () => ({ ok: true }),
+        }),
+        "intersection-input": defineAction({
+          schema: z.intersection(
+            z.object({ id: z.string() }),
+            z.object({ value: z.unknown() }),
+          ),
+          run: async () => ({ ok: true }),
+        }),
+      };
+      const { client } = await createModernClient(
+        {
+          ...config,
+          actions,
+          productionActions: actions,
+          connectorCatalog: Object.keys(actions),
+        },
+        {
+          requestHeaders: {
+            "x-agent-native-mcp-full-catalog": fullCatalog ? "1" : "0",
+          },
+        },
+      );
+      try {
+        const result = await client.listTools();
+        for (const [name, action] of Object.entries(actions)) {
+          const tool = result.tools.find((tool) => tool.name === name);
+          expect(tool?.inputSchema).toEqual({
+            ...action.tool.parameters,
+            type: "object",
+          });
+        }
+        expect(
+          result.tools.every((tool) => tool.inputSchema.type === "object"),
+        ).toBe(true);
+      } finally {
+        await client.close();
+      }
+    },
+  );
+
+  it("reports the tool whose input contract cannot be advertised as an object", async () => {
+    const actions = {
+      "unsupported-input": {
+        tool: {
+          description: "Unsupported input",
+          parameters: { type: "string" },
+        },
+        run: async () => ({ ok: true }),
+      },
+    };
+    const { client } = await createModernClient({
+      ...config,
+      actions,
+      productionActions: actions,
+    });
+    try {
+      await expect(client.listTools()).rejects.toThrow(
+        /unsupported-input.*object-only/,
+      );
+    } finally {
+      await client.close();
+    }
   });
 
   it("handles `tools/list` and returns the registered action with MCP App metadata", async () => {

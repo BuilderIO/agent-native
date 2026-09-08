@@ -993,7 +993,7 @@ jobs:
           set -euo pipefail
           url="$DEPLOY_URL"
           # A status-only `curl --fail` cannot see a green deploy silently
-          # running on local SQLite or 500ing on Better Auth's jwks route —
+          # failing on database health or 500ing on Better Auth's jwks route —
           # smoke-check-health.ts asserts the health body, not just the code.
           if [[ "$DEPLOY_MODE" == "production" ]]; then
             url="https://$HOST"
