@@ -1743,7 +1743,8 @@ export function AuthPage(props: AuthPageProps) {
     };
   }, [verificationResendUntil]);
 
-  const verificationResendActive = verificationResendUntil > Date.now();
+  const verificationResendActive =
+    verificationResendUntil > verificationResendNow;
 
   const handleSignup = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
