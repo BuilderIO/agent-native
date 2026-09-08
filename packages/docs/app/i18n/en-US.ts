@@ -570,6 +570,7 @@ const enUS = {
     tryCommunityDemo: "Try demo",
     customizeDescription: "Use this app as a starting point.",
     customizeOnline: "Online",
+    customizeOnlineBadge: "Join waitlist",
     customizeLocally: "Local",
     communityNew: "New",
     communityComingSoon: "Coming soon",
@@ -625,6 +626,16 @@ const enUS = {
     popoverTitle: "Build in the browser",
     popoverBody:
       "Rapidly generate agent-native apps in the cloud with Builder.io.",
+    waitlistBody:
+      "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
+    emailLabel: "Email",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "Join waitlist",
+    joining: "Joining…",
+    joined:
+      "You're on the waitlist. We'll email you when build-online access opens.",
+    invalidEmail: "Enter a valid email address.",
+    submitError: "Couldn't join the waitlist. Please try again.",
     launchBuilder: "Launch Builder",
   },
   templateCard: {

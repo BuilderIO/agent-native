@@ -570,6 +570,7 @@ const koKR = {
     tryCommunityDemo: "데모 사용해 보기",
     customizeDescription: "이 앱을 시작점으로 사용하세요.",
     customizeOnline: "온라인",
+    customizeOnlineBadge: "대기자 명단 등록",
     customizeLocally: "로컬",
     communityNew: "새 앱",
     communityComingSoon: "곧 공개",
@@ -625,6 +626,16 @@ const koKR = {
     popoverTitle: "브라우저에서 빌드",
     popoverBody:
       "Builder.io를 사용해 클라우드에서 agent-native 앱을 빠르게 생성하세요.",
+    waitlistBody:
+      "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
+    emailLabel: "이메일",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "대기자 명단 참여",
+    joining: "참여 중…",
+    joined:
+      "대기자 명단에 등록되었습니다. 온라인 빌드 액세스가 열리면 이메일로 알려드릴게요.",
+    invalidEmail: "유효한 이메일 주소를 입력하세요.",
+    submitError: "대기자 명단에 참여하지 못했습니다. 다시 시도하세요.",
     launchBuilder: "Builder 실행",
   },
   templateCard: {

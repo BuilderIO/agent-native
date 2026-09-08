@@ -558,6 +558,7 @@ const zhCN = {
     tryCommunityDemo: "体验演示",
     customizeDescription: "以这个应用为起点。",
     customizeOnline: "在线",
+    customizeOnlineBadge: "加入等候名单",
     customizeLocally: "本地",
     communityNew: "新应用",
     communityComingSoon: "即将推出",
@@ -608,6 +609,15 @@ const zhCN = {
     buildOnline: "在线构建",
     popoverTitle: "在浏览器中构建",
     popoverBody: "使用 Builder.io 在云端快速生成 agent-native 应用。",
+    waitlistBody:
+      "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
+    emailLabel: "邮箱",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "加入候补名单",
+    joining: "正在加入…",
+    joined: "你已加入候补名单。在线构建访问开放后我们会发送邮件通知你。",
+    invalidEmail: "请输入有效的邮箱地址。",
+    submitError: "无法加入候补名单。请重试。",
     launchBuilder: "启动 Builder",
   },
   templateCard: {

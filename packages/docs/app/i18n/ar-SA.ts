@@ -565,6 +565,7 @@ const arSA = {
     tryCommunityDemo: "تجربة العرض",
     customizeDescription: "استخدم هذا التطبيق كنقطة بداية.",
     customizeOnline: "عبر الإنترنت",
+    customizeOnlineBadge: "انضم إلى قائمة الانتظار",
     customizeLocally: "محلي",
     communityNew: "جديد",
     communityComingSoon: "قريبًا",
@@ -619,6 +620,16 @@ const arSA = {
     buildOnline: "ابنِ عبر الإنترنت",
     popoverTitle: "أنشئ في المتصفح",
     popoverBody: "أنشئ تطبيقات agent-native بسرعة في السحابة مع Builder.io.",
+    waitlistBody:
+      "يمكن لـ Builder.io إنشاء تطبيق agent-native وتخصيصه في السحابة — مع الإجراءات والمصادقة وحالة SQL ودردشة الوكيل. انضم إلى قائمة الانتظار للوصول المبكر.",
+    emailLabel: "البريد الإلكتروني",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "انضم إلى قائمة الانتظار",
+    joining: "جارٍ الانضمام…",
+    joined:
+      "أنت على قائمة الانتظار. سنرسل لك بريدًا عندما يتوفر الوصول للبناء عبر الإنترنت.",
+    invalidEmail: "أدخل بريدًا إلكترونيًا صالحًا.",
+    submitError: "تعذر الانضمام إلى قائمة الانتظار. حاول مرة أخرى.",
     launchBuilder: "شغّل Builder",
   },
   templateCard: {
