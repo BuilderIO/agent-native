@@ -3,7 +3,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { Link, useLocation } from "react-router";
 
-import { BuilderLaunchLink } from "../BuilderWaitlistPopover";
+import { BuilderLaunchAction } from "../BuilderWaitlistPopover";
 import { sitePathForLocale, type DocsLocale } from "../docs-locale";
 import {
   gettingStartedPathsMdx,
@@ -123,7 +123,8 @@ export function GettingStartedCloudContent() {
             </h2>
             <p>{step.body}</p>
             {step.number === 1 ? (
-              <BuilderLaunchLink
+              <BuilderLaunchAction
+                location="getting_started"
                 className="getting-started-cloud-cta"
                 onClick={() => choosePath("build_cloud")}
               />

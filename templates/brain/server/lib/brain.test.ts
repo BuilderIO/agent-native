@@ -555,6 +555,12 @@ vi.mock("@agent-native/core/db/schema", () => ({
       default: () => ({ name }),
     }),
   }),
+  bigint: (name: string) => ({
+    name,
+    notNull: () => ({
+      default: () => ({ name }),
+    }),
+  }),
   now: () => "CURRENT_TIMESTAMP",
   ownableColumns: () => ({
     ownerEmail: { name: "ownerEmail" },

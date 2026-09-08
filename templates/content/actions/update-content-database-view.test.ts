@@ -32,10 +32,13 @@ describe("update content database view", () => {
             endDatePropertyId: "end-date",
             hiddenPropertyIds: ["hidden"],
             propertyOrderIds: ["name", "status"],
+            tableColumnOrderIds: ["status", "name"],
             collapsedGroupIds: ["status:done"],
             hideEmptyGroups: true,
             calculations: { status: "count_values" },
             wrapCells: true,
+            columnWrapOverrides: { status: false, name: true },
+            frozenThroughColumnId: "status",
             rowDensity: "comfortable",
             openPagesIn: "full_page",
             formQuestions: [
@@ -57,9 +60,12 @@ describe("update content database view", () => {
       ],
       collapsedGroupIds: ["status:done"],
       propertyOrderIds: ["name", "status"],
+      tableColumnOrderIds: ["status", "name"],
       hideEmptyGroups: true,
       calculations: { status: "count_values" },
       wrapCells: true,
+      columnWrapOverrides: { status: false, name: true },
+      frozenThroughColumnId: "status",
       rowDensity: "comfortable",
       openPagesIn: "full_page",
       formQuestions: [
@@ -67,6 +73,54 @@ describe("update content database view", () => {
         { key: "status", enabled: true, required: false },
       ],
     });
+  });
+
+  it("preserves explicit null freeze and rejects malformed presentation values", () => {
+    const parsed = action.schema.parse({
+      databaseId: "database",
+      viewConfig: {
+        views: [
+          {
+            id: "table",
+            name: "Table",
+            type: "table",
+            frozenThroughColumnId: null,
+          },
+        ],
+      },
+    });
+    expect(parsed.viewConfig.views[0]?.frozenThroughColumnId).toBeNull();
+
+    expect(() =>
+      action.schema.parse({
+        databaseId: "database",
+        viewConfig: {
+          views: [
+            {
+              id: "table",
+              name: "Table",
+              type: "table",
+              columnWrapOverrides: { status: "yes" },
+            },
+          ],
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      action.schema.parse({
+        databaseId: "database",
+        viewConfig: {
+          views: [
+            {
+              id: "table",
+              name: "Table",
+              type: "table",
+              frozenThroughColumnId: "",
+            },
+          ],
+        },
+      }),
+    ).toThrow();
   });
 
   it("normalizes retired sidebar saved views to tables", () => {
@@ -129,5 +183,40 @@ describe("update content database view", () => {
       type: "form",
       formQuestions: [{ key: "name", enabled: true, required: true }],
     });
+  });
+
+  it("fails loudly when stored column presentation state is malformed", () => {
+    expect(() =>
+      parseDatabaseViewConfig(
+        JSON.stringify({
+          activeViewId: "table",
+          views: [
+            {
+              id: "table",
+              name: "Table",
+              type: "table",
+              columnWrapOverrides: { status: "yes" },
+            },
+          ],
+        }),
+      ),
+    ).toThrow("Database column wrap overrides must be a boolean map.");
+    expect(() =>
+      parseDatabaseViewConfig(
+        JSON.stringify({
+          activeViewId: "table",
+          views: [
+            {
+              id: "table",
+              name: "Table",
+              type: "table",
+              frozenThroughColumnId: 42,
+            },
+          ],
+        }),
+      ),
+    ).toThrow(
+      "Database frozen-through column must be a non-empty column ID or null.",
+    );
   });
 });
