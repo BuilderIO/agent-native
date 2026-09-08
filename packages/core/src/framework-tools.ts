@@ -305,6 +305,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-transactional-emails": "emailCatalog",
   "render-transactional-email-preview": "emailCatalog",
   "list-email-log": "emailCatalog",
+  "get-email-log-body": "emailCatalog",
   "list-email-activity": "emailCatalog",
   "list-email-engagement": "emailCatalog",
 
