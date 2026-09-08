@@ -879,6 +879,37 @@ export async function mergeCoreSharingActions(
       "send-review-thread-to-agent",
       () => import("../review/actions/send-review-thread-to-agent.js"),
     ],
+    [
+      "react-to-review-comment",
+      () => import("../review/actions/react-to-review-comment.js"),
+    ],
+    [
+      "set-review-thread-unread",
+      () => import("../review/actions/set-review-thread-unread.js"),
+    ],
+    [
+      "set-review-thread-muted",
+      () => import("../review/actions/set-review-thread-muted.js"),
+    ],
+    [
+      "create-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/create-resource-suggestion.js"),
+    ],
+    [
+      "list-resource-suggestions",
+      () =>
+        import("../review/suggestions/actions/list-resource-suggestions.js"),
+    ],
+    [
+      "get-resource-suggestion",
+      () => import("../review/suggestions/actions/get-resource-suggestion.js"),
+    ],
+    [
+      "decide-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/decide-resource-suggestion.js"),
+    ],
     // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
     // are toolCallable:false — preserved via preserveActionFlags below.
     [

@@ -8,6 +8,7 @@ import {
   emailToName,
   type CollabUser,
 } from "@agent-native/core/client/collab";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   setClientAppState,
   useAvatarUrl,
@@ -15,6 +16,12 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  useCreateResourceSuggestion,
+  useDecideResourceSuggestion,
+  useResourceSuggestions,
+} from "@agent-native/core/client/review";
+import type { ResourceSuggestion } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import {
@@ -36,7 +43,7 @@ import {
   useState,
 } from "react";
 import type { ClipboardEvent, MutableRefObject } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -98,6 +105,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { flushBlockFieldSaveController } from "./blockFieldSaveRegistry";
+import { CONTENT_SUGGESTED_EDITS_FLAG } from "../../../shared/feature-flags";
 import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
@@ -121,6 +129,8 @@ import {
   type PendingLocalSourceWrite,
 } from "./local-source-write-state";
 import { NotionConflictBanner } from "./NotionConflictBanner";
+import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
+import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
@@ -128,6 +138,7 @@ import {
 import { VisualEditor } from "./VisualEditor";
 import type {
   NotionPageLink,
+  VisualEditorSuggestion,
   VisualEditorHistoryController,
   VisualEditorHistoryState,
 } from "./VisualEditor";
@@ -143,6 +154,52 @@ interface DocumentEditorProps {
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
 type ContentSaveWatermark = { content: string; updatedAt: string | null };
 type DocumentUtilityPanel = "info" | "comments" | null;
+
+function suggestionPresentation(
+  suggestion: ResourceSuggestion,
+): VisualEditorSuggestion | null {
+  if (suggestion.status !== "pending") return null;
+  const operation = suggestion.operations[0];
+  if (!operation) return null;
+  const before = operation.before as { changedText?: unknown } | null;
+  const after = operation.after as { changedText?: unknown } | null;
+  const anchor = operation.anchor as {
+    from?: unknown;
+    prefix?: unknown;
+    suffix?: unknown;
+  } | null;
+  const supportedKinds = [
+    "insert_text",
+    "delete_text",
+    "replace_text",
+    "add_text_block",
+    "set_inline_mark",
+  ] as const;
+  if (
+    !supportedKinds.includes(
+      operation.kind as (typeof supportedKinds)[number],
+    ) ||
+    typeof before?.changedText !== "string" ||
+    typeof after?.changedText !== "string" ||
+    typeof anchor?.from !== "number" ||
+    typeof anchor.prefix !== "string" ||
+    typeof anchor.suffix !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: suggestion.id,
+    kind: operation.kind as VisualEditorSuggestion["kind"],
+    beforeText: before.changedText,
+    afterText: after.changedText,
+    anchor: {
+      from: anchor.from,
+      prefix: anchor.prefix,
+      suffix: anchor.suffix,
+    },
+    presentation: "canonical",
+  };
+}
 
 export function metadataUpdatesWithPendingTitle<
   T extends {
@@ -700,6 +757,7 @@ function DocumentEditorBody({
     [documentId, canEdit],
   );
   const navigate = useNavigate();
+  const location = useLocation();
   const documentsQuery = useDocuments();
   const documents: Document[] = documentsQuery.data ?? [];
   const contentSpacesQuery = useContentSpaces();
@@ -719,6 +777,48 @@ function DocumentEditorBody({
         document.accessRole === "admin" ||
         document.accessRole === "editor" ||
         document.accessRole === "commenter"));
+  const suggestedEditsEnabled = useFeatureFlag(
+    CONTENT_SUGGESTED_EDITS_FLAG.key,
+  );
+  const createSuggestion = useCreateResourceSuggestion();
+  const decideSuggestion = useDecideResourceSuggestion();
+  const suggestionsQuery = useResourceSuggestions(
+    { resourceType: "document", resourceId: documentId },
+    { enabled: suggestedEditsEnabled && !isLocalFileDocument },
+  );
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [isSubmittingSuggestions, setIsSubmittingSuggestions] = useState(false);
+  const [suggestionDraft, setSuggestionDraft] = useState(document.content);
+  const [anchoredSuggestionIds, setAnchoredSuggestionIds] = useState<
+    string[] | null
+  >(null);
+  const [selectedSuggestionId, setSelectedSuggestionId] = useState<
+    string | null
+  >(null);
+  const suggestionBaseRef = useRef<{
+    content: string;
+    updatedAt: string;
+  } | null>(null);
+  const createdSuggestionOperationsRef = useRef(
+    new Map<string, { idempotencyKey: string; suggestionId?: string }>(),
+  );
+  const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
+  const [lastUtilityPanel, setLastUtilityPanel] =
+    useState<Exclude<DocumentUtilityPanel, null>>("comments");
+  const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
+  const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
+    useState(false);
+  const [showCommentIndicators, setShowCommentIndicators] = useState(true);
+  const canSuggest =
+    suggestedEditsEnabled &&
+    canComment &&
+    !isLocalFileDocument &&
+    !(
+      document.databaseMembership &&
+      document.databaseMembership.systemRole == null
+    ) &&
+    !document.database &&
+    !document.source?.mode;
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -851,6 +951,26 @@ function DocumentEditorBody({
     documentId,
     navigate,
     t,
+  ]);
+
+  useEffect(() => {
+    const suggestionId = new URLSearchParams(location.search).get("suggestion");
+    if (!suggestionId || !suggestionsQuery.data) return;
+    if (utilityPanel !== "comments" || !commentsBrowseOpen) {
+      setUtilityPanel("comments");
+      setCommentsBrowseOpen(true);
+      return;
+    }
+    const target = globalThis.document.querySelector<HTMLElement>(
+      `[data-suggestion-id="${CSS.escape(suggestionId)}"]`,
+    );
+    target?.scrollIntoView({ block: "nearest" });
+    target?.focus();
+  }, [
+    commentsBrowseOpen,
+    location.search,
+    suggestionsQuery.data,
+    utilityPanel,
   ]);
   const flushRequestKey = `flush-request-${documentId}`;
   const [flushRequestWake, setFlushRequestWake] = useState(0);
@@ -1077,6 +1197,12 @@ function DocumentEditorBody({
     collabSynced &&
     collabInitialization.status === "ready" &&
     !collabInitializationFailed;
+  const suggestionEditorIsolation = suggestedEditorIsolation({
+    suggesting: isSuggesting,
+    canSuggest,
+    canEdit: editorCanEdit,
+    collaborationReady: collabEditorEnabled,
+  });
   canEditRef.current = editorCanEdit;
 
   // Viewers intentionally join awareness so they receive live cursors, but
@@ -2002,6 +2128,140 @@ function DocumentEditorBody({
     [debouncedSave, documentReconcileConflict, editorCanEdit],
   );
 
+  const handleSuggestionModeChange = useCallback(
+    async (next: boolean) => {
+      if (next) {
+        if (!canSuggest) return;
+        createdSuggestionOperationsRef.current.clear();
+        suggestionBaseRef.current = {
+          content: document.content,
+          updatedAt: document.updatedAt,
+        };
+        setSuggestionDraft(document.content);
+        setIsSuggesting(true);
+        return;
+      }
+      if (!isSuggesting) return;
+      if (isSubmittingSuggestions) return;
+      const base = suggestionBaseRef.current;
+      if (!base) return;
+      if (suggestionDraft === base.content) {
+        setIsSuggesting(false);
+        suggestionBaseRef.current = null;
+        createdSuggestionOperationsRef.current.clear();
+        return;
+      }
+      setIsSubmittingSuggestions(true);
+      try {
+        const operations = markdownSuggestionOperations(
+          base.content,
+          suggestionDraft,
+        );
+        if (operations.length === 0) {
+          setIsSuggesting(false);
+          suggestionBaseRef.current = null;
+          return;
+        }
+        for (const operation of operations) {
+          const operationKey = JSON.stringify(operation);
+          const existing =
+            createdSuggestionOperationsRef.current.get(operationKey);
+          if (existing?.suggestionId) {
+            continue;
+          }
+          const idempotencyKey =
+            existing?.idempotencyKey ?? globalThis.crypto.randomUUID();
+          createdSuggestionOperationsRef.current.set(operationKey, {
+            idempotencyKey,
+          });
+          const created = await createSuggestion.mutateAsync({
+            resourceType: "document",
+            resourceId: documentId,
+            adapterKind: "content.document-markdown",
+            baseRevision: base.updatedAt,
+            summary: t("editor.toolbar.suggestEdits"),
+            idempotencyKey,
+            operations: [operation],
+          });
+          createdSuggestionOperationsRef.current.set(operationKey, {
+            idempotencyKey,
+            suggestionId: created.id,
+          });
+        }
+        setIsSuggesting(false);
+        suggestionBaseRef.current = null;
+        createdSuggestionOperationsRef.current.clear();
+      } catch (error) {
+        toast.error(t("editor.suggestionCreateFailed"), {
+          description:
+            error instanceof Error ? error.message : t("empty.genericError"),
+        });
+      } finally {
+        setIsSubmittingSuggestions(false);
+      }
+    },
+    [
+      canSuggest,
+      createSuggestion,
+      document.content,
+      documentId,
+      isSuggesting,
+      isSubmittingSuggestions,
+      suggestionDraft,
+      t,
+    ],
+  );
+
+  useEffect(() => {
+    if (!canSuggest && isSuggesting) setIsSuggesting(false);
+  }, [canSuggest, isSuggesting]);
+
+  const visualSuggestions = useMemo<VisualEditorSuggestion[]>(() => {
+    const base = suggestionBaseRef.current;
+    if (isSuggesting && base) {
+      return markdownSuggestionOperations(base.content, suggestionDraft).map(
+        (operation) => ({
+          id: `draft-${operation.ordinal}`,
+          kind: operation.kind,
+          beforeText: operation.before.changedText,
+          afterText: operation.after.changedText,
+          anchor: operation.anchor,
+          presentation: "draft",
+        }),
+      );
+    }
+    return (suggestionsQuery.data?.suggestions ?? [])
+      .map(suggestionPresentation)
+      .filter(
+        (suggestion): suggestion is VisualEditorSuggestion =>
+          suggestion !== null,
+      );
+  }, [isSuggesting, suggestionDraft, suggestionsQuery.data?.suggestions]);
+
+  useEffect(() => {
+    void setClientAppState(
+      "content-suggestion-mode",
+      {
+        documentId,
+        suggesting: isSuggesting,
+        draftChanged: isSuggesting && suggestionDraft !== document.content,
+        pendingCount:
+          suggestionsQuery.data?.suggestions.filter(
+            (suggestion) => suggestion.status === "pending",
+          ).length ?? 0,
+      },
+      { requestSource: "content-editor" },
+    ).catch(() => {
+      // Suggesting remains usable when best-effort agent context sync fails.
+    });
+  }, [
+    document.content,
+    documentId,
+    isSuggesting,
+    suggestionDraft,
+    suggestionsQuery.data?.suggestions,
+  ]);
+
   const handleContentSaveNow = useCallback(
     async (newContent: string, adoptCurrentServerBase = false) => {
       if (!editorCanEdit) return false;
@@ -2073,13 +2333,6 @@ function DocumentEditorBody({
   } | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
-  const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
-  const [lastUtilityPanel, setLastUtilityPanel] =
-    useState<Exclude<DocumentUtilityPanel, null>>("comments");
-  const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
-  const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
-    useState(false);
-  const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
     !isLocalFileDocument ? documentId : null,
@@ -2101,18 +2354,22 @@ function DocumentEditorBody({
     showCommentsHistoryDrawer && hasUtilityRailSpace;
   const hasOpenCommentThreads =
     threads?.some((thread) => !thread.resolved) ?? false;
+  const hasOpenSuggestions =
+    suggestionsQuery.data?.suggestions.some(
+      (suggestion) => suggestion.status === "pending",
+    ) ?? false;
   const showInlineComments =
     showCommentIndicators &&
     hasUtilityRailSpace &&
     !showCommentsHistoryDrawer &&
     utilityPanel !== "info" &&
-    (hasOpenCommentThreads || !!pendingComment);
+    (hasOpenCommentThreads || hasOpenSuggestions || !!pendingComment);
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
     utilityPanel === "comments" &&
     !hasUtilityRailSpace &&
-    (!!pendingComment || !!selectedThreadId);
+    (!!pendingComment || !!selectedThreadId || !!selectedSuggestionId);
   const showUtilityPanelSheet =
     (showCommentsHistoryDrawer && !showDesktopCommentsHistory) ||
     (utilityPanel === "info" && !showDesktopInfoPanel);
@@ -2170,6 +2427,7 @@ function DocumentEditorBody({
   const clearCommentFocus = useCallback(() => {
     setSelectedThreadId(null);
     setHoveredThreadId(null);
+    setSelectedSuggestionId(null);
   }, []);
 
   const dismissCommentFocus = useCallback(() => {
@@ -2181,11 +2439,34 @@ function DocumentEditorBody({
   }, [clearCommentFocus, hasUtilityRailSpace]);
 
   const activateCommentThread = useCallback((threadId: string) => {
+    setSelectedSuggestionId(null);
     setPendingComment(null);
     setHoveredThreadId(null);
     setSelectedThreadId(threadId);
     setCommentsBrowseOpen(false);
     setUtilityPanel("comments");
+  }, []);
+
+  const activateSuggestion = useCallback((suggestionId: string) => {
+    setPendingComment(null);
+    setHoveredThreadId(null);
+    setSelectedThreadId(null);
+    setSelectedSuggestionId(suggestionId);
+    setCommentsBrowseOpen(false);
+    setUtilityPanel("comments");
+    requestAnimationFrame(() => {
+      const escaped = globalThis.CSS?.escape
+        ? globalThis.CSS.escape(suggestionId)
+        : suggestionId.replace(/["\\]/g, "\\$&");
+      const targets = globalThis.document.querySelectorAll<HTMLElement>(
+        `[data-suggestion-id="${escaped}"]`,
+      );
+      const pageTarget = Array.from(targets).find((target) =>
+        target.closest(".notion-editor"),
+      );
+      pageTarget?.scrollIntoView({ behavior: "smooth", block: "center" });
+      pageTarget?.focus({ preventScroll: true });
+    });
   }, []);
 
   const handleUtilityPanelChange = useCallback(
@@ -2209,6 +2490,7 @@ function DocumentEditorBody({
     setCommentsBrowseOpen(false);
     setUtilityPanel(null);
     clearCommentFocus();
+    setSelectedSuggestionId(null);
   }, [clearCommentFocus, documentId]);
 
   useEffect(() => {
@@ -2238,10 +2520,17 @@ function DocumentEditorBody({
             ? globalThis.CSS.escape(selectedThreadId)
             : selectedThreadId.replace(/["\\]/g, "\\$&")
           : null;
+        const escapedSuggestionId = selectedSuggestionId
+          ? globalThis.CSS?.escape
+            ? globalThis.CSS.escape(selectedSuggestionId)
+            : selectedSuggestionId.replace(/["\\]/g, "\\$&")
+          : null;
         const marked = scrollContainer.querySelector(
           escapedThreadId
             ? `[data-comment-thread="${escapedThreadId}"]`
-            : ".comment-highlight--pending",
+            : escapedSuggestionId
+              ? `[data-suggestion-id="${escapedSuggestionId}"]`
+              : ".comment-highlight--pending",
         ) as HTMLElement | null;
         if (!marked) {
           setAnchoredCommentPosition(null);
@@ -2273,7 +2562,7 @@ function DocumentEditorBody({
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["data-comment-thread", "class"],
+      attributeFilter: ["data-comment-thread", "data-suggestion-id", "class"],
     });
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
@@ -2288,7 +2577,12 @@ function DocumentEditorBody({
       window.removeEventListener("resize", update);
       scrollContainer.removeEventListener("scroll", update);
     };
-  }, [selectedThreadId, showAnchoredCommentPopover, scrollContainerRef]);
+  }, [
+    selectedSuggestionId,
+    selectedThreadId,
+    showAnchoredCommentPopover,
+    scrollContainerRef,
+  ]);
 
   const focusTitleEnd = useCallback(() => {
     const textarea = titleInputRef.current;
@@ -2428,6 +2722,9 @@ function DocumentEditorBody({
       activeThreadId={activeThreadId}
       selectedThreadId={selectedThreadId}
       onActivateThread={activateCommentThread}
+      activeSuggestionId={selectedSuggestionId}
+      anchoredSuggestionIds={isSuggesting ? null : anchoredSuggestionIds}
+      onActivateSuggestion={activateSuggestion}
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
@@ -2435,6 +2732,17 @@ function DocumentEditorBody({
       canResolve={canEdit}
       alignToAnchors={alignToAnchors}
       forceVisible
+      suggestions={suggestionsQuery.data?.suggestions ?? []}
+      canDecideSuggestions={canEdit}
+      decidingSuggestion={decideSuggestion.isPending}
+      onDecideSuggestion={(suggestion, decision) =>
+        decideSuggestion.mutate({
+          id: suggestion.id,
+          decision,
+          idempotencyKey: globalThis.crypto.randomUUID(),
+          observedBase: suggestion.baseRevision,
+        })
+      }
       visibleThreadId={visibleThreadId}
       presentation={presentation}
     />
@@ -2572,7 +2880,11 @@ function DocumentEditorBody({
             activateCommentThread(threadId);
             return;
           }
-          if (target?.closest("[data-comments-sidebar]")) {
+          if (
+            target?.closest(
+              "[data-comments-sidebar], [data-comments-history], [data-document-utility-panel]",
+            )
+          ) {
             return;
           }
           dismissCommentFocus();
@@ -2629,6 +2941,11 @@ function DocumentEditorBody({
             canRedo={editorHistoryState.canRedo}
             onUndo={() => editorHistoryControllerRef.current?.undo()}
             onRedo={() => editorHistoryControllerRef.current?.redo()}
+            canSuggest={canSuggest}
+            suggesting={isSuggesting}
+            onSuggestingChange={(next) => {
+              void handleSuggestionModeChange(next);
+            }}
           />
 
           {!isLocalFileDocument ? (
@@ -2820,9 +3137,10 @@ function DocumentEditorBody({
                     rows={1}
                     wrap="soft"
                     value={localTitle}
-                    onChange={(e) =>
-                      handleTitleChange(normalizeTitleText(e.target.value))
-                    }
+                    onChange={(e) => {
+                      if (!isSuggesting)
+                        handleTitleChange(normalizeTitleText(e.target.value));
+                    }}
                     onPaste={handleTitlePaste}
                     onFocus={() => {
                       titleFocusedRef.current = true;
@@ -2831,7 +3149,7 @@ function DocumentEditorBody({
                       titleFocusedRef.current = false;
                     }}
                     onKeyDown={(e) => {
-                      if (!editorCanEdit) return;
+                      if (!editorCanEdit || isSuggesting) return;
                       if (e.key === "Enter") {
                         e.preventDefault();
                         const pm = window.document.querySelector(
@@ -2842,7 +3160,7 @@ function DocumentEditorBody({
                     }}
                     aria-label={t("editor.documentTitle")}
                     placeholder={t("editor.title")}
-                    readOnly={!editorCanEdit}
+                    readOnly={!editorCanEdit || isSuggesting}
                     style={{ fieldSizing: "content" } as any}
                     className={cn(
                       "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40",
@@ -2971,7 +3289,7 @@ function DocumentEditorBody({
                             </div>
                           ) : null}
                           <VisualEditor
-                            key={visualEditorInstanceKey({
+                            key={`${visualEditorInstanceKey({
                               documentId,
                               documentUpdatedAt: document.updatedAt,
                               isLocalFileDocument,
@@ -2979,12 +3297,14 @@ function DocumentEditorBody({
                               collabEditorEnabled,
                               hasYDoc: Boolean(ydoc),
                               localFileSyncRevision,
-                            })}
+                            })}:${isSuggesting ? "suggesting" : "canonical"}`}
                             documentId={documentId}
                             content={
                               isLocalFileDocument
                                 ? localContent
-                                : document.content
+                                : isSuggesting
+                                  ? suggestionDraft
+                                  : document.content
                             }
                             contentUpdatedAt={
                               isLocalFileDocument
@@ -2997,15 +3317,30 @@ function DocumentEditorBody({
                                 : (document.revision ?? null)
                             }
                             onBaseAwareReconcile={handleBaseAwareReconcile}
-                            onChange={handleContentChange}
-                            onSaveContent={handleContentSaveNow}
-                            ydoc={collabEditorEnabled ? ydoc : null}
+                            onChange={
+                              isSuggesting
+                                ? setSuggestionDraft
+                                : handleContentChange
+                            }
+                            onSaveContent={
+                              suggestionEditorIsolation.persistCanonical
+                                ? handleContentSaveNow
+                                : undefined
+                            }
+                            ydoc={
+                              suggestionEditorIsolation.bindCanonicalYDoc
+                                ? ydoc
+                                : null
+                            }
                             collabSynced={
                               collabEditorEnabled ? collabSynced : true
                             }
                             awareness={collabEditorEnabled ? awareness : null}
                             user={currentUser}
-                            editable={editorCanEdit}
+                            editable={
+                              suggestionEditorIsolation.editable &&
+                              !isSubmittingSuggestions
+                            }
                             localFileMode={isLocalFileDocument}
                             localFilePath={
                               isLocalFileDocument ? document.source?.path : null
@@ -3019,6 +3354,10 @@ function DocumentEditorBody({
                                 ? activateCommentThread
                                 : undefined
                             }
+                            suggestions={visualSuggestions}
+                            activeSuggestionId={selectedSuggestionId}
+                            onActivateSuggestion={activateSuggestion}
+                            onSuggestionAnchorsChange={setAnchoredSuggestionIds}
                             showCommentIndicators={showCommentIndicators}
                             onJoinTitle={joinFirstBodyBlockToTitle}
                             notionPageLinks={notionPageLinks}

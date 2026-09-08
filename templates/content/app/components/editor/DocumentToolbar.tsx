@@ -36,7 +36,9 @@ import {
   IconMessageCircle,
   IconRefresh,
   IconPin,
+  IconPencil,
   IconTrash,
+  IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -488,6 +490,9 @@ interface DocumentToolbarProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  canSuggest?: boolean;
+  suggesting?: boolean;
+  onSuggestingChange?: (suggesting: boolean) => void;
 }
 
 export function DocumentToolbar({
@@ -518,6 +523,9 @@ export function DocumentToolbar({
   canRedo = false,
   onUndo,
   onRedo,
+  canSuggest = false,
+  suggesting = false,
+  onSuggestingChange,
 }: DocumentToolbarProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -989,6 +997,28 @@ export function DocumentToolbar({
             </>
           )}
 
+          {suggesting ? (
+            <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
+              <IconPencil aria-hidden="true" className="size-3.5" />
+              <span>{t("editor.toolbar.suggesting")}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="ms-0.5 flex size-7 items-center justify-center rounded-sm text-primary/70 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("editor.toolbar.stopSuggesting")}
+                    onClick={() => onSuggestingChange?.(false)}
+                  >
+                    <IconX aria-hidden="true" className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("editor.toolbar.stopSuggesting")}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          ) : null}
+
           {showCommentsControl ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1033,6 +1063,30 @@ export function DocumentToolbar({
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-60">
+              {canSuggest ? (
+                <>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      onSuggestingChange?.(!suggesting);
+                      window.setTimeout(() => {
+                        document
+                          .querySelector<HTMLElement>(
+                            ".notion-editor[contenteditable='true'], .notion-editor [contenteditable='true']",
+                          )
+                          ?.focus({ preventScroll: true });
+                      }, 50);
+                    }}
+                  >
+                    <IconPencil className="me-2 h-4 w-4" />
+                    {t(
+                      suggesting
+                        ? "editor.toolbar.stopSuggesting"
+                        : "editor.toolbar.suggestEdits",
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               <DropdownMenuGroup>
                 <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
                   <IconArrowBackUp className="me-2 h-4 w-4" />

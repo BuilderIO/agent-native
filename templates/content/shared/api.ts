@@ -432,6 +432,7 @@ export interface ContentDatabaseMembership {
   databaseId: string | null;
   databaseDocumentId: string | null;
   databaseTitle: string | null;
+  systemRole?: string | null;
   position: number | null;
   sourceId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;

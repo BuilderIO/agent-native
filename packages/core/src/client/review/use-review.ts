@@ -1,4 +1,10 @@
 import type {
+  ResourceSuggestion,
+  SuggestionDecision,
+  SuggestionOperation,
+  SuggestionStatus,
+} from "../../review/suggestions/types.js";
+import type {
   ReviewComment,
   ReviewCommentKind,
   ReviewMention,
@@ -95,6 +101,30 @@ export interface SetReviewStatusInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface ListResourceSuggestionsParams {
+  resourceType: string;
+  resourceId: string;
+  statuses?: SuggestionStatus[];
+}
+
+export interface CreateResourceSuggestionInput {
+  resourceType: string;
+  resourceId: string;
+  adapterKind: string;
+  baseRevision: string;
+  summary: string;
+  idempotencyKey: string;
+  operations: SuggestionOperation[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface DecideResourceSuggestionInput {
+  id: string;
+  decision: SuggestionDecision;
+  idempotencyKey: string;
+  observedBase: string;
+}
+
 export function useReviewComments(
   params: ListReviewCommentsParams,
   options?: { enabled?: boolean },
@@ -183,4 +213,31 @@ export function useSetReviewStatus() {
   return useActionMutation<ReviewStatusEntry, SetReviewStatusInput>(
     "set-review-status",
   );
+}
+
+export function useResourceSuggestions(
+  params: ListResourceSuggestionsParams,
+  options?: { enabled?: boolean },
+) {
+  return useActionQuery<{ suggestions: ResourceSuggestion[] }>(
+    "list-resource-suggestions",
+    params,
+    {
+      enabled:
+        options?.enabled ?? Boolean(params.resourceType && params.resourceId),
+    },
+  );
+}
+
+export function useCreateResourceSuggestion() {
+  return useActionMutation<ResourceSuggestion, CreateResourceSuggestionInput>(
+    "create-resource-suggestion",
+  );
+}
+
+export function useDecideResourceSuggestion() {
+  return useActionMutation<
+    { suggestion: ResourceSuggestion; decision: unknown },
+    DecideResourceSuggestionInput
+  >("decide-resource-suggestion");
 }

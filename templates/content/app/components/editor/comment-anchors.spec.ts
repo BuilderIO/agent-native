@@ -1,7 +1,12 @@
 import { Schema, type Node as PMNode } from "@tiptap/pm/model";
 import { describe, it, expect } from "vitest";
 
-import { captureAnchor, resolveAnchor, buildDocText } from "./comment-anchors";
+import {
+  captureAnchor,
+  resolveAnchor,
+  resolveAnchorPoint,
+  buildDocText,
+} from "./comment-anchors";
 
 // Minimal doc/paragraph/text schema — enough to exercise the text-space anchor
 // math without pulling in the full editor.
@@ -78,6 +83,28 @@ describe("comment-anchors", () => {
     const doc = mkDoc(["Nothing to see here."]);
     expect(resolveAnchor(doc, { quotedText: "missing phrase" })).toBeNull();
     expect(resolveAnchor(doc, { quotedText: null })).toBeNull();
+  });
+
+  it("resolves a deleted draft at its ordered context boundary", () => {
+    const doc = mkDoc(["Alpha  Gamma"]);
+    expect(
+      resolveAnchorPoint(doc, {
+        prefix: "Alpha ",
+        suffix: " Gamma",
+        startOffset: 6,
+      }),
+    ).toBe(7);
+  });
+
+  it("does not invent a top-of-document position for unresolved context", () => {
+    const doc = mkDoc(["Alpha Gamma"]);
+    expect(
+      resolveAnchorPoint(doc, {
+        prefix: "missing before",
+        suffix: "missing after",
+        startOffset: 20,
+      }),
+    ).toBeNull();
   });
 
   it("re-resolves against an edited document", () => {
