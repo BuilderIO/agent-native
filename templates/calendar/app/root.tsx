@@ -3,6 +3,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
   createAgentNativeQueryClient,
+  getBrowserTabId,
   useDbSync,
 } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
@@ -141,7 +142,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
+const TAB_ID = getBrowserTabId();
 
 function DbSyncSetup() {
   const qc = useQueryClient();

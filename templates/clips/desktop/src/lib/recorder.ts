@@ -180,6 +180,53 @@ function stopMediaStream(stream: MediaStream | null | undefined): void {
   });
 }
 
+function startBrowserMicLevelEmitter(stream: MediaStream): () => void {
+  const AudioContextCtor =
+    window.AudioContext ??
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
+  if (!AudioContextCtor) return () => {};
+
+  let context: AudioContext;
+  try {
+    context = new AudioContextCtor();
+  } catch {
+    return () => {};
+  }
+  const source = context.createMediaStreamSource(stream);
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 256;
+  const data = new Uint8Array(analyser.fftSize);
+  source.connect(analyser);
+  void context.resume().catch(() => {});
+
+  let stopped = false;
+  let frame = 0;
+  const tick = () => {
+    if (stopped) return;
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (const sample of data) {
+      const centered = (sample - 128) / 128;
+      sum += centered * centered;
+    }
+    emit("voice:audio-level", {
+      level: Math.min(1, Math.sqrt(sum / data.length) * 2),
+      source: "mic",
+    }).catch(() => {});
+    frame = window.requestAnimationFrame(tick);
+  };
+  frame = window.requestAnimationFrame(tick);
+
+  return () => {
+    stopped = true;
+    window.cancelAnimationFrame(frame);
+    source.disconnect();
+    analyser.disconnect();
+    void context.close().catch(() => {});
+  };
+}
+
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
   const platform =
@@ -2534,14 +2581,18 @@ function emitRecorderSession(
   serverUrl: string | null,
   recordingId: string | null,
   localOnly: boolean,
+  microphoneEnabled: boolean,
 ) {
   const viewUrl =
     serverUrl && recordingId
       ? `${serverUrl.replace(/\/+$/, "")}/r/${recordingId}`
       : null;
-  emit("clips:recorder-session", { viewUrl, recordingId, localOnly }).catch(
-    () => {},
-  );
+  emit("clips:recorder-session", {
+    viewUrl,
+    recordingId,
+    localOnly,
+    microphoneEnabled,
+  }).catch(() => {});
 }
 
 async function clearRecordingState() {
@@ -3246,6 +3297,7 @@ async function tryStartRewindFullscreenRecording(
         localOnly ? null : params.serverUrl,
         id || null,
         localOnly,
+        params.micOn,
       );
       emitState();
     }),
@@ -3257,6 +3309,7 @@ async function tryStartRewindFullscreenRecording(
     localOnly ? null : params.serverUrl,
     id || null,
     localOnly,
+    params.micOn,
   );
   emitState();
   return handle;
@@ -3287,11 +3340,7 @@ async function startNativeFullscreenRecording(
   // clock and the toolbar-enable behind the real recording start.
   let startedAt = 0;
   let nativeTranscriptFailureSaved = false;
-  const wantsSystemAudio = shouldRequestSystemAudio(
-    true,
-    params.micOn,
-    params.systemAudioOn,
-  );
+  const wantsSystemAudio = shouldRequestSystemAudio(true, params.systemAudioOn);
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const canTranscribeLocally =
     shouldStartLocalRecordingTranscription(wantsAudio);
@@ -3601,6 +3650,7 @@ async function startNativeFullscreenRecording(
       localOnly ? null : params.serverUrl,
       id || null,
       localOnly,
+      params.micOn,
     );
     emit("clips:recorder-state", {
       paused: false,
@@ -4118,6 +4168,7 @@ async function startNativeFullscreenRecording(
         localOnly ? null : params.serverUrl,
         id || null,
         localOnly,
+        params.micOn,
       );
       emitState();
     }),
@@ -4131,6 +4182,7 @@ async function startNativeFullscreenRecording(
     localOnly ? null : params.serverUrl,
     id || null,
     localOnly,
+    params.micOn,
   );
   emitState();
 
@@ -4331,7 +4383,6 @@ async function startRecordingInner(
   const restartHandoff = resolveRestartHandoff(params, wantsScreen, wantsAudio);
   const wantsSystemAudio = shouldRequestSystemAudio(
     wantsScreen,
-    params.micOn,
     params.systemAudioOn,
   );
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
@@ -4675,6 +4726,9 @@ async function startRecordingInner(
         })),
       );
     }
+    if (audioStream && wantsAudio) {
+      streamCleanups.push(startBrowserMicLevelEmitter(audioStream));
+    }
 
     await invoke("park_popover_offscreen").catch(() => {});
     emit("clips:popover-visible", false).catch(() => {});
@@ -4811,7 +4865,7 @@ async function startRecordingInner(
           emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
             () => {},
           );
-          emitRecorderSession(null, null, true);
+          emitRecorderSession(null, null, true, params.micOn);
           emitState(pausedAt != null);
         }),
       ]);
@@ -4824,7 +4878,7 @@ async function startRecordingInner(
       startedAt = Date.now();
       tickHandle = setInterval(() => emitState(pausedAt != null), 500);
       emit("clips:toolbar-enabled", true).catch(() => {});
-      emitRecorderSession(null, null, true);
+      emitRecorderSession(null, null, true, params.micOn);
       emitState(false);
 
       const detachCombinedStream = () => {
@@ -5248,7 +5302,7 @@ async function startRecordingInner(
         emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
           () => {},
         );
-        emitRecorderSession(params.serverUrl, id, false);
+        emitRecorderSession(params.serverUrl, id, false, params.micOn);
         emitState(pausedAt != null);
       }),
     ]);
@@ -5265,7 +5319,7 @@ async function startRecordingInner(
     // Now that MediaRecorder is actually ticking, flip the toolbar's
     // Stop / Pause buttons to enabled so the user can drive the recorder.
     emit("clips:toolbar-enabled", true).catch(() => {});
-    emitRecorderSession(params.serverUrl, id, false);
+    emitRecorderSession(params.serverUrl, id, false, params.micOn);
     // Seed the initial recorder-state so the time / paused styling match
     // MediaRecorder's real state (before the first 500ms tick).
     emitState(false);

@@ -367,10 +367,13 @@ export interface ContentDatabaseView {
   endDatePropertyId?: string | null;
   hiddenPropertyIds?: string[];
   propertyOrderIds?: string[];
+  tableColumnOrderIds?: string[];
   collapsedGroupIds?: string[];
   hideEmptyGroups?: boolean;
   calculations?: Record<string, ContentDatabaseColumnCalculation>;
   wrapCells?: boolean;
+  columnWrapOverrides?: Record<string, boolean>;
+  frozenThroughColumnId?: string | null;
   rowDensity?: ContentDatabaseRowDensity;
   openPagesIn?: ContentDatabaseOpenPagesIn;
   formQuestions?: ContentDatabaseFormQuestion[];
@@ -978,6 +981,7 @@ export interface ContentDatabaseSourceFieldPropertyResponse {
 
 export interface CreateDatabaseRequest {
   documentId?: string;
+  newDocumentId?: string;
   spaceId?: string;
   parentId?: string | null;
   title?: string;

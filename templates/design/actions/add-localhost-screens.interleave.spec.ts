@@ -5,13 +5,13 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const harness = vi.hoisted(() => ({
-  sqlite: null as null | {
+  pglite: null as null | {
     close(): void;
     exec(sql: string): void;
-    prepare(sql: string): {
-      run(...args: unknown[]): unknown;
-      get(...args: unknown[]): unknown;
-    };
+    query<T extends Record<string, unknown> = Record<string, unknown>>(
+      sql: string,
+      params?: unknown[],
+    ): Promise<{ rows: T[] }>;
   },
   applyText: vi.fn(),
   hasCollabState: vi.fn(),
@@ -39,57 +39,55 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("../server/db/index.js", async () => {
-  const [{ createRequire }, { drizzle }, sqliteCore, coreDb] =
-    await Promise.all([
-      import("node:module"),
-      import("drizzle-orm/better-sqlite3"),
-      import("drizzle-orm/sqlite-core"),
-      import("@agent-native/core/testing"),
-    ]);
+  const [{ createRequire }, { drizzle }, pgliteCore] = await Promise.all([
+    import("node:module"),
+    import("drizzle-orm/pglite"),
+    import("drizzle-orm/pg-core"),
+  ]);
 
-  const designs = sqliteCore.sqliteTable("designs", {
-    id: sqliteCore.text("id").primaryKey(),
-    data: sqliteCore.text("data"),
-    updatedAt: sqliteCore.text("updated_at"),
+  const designs = pgliteCore.pgTable("designs", {
+    id: pgliteCore.text("id").primaryKey(),
+    data: pgliteCore.text("data"),
+    updatedAt: pgliteCore.text("updated_at"),
   });
-  const designFiles = sqliteCore.sqliteTable("design_files", {
-    id: sqliteCore.text("id").primaryKey(),
-    designId: sqliteCore.text("design_id").notNull(),
-    filename: sqliteCore.text("filename").notNull(),
-    content: sqliteCore.text("content").notNull(),
-    fileType: sqliteCore.text("file_type").notNull(),
-    createdAt: sqliteCore.text("created_at"),
-    updatedAt: sqliteCore.text("updated_at"),
+  const designFiles = pgliteCore.pgTable("design_files", {
+    id: pgliteCore.text("id").primaryKey(),
+    designId: pgliteCore.text("design_id").notNull(),
+    filename: pgliteCore.text("filename").notNull(),
+    content: pgliteCore.text("content").notNull(),
+    fileType: pgliteCore.text("file_type").notNull(),
+    createdAt: pgliteCore.text("created_at"),
+    updatedAt: pgliteCore.text("updated_at"),
   });
-  const designLocalhostConnections = sqliteCore.sqliteTable(
+  const designLocalhostConnections = pgliteCore.pgTable(
     "design_localhost_connections",
     {
-      id: sqliteCore.text("id").primaryKey(),
-      name: sqliteCore.text("name").notNull(),
-      sourceType: sqliteCore.text("source_type").notNull(),
-      devServerUrl: sqliteCore.text("dev_server_url").notNull(),
-      bridgeUrl: sqliteCore.text("bridge_url"),
-      rootPath: sqliteCore.text("root_path"),
-      routeManifest: sqliteCore.text("route_manifest").notNull(),
-      capabilities: sqliteCore.text("capabilities").notNull(),
-      status: sqliteCore.text("status").notNull(),
-      lastSeenAt: sqliteCore.text("last_seen_at"),
-      bridgeToken: sqliteCore.text("bridge_token"),
-      ownerEmail: sqliteCore.text("owner_email").notNull(),
-      orgId: sqliteCore.text("org_id"),
-      createdAt: sqliteCore.text("created_at"),
-      updatedAt: sqliteCore.text("updated_at"),
+      id: pgliteCore.text("id").primaryKey(),
+      name: pgliteCore.text("name").notNull(),
+      sourceType: pgliteCore.text("source_type").notNull(),
+      devServerUrl: pgliteCore.text("dev_server_url").notNull(),
+      bridgeUrl: pgliteCore.text("bridge_url"),
+      rootPath: pgliteCore.text("root_path"),
+      routeManifest: pgliteCore.text("route_manifest").notNull(),
+      capabilities: pgliteCore.text("capabilities").notNull(),
+      status: pgliteCore.text("status").notNull(),
+      lastSeenAt: pgliteCore.text("last_seen_at"),
+      bridgeToken: pgliteCore.text("bridge_token"),
+      ownerEmail: pgliteCore.text("owner_email").notNull(),
+      orgId: pgliteCore.text("org_id"),
+      createdAt: pgliteCore.text("created_at"),
+      updatedAt: pgliteCore.text("updated_at"),
     },
   );
 
   const requireFromCore = createRequire(
     new URL("../../../packages/core/package.json", import.meta.url),
   );
-  const Database = requireFromCore("better-sqlite3") as new (
+  const Database = requireFromCore("@electric-sql/pglite").PGlite as new (
     filename: string,
-  ) => NonNullable<typeof harness.sqlite>;
-  const sqlite = new Database(":memory:");
-  sqlite.exec(`
+  ) => NonNullable<typeof harness.pglite>;
+  const pglite = await Database.create("memory://");
+  await pglite.exec(`
     CREATE TABLE designs (
       id TEXT PRIMARY KEY,
       data TEXT,
@@ -123,11 +121,8 @@ vi.mock("../server/db/index.js", async () => {
     );
   `);
   const schema = { designs, designFiles, designLocalhostConnections };
-  const rawDb = drizzle(sqlite as never, { schema }) as unknown as ReturnType<
-    typeof drizzle
-  > & { session: unknown };
-  const db = coreDb.patchBetterSqliteTransactions(rawDb, sqlite);
-  harness.sqlite = sqlite;
+  const db = drizzle(pglite as never, { schema });
+  harness.pglite = pglite;
   return { getDb: () => db, schema };
 });
 
@@ -151,22 +146,28 @@ const manifest = JSON.stringify({
   generatedAt: "2026-07-09T00:00:00.000Z",
 });
 
-function seedDesign(data: string | null) {
-  harness.sqlite
-    ?.prepare("INSERT INTO designs (id, data, updated_at) VALUES (?, ?, ?)")
-    .run("design_1", data, "2026-07-09T00:00:00.000Z");
+function getPglite() {
+  if (!harness.pglite) {
+    throw new Error("PGlite test database is not initialized");
+  }
+  return harness.pglite;
 }
 
-function seedConnection() {
-  harness.sqlite
-    ?.prepare(
-      `INSERT INTO design_localhost_connections (
+async function seedDesign(data: string | null) {
+  await getPglite().query(
+    "INSERT INTO designs (id, data, updated_at) VALUES ($1, $2, $3)",
+    ["design_1", data, "2026-07-09T00:00:00.000Z"],
+  );
+}
+
+async function seedConnection() {
+  await getPglite().query(
+    `INSERT INTO design_localhost_connections (
         id, name, source_type, dev_server_url, bridge_url, root_path,
         route_manifest, capabilities, status, bridge_token, owner_email,
         org_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+    [
       "conn_1",
       "Example app",
       "localhost",
@@ -181,17 +182,16 @@ function seedConnection() {
       "org_1",
       "2026-07-09T00:00:00.000Z",
       "2026-07-09T00:00:00.000Z",
-    );
+    ],
+  );
 }
 
-function seedExistingFile() {
-  harness.sqlite
-    ?.prepare(
-      `INSERT INTO design_files (
+async function seedExistingFile() {
+  await getPglite().query(
+    `INSERT INTO design_files (
         id, design_id, filename, content, file_type, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
       "file_1",
       "design_1",
       "localhost-settings.html",
@@ -199,34 +199,38 @@ function seedExistingFile() {
       "html",
       "2026-07-09T00:00:00.000Z",
       "2026-07-09T00:00:00.000Z",
-    );
+    ],
+  );
 }
 
-function persistedData(): Record<string, any> {
-  const row = harness.sqlite
-    ?.prepare("SELECT data FROM designs WHERE id = ?")
-    .get("design_1") as { data: string | null };
+async function persistedData(): Record<string, any> {
+  const { rows } = await getPglite().query<{ data: string | null }>(
+    "SELECT data FROM designs WHERE id = $1",
+    ["design_1"],
+  );
+  const row = rows[0];
+  if (!row) throw new Error("Design row was not seeded");
   return JSON.parse(row.data ?? "null") as Record<string, any>;
 }
 
-beforeEach(() => {
-  harness.sqlite?.exec(
+beforeEach(async () => {
+  await getPglite().exec(
     "DELETE FROM design_files; DELETE FROM design_localhost_connections; DELETE FROM designs;",
   );
   vi.clearAllMocks();
   harness.applyText.mockResolvedValue(undefined);
   harness.hasCollabState.mockResolvedValue(false);
   harness.seedFromText.mockResolvedValue(undefined);
-  seedConnection();
+  await seedConnection();
 });
 
-afterAll(() => {
-  harness.sqlite?.close();
+afterAll(async () => {
+  await harness.pglite?.close();
 });
 
 describe("add-localhost-screens concurrent design data writes", () => {
   it("merges an in-flight sibling write and only wins fields the refresh explicitly owns", async () => {
-    seedDesign(
+    await seedDesign(
       JSON.stringify({
         keep: { untouched: true },
         canvasFrames: {
@@ -253,7 +257,7 @@ describe("add-localhost-screens concurrent design data writes", () => {
         },
       }),
     );
-    seedExistingFile();
+    await seedExistingFile();
 
     let releaseApplyText!: () => void;
     let markApplyTextReached!: () => void;
@@ -331,7 +335,7 @@ describe("add-localhost-screens concurrent design data writes", () => {
     releaseApplyText();
 
     const result = await refresh;
-    const data = persistedData();
+    const data = await persistedData();
     expect(data.keep).toEqual({ untouched: true });
     expect(data.tweakSelections).toEqual({ accent: "blue" });
     expect(data.canvasFrames.file_1).toEqual({
@@ -365,7 +369,7 @@ describe("add-localhost-screens concurrent design data writes", () => {
   });
 
   it("accepts a legacy NULL data blob as empty data", async () => {
-    seedDesign(null);
+    await seedDesign(null);
 
     await action.run({
       designId: "design_1",
@@ -376,7 +380,7 @@ describe("add-localhost-screens concurrent design data writes", () => {
       gap: 160,
     });
 
-    expect(persistedData()).toMatchObject({
+    await expect(persistedData()).resolves.toMatchObject({
       sourceType: "localhost",
       sourceMode: "localhost",
       connectionId: "conn_1",
@@ -384,8 +388,8 @@ describe("add-localhost-screens concurrent design data writes", () => {
   });
 
   it("rejects malformed persisted JSON before changing files or collab state", async () => {
-    seedDesign("{broken-json");
-    seedExistingFile();
+    await seedDesign("{broken-json");
+    await seedExistingFile();
 
     await expect(
       action.run({
@@ -398,9 +402,12 @@ describe("add-localhost-screens concurrent design data writes", () => {
       }),
     ).rejects.toThrow("invalid data JSON");
 
-    const file = harness.sqlite
-      ?.prepare("SELECT content FROM design_files WHERE id = ?")
-      .get("file_1") as { content: string };
+    const { rows } = await getPglite().query<{ content: string }>(
+      "SELECT content FROM design_files WHERE id = $1",
+      ["file_1"],
+    );
+    const file = rows[0];
+    if (!file) throw new Error("Design file row was not seeded");
     expect(file.content).toBe("http://localhost:5173/settings?old=1");
     expect(harness.applyText).not.toHaveBeenCalled();
     expect(harness.seedFromText).not.toHaveBeenCalled();

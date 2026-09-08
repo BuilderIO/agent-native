@@ -104,7 +104,7 @@ export function TemplateShowcase() {
 
   return (
     <PageSection>
-      <GridInner className="flex flex-col gap-[var(--spacing-6)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+      <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
         <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
           {t("homepage.showcase.title").replace("Agent-Native", "Agent‑Native")}
         </h2>
@@ -123,23 +123,22 @@ export function TemplateShowcase() {
             {t("homepage.showcase.browseApps")}
           </Button>
         </div>
-      </GridInner>
-
-      <GridInner className="flex justify-end gap-[var(--spacing-2)] px-[var(--spacing-8)] pb-[var(--spacing-4)]">
-        <CarouselIconButton
-          aria-label={t("homepage.showcase.scrollLeft")}
-          onClick={() => scrollByPage(-1)}
-          disabled={!canScrollPrev}
-        >
-          <IconChevronLeft size={18} stroke={1.5} />
-        </CarouselIconButton>
-        <CarouselIconButton
-          aria-label={t("homepage.showcase.scrollRight")}
-          onClick={() => scrollByPage(1)}
-          disabled={!canScrollNext}
-        >
-          <IconChevronRight size={18} stroke={1.5} />
-        </CarouselIconButton>
+        <div className="absolute right-[var(--spacing-8)] bottom-[var(--spacing-8)] flex gap-[var(--spacing-2)]">
+          <CarouselIconButton
+            aria-label={t("homepage.showcase.scrollLeft")}
+            onClick={() => scrollByPage(-1)}
+            disabled={!canScrollPrev}
+          >
+            <IconChevronLeft size={18} stroke={1.5} />
+          </CarouselIconButton>
+          <CarouselIconButton
+            aria-label={t("homepage.showcase.scrollRight")}
+            onClick={() => scrollByPage(1)}
+            disabled={!canScrollNext}
+          >
+            <IconChevronRight size={18} stroke={1.5} />
+          </CarouselIconButton>
+        </div>
       </GridInner>
 
       <GridInner>
@@ -148,7 +147,7 @@ export function TemplateShowcase() {
           className="snap-x snap-mandatory scroll-smooth overflow-x-auto overflow-y-hidden border-x border-solid border-[var(--b-border-subtle)] [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           onScroll={updateScrollState}
         >
-          <div className="app-carousel-track flex w-max border-y border-solid border-[var(--b-border-subtle)]">
+          <div className="app-carousel-track flex w-max border-t border-solid border-[var(--b-border-subtle)]">
             {APPS.map((app) => {
               const art = APP_ART[app.slug];
               return (

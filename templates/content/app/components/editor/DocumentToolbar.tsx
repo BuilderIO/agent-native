@@ -16,6 +16,7 @@ import {
   IconArrowForwardUp,
   IconAlertTriangle,
   IconCheck,
+  IconChevronDown,
   IconCopy,
   IconDownload,
   IconDotsVertical,
@@ -51,6 +52,7 @@ import {
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -213,7 +215,7 @@ function formatEditedLabel(updatedAt?: string | null) {
   })}`;
 }
 
-function ToolbarBreadcrumb({
+export function ToolbarBreadcrumb({
   items,
   currentDocumentId,
   ariaLabel,
@@ -246,30 +248,42 @@ function ToolbarBreadcrumb({
           </>
         );
 
+        const canNavigate = item.id && item.id !== currentDocumentId;
+        const pageButton = canNavigate ? (
+          <button
+            type="button"
+            className="flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onOpen(item.id!)}
+          >
+            {content}
+          </button>
+        ) : null;
+
         return (
           <div
             key={`${item.id ?? label}-${index}`}
             className="flex min-w-0 items-center gap-1"
           >
             {item.menuItems?.length ? (
-              <ToolbarBreadcrumbMenu
-                item={item}
-                label={label}
-                currentDocumentId={currentDocumentId}
-                current={isLast}
-                untitledLabel={untitledLabel}
-                onOpen={onOpen}
-              >
-                {content}
-              </ToolbarBreadcrumbMenu>
-            ) : item.id && item.id !== currentDocumentId ? (
-              <button
-                type="button"
-                className="flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onOpen(item.id!)}
-              >
-                {content}
-              </button>
+              <>
+                {pageButton}
+                <ToolbarBreadcrumbMenu
+                  item={item}
+                  label={label}
+                  currentDocumentId={currentDocumentId}
+                  current={isLast}
+                  untitledLabel={untitledLabel}
+                  onOpen={onOpen}
+                >
+                  {canNavigate ? (
+                    <IconChevronDown className="size-3.5 shrink-0" />
+                  ) : (
+                    content
+                  )}
+                </ToolbarBreadcrumbMenu>
+              </>
+            ) : canNavigate ? (
+              pageButton
             ) : (
               <span
                 className={cn(
@@ -356,6 +370,7 @@ function ToolbarBreadcrumbMenu({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openedWithKeyboardRef = useRef(false);
   const firstSelectableItemRef = useRef<HTMLDivElement | null>(null);
@@ -396,17 +411,32 @@ function ToolbarBreadcrumbMenu({
     >
       <DropdownMenuTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           aria-label={label}
           className={cn(
             "flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             current ? "text-foreground" : "text-muted-foreground",
           )}
-          onPointerEnter={() => {
+          onPointerEnter={(event) => {
+            if (event.pointerType !== "mouse") return;
             cancelClose();
             setOpen(true);
           }}
-          onPointerLeave={scheduleClose}
+          onPointerDown={(event) => {
+            // Hover already opened the menu; don't toggle it closed on click.
+            if (
+              event.pointerType === "mouse" &&
+              open &&
+              event.button === 0 &&
+              !event.ctrlKey
+            ) {
+              event.preventDefault();
+            }
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") scheduleClose();
+          }}
           onKeyDown={(event) => {
             if (
               event.key === "Enter" ||
@@ -427,6 +457,11 @@ function ToolbarBreadcrumbMenu({
         onKeyDown={cancelClose}
         onPointerEnter={cancelClose}
         onPointerLeave={scheduleClose}
+        onInteractOutside={(event) => {
+          if (triggerRef.current?.contains(event.target as Node)) {
+            event.preventDefault();
+          }
+        }}
       >
         {item.menuItems?.map((menuItem) => {
           const menuLabel = menuItem.title.trim() || untitledLabel;
@@ -527,6 +562,7 @@ export function DocumentToolbar({
   suggesting = false,
   onSuggestingChange,
 }: DocumentToolbarProps) {
+  const sidebarTrigger = useSidebarTrigger();
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
@@ -897,6 +933,7 @@ export function DocumentToolbar({
   return (
     <>
       <div className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4">
+        {sidebarTrigger}
         <ToolbarBreadcrumb
           items={
             breadcrumbItems.length
@@ -915,7 +952,7 @@ export function DocumentToolbar({
           }}
         />
 
-        <div className="ml-auto flex min-w-0 items-center gap-0.5 sm:gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
           {editedLabel ? (
             <span className="hidden shrink-0 px-2 text-sm text-muted-foreground lg:inline">
               {editedLabel}

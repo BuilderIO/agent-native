@@ -51,6 +51,127 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.177.1
+
+### Patch Changes
+
+- 48a4eca: Add a durable audit trail for every transactional email send attempt. The shared `sendEmail()` transport now records the outbound request payload (with auth links and message bodies redacted) and the raw provider response/status for both successes and failures, so Dispatch can show exactly what was sent, to whom, and why a send failed. The `list-email-log` action gained filters for recipient, sender, status, provider, and date range with stable pagination, and a new searchable "Send log" section was added to `/admin/transactional-email`. Magic-link sign-in emails are now tagged with a `core.magic-link` template id so they show up alongside other auth emails in the catalog and send log.
+- 48a4eca: Record request payload, response status, and response body on every email send log entry, and support filtering the send log by recipient, sender, status, provider, and time range.
+- 5c0e4c7: Fix duplicate clear ("x") icons in the Settings and Agent page search bars by hiding the browser's native WebKit search-cancel button on inputs that render their own custom clear button.
+- Release all public npm packages with a patch version bump.
+- 7a24645: Let multi-organization users choose which organization an MCP OAuth connection is authorized for.
+- 050fad2: Keep mobile OAuth session cookies on the callback response and detect completed magic-link sessions in the auth page.
+- a6fb3c6: Remove the "Sign in with Agent-Native" browser login option and automatic SSO handoff from auth pages.
+- d891beb: Add server-backed search to the organization member list and hide role editing
+  from admins to match the owner-only role policy.
+
+  Show an error with a retry action when members cannot be loaded, instead of
+  presenting failed searches as empty results.
+
+  Keep a debounced member search on its first page when pagination is used while
+  the new query is pending.
+
+- c050912: Search fields that draw their own clear button no longer also show WebKit's native cancel widget, so only one clear control renders.
+- e5e6962: Request Builder OAuth scopes covering agent execution, browser connections, assets, projects, and design systems; use OAuth-first authorization (with legacy private-key fallback) across the Builder browser, design-system, asset-deletion, and Fusion APIs; and surface actionable reconnect errors instead of generic failures when a Builder grant needs re-authorizing.
+- Updated dependencies
+- Updated dependencies [58d9dc3]
+  - @agent-native/recap-cli@0.5.27
+  - @agent-native/toolkit@0.19.5
+
+## 0.177.0
+
+### Minor Changes
+
+- cc2a915: Standardize framework persistence on PostgreSQL. Local development uses PGlite,
+  hosted deployments use PostgreSQL, and the database client, schema, migrations,
+  templates, docs, and tooling now target PostgreSQL directly.
+
+### Patch Changes
+
+- 92c5992: Add Sigma's remote MCP server to the integration catalog with OAuth setup guidance and branded logo support.
+- b804f4a: MCP/WebMCP instructions now advertise the app's key tools from
+  `initialToolNames` (override with `mcp.keyToolNames`) and name `view-screen`
+  literally. MCP tool results keep the deep link and surface
+  `nextRequiredAction` as "Next: …".
+- 6c84a09: Automatically register template WebMCP actions on public and private app
+  surfaces, with an explicit opt-out for exceptional shells.
+- 464c3fc: Expose linked design-system context consistently to external MCP and WebMCP agents.
+- cef8c06: Group organization switcher actions into clearly labeled workspace, account, organization, and tools sections.
+- 52944fb: Load the tracking registry lazily from the action lifecycle wrapper so `@agent-native/core`'s browser entry no longer pulls `server/deploy-environment` and the database client into client bundles, which crashed the Slides deck editor at load. A test now walks the browser entry's static import graph and fails on any server-only module.
+- cef8c06: Add opt-in persistent agent sidebar toggles, customizable toggle icons, and hideable inline collapse controls.
+- 4ca5522: Expose the current sync-event batch to action invalidation predicates so apps can keep cache refreshes narrowly scoped.
+- cef8c06: Route Clips' shadcn UI primitives through the shared Toolkit while preserving its intentional line-tab variant.
+- 71ebb30: `loadAgentDesignSystemContext` returns a bounded summary on reads and the full design-system context only when asked (`{ full: true }`); an unreadable link now says whether retrying can help.
+- 2ab0a5e: Fix extension/slide content patches ending the agent's turn on the first text
+  mismatch instead of letting the model retarget. Extension and slide literal
+  find/replace edits now fall back to whitespace-flexible matching (tolerating
+  re-indentation and CRLF/LF differences), report the closest-matching lines
+  when nothing is found, and flag more than one match as ambiguous instead of
+  silently patching the first one.
+- 98a61a0: External MCP/WebMCP surfaces now hide turn-ending in-app question actions (`endsTurn: true`) by default and accept tool inputs/results up to 500,000 characters, so external agents author and save whole screens, decks, and documents directly instead of stalling on an in-app answer or hitting the old 20k/50k character caps.
+
+  The page-local WebMCP action bridge now sends the calling browser tab id (`X-Agent-Native-Browser-Tab`, the header the action routes resolve into `getRequestRunContext()?.browserTabId`), so `readAppStateForCurrentTab` scopes navigation and selection reads for a WebMCP call to the tab that made it instead of whichever tab last wrote the global key.
+
+- cb3a95f: Add opt-in canonical organization federation across Agent-Native app deployments.
+- 8199216: Add an optional `exhaustedDraftPrefix` to `AgentLoopFinalResponseGuardResult`. When the final-response guard's retries are exhausted, an app that sets this field keeps the model's non-empty draft and prepends the prefix instead of replacing it with `fallbackMessage`; an empty draft still falls back to `fallbackMessage`. Apps that don't set the field keep the existing replace behavior.
+- 2815f2a: Make the Builder free-credits service list open when users click "+8 more" during onboarding.
+- 324b27e: Fix org creation and SSO login failing with `value "<epoch ms>" is out of range for type integer` by widening `organizations`, `org_members`, `org_invitations`, `app_member_roles`, `workspace_apps`, `identity_sso_flow_state`, and `identity_sso_jti` millisecond-timestamp columns from `INTEGER` to `BIGINT`. Also corrects the Drizzle schema for these tables plus `chat_threads`, `email_log`, and `app_secrets`, which declared their (already- or now-)BIGINT timestamp columns as `integer(...)` — silently mistyping them as `number` when node-postgres actually decodes `BIGINT` as a string.
+- 9e6f642: Pass the input shape expected by the active WebMCP host adapter, including the
+  Codex page adapter.
+- aa4f7b6: Steer WebMCP clients toward direct mutations when current selection or item
+  context already identifies a focused edit target.
+- bea5bbd: Update the package README with the current Agent-Native positioning, quick start, architecture, and app examples.
+- 7b19c49: Add an authenticated compare-and-set application-state route for race-safe browser acknowledgements.
+- a22a313: `/_agent-native/health` reports `database.runningApp` and only claims
+  `identityMismatch` when the runtime can derive its own app identity; a hosted
+  bundle that resolves no slug/id reports the gap instead of blocking every
+  production cutover. The deploy smoke check warns on identity mismatch for this
+  rollout rather than failing.
+- 30b1941: Add `summarizeHtmlStyles` and `formatHtmlStyleSummary` to `@agent-native/core/shared` so a current-screen read can print the style vocabulary shared by sibling HTML fragments (backgrounds, text and accent colors, fonts, heading sizes) and an agent editing one item matches the others instead of inventing values.
+- cef8c06: Allow apps to place the shared environment badge in an inline brand slot and opt out of the provider-level badge.
+- f11c6be: Keep the cached app shell loader from flashing during client hydration.
+- 42f5fc3: Job and automation status writes keep application-owned frontmatter (such as a Factory Slack channel) instead of dropping those YAML extras when a run completes.
+- 85582cb: Make Agent-Native OpenTelemetry spans parent correctly under each agent run and
+  export bracketed model calls as live per-call spans.
+- Release all public npm packages with a patch version bump.
+- bb13ba4: Use the shared branded background for generated Agent-Native OG images.
+- cef8c06: Keep organization switching and management actions together, ordered with member invitations before settings and organization creation.
+- a7634e2: Use the docs homepage WebGL halftone field for shared public-page backgrounds.
+- 434fbb2: Add flag-gated silent browser identity handoff across canonical hosted apps.
+- 1852196: Skip unchanged dashboard writes and history snapshots so autosave stays frequent without creating duplicate revisions.
+- 0d68c54: Allow long-lived operation groups to coalesce remote undo entries.
+- 4c25e85: Fix desktop terminal colors and app surface loading behavior.
+- df9cfb2: Prevent Workspace settings from flashing Builder connection actions while status loads.
+- 2ab0a5e: Stop a tool call on the first failure, instead of retrying it three times, when its error text embeds a nested A2A/ask_app delegation's own permanent-precondition marker ("needs a setup step outside this turn" or "code: permanent_precondition").
+- 056e5f2: Remove obsolete built-in template Wrangler deployment artifacts and guidance now that first-party sites use Netlify.
+- 58d613a: Revalidate the current session before automatic beta redirects.
+- 859a891: Inject the session-replay iframe bootstrap at the first `</head>` that is real
+  markup rather than the first one anywhere in the string. A preview document
+  that inlines a script whose source mentions `</head>` had the bootstrap spliced
+  into that script's body, which unterminated a string literal and let the
+  bootstrap's own `</script>` close the host script early — the whole inlined
+  bundle then failed to parse and the preview silently lost every interaction.
+- b542ff2: Allow explicitly authenticated custom routes to reuse connect-minted MCP bearer sessions.
+- 9e54b12: Add canonical lifecycle and action-level analytics tracking across framework apps.
+- 96cb0c5: Scope agent context, navigation, WebMCP actions, and sidebar chat state to the active browser tab.
+- 801aedd: Preserve composed object input schemas while adding the explicit root object type required by MCP tool discovery.
+- cef8c06: Allow apps to add low-frequency utility links to the shared organization switcher menu.
+- 29bfdbc: Surface a failed Builder connection-status read instead of leaving the
+  first-run "Activate Builder.io free credits" CTA silently inert. `statusResolved`
+  only flips on a successful status response, so a 404, a 500, or the 10s abort
+  left the button fully styled and dead for the rest of the session with nothing
+  rendered and nothing logged.
+- 4c0dd7a: Warm the root route data endpoint when it enters the viewport.
+- c5b58a7: Make focused WebMCP edits self-correcting by advertising required fields and preserving safe action contract errors.
+- 947a973: Remove the `window.__agentNativeWebMcp` page helper when the last WebMCP registration stops, report an honest failed status from `ready()` when no registration exists, and keep same-origin `{ origin }` calls on the normal page listing so the polyfill does not reject them.
+- 47ceaf2: Publish a `window.__agentNativeWebMcp` page helper for browser agents that wraps readiness, discovery, the host input contract, stale-descriptor retries, and pending handles for short evaluators; register WebMCP tools concurrently so a hidden browser pane no longer pays one throttled timer wake-up per tool; and re-poll the sync transport after WebMCP writes so the UI repaints without a reload.
+- Updated dependencies [e29fee8]
+- Updated dependencies [cef8c06]
+- Updated dependencies
+- Updated dependencies [73c36ce]
+  - @agent-native/toolkit@0.19.4
+  - @agent-native/recap-cli@0.5.26
+
 ## 0.176.5
 
 ### Patch Changes
@@ -120,7 +241,7 @@
 - f44279a: Fix WebMCP action execution when hosts omit an abort signal.
 - 3d73d24: Focus the agent sidebar composer when a user opens it.
 - 1670de6: `/_agent-native/health?strict=1&schema=1` no longer reports a deploy healthy
-  when it silently fell back to a local SQLite file, and its schema probe now
+  when it silently fell back to a local database, and its schema probe now
   covers Better Auth's own tables. `runDatabaseSchemaHealthCheck` requires
   `user`, `session`, `account`, `verification`, and `jwks` whenever auth is
   enabled (skipped only when `AUTH_DISABLED` is set), so a missing `jwks` table
@@ -130,7 +251,7 @@
   configured production host apart from the host actually being served.
 
   `getDbExec()` now throws a typed `HostedRuntimeLocalDatabaseError` instead of
-  silently opening `file:./data/app.db` when a hosted function invocation (not
+  silently opening a local PGlite data directory when a hosted function invocation (not
   a Netlify build step, which also sets `NETLIFY=true`) resolves no database
   URL — a serverless instance's local filesystem is ephemeral and per-instance,
   so this was a deploy that looked green while quietly running on throwaway
@@ -269,7 +390,7 @@
   channel it gets back. The gateway URL is now derived from
   `BUILDER_GATEWAY_BASE_URL` when unset, so hosted realtime needs one env var
   instead of four. Pipeline-injected channels still win, and anything missing
-  (no key, a non-Postgres database, a deploy preview, the org not in the rollout)
+  (no key, a deploy preview, the org not in the rollout)
   leaves the app on its own `/_agent-native/poll`.
 
   Registering an origin requires positive evidence that this process is the
@@ -400,7 +521,7 @@
 - b7e1cc9: Fail a `CONTEXT=production` release migration whose database URL is local or
   unconnectable, instead of silently migrating a throwaway file. Netlify hands the
   CLI a masked secret outside its own build infra, so the prebuilt deploy lane
-  applied the whole schema to a SQLite file in the build container, logged
+  applied the whole schema to a local database in the build container, logged
   `Applied migration ...`, exited 0, and published green while the deployed
   functions kept using a remote database that never received the schema. A masked
   value is neither empty nor a `file:` URL, so a local-database check alone does
@@ -1081,7 +1202,7 @@
 
 ### Patch Changes
 
-- 200e63b: Make the harness-session generation migration idempotent on SQLite.
+- 200e63b: Make the harness-session generation migration idempotent on Postgres.
 
 ## 0.172.9
 
@@ -1296,12 +1417,10 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - 0dc3cdd: Add `mcpTool` and `important` to `defineAction`, so an action declares its external-agent exposure and its first-request tool slot beside itself instead of in a plugin-level name list. `mcpTool` defaults to `agentTool`, so hiding an action from the agent hides it from outside agents too; declaring it overrides that inheritance in both directions. `mcpTool: false` hides an action from every MCP tier and the direct A2A surface (including the `--full-catalog` opt-in) while the in-app agent keeps calling it, `mcpTool: true` is the action-owned form of `mcp.connectorCatalog` membership, and `agentTool: false` with `mcpTool: true` makes an action MCP-only — external agents get it, the app's own agent does not. `deferLoading: false` keeps an action in the agent's first tool list and narrows the derived default to the actions that opted out of deferral, the action-owned form of `initialToolNames`; `deferLoading: true` pushes one behind `tool-search`. Both name lists keep working, so an app can migrate one action at a time.
 - c595519: Fix the chat-first workspace apps rail's active app having no visible selection indicator in both the collapsed and expanded rail layouts.
 - af1b3bb: Stop a transient boot failure from permanently breaking sign-in. `getBetterAuth()` cached its init promise before that promise settled, so one failed
-  initialization — a busy SQLite file, a momentary pool error — was replayed as a rejection to every later caller for the life of the process, and the only
+  initialization — a busy database connection or a momentary pool error — was replayed as a rejection to every later caller for the life of the process, and the only
   recovery was a restart. The failed attempt is now cleared so the next request re-initializes.
 
-  Also in the local-SQLite boot path: Better Auth opens the database through the shared `prepareLocalSqliteUrl()` / `sqliteFilenameFromUrl()` pair instead of
-  trimming the `file:` prefix by hand, so on serverless runtimes it lands on the same writable file as the app; and the `journal_mode = WAL` pragma is retried
-  on `SQLITE_BUSY` the way its documented sibling in `db/client.ts` already is.
+  The local database boot path now uses the same URL and file-resolution helpers as the app, and transient initialization failures are retried consistently.
 
   Separately, the injected beta environment switcher opened its stylesheet with a bare `color-scheme: dark;` declaration. A declaration at stylesheet top level
   is not a parse error that ends at its semicolon — the next qualified rule's prelude absorbs it, so `.environment-switcher` was dropped entirely and the badge
@@ -1322,7 +1441,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - baedb60: Fetch the headless browser at launch instead of embedding it in every serverless function. `@agent-native/creative-context` now depends on `@sparticuz/chromium-min` (46KB) rather than `@sparticuz/chromium` (66.4MB), and passes a version-pinned pack URL to `executablePath()`. The hosted Builder Browser path is unchanged and still preferred; this only affects the local-launch fallback, which now downloads the pack once per container. Set `AGENT_NATIVE_CHROMIUM_PACK_URL` to serve the pack from your own mirror. Measured on slides: server function 126.0MB → 59.6MB, total upload 243.8MB → 111.0MB.
 - c595519: Fix the shared `code` and `code-tabs` block specs so inserting one from a slash menu seeds real content instead of an empty `__raw` string — previously the freshly inserted block got permanently stuck on "Loading code block…" (or a terminal load error) because neither spec had an `empty()` factory.
 - aba438a: docs: correct the Clips Rewind documentation. Rewind is Clips' own local rolling recording, not a rewind.ai integration, and the pre-roll section is renamed to the product's "Add what happened before" and nested under Rewind.
-- baedb60: Stop shipping `better-sqlite3` in serverless function bundles. It is a local-development driver: every consumer is gated on a `file:` or schemeless `DATABASE_URL`, and a serverless function holding a file-backed SQLite database is already broken, since the filesystem is ephemeral and each container gets its own copy. Denying the package turns that misconfiguration into a loud failure instead of a silently empty database. The denylist applies to the netlify, vercel and aws-lambda presets only, so local development is unaffected. ~1.9MB per emitted function dir.
+- baedb60: Stop shipping the unused database fallback in serverless function bundles. Every consumer is gated on `DATABASE_URL`, and a serverless function cannot safely persist database files because its filesystem is ephemeral and each container gets its own copy. Denying the fallback turns that misconfiguration into a loud failure instead of silently empty data. The denylist applies to the netlify, vercel and aws-lambda presets only, so local development is unaffected. ~1.9MB per emitted function dir.
 - c595519: Fix the dev-server speculation-rules endpoint 404ing on the browser's real `Sec-Fetch-Dest: speculationrules` auto-fetch, logging a console error on every page load in `pnpm dev`.
 - 43c4adb: Allow transactional email definitions to re-register after a development hot reload while still rejecting conflicting catalog metadata for the same id. Add atomic, app-owned snapshot registration so conflicting or deleted catalog entries cannot leave partial or stale definitions behind while owned metadata changes refresh safely.
 - c595519: Fix EnvironmentBadge causing a React hydration mismatch on public SSR pages by deferring its content to a post-mount effect instead of branching on `typeof window` during render.
@@ -1403,13 +1522,12 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 41aa6e2: Let a manual automation run target a resource path, including the generic `run-automation-now` action and manage-automations `run-now` tool, so automations nested under `jobs/` (such as per-factory jobs) can be run immediately instead of failing with "A valid automation name is required." Preserve application-owned frontmatter when automation status is written back after a run, and dispatch local runs back to the inbound request host when present.
 - efbde51: Cut and ratchet serverless function payload size.
-  - Replace `better-sqlite3` with a throwing stub in serverless function bundles.
-    Every consumer is gated on a `file:` or schemeless `DATABASE_URL`, and a
-    function holding a file-backed SQLite database is already broken — the
-    filesystem is ephemeral and each container gets its own copy. The stub drops
-    the 1.9MB native binding from every emitted function and turns that
-    misconfiguration into a loud, specific error instead of a silently empty
-    database. Only the netlify, vercel and aws-lambda presets are affected; local
+  - Replace the unused database fallback with a throwing stub in serverless function bundles.
+    Every consumer is gated on `DATABASE_URL`, and a serverless
+    filesystem cannot safely persist database files because each container gets
+    its own copy. The stub drops the 1.9MB binding from every emitted function
+    and turns that misconfiguration into a loud, specific error instead of
+    silently empty data. Only the netlify, vercel and aws-lambda presets are affected; local
     development against a `file:` URL is unchanged.
   - Run an app's `scripts/prune-serverless-functions.ts`, when it exists, as part
     of `agent-native build` rather than leaving it to be chained afterwards. The
@@ -1440,7 +1558,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 4de4af3: Point missing-provider recovery errors to Settings > Agent > AI providers.
 - 4de4af3: Keep Dispatch workspace-app URLs shareable by seeding embedded apps from deep links and reflecting child route changes in the Dispatch URL.
-- 4de4af3: Stop shipping the 9.3MB libsql native driver to deployments that never load it. `copyInstalledLibsqlNativePackages` ran unconditionally for netlify/vercel/aws-lambda, unlike its Chromium sibling which is gated on a real consumer probe. It is now gated the same way, on whether the emitted bundle actually imports the bare `libsql` addon — the only gate that cannot be wrong, since `getDialect()` reads `DATABASE_URL` at runtime and build-time dialect is unknowable. The one importer in the server graph was the `db-check-scoping` maintenance script, which now uses the existing `createSqliteScriptClient` (dynamic `better-sqlite3` / `@libsql/client/web`) instead of the static node entry. Measured on the docs app: server function 55.9MB → 46.6MB.
+- 4de4af3: Stop shipping unused native database packages to deployments. The deploy bundler now includes only database code that the emitted bundle actually imports. Measured on the docs app: server function 55.9MB → 46.6MB.
 - Release all public npm packages with a patch version bump.
 - 4de4af3: Keep chat turns queued through transient server-run handoffs and delay missing-final warnings until the run state settles.
 - 4de4af3: Show the Connect AI setup for desktop chat relay failures and keep other recovery actions compact.
@@ -1917,7 +2035,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 ### Patch Changes
 
-- 7bb5be0: Reject host-native better-sqlite3 binaries in Netlify server bundles before publication.
+- 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
 - 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
 
 ## 0.164.21
@@ -2229,18 +2347,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 112547e: Resolve Agent-Native model selections through request, org/user defaults, and the global catalog before sending a concrete model to the Builder gateway.
-
-## 0.161.22
-
-### Patch Changes
-
-- 8a7ba01: Restore formatter compliance in core schema sanitization code.
-
-## 0.161.21
-
-### Patch Changes
-
-- 0d81f46: Keep the core tool-schema seam regression test formatted with the current source formatter.
-- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

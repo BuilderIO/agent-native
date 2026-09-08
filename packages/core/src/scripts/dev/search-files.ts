@@ -57,7 +57,6 @@ const BINARY_EXTS = new Set([
   ".gz",
   ".tar",
   ".db",
-  ".sqlite",
   ".pdf",
 ]);
 

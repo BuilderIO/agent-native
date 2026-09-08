@@ -17,7 +17,15 @@ initRendererTheme();
 (
   window as Window & { __AGENT_NATIVE_HOST_PLATFORM__?: string }
 ).__AGENT_NATIVE_HOST_PLATFORM__ = "electron";
-configureTracking({ authSessionRefresh: false, llmConnectionStatus: false });
+configureTracking({
+  authSessionRefresh: false,
+  llmConnectionStatus: false,
+  getDefaultProps: (_name, properties) => ({
+    ...properties,
+    app: "desktop",
+    template: "desktop",
+  }),
+});
 
 // Apply platform class to body so CSS can adapt per OS
 // (e.g. add padding for macOS traffic lights)

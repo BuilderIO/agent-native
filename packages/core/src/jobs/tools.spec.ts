@@ -43,7 +43,7 @@ vi.mock("../server/request-context.js", () => ({
 }));
 
 // Partial-mock db/client so the org-admin lookup is stubbed while other
-// exports (getDialect, etc.) used transitively by db/schema stay real.
+// exports used transitively by db/schema stay real.
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -443,15 +443,21 @@ describe("manage-jobs tool", () => {
         id: "r1",
         owner: SHARED_OWNER,
         path: "jobs/j.md",
-        content: sharedJobContent({ createdBy: "alice@example.com" }),
+        content: sharedJobContent({ createdBy: "alice@example.com" }).replace(
+          "---\n\n",
+          "slackChannelId: C0BUK2293SA\ndisplayName: Inbox digest\n---\n\n",
+        ),
       });
       const out = JSON.parse(
         await run({ action: "update", name: "j", schedule: "*/30 * * * *" }),
       );
       expect(out.schedule).toBe("*/30 * * * *");
       expect(out.nextRun).toBeTruthy();
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const putContent: string = resourcePutMock.mock.calls[0][2];
+      const { meta } = parseJobFrontmatter(putContent);
       expect(meta.schedule).toBe("*/30 * * * *");
+      expect(putContent).toContain("slackChannelId: C0BUK2293SA");
+      expect(putContent).toContain("displayName: Inbox digest");
     });
 
     it("rejects event-triggered resources without rewriting them", async () => {

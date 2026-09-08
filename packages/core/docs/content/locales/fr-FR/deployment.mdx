@@ -1,6 +1,6 @@
 ---
 title: "Déploiement"
-description: "Déployez une application ou un workspace Agent-Native sur une plateforme compatible avec Nitro et une base SQL persistante."
+description: "Déployez une application ou un workspace Agent-Native sur une plateforme compatible avec Nitro et une base PostgreSQL persistante."
 ---
 
 <!-- i18n-docs-ignore -->
@@ -26,7 +26,7 @@ Exécutez plusieurs applications sous une même origine avec une session partag�
 
 ## Avant le déploiement : choisissez une base persistante {#persistent-database}
 
-Pour les déploiements de production hébergés, cette page recommande PostgreSQL. Définissez `DATABASE_URL` dans l'environnement de déploiement avant le premier déploiement de production. Parmi les fournisseurs PostgreSQL courants figurent Neon, Supabase, Railway, Render, Amazon RDS for PostgreSQL, Cloud SQL for PostgreSQL et Azure Database for PostgreSQL. Les autres bases SQL restent prises en charge ; consultez les guides des fournisseurs [libSQL / Turso](/docs/turso) et [Cloudflare D1](/docs/cloudflare-d1) pour les détails de configuration.
+Chaque application déployée a besoin d'une base PostgreSQL persistante. Définissez `DATABASE_URL` dans l'environnement de déploiement avant le premier déploiement de production. Les fournisseurs PostgreSQL hébergés incluent [Neon](/docs/neon), [Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](/docs/aws-rds), [Cloud SQL for PostgreSQL](/docs/cloud-sql) et [Azure Database for PostgreSQL](/docs/azure-postgresql). Consultez le guide [Plain Postgres](/docs/postgres) pour les autres services gérés et les serveurs PostgreSQL auto-hébergés.
 
 Une application autonome a besoin d'un `BETTER_AUTH_SECRET` stable. Un workspace avec des requêtes signées entre applications a besoin de `A2A_SECRET`.
 

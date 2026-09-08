@@ -4,6 +4,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import type {
+  ContentDatabaseItemsPageResponse,
   ContentDatabaseResponse,
   ContentDatabaseItem,
   Document,
@@ -26,6 +27,8 @@ import {
   type DocumentQueryContext,
 } from "../lib/document-query";
 import {
+  contentDatabaseConstrainedQueryFilter,
+  contentDatabaseItemsContainingDocumentFilter,
   removeOptimisticItemFromContentDatabase,
   useRestoreContentDatabase,
 } from "./use-content-database";
@@ -321,11 +324,13 @@ export function setDocumentFavoriteInListCache(
   return patchDocumentInListDocumentsCache(old, documentId, { isFavorite });
 }
 
-export function patchDocumentInDatabaseCache(
-  current: ContentDatabaseResponse | undefined,
+export function patchDocumentInDatabaseCache<
+  T extends ContentDatabaseResponse | ContentDatabaseItemsPageResponse,
+>(
+  current: T | undefined,
   documentId: string,
   patch: Partial<Document>,
-): ContentDatabaseResponse | undefined {
+): T | undefined {
   if (!current) return current;
   let changed = false;
   const items = current.items.map((item) => {
@@ -336,7 +341,7 @@ export function patchDocumentInDatabaseCache(
       document: { ...item.document, ...patch },
     };
   });
-  return changed ? { ...current, items } : current;
+  return changed ? ({ ...current, items } as T) : current;
 }
 
 export function setDocumentFavoriteInDatabaseCache(
@@ -380,6 +385,10 @@ export function patchDocumentCaches(
         documentId,
         patch,
       ),
+  );
+  queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
+    contentDatabaseItemsContainingDocumentFilter(documentId),
+    (current) => patchDocumentInDatabaseCache(current, documentId, patch),
   );
 }
 
@@ -583,7 +592,9 @@ export function useUpdatePreviewDocumentDraft() {
 }
 
 export function useCreateDocument() {
-  return useActionMutation<Document, DocumentCreateRequest>("create-document");
+  return useActionMutation<Document, DocumentCreateRequest>("create-document", {
+    skipActionQueryInvalidation: true,
+  });
 }
 
 export function useUpdateDocument() {
@@ -607,6 +618,9 @@ export function useUpdateDocument() {
         const databaseFilter = {
           queryKey: ["action", "get-content-database"],
         } as const;
+        const databasePageFilter = contentDatabaseItemsContainingDocumentFilter(
+          variables.id,
+        );
         const contentSpacesFilter = {
           queryKey: ["action", "list-content-spaces"],
         } as const;
@@ -614,6 +628,7 @@ export function useUpdateDocument() {
           queryClient.cancelQueries(documentFilter),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
           queryClient.cancelQueries(databaseFilter),
+          queryClient.cancelQueries(databasePageFilter),
           queryClient.cancelQueries(contentSpacesFilter),
         ]);
 
@@ -625,6 +640,9 @@ export function useUpdateDocument() {
           ],
           ...queryClient.getQueriesData<ContentDatabaseResponse>(
             databaseFilter,
+          ),
+          ...queryClient.getQueriesData<ContentDatabaseItemsPageResponse>(
+            databasePageFilter,
           ),
           ...queryClient.getQueriesData(contentSpacesFilter),
         ];
@@ -675,6 +693,15 @@ export function useUpdateDocument() {
                 serverDocument,
               ),
           );
+          queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
+            contentDatabaseItemsContainingDocumentFilter(variables.id),
+            (current) =>
+              patchDocumentInDatabaseCache(
+                current,
+                variables.id,
+                serverDocument,
+              ),
+          );
           if (renamedContentSpace) {
             patchContentSpaceNameCaches(
               queryClient,
@@ -692,6 +719,9 @@ export function useUpdateDocument() {
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });
+          void queryClient.invalidateQueries(
+            contentDatabaseConstrainedQueryFilter(),
+          );
           return;
         }
 
@@ -700,6 +730,11 @@ export function useUpdateDocument() {
           variables.id,
           documentUpdateSuccessPatch(data, variables),
         );
+        if (variables.title !== undefined) {
+          void queryClient.invalidateQueries(
+            contentDatabaseConstrainedQueryFilter(),
+          );
+        }
         if (renamedContentSpace) {
           patchContentSpaceNameCaches(queryClient, variables.id, data.title);
           void queryClient.invalidateQueries({

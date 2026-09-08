@@ -1,26 +1,30 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-let sqlite: Database.Database;
+import { createTestPglite } from "../../a2a/test-pglite.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 const client = {
   execute: async (input: string | { sql: string; args?: unknown[] }) => {
-    const sql = typeof input === "string" ? input : input.sql;
-    const args = typeof input === "string" ? [] : (input.args ?? []);
-    if (/^\s*(SELECT|PRAGMA)/i.test(sql)) {
-      return { rows: sqlite.prepare(sql).all(...args), rowsAffected: 0 };
+    if (typeof input === "string") {
+      await pglite.exec(input);
+      return { rows: [], rowsAffected: 0 };
     }
-    return { rows: [], rowsAffected: sqlite.prepare(sql).run(...args).changes };
+    const result = await pglite.query(input.sql, input.args ?? []);
+    return {
+      rows: Array.from(result.rows ?? []),
+      rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+    };
   },
   transaction: async <T>(
     run: (tx: typeof client) => Promise<T>,
   ): Promise<T> => {
-    sqlite.exec("BEGIN");
+    await pglite.exec("BEGIN");
     try {
       const result = await run(client);
-      sqlite.exec("COMMIT");
+      await pglite.exec("COMMIT");
       return result;
     } catch (error) {
-      sqlite.exec("ROLLBACK");
+      await pglite.exec("ROLLBACK");
       throw error;
     }
   },
@@ -33,7 +37,7 @@ const validate = vi.fn();
 const apply = vi.fn();
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => client,
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 vi.mock("../registry.js", () => ({
   assertReviewableResourceAccess: (...args: unknown[]) => access(...args),
@@ -91,7 +95,7 @@ const decide = (observedRevision?: number) =>
   );
 
 beforeEach(async () => {
-  sqlite = new Database(":memory:");
+  pglite = await createTestPglite();
   __resetSuggestionTablesForTests();
   access
     .mockReset()
@@ -117,7 +121,9 @@ beforeEach(async () => {
     operations: [operation],
   });
 });
-afterEach(() => sqlite.close());
+afterEach(async () => {
+  await pglite.close();
+});
 
 describe("pending suggestion amendments", () => {
   it("reuses additive schema without resetting existing proposal revisions", async () => {
@@ -128,16 +134,14 @@ describe("pending suggestion amendments", () => {
   });
 
   it("adds ownership columns to a preexisting amendment table without removing rows", async () => {
-    sqlite.close();
-    sqlite = new Database(":memory:");
-    sqlite.exec(
+    await pglite.close();
+    pglite = await createTestPglite();
+    await pglite.exec(
       "CREATE TABLE agent_review_suggestion_amendments (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, revision INTEGER NOT NULL, author_email TEXT NOT NULL, request_json TEXT NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE (suggestion_id, revision))",
     );
-    sqlite
-      .prepare(
-        "INSERT INTO agent_review_suggestion_amendments VALUES (?,?,?,?,?,?,?,?)",
-      )
-      .run(
+    await pglite.query(
+      "INSERT INTO agent_review_suggestion_amendments VALUES (?,?,?,?,?,?,?,?)",
+      [
         "existing",
         "existing-suggestion",
         2,
@@ -146,14 +150,16 @@ describe("pending suggestion amendments", () => {
         "{}",
         "{}",
         "now",
-      );
+      ],
+    );
     __resetSuggestionTablesForTests();
     await ensureSuggestionTables();
-    const row = sqlite
-      .prepare(
+    const row = (
+      await pglite.query(
         "SELECT * FROM agent_review_suggestion_amendments WHERE idempotency_key = ?",
+        ["existing"],
       )
-      .get("existing");
+    ).rows[0];
     expect(row).toMatchObject({
       suggestion_id: "existing-suggestion",
       revision: 2,
@@ -181,11 +187,11 @@ describe("pending suggestion amendments", () => {
       revision: 3,
       status: "pending",
     });
-    const rows = sqlite
-      .prepare(
+    const rows = (
+      await pglite.query(
         "SELECT before_json, after_json FROM agent_review_suggestion_amendments ORDER BY revision",
       )
-      .all() as { before_json: string; after_json: string }[];
+    ).rows as { before_json: string; after_json: string }[];
     expect(rows).toHaveLength(2);
     expect(JSON.parse(rows[0]!.before_json).operations[0].after).toBe("new");
     expect(JSON.parse(rows[0]!.after_json)).toEqual(first);
@@ -211,11 +217,11 @@ describe("pending suggestion amendments", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "idempotency_conflict" });
     expect(
-      sqlite
-        .prepare(
+      (
+        await pglite.query(
           "SELECT COUNT(*) AS count FROM agent_review_suggestion_amendments",
         )
-        .get(),
+      ).rows[0],
     ).toEqual({ count: 1 });
   });
 
@@ -262,11 +268,11 @@ describe("pending suggestion amendments", () => {
     ).rejects.toThrow("Canonical changed");
     expect((await getSuggestion(suggestion.id))?.revision).toBe(1);
     expect(
-      sqlite
-        .prepare(
+      (
+        await pglite.query(
           "SELECT COUNT(*) AS count FROM agent_review_suggestion_amendments",
         )
-        .get(),
+      ).rows[0],
     ).toEqual({ count: 0 });
   });
 

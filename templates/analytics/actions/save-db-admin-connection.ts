@@ -17,14 +17,7 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional URL for the connected app."),
-    databaseUrl: z
-      .string()
-      .min(1)
-      .describe("Postgres, PostgreSQL, or libSQL database URL."),
-    databaseAuthToken: z
-      .string()
-      .optional()
-      .describe("Optional libSQL/Turso auth token. Leave empty for Postgres."),
+    databaseUrl: z.string().min(1).describe("Postgres database URL."),
   }),
   run: async (args, ctx) => {
     const admin = await requireDbAdminContextFromRequest(ctx);

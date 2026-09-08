@@ -1,6 +1,6 @@
 /**
  * The CRM grid's server-side query: a typed filter/sort tree compiled into one
- * dialect-agnostic Drizzle statement.
+ * Postgres Drizzle statement.
  *
  * Two rules shape everything here.
  *
@@ -11,7 +11,7 @@
  * 2. Attribute values live in `crm_record_fields`, one bitemporal row per
  *    attribute with `active_until IS NULL` for the current value. Filtering is
  *    therefore EXISTS/NOT EXISTS against that table, and sorting is a correlated
- *    scalar subquery — never `json_extract`, which diverges across dialects.
+ *    scalar subquery over the current row.
  */
 
 import { accessFilter } from "@agent-native/core/sharing";
@@ -609,8 +609,7 @@ function likePattern(value: Scalar, mode: "contains" | "prefix" | "suffix") {
   return `%${escaped}%`;
 }
 
-// LIKE is case-insensitive in SQLite and case-sensitive in PostgreSQL. Lowering
-// both sides is the only portable way to make "contains" mean the same thing.
+// Lowering both sides makes PostgreSQL contains matching case-insensitive.
 function likeSql(column: SQL, pattern: string): SQL {
   return sql`lower(${column}) like lower(${pattern}) escape '\\'`;
 }
@@ -735,7 +734,7 @@ function comparePredicate(
     const value = requireValue(leaf, target, ctx.actorEmail);
     const wanted =
       typeof value === "boolean" ? value : value === "true" || value === 1;
-    // `portableBoolean` is an INTEGER column in both dialects, and a raw `sql`
+    // The boolean column stores 0/1, and a raw `sql`
     // fragment bypasses the column codec that would have converted this.
     return { sql: sql`${column} = ${wanted ? 1 : 0}`, negate: false };
   }
@@ -997,8 +996,7 @@ function keysetPredicate(
 function orderByFor(keys: SortKey[]): SQL[] {
   const clauses: SQL[] = [];
   for (const key of keys) {
-    // Explicit null rank: SQLite orders NULLs first, PostgreSQL orders them
-    // last. Neither default is portable, so rank them by hand.
+    // Rank NULLs explicitly so pagination does not depend on database defaults.
     clauses.push(
       sql`case when ${key.expression} is null then 1 else 0 end asc`,
     );

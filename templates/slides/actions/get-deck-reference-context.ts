@@ -1,8 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import getDesignSystem from "./get-design-system.js";
 
 const MAX_CONTEXT_CHARS = 14_000;
 const MAX_PATTERNS = 6;
@@ -117,18 +120,24 @@ export default defineAction({
       ? data.slides
       : [];
     const title = row.title || data?.title || "Untitled Deck";
+    const designSystemId = resolveDeckDesignSystemId(row, data);
+    const designSystem = await loadAgentDesignSystemContext(
+      designSystemId,
+      getDesignSystem,
+    );
 
     return {
       id: row.id,
       title,
       slideCount: slides.length,
       aspectRatio: data?.aspectRatio ?? null,
-      designSystemId: row.designSystemId ?? null,
+      designSystemId,
+      designSystem,
       agentContext: buildReferenceDeckContext({
         id: row.id,
         title,
         aspectRatio: data?.aspectRatio ?? null,
-        designSystemId: row.designSystemId ?? null,
+        designSystemId,
         slides,
       }),
     };

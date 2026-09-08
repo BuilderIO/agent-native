@@ -412,7 +412,10 @@ export async function createPtyWebSocketServer(
       ...process.env,
       ...commandEnvironment,
       TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+      FORCE_COLOR: "1",
     };
+    delete env.NO_COLOR;
     if (registry) {
       for (const v of registry.stripEnv) delete env[v];
     }

@@ -1,5 +1,5 @@
 // Integration test for the row-union resync over-claim fix (slice 6b). Boots a
-// real in-memory libsql DB, simulates the PRE-FIX corrupted state where source
+// real PGlite database, simulates the PRE-FIX corrupted state where source
 // A over-claimed every database item (including source B's row), then resyncs
 // A against a mocked live Builder read and asserts the self-heal: A keeps only
 // its own remote-backed rows and never re-claims B's row.
@@ -7,7 +7,7 @@
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-// guard:allow-unscoped — isolated SQLite fixtures intentionally inspect rows directly.
+// guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
@@ -644,7 +644,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `resync-source-test-${process.pid}-${Date.now()}.sqlite`,
+  `resync-source-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 let getDb: () => any;
@@ -669,7 +669,7 @@ const OWNER = "owner@example.com";
 const IMPORT_SPACE_ID = "builder_import_test_space";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -699,10 +699,12 @@ beforeAll(async () => {
     updatedAt: now,
   });
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+    identity_authority TEXT, identity_id TEXT
   )`);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
-    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at INTEGER
   )`);
   resync = (await import("./_database-source-utils.js"))
     .resyncBuilderCmsSourceSnapshot;
@@ -742,9 +744,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 it("atomically grants one Builder continuation claim per persisted offset", async () => {
@@ -1906,6 +1906,94 @@ it("resync re-links only the source's own rows, never another collection's (self
   ]);
 });
 
+it("rejects an overflowing multi-row import before writing any partial rows", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_import_position_boundary";
+  const databaseDocId = "doc_db_import_position_boundary";
+  const existingDocumentId = "doc_import_position_boundary_existing";
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      spaceId: IMPORT_SPACE_ID,
+      ownerEmail: OWNER,
+      title: "Import position boundary",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: existingDocumentId,
+      spaceId: IMPORT_SPACE_ID,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Existing boundary row",
+      position: 2_147_483_646,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    spaceId: IMPORT_SPACE_ID,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "Import position boundary",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: "item_import_position_boundary_existing",
+    ownerEmail: OWNER,
+    databaseId,
+    documentId: existingDocumentId,
+    position: 2_147_483_646,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const read = await (
+    await import("./_builder-cms-read-client.js")
+  ).readBuilderCmsContentEntries({ model: "collection-duplicates" });
+  const entries = read.state === "live" ? read.entries : [];
+
+  await expect(
+    importBuilderEntries({
+      database,
+      sourceId: "src-position-boundary",
+      entries,
+      now,
+      sourceTable: "collection-duplicates",
+      existingSourceRows: [],
+    }),
+  ).rejects.toThrow("Database position is outside the supported range.");
+
+  const documents = await db
+    .select({ id: schema.documents.id, position: schema.documents.position })
+    .from(schema.documents)
+    .where(eq(schema.documents.parentId, databaseDocId));
+  const items = await db
+    .select({
+      id: schema.contentDatabaseItems.id,
+      position: schema.contentDatabaseItems.position,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  expect(documents).toEqual([
+    { id: existingDocumentId, position: 2_147_483_646 },
+  ]);
+  expect(items).toEqual([
+    {
+      id: "item_import_position_boundary_existing",
+      position: 2_147_483_646,
+    },
+  ]);
+});
+
 it("records freshly imported Builder row identities even when title and URL keys collide", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
@@ -2202,11 +2290,11 @@ it("repairs a legacy organization database into its organization space", async (
   const databaseId = "legacy_org_builder_database";
   const databaseDocumentId = "legacy_org_builder_document";
   await getDbExec().execute({
-    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
     args: [orgId, "Legacy Builder Org", OWNER, Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: ["legacy-builder-org-owner", orgId, OWNER, "owner", Date.now()],
   });
   await db.insert(schema.documents).values({

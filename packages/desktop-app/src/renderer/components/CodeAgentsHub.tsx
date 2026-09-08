@@ -667,6 +667,9 @@ interface CodeAgentsHubProps {
   ) => void;
   onChatFirstAppRemove?: (app: ChatFirstAppItem) => void;
   onChatFirstAppSelectionChange?: (appId?: string) => void;
+  onDesktopIdentityStatusChange?: (
+    status: DesktopIdentityStatus | "checking",
+  ) => void;
 }
 
 type CodeAgentTranscriptSubscriptionBatch = {
@@ -702,6 +705,7 @@ export default function CodeAgentsHub({
   onLocalCodeChangeStarted,
   onChatFirstAppRemove,
   onChatFirstAppSelectionChange,
+  onDesktopIdentityStatusChange,
 }: CodeAgentsHubProps) {
   const theme = useRendererTheme();
   useEffect(() => {
@@ -2777,6 +2781,14 @@ export default function CodeAgentsHub({
                       }}
                       onDesktopIdentityStatusChange={(status) => {
                         handleDesktopIdentityStatusChange(tab.id, status);
+                        if (
+                          isTabActive &&
+                          (status === "failed" ||
+                            status === "sign-in-required" ||
+                            status === "signed-in")
+                        ) {
+                          onDesktopIdentityStatusChange?.(status);
+                        }
                       }}
                       onWebContentsIdChange={(webContentsId) =>
                         handleWebContentsIdChange(tab.id, webContentsId)
@@ -2840,6 +2852,7 @@ export default function CodeAgentsHub({
       host,
       isActive,
       onLocalCodeChangeStarted,
+      onDesktopIdentityStatusChange,
       onOpenSettings,
       refreshKey,
       surfaceApps,
@@ -3120,6 +3133,15 @@ export default function CodeAgentsHub({
                 appConfig={app}
                 isActive={isActive}
                 showDesktopIdentityGate={false}
+                onDesktopIdentityStatusChange={(status) => {
+                  if (
+                    status === "failed" ||
+                    status === "sign-in-required" ||
+                    status === "signed-in"
+                  ) {
+                    onDesktopIdentityStatusChange?.(status);
+                  }
+                }}
                 theme={theme}
                 urlParams={urlParams}
                 // Shell key folded in: a lane change remounts every hosted

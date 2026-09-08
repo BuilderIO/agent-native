@@ -3,6 +3,22 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-04
+
+### Fixed
+
+- The Automations tab still lists Factory jobs after their domain tag is missing.
+- The built-in Factory map can be saved the first time without a stale-version error.
+- Agent view-screen follows the Factory tab you are looking at when more than one is open.
+
+## 2026-09-03
+
+### Fixed
+
+- An AI map save no longer renames the built-in Factory before it has been saved.
+- Disabled Factory automations can clear a saved Slack channel, repository, or Sentry destination again.
+- Slack channel IDs on a Factory automation no longer disappear after Run now.
+
 ## 2026-09-02
 
 ### Improved
@@ -11,6 +27,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- The Automations tab now has one create control, and it stays on screen when chat is open.
+- Creating a factory or automation from chat now opens Inbox or Automations instead of rewriting the map.
 - Factory automations stay listed, savable, runnable, and on schedule after a scheduler run updates their status.
 - PR babysitting now asks Builder when a reviewer leaves body-only feedback, not only inline comments.
 - PR babysitting no longer reopens a parked pull request when the author replies on an existing review thread.

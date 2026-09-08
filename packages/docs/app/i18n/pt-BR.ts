@@ -157,8 +157,8 @@ const ptBR = {
           body: "Defina o trabalho uma vez e use pela UI, agent, HTTP, MCP, A2A e CLI.",
         },
         sqlStateOrm: {
-          title: "Estado SQL e ORM",
-          body: "Dados duráveis da app, estado da aplicação, migrações e esquemas independentes de provedor.",
+          title: "Estado PostgreSQL e ORM",
+          body: "Dados duráveis da app, estado da aplicação, migrações e esquemas PostgreSQL/PGlite.",
         },
         dbAdmin: {
           title: "Admin de banco de dados",
@@ -211,7 +211,7 @@ const ptBR = {
       body1:
         "Agent-Native é um framework open source para construir agentic applications: comece com Chat, defina actions compartilhadas e depois adicione UI, jobs e colaboração ao redor do mesmo estado.",
       body2:
-        "Traga seu próprio banco de dados, provedor de hospedagem, stack de modelos e código da app.",
+        "Use PGlite local ou PostgreSQL hospedado, seu provedor de hospedagem, stack de modelos e código da app.",
       cta: "Ler o guia do framework",
       primitives: {
         actions: {
@@ -229,10 +229,10 @@ const ptBR = {
           description:
             "O app-agent loop, tools, skills, memory, jobs e observabilidade são entregues juntos.",
         },
-        backendAgnostic: {
-          title: "Independente de backend",
+        postgresSpecific: {
+          title: "Específico de PostgreSQL",
           description:
-            "Conecte qualquer banco de dados SQL compatível com Drizzle e qualquer host compatível com Nitro.",
+            "Use os auxiliares de esquema PostgreSQL da estrutura com PGlite local ou Postgres hospedado em qualquer host compatível com Nitro.",
         },
       },
     },
@@ -311,7 +311,7 @@ const ptBR = {
     },
     quickStart: {
       title: "Comece com um comando",
-      body: "Um comando cria uma app local chat-first com suporte em actions, durable threads e SQLite. Use `--headless` apenas para workflows automation-first sem UI no navegador ainda.",
+      body: "Um comando cria uma app local chat-first com suporte em actions, durable threads e PGlite. Use `--headless` apenas para workflows automation-first sem UI no navegador ainda.",
     },
     finalCta: {
       title: "Software feito para a era agentic",
@@ -416,6 +416,7 @@ const ptBR = {
   },
   common: {
     copied: "Copiado",
+    copyFailed: "Falha ao copiar",
     copyCommand: "Comando copiar",
     copyCode: "Copiar código",
     tryIt: "Experimentar",
@@ -445,9 +446,9 @@ const ptBR = {
     },
     actions: {
       title: "Uma Action alimenta cada superfície",
-      bodyLine1: "Actions definem o que seu agente pode fazer.",
+      bodyLine1: "Defina uma capacidade uma vez com defineAction().",
       bodyLine2:
-        "Defina cada capacidade uma vez e use-a pelo agente, UI, HTTP API, MCP, A2A ou CLI.",
+        "Seu agente, sua UI React, clientes HTTP e integrações usam o mesmo código.",
       diagramAlt:
         "Uma Action alimenta UI, MCP, chat do agente, A2A, HTTP API e CLI",
     },
@@ -468,7 +469,7 @@ const ptBR = {
           body: "O agente sabe o que os usuários estão vendo, selecionando e editando.",
         },
         sharedSql: {
-          title: "Dados SQL compartilhados",
+          title: "Dados PostgreSQL compartilhados",
           body: "Usuários e agentes leem e atualizam a mesma fonte de verdade.",
         },
         skillsMemory: {
@@ -494,13 +495,13 @@ const ptBR = {
       },
     },
     stack: {
-      title: "Funciona com sua stack",
-      body: "Traga seu LLM, banco de dados, ferramentas e infraestrutura. Agent-Native é TypeScript de código aberto, então tudo o que você cria continua sendo seu.",
+      title: "Traga sua própria stack",
+      body: "Agent-Native é TypeScript de código aberto. Escolha seu modelo, banco de dados e hospedagem, e mantenha o código da aplicação no seu repositório.",
       exploreApps: "Explore apps criados com Agent-Native",
     },
     showcase: {
-      title: "O que você pode construir com Agent-Native?",
-      body: "Crie agentes com UIs para reuniões, design, apresentações, dados e muito mais. Comece com um destes apps de código aberto ou crie o seu.",
+      title: "Apps reais criados com Agent-Native",
+      body: "Apps Agent-Native de código aberto que você pode usar gratuitamente ou personalizar infinitamente.",
       browseApps: "Explorar apps",
       scrollLeft: "Rolar apps para a esquerda",
       scrollRight: "Rolar apps para a direita",
@@ -519,17 +520,30 @@ const ptBR = {
       download: "Baixar",
       apps: "Apps",
       privacyPolicy: "Política de Privacidade",
-      saasTerms: "Termos do serviço hospedado",
+      saasTerms: "Termos de SaaS",
       legalResources: "Recursos jurídicos",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Não vai criar localmente?",
-      exploreApp: "Explore primeiro um app ao vivo",
-      between: "ou",
-      joinWaitlist: "entre na lista de espera",
-      end: "para criar no navegador.",
+    tabs: {
+      label: "Escolha como criar",
+      local: "Criar localmente",
+      localDescription: "Use a CLI para criar no seu computador.",
+      cloud: "Criar na nuvem",
+      cloudDescription: "Crie no navegador com o Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Crie os mesmos aplicativos sem instalar nada. Descreva o que você quer e o agente escreve e executa o código em um espaço de trabalho hospedado pelo Builder.",
+      stepOneTitle: "Crie uma conta no Builder",
+      stepOneBody:
+        "Use sua conta do Builder para criar no navegador. Comece gratuitamente, sem precisar fornecer chaves de API.",
+      stepTwoTitle: "Envie seu prompt",
+      stepTwoBody:
+        "Descreva em linguagem simples o que você quer criar e o agente fará isso por você.",
+      stepThreeTitle: "Publique",
+      stepThreeBody:
+        "Quando estiver pronto, publique seu agente e sua UI com um clique no Builder.",
     },
   },
   templatesPage: {
@@ -611,6 +625,8 @@ const ptBR = {
     buildOnline: "Criar online",
     popoverTitle: "Criar no navegador",
     popoverBody:
+      "Gere rapidamente apps agent-native na nuvem com a Builder.io.",
+    waitlistBody:
       "A Builder.io pode iniciar e personalizar um app agent-native na nuvem — com actions, auth, estado SQL e chat do agente. Entre na lista de espera para acesso antecipado.",
     emailLabel: "Email",
     emailPlaceholder: "voce@empresa.com",
@@ -620,6 +636,9 @@ const ptBR = {
       "Você está na lista de espera. Enviaremos um email quando o acesso para criar online abrir.",
     invalidEmail: "Insira um endereço de email válido.",
     submitError: "Não foi possível entrar na lista de espera. Tente novamente.",
+    waitlistUnavailable:
+      "As inscrições na lista de espera ainda não estão disponíveis neste ambiente. Tente o site de documentação hospedado.",
+    launchBuilder: "Abrir o Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Cole em seu terminal.",
@@ -1102,7 +1121,7 @@ const ptBR = {
       s004: "Refinar",
       s005: "Todos os modelos",
       s006: "O estúdio de prototipagem de código aberto AI HTML",
-      s007: "Gere protótipos Alpine/Tailwind interativos a partir de um prompt, compare variantes, refine com controles de ajuste e exporte arquivos reais de sua propriedade.",
+      s007: "Crie designs e protótipos interativos. Refine com ferramentas familiares ou faça edições de conversação. Exporte para qualquer lugar.",
       s008: "Crie algo",
       s009: "Como funciona",
       s010: "Tudo que você precisa",
@@ -1156,6 +1175,7 @@ const ptBR = {
       s058: "Comece com o modelo e comece a gerar protótipos interativos com um agente que edita a fonte.",
       s059: "Leia os documentos",
       s060: "Ver todos os modelos",
+      s061: "100% grátis, código aberto e personalizável.",
     },
     dispatch: {
       faq: {
@@ -2109,6 +2129,9 @@ const ptBR = {
     databaseProviders: "Provedores de banco de dados",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "Internacionalização",
     localFileMode: "Modo de arquivos locais",

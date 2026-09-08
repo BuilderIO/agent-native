@@ -31,6 +31,8 @@ export interface CalendarViewPreferences {
   accountColors: Record<CalendarColorSourceKey, string>;
   /** Agent-Native visibility overrides for Google calendar sources. */
   googleCalendarVisibility: Record<string, boolean>;
+  /** Local display-color overrides keyed by opaque canonical Google calendar key. */
+  googleCalendarColors: Record<string, string>;
 }
 
 export const DEFAULT_CALENDAR_VIEW_PREFERENCES: CalendarViewPreferences = {
@@ -40,6 +42,7 @@ export const DEFAULT_CALENDAR_VIEW_PREFERENCES: CalendarViewPreferences = {
   accountColorModes: {},
   accountColors: {},
   googleCalendarVisibility: {},
+  googleCalendarColors: {},
 };
 
 export function isValidCalendarColorMode(
@@ -104,6 +107,7 @@ export function normalizeCalendarViewPreferences(
     accountColorModes: {},
     accountColors: {},
     googleCalendarVisibility: {},
+    googleCalendarColors: {},
   };
   if (!input || typeof input !== "object") return next;
 
@@ -121,6 +125,7 @@ export function normalizeCalendarViewPreferences(
   next.googleCalendarVisibility = normalizeBooleanRecord(
     input.googleCalendarVisibility,
   );
+  next.googleCalendarColors = normalizeColorRecord(input.googleCalendarColors);
   return next;
 }
 
@@ -134,7 +139,11 @@ export function calendarViewPreferencesEqual(
     a.singleColor === b.singleColor &&
     recordsEqual(a.accountColorModes, b.accountColorModes) &&
     recordsEqual(a.accountColors, b.accountColors) &&
-    booleanRecordsEqual(a.googleCalendarVisibility, b.googleCalendarVisibility)
+    booleanRecordsEqual(
+      a.googleCalendarVisibility,
+      b.googleCalendarVisibility,
+    ) &&
+    recordsEqual(a.googleCalendarColors, b.googleCalendarColors)
   );
 }
 

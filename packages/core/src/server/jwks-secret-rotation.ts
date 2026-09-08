@@ -57,13 +57,13 @@ export async function healUndecryptableJwks(): Promise<boolean> {
 async function attemptHeal(): Promise<boolean> {
   // Lazy imports keep this module cycle-free: better-auth-instance wraps the
   // JWT plugin with `withJwksRotationRecovery` from this file.
-  const [{ getDbExec, isPostgres }, { getAuthSecret }] = await Promise.all([
+  const [{ getDbExec }, { getAuthSecret }] = await Promise.all([
     import("../db/client.js"),
     import("./better-auth-instance.js"),
   ]);
 
-  const table = isPostgres() ? '"jwks"' : "jwks";
-  const nowValue = isPostgres() ? new Date().toISOString() : Date.now();
+  const table = '"jwks"';
+  const nowValue = new Date().toISOString();
   const { rows } = await getDbExec().execute({
     sql: `SELECT private_key FROM ${table} WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC LIMIT 1`,
     args: [nowValue],

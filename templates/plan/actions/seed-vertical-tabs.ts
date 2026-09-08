@@ -14,7 +14,7 @@ import createVisualPlan from "./create-visual-plan.js";
  * truncate, tabs full of heavy nested blocks, a single-tab edge case, a
  * horizontal block for side-by-side comparison, and tabs nested inside tabs.
  * Made public so it opens at /plans/<id> without a session. Run against a
- * throwaway local SQLite DB; safe to delete.
+ * throwaway local PGlite database; safe to delete.
  */
 
 const SAMPLE_TS = `export function renderTab(tab: TabsTab, active: boolean) {

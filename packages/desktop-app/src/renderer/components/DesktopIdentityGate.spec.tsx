@@ -194,10 +194,10 @@ describe("DesktopIdentityGate", () => {
     expect(container.querySelector("form")).toBeNull();
   });
 
-  it("does not wedge the shell on a transient identity failure", () => {
+  it("keeps identity recovery at the shell on a child sync failure", () => {
     renderGate("failed");
-    expect(container.textContent).toBe("");
-    expect(container.querySelector(".desktop-identity-gate")).toBeNull();
+    expect(container.textContent).toContain("Welcome");
+    expect(container.querySelector("form")).not.toBeNull();
   });
 
   it("renders nothing after the broker has fanned out app sessions", () => {

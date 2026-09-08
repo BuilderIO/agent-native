@@ -241,6 +241,13 @@ function FolderItem({
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
+            <ContextMenuItem asChild>
+              <NavLink to={buildPath(node.id)}>
+                <IconFolder className="h-4 w-4 me-2" />
+                {t("clipsFinalRaw.view")}
+              </NavLink>
+            </ContextMenuItem>
+            <ContextMenuSeparator />
             <ContextMenuItem
               onSelect={() => {
                 setTimeout(() => {

@@ -1,6 +1,34 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const transaction = { execute: vi.fn() };
+import { createTestPglite } from "../../a2a/test-pglite.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+const transaction = {
+  execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
+    if (typeof input === "string") {
+      await pglite.exec(input);
+      return { rows: [], rowsAffected: 0 };
+    }
+    const result = await pglite.query(input.sql, input.args ?? []);
+    return {
+      rows: Array.from(result.rows ?? []),
+      rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+    };
+  }),
+};
+const client = {
+  transaction: async <T>(run: (tx: typeof transaction) => Promise<T>) => {
+    await pglite.exec("BEGIN");
+    try {
+      const result = await run(transaction);
+      await pglite.exec("COMMIT");
+      return result;
+    } catch (error) {
+      await pglite.exec("ROLLBACK");
+      throw error;
+    }
+  },
+};
 const updateSuggestionStatus = vi.fn();
 const suggestion = {
   id: "suggestion-1",
@@ -24,13 +52,8 @@ const suggestion = {
 };
 
 vi.mock("../../db/client.js", () => ({
-  getDialect: () => "sqlite",
-  getDbExec: () => ({
-    transaction: async (run: (tx: typeof transaction) => Promise<unknown>) =>
-      run(transaction),
-  }),
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  getDbExec: () => client,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 vi.mock("../notifications.js", () => ({ notifyReviewComment: vi.fn() }));
 vi.mock("../store.js", () => ({
@@ -58,7 +81,8 @@ const { __resetSuggestionAdaptersForTests, registerSuggestionAdapter } =
   await import("./registry.js");
 
 describe("suggestion decision access", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    pglite = await createTestPglite();
     vi.clearAllMocks();
     __resetReviewableResourcesForTests();
     __resetSuggestionAdaptersForTests();
@@ -76,6 +100,10 @@ describe("suggestion decision access", () => {
       validateProposal: () => {},
       apply: vi.fn(),
     });
+  });
+
+  afterEach(async () => {
+    await pglite.close();
   });
 
   it("rechecks editor access inside the decision transaction", async () => {

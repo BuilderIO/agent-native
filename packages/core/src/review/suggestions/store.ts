@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres, type DbExec } from "../../db/client.js";
+import { getDbExec, type DbExec } from "../../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../../db/ddl-guard.js";
 import type { Visibility } from "../../sharing/schema.js";
 import type {
@@ -33,8 +33,7 @@ export async function ensureSuggestionTables(
       ];
       for (const sql of ddl) {
         const name = sql.match(/agent_review_[a-z_]+/)![0];
-        if (isPostgres()) await ensureTableExists(name, sql);
-        else await client.execute(sql);
+        await ensureTableExists(name, sql);
       }
       for (const [table, definitions] of [
         [
@@ -50,21 +49,12 @@ export async function ensureSuggestionTables(
           ],
         ],
       ] as const) {
-        const existing = isPostgres()
-          ? null
-          : await client.execute(`PRAGMA table_info(${table})`);
         for (const [column, type] of definitions) {
-          if (isPostgres()) {
-            await ensureColumnExists(
-              table,
-              column,
-              `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`,
-            );
-          } else if (!existing!.rows.some((field) => field.name === column)) {
-            await client.execute(
-              `ALTER TABLE ${table} ADD COLUMN ${column} ${type}`,
-            );
-          }
+          await ensureColumnExists(
+            table,
+            column,
+            `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`,
+          );
         }
       }
       await client.execute(

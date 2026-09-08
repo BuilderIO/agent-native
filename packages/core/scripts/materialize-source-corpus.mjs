@@ -91,6 +91,7 @@ const excludedDirNames = new Set([
   "coverage",
   "corpus",
   "dist",
+  "pglite",
   "node_modules",
   "playwright-report",
   "scratch",
@@ -106,14 +107,7 @@ const excludedFileNames = new Set([
   "yarn.lock",
 ]);
 
-const excludedFileSuffixes = [
-  ".db",
-  ".db-journal",
-  ".db-shm",
-  ".db-wal",
-  ".log",
-  ".tsbuildinfo",
-];
+const excludedFileSuffixes = [".log", ".tsbuildinfo"];
 
 // Matches both the "corpus" output dir itself and the unique per-process
 // temp dirs materializeSourceCorpus() swaps into place (see

@@ -171,6 +171,27 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["document-search-edit"],
   },
   {
+    id: "editor.blocks-field-word-count",
+    surface: "editor",
+    label: "Inspect per-field word counts",
+    uiEntrypoints: ["app/components/editor/DocumentInfoPanel.tsx"],
+    durableEffect:
+      "Authorized Blocks-field word counts read the current field without combining sibling fields.",
+    uiImplementation:
+      "Page Info projects live per-field counts; agents request the same exact field through a read-only action.",
+    status: "action-backed",
+    actions: ["get-blocks-field-word-count"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/get-blocks-field-word-count.test.ts",
+      "app/components/editor/DocumentInfoPanel.test.ts",
+    ],
+  },
+  {
     id: "editor.client-formatting-and-insertions",
     surface: "editor",
     label:

@@ -401,6 +401,8 @@ export function useNavigationState() {
 }
 ```
 
+`app/lib/tab-id.ts`에서 임포트된 `TAB_ID`는 프레임워크의 `getBrowserTabId()` 값입니다. 페이지 로컬 WebMCP 호출도 동일한 id를 `X-Agent-Native-Browser-Tab`으로 전송하므로, 서버는 탭별 `navigation`/`selection` 상태를 에이전트나 사용자가 실제로 조작 중인 탭으로 정확히 해석합니다 — 동기화해야 할 두 번째 탭 체계는 존재하지 않습니다.
+
 | 당신이 쓰세요                                    | 프레임워크 처리                                         |
 | ------------------------------------------------ | ------------------------------------------------------- |
 | `getNavigationState` — URL를 의미 상태에 매핑    | `navigation` 쓰기, 탭 범위 및 전역 대체 키              |

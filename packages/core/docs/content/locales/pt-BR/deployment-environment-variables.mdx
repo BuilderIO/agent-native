@@ -29,7 +29,7 @@ comportamento de hospedagem.
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Segredo HMAC compartilhado e dedicado de 32+ caracteres para a retransmissão segura de autorização do Builder em previews. Defina o mesmo valor na implantação de callback corporativa aprovada e nas implantações de preview somente quando a autorização precisar ser gravada em um banco de dados de preview isolado.                                                                                                                                          |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Lista de permissões, separada por vírgulas e exclusiva do callback corporativo, de origens de preview exatas e confiáveis (por exemplo, `https://0123456789abcdef01234567--content.netlify.app`). Defina-a somente na implantação de callback corporativa. As origens da Netlify devem usar um permalink imutável e específico da implantação, com 24 caracteres hexadecimais. Aliases mutáveis `deploy-preview-*`, curingas e sufixos de domínio são rejeitados. |
 
-As variáveis de conexão de banco de dados (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `<APP_NAME>_DATABASE_URL` por app) estão em [Banco de dados](/docs/server-database#production).
+As variáveis de conexão de banco de dados (`DATABASE_URL`, `<APP_NAME>_DATABASE_URL` por app) estão em [Banco de dados](/docs/server-database#production).
 
 ## Configuração sensível à produção {#env-required-prod}
 

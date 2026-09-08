@@ -86,7 +86,7 @@ describe("built-in auth marketing layout contract", () => {
     );
     // the product-screenshot dim/blur treatment used by the marketing panel
     expect(html).toMatch(
-      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{\s*filter:\s*blur\([^)]+\);\s*opacity:\s*0\.8;/,
+      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*filter:\s*blur\(18px\);[^}]*opacity:\s*0\.8;/,
     );
   });
 

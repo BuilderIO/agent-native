@@ -103,14 +103,10 @@ const messages = {
     empty: "لا توجد ملاحظات بعد.",
     risk: "المخاطر",
     status: "الحالة",
-    author: "المؤلف",
     coverage: "التغطية",
     reason: "السبب",
     evidence: "الدليل",
-    evidenceDescription: "سلسلة المحادثة أو التقرير الذي جاء منه هذا العنصر.",
     actionsTaken: "السجل",
-    actionsTakenDescription:
-      "قرارات الظل والحوكمة والعمل الذي بدأ بالفعل لهذا العنصر.",
     threadTruncated: "سلسلة Slack هذه مقتطعة.",
     threadUnavailable: "تعذر تحميل سلسلة Slack هذه.",
     noEvidence: "لا يوجد دليل مصدر محفوظ لهذا العنصر.",
@@ -128,8 +124,6 @@ const messages = {
     noteLabel: "ملاحظة التعليق",
     submitFeedback: "تسجيل التعليق",
     feedbackTitle: "تسجيل التعليق",
-    feedbackDescription:
-      "حدد ما إذا كان قرار الظل صحيحًا. يُحفظ للمراجعة ولا يبدأ تشغيلًا.",
     feedbackError: "تعذر تسجيل التعليق.",
     noDecisions: "لا توجد قرارات مسجلة بعد.",
     rulesTitle: "قواعد الفرز",

@@ -114,19 +114,6 @@ function DbSyncSetup() {
     queryClient: qc,
     queryKeys: [],
     ignoreSource: TAB_ID,
-    onEvent: (data: {
-      source?: string;
-      type: string;
-      key?: string;
-      requestSource?: string;
-    }) => {
-      const isOwnEvent = data.requestSource === TAB_ID;
-      if (isOwnEvent) return;
-
-      if (data.source === "app-state") {
-        void qc.invalidateQueries({ queryKey: ["navigate-command"] });
-      }
-    },
   });
   return null;
 }

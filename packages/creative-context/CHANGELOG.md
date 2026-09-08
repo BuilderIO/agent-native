@@ -1,5 +1,21 @@
 # @agent-native/creative-context
 
+## 0.7.22
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.21
+
+### Patch Changes
+
+- cb3a95f: Add opt-in canonical organization federation across Agent-Native app deployments.
+- Release all public npm packages with a patch version bump.
+- cc2a915: Standardize framework persistence on PostgreSQL. Local development uses PGlite,
+  hosted deployments use PostgreSQL, and the database client, schema, migrations,
+  templates, docs, and tooling now target PostgreSQL directly.
+
 ## 0.7.20
 
 ### Patch Changes

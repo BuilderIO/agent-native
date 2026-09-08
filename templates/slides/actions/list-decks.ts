@@ -1,5 +1,4 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { isPostgres } from "@agent-native/core/db";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -7,6 +6,7 @@ import { and, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { getDeckUrl } from "./_app-url.js";
 
@@ -219,18 +219,12 @@ export default defineAction({
         // Keep the list bounded at the database boundary. `data` is an opaque
         // full-deck blob, so selecting it and parsing it here scales with every
         // slide even though the caller only needs the first one.
-        const previewSlideProjection = isPostgres()
-          ? sql<
-              string | null
-            >`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`
-          : sql<
-              string | null
-            >`json_extract(${schema.decks.data}, '$.slides[0]')`;
-        const aspectRatioProjection = isPostgres()
-          ? sql<string | null>`(${schema.decks.data}::jsonb ->> 'aspectRatio')`
-          : sql<
-              string | null
-            >`json_extract(${schema.decks.data}, '$.aspectRatio')`;
+        const previewSlideProjection = sql<
+          string | null
+        >`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
+        const aspectRatioProjection = sql<
+          string | null
+        >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`;
         const rows = await db
           .select({
             id: schema.decks.id,
@@ -357,7 +351,7 @@ export default defineAction({
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-          designSystemId: row.designSystemId ?? data.designSystemId ?? null,
+          designSystemId: resolveDeckDesignSystemId(row, data),
           createdAt:
             typeof data.createdAt === "string" ? data.createdAt : row.createdAt,
           updatedAt: row.updatedAt,

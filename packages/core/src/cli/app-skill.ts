@@ -575,9 +575,6 @@ function copyDirFiltered(source: string, dest: string): void {
         !base.startsWith(".env") &&
         base !== ".dev.vars" &&
         base !== ".npmrc" &&
-        !lower.endsWith(".db") &&
-        !lower.endsWith(".sqlite") &&
-        !lower.endsWith(".sqlite3") &&
         !lower.endsWith(".pem") &&
         !lower.endsWith(".key") &&
         !lower.endsWith(".crt") &&

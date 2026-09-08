@@ -16,6 +16,7 @@ import {
   clearDeletedContentDatabaseFromCache,
   contentDatabaseResponseCanSeedQuery,
   contentDatabaseItemsPageQueryKey,
+  contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
   fetchCompleteContentDatabaseList,
   invalidateBuilderBodyHydrationQueries,
@@ -121,6 +122,49 @@ describe("preserveScopedDatabasePlaceholder", () => {
   });
 });
 
+describe("contentDatabaseConstrainedQueryFilter", () => {
+  it("targets the canonical bounded result for one database document", () => {
+    const queryClient = new QueryClient();
+    const matchingKey = [
+      "action",
+      "query-content-database-items",
+      {
+        documentId: "database-page",
+        limit: 100,
+        tableQuery: {
+          search: "",
+          filters: [],
+          sorts: [],
+          filterMode: "and",
+        },
+      },
+    ] as const;
+    const otherKey = [
+      "action",
+      "query-content-database-items",
+      {
+        documentId: "other-database-page",
+        limit: 100,
+        tableQuery: {
+          search: "",
+          filters: [],
+          sorts: [],
+          filterMode: "and",
+        },
+      },
+    ] as const;
+    queryClient.setQueryData(matchingKey, { items: [] });
+    queryClient.setQueryData(otherKey, { items: [] });
+
+    void queryClient.invalidateQueries(
+      contentDatabaseConstrainedQueryFilter("database-page"),
+    );
+
+    expect(queryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(otherKey)?.isInvalidated).toBe(false);
+  });
+});
+
 describe("isContentDatabaseByIdQueryEnabled", () => {
   it("fetches when a databaseId is present and the caller doesn't pause it", () => {
     expect(isContentDatabaseByIdQueryEnabled("files-db")).toBe(true);
@@ -146,6 +190,27 @@ describe("isContentDatabaseByIdQueryEnabled", () => {
 });
 
 describe("optimistic Content database items", () => {
+  it("patches a visible value in a bounded filtered result", () => {
+    const current = databaseResponse();
+    const property = { ...current.properties[0]!, value: "2026-09-01" };
+    const bounded = {
+      items: [{ ...current.items[0]!, properties: [property] }],
+      source: current.source,
+      sources: current.sources,
+      pagination: current.pagination,
+      tableQueryMode: "server" as const,
+    };
+    const propertyId = property.definition.id;
+
+    const updated = applyDocumentPropertyValueToDatabaseResponse(bounded, {
+      documentId: bounded.items[0]!.document.id,
+      propertyId,
+      value: "2026-09-05",
+    });
+
+    expect(updated?.items[0]!.properties[0]!.value).toBe("2026-09-05");
+  });
+
   it("shows the durable Builder row count before the authoritative readback", () => {
     const completed = applyBuilderAttachCompletion(
       {

@@ -6415,11 +6415,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return true;
     }
     if (/^Arrow/.test(key || "")) return !e.altKey;
-    // Figma's Shift+\ "Minimize UI" chord. Use the physical code because
-    // Shift+\ produces "|" on US keyboard layouts.
-    if (!primary && !e.altKey && e.shiftKey && e.code === "Backslash") {
-      return true;
-    }
     if (primary) {
       return (
         [
@@ -6462,6 +6457,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           !e.altKey &&
           !e.shiftKey &&
           normalized === "f") ||
+        // Cmd/Ctrl+\ and Cmd/Ctrl+Shift+\ toggle Design chrome. Use the
+        // physical code so both shortcuts remain stable across layouts.
+        (e.code === "Backslash" && !e.altKey) ||
         (e.shiftKey && (normalized === "h" || normalized === "l")) ||
         (e.shiftKey && normalized === "r") ||
         // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component

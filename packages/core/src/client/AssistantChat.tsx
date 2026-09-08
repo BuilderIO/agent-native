@@ -89,6 +89,7 @@ import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
 } from "./assistant-ui-recovery.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { modelCatalogConfirmsMissing } from "./chat-model-groups.js";
 import { AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT } from "./chat-view-transition.js";
 // ─── chat/ module imports ─────────────────────────────────────────────────────
@@ -7002,6 +7003,9 @@ export const AssistantChat = forwardRef<
   },
   ref,
 ) {
+  const resolvedBrowserTabId =
+    browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   const modelRef = useRef<string | undefined>(props.selectedModel);
   modelRef.current = props.selectedModel;
   const engineRef = useRef<string | undefined>(props.selectedEngine);
@@ -7037,7 +7041,7 @@ export const AssistantChat = forwardRef<
         harnessRef,
         hostedHarnessRef,
         execModeRef,
-        browserTabId,
+        browserTabId: resolvedBrowserTabId,
         scopeRef,
         surface,
       };
@@ -7061,7 +7065,7 @@ export const AssistantChat = forwardRef<
       apiUrl,
       tabId,
       threadId,
-      browserTabId,
+      resolvedBrowserTabId,
       surface,
       props.streamingUrl,
       props.runtime,
@@ -7093,7 +7097,7 @@ export const AssistantChat = forwardRef<
               <AssistantChatInner
                 ref={ref}
                 {...props}
-                browserTabId={browserTabId}
+                browserTabId={resolvedBrowserTabId}
                 contextScope={contextScope}
                 contextNamespace={contextNamespace}
                 isActiveComposer={isActiveComposer}

@@ -8,7 +8,9 @@ const {
   getManifestRouteTree,
   hasReactRouterManifestRoutes,
   hasWarmableRouteAssets,
+  isClientRouteUrl,
   parseBuildTimeRouteWarmupConfig,
+  dataRouteUrlForHref,
   renderWarmupLinksForSelector,
   routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,
@@ -32,6 +34,18 @@ describe("route warmup runtime helpers", () => {
       "render",
     );
     expect(parseBuildTimeRouteWarmupConfig("render")).toBe("render");
+  });
+
+  it("uses React Router single-fetch data endpoints", () => {
+    expect(new URL(dataRouteUrlForHref("/")!).pathname).toBe("/_.data");
+    expect(new URL(dataRouteUrlForHref("/docs/")!).pathname).toBe(
+      "/docs/_.data",
+    );
+
+    window.__reactRouterContext = { basename: "/dispatch" };
+    expect(new URL(dataRouteUrlForHref("/dispatch")!).pathname).toBe(
+      "/dispatch/_.data",
+    );
   });
 
   it("refreshes the route tree when React Router patches manifest routes in place", () => {
@@ -101,6 +115,17 @@ describe("route warmup runtime helpers", () => {
       "/assets/docs._index-DNb8kxCk.js",
       "/assets/MarkdownRenderer-ri6QZniN.js",
     ]);
+    expect(isClientRouteUrl(new URL("/docs", window.location.origin))).toBe(
+      true,
+    );
+    expect(
+      isClientRouteUrl(new URL("/not-a-route", window.location.origin)),
+    ).toBe(false);
+    expect(
+      isClientRouteUrl(
+        new URL("/cdn-cgi/l/email-protection", window.location.origin),
+      ),
+    ).toBe(false);
   });
 
   it("does not warm dev source module ids from the route manifest", () => {

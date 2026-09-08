@@ -1,5 +1,5 @@
 import { getAppConfig } from "../app-config/index.js";
-import { isPostgres, type DbExec } from "../db/client.js";
+import { type DbExec } from "../db/client.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
 
 /**
@@ -105,7 +105,7 @@ export async function recordDatabaseIdentity(): Promise<DatabaseIdentityRecordRe
 async function readRawViaExec(
   exec: DbExec,
 ): Promise<Record<string, unknown> | null> {
-  const table = isPostgres() ? "public.settings" : "settings";
+  const table = "public.settings";
   const { rows } = await exec.execute({
     sql: `SELECT value FROM ${table} WHERE key = ?`,
     args: [DATABASE_IDENTITY_SETTING_KEY],

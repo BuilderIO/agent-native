@@ -13,9 +13,7 @@ const resourcePath = "context/lifecycle-smoke.md";
 const originalEnv = {
   APP_NAME: process.env.APP_NAME,
   DATABASE_URL: process.env.DATABASE_URL,
-  DATABASE_AUTH_TOKEN: process.env.DATABASE_AUTH_TOKEN,
   DISPATCH_DATABASE_URL: process.env.DISPATCH_DATABASE_URL,
-  DISPATCH_DATABASE_AUTH_TOKEN: process.env.DISPATCH_DATABASE_AUTH_TOKEN,
 };
 
 let tempDir: string | null = null;
@@ -31,11 +29,9 @@ beforeEach(async () => {
   tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "dispatch-resource-lifecycle-"),
   );
-  process.env.DATABASE_URL = `file:${path.join(tempDir, "app.db")}`;
+  process.env.DATABASE_URL = `pglite:${tempDir}`;
   delete process.env.APP_NAME;
-  delete process.env.DATABASE_AUTH_TOKEN;
   delete process.env.DISPATCH_DATABASE_URL;
-  delete process.env.DISPATCH_DATABASE_AUTH_TOKEN;
   vi.resetModules();
 
   const [{ runMigrations }, { dispatchMigrations }] = await Promise.all([
@@ -45,6 +41,7 @@ beforeEach(async () => {
   await runMigrations(dispatchMigrations, {
     table: "dispatch_migrations",
   })({});
+  await (await import("@agent-native/core/db")).closeDbExec();
 });
 
 afterEach(async () => {

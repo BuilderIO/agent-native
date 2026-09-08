@@ -403,6 +403,41 @@ describe("add-slide", () => {
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
+  it('inserts at the front for position "start"', async () => {
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+      position: "start",
+    });
+
+    expect(result).toMatchObject({ slideNumber: 1, position: 0 });
+    const updated = JSON.parse(updatedFields!.data as string);
+    expect(updated.slides.map((slide: { id: string }) => slide.id)).toEqual([
+      "slide-new",
+      "slide-1",
+      "slide-2",
+    ]);
+  });
+
+  it('appends for position "end" instead of failing validation', async () => {
+    // "end" is the word an agent reaches for; it used to fail zod as NaN.
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+      position: "END",
+    });
+
+    expect(result).toMatchObject({ slideNumber: 3, position: 2 });
+    const updated = JSON.parse(updatedFields!.data as string);
+    expect(updated.slides.map((slide: { id: string }) => slide.id)).toEqual([
+      "slide-1",
+      "slide-2",
+      "slide-new",
+    ]);
+  });
+
   it("rejects empty string positions", async () => {
     await expect(
       action.run({

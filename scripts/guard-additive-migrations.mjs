@@ -41,9 +41,9 @@
  * case): `ALTER COLUMN ... TYPE boolean` is exempt. Several templates
  * carry a one-time repair for a real bug — `adaptSqlForPostgres` in
  * packages/core/src/db/migrations.ts rewrites `INTEGER` to `BIGINT`, so a
- * Drizzle `integer({ mode: "boolean" })` column landed as BIGINT on
- * Postgres and rejected JS booleans on insert. The fix always retypes to
- * `boolean` with an explicit `USING <col>::int::boolean`-style cast, which
+ * legacy integer-backed boolean column landed as BIGINT on Postgres and
+ * rejected JS booleans on insert. The fix always retypes to `boolean` with
+ * an explicit `USING <col>::int::boolean`-style cast, which
  * is total and lossless for a column that only ever held 0/1. Retyping to
  * anything OTHER than boolean is still flagged unconditionally.
  *
@@ -69,8 +69,8 @@ const REPO_ROOT = path.resolve(
 const PRAGMA_RE = /^\s*(?:\/\/|--)\s*guard:allow-destructive-ddl\b/i;
 
 /**
- * The engine itself, not a migration list — its doc comments demonstrate
- * migration syntax (including dialect-gated ALTER examples) and would be a
+ * The engine itself, not a migration list - its doc comments demonstrate
+ * migration syntax (including conditional ALTER examples) and would be a
  * false-positive source if scanned as one.
  */
 const NOT_A_MIGRATION_LIST = new Set(["packages/core/src/db/migrations.ts"]);

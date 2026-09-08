@@ -43,27 +43,6 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
         last_checked_at BIGINT,
         last_error TEXT
       )`,
-      sqlite: `CREATE TABLE IF NOT EXISTS workspace_connections (
-        id TEXT PRIMARY KEY,
-        provider TEXT NOT NULL DEFAULT '',
-        label TEXT NOT NULL DEFAULT '',
-        account_id TEXT,
-        account_label TEXT,
-        status TEXT NOT NULL DEFAULT 'connected',
-        scopes_json TEXT NOT NULL DEFAULT '[]',
-        config_json TEXT NOT NULL DEFAULT '{}',
-        allowed_apps_json TEXT NOT NULL DEFAULT '[]',
-        allowed_users_json TEXT NOT NULL DEFAULT '[]',
-        allowed_user_groups_json TEXT NOT NULL DEFAULT '[]',
-        credential_refs_json TEXT NOT NULL DEFAULT '[]',
-        owner_email TEXT NOT NULL DEFAULT '',
-        org_id TEXT,
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        last_used_at INTEGER,
-        last_checked_at INTEGER,
-        last_error TEXT
-      )`,
     },
   },
   {
@@ -94,21 +73,6 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
         updated_at BIGINT NOT NULL DEFAULT 0,
         last_used_at BIGINT
       )`,
-      sqlite: `CREATE TABLE IF NOT EXISTS workspace_connection_grants (
-        id TEXT PRIMARY KEY,
-        connection_id TEXT NOT NULL DEFAULT '',
-        provider TEXT NOT NULL DEFAULT '',
-        app_id TEXT NOT NULL DEFAULT '',
-        scopes_json TEXT NOT NULL DEFAULT '[]',
-        config_json TEXT NOT NULL DEFAULT '{}',
-        credential_refs_json TEXT NOT NULL DEFAULT '[]',
-        granted_by_email TEXT NOT NULL DEFAULT '',
-        owner_email TEXT NOT NULL DEFAULT '',
-        org_id TEXT,
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        last_used_at INTEGER
-      )`,
     },
   },
   {
@@ -137,15 +101,6 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
         created_by_email TEXT NOT NULL DEFAULT '',
         created_at BIGINT NOT NULL DEFAULT 0,
         updated_at BIGINT NOT NULL DEFAULT 0
-      )`,
-      sqlite: `CREATE TABLE IF NOT EXISTS workspace_user_groups (
-        id TEXT PRIMARY KEY,
-        org_id TEXT NOT NULL DEFAULT '',
-        name TEXT NOT NULL DEFAULT '',
-        member_emails_json TEXT NOT NULL DEFAULT '[]',
-        created_by_email TEXT NOT NULL DEFAULT '',
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0
       )`,
     },
   },

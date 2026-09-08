@@ -12,7 +12,6 @@ vi.mock("../db/client.js", async (importOriginal) => ({
   // behavior under test, so it must not be stubbed.
   ...(await importOriginal<typeof import("../db/client.js")>()),
   getDbExec: () => ({ execute: mockExecute }),
-  isPostgres: () => false,
   isLocalDatabase: () => true,
 }));
 vi.mock("../server/auth.js", () => ({
@@ -134,10 +133,9 @@ describe("getOrgContext", () => {
     });
   });
 
-  it("trusts a session.orgId the user is NOT a member of, but with null name and session role", async () => {
-    // Cross-app A2A / impersonation context: the session asserts an org the
-    // local memberships table doesn't have. We surface it but cannot supply a
-    // name and must use the session-claimed role only.
+  it("drops a session.orgId the user is no longer a member of", async () => {
+    // A successful membership read is authoritative. A stale session claim
+    // must not become a new organization grant.
     mockGetSession.mockResolvedValue({
       email: "a@b.com",
       orgId: "ghost-org",
@@ -147,9 +145,9 @@ describe("getOrgContext", () => {
     const ctx = await getOrgContext(EVENT);
     expect(ctx).toEqual({
       email: "a@b.com",
-      orgId: "ghost-org",
+      orgId: null,
       orgName: null,
-      role: "owner",
+      role: null,
     });
   });
 
@@ -161,7 +159,7 @@ describe("getOrgContext", () => {
     });
     queueSelect([]); // no memberships
     const ctx = await getOrgContext(EVENT);
-    expect(ctx.orgId).toBe("ghost-org");
+    expect(ctx.orgId).toBeNull();
     expect(ctx.role).toBeNull();
   });
 
@@ -556,7 +554,7 @@ describe("getOrgContext", () => {
         orgRole: "admin",
       });
       mockExecute.mockRejectedValueOnce(
-        new Error("no such table: org_members"),
+        new Error('relation "org_members" does not exist'),
       );
       const ctx = await getOrgContext(EVENT);
       expect(ctx).toEqual({
@@ -570,7 +568,7 @@ describe("getOrgContext", () => {
     it("returns a null-org context when there is no session orgId", async () => {
       mockGetSession.mockResolvedValue({ email: "a@b.com" });
       mockExecute.mockRejectedValueOnce(
-        new Error("no such table: org_members"),
+        new Error('relation "org_members" does not exist'),
       );
       const ctx = await getOrgContext(EVENT);
       expect(ctx).toEqual({
@@ -773,7 +771,9 @@ describe("getOrgContext", () => {
       mockExecute.mockResolvedValueOnce({ rows: [] }); // memberships
       mockExecute.mockResolvedValueOnce({ rows: [] }); // domain auto-join lookup
       mockExecute.mockRejectedValueOnce(
-        new Error("UNIQUE constraint failed: settings.key"),
+        new Error(
+          "duplicate key value violates unique constraint settings_pkey",
+        ),
       );
       mockExecute.mockResolvedValueOnce({ rowsAffected: 0 }); // stale UPDATE, no match
       const ctx = await getOrgContext(EVENT);
@@ -795,7 +795,9 @@ describe("getOrgContext", () => {
       mockExecute.mockResolvedValueOnce({ rows: [] }); // memberships
       mockExecute.mockResolvedValueOnce({ rows: [] }); // domain auto-join lookup
       mockExecute.mockRejectedValueOnce(
-        new Error("UNIQUE constraint failed: settings.key"),
+        new Error(
+          "duplicate key value violates unique constraint settings_pkey",
+        ),
       ); // acquireClaim INSERT conflicts
       mockExecute.mockResolvedValueOnce({ rowsAffected: 1 }); // stale UPDATE wins
       mockExecute.mockResolvedValueOnce({ rows: [] }); // hasPendingInvitation -> none
@@ -825,7 +827,7 @@ describe("getOrgContext", () => {
       mockExecute.mockResolvedValueOnce({ rows: [] }); // domain auto-join lookup
       mockExecute.mockResolvedValueOnce({ rows: [] }); // acquireClaim INSERT
       mockExecute.mockRejectedValueOnce(
-        new Error("no such table: org_invitations"),
+        new Error('relation "org_invitations" does not exist'),
       ); // hasPendingInvitation throws -> treated as "has invite"
       mockExecute.mockResolvedValueOnce({ rows: [] }); // releaseClaim DELETE
       const ctx = await getOrgContext(EVENT);
@@ -904,7 +906,9 @@ describe("resolveOrgIdForEmail", () => {
   });
 
   it("returns null on a DB error (missing tables) rather than throwing", async () => {
-    mockExecute.mockRejectedValueOnce(new Error("no such table: org_members"));
+    mockExecute.mockRejectedValueOnce(
+      new Error('relation "org_members" does not exist'),
+    );
     expect(await resolveOrgIdForEmail("a@b.com")).toBeNull();
   });
 
@@ -1096,7 +1100,7 @@ describe("createOrganization", () => {
     it("warns about the unreadable membership probe and still activates", async () => {
       queueSelect([], []);
       mockExecute.mockRejectedValueOnce(
-        new Error("no such table: org_members"),
+        new Error('relation "org_members" does not exist'),
       );
 
       const result = await createOrganization("Acme", "founder@acme.com");

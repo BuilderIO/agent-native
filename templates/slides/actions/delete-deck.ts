@@ -74,13 +74,13 @@ export default defineAction({
         throw deckHttpError(404, "Deck not found");
       }
       if (access.resource.visibility === "public") {
-        notifyClients(id, { type: "deck-deleted", visibility: "public" });
+        await notifyClients(id, { type: "deck-deleted", visibility: "public" });
       } else {
         for (const recipient of ownerRecipients) {
-          notifyClients(id, { type: "deck-deleted", owner: recipient });
+          await notifyClients(id, { type: "deck-deleted", owner: recipient });
         }
         for (const recipient of orgRecipients) {
-          notifyClients(id, { type: "deck-deleted", orgId: recipient });
+          await notifyClients(id, { type: "deck-deleted", orgId: recipient });
         }
       }
       return { success: true };

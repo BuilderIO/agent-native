@@ -76,6 +76,35 @@ const messages: AgentChatTranslation = {
     "Creando o reutilizando tu cuenta de Builder.io. Esto suele tardar unos segundos.",
   "onboarding.builderConnectionDescription":
     "Finaliza la conexión con un clic en la nueva ventana.",
+  "onboarding.capability.llm.keySummary":
+    "Conecta un proveedor de IA o un modelo local",
+  "onboarding.capability.fileStorage.keySummary":
+    "Almacenamiento de Builder o un bucket compatible con S3",
+  "onboarding.capability.voiceInput.label": "Entrada de voz",
+  "onboarding.capability.voiceInput.keySummary":
+    "Reconocimiento de voz del navegador o conversión de voz a texto",
+  "onboarding.capability.voiceInput.why":
+    "La entrada de voz convierte tus solicitudes habladas en texto; escribir siempre funciona.",
+  "onboarding.capability.assetsImageGeneration.label": "Generación de imágenes",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Créditos de Builder o una clave de proveedor de imágenes",
+  "onboarding.capability.assetsImageGeneration.why":
+    "La generación de imágenes es el flujo principal para crear recursos de marca.",
+  "onboarding.capability.assetsVideoGeneration.label": "Generación de vídeo",
+  "onboarding.capability.assetsVideoGeneration.keySummary":
+    "Clave de API de Gemini",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "La generación de vídeo es opcional; el flujo principal de Assets es la generación de imágenes.",
+  "onboarding.capability.clipsObjectStorage.label": "Almacenamiento de objetos",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Almacenamiento de Builder o un bucket compatible con S3",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Los vídeos grabados necesitan almacenamiento de objetos duradero antes de poder reproducirse o compartirse.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Clave de proveedor de voz a texto",
+  "onboarding.capability.about": "Acerca de {{label}}",
+  "onboarding.capability.why": "Por qué se necesita {{label}}",
+  "onboarding.openAiKeySettings": "Abrir la configuración de claves de IA",
   "aboutAgentNative.title": "Acerca de Agent-Native",
   "aboutAgentNative.version": "Versión",
   "aboutAgentNative.environment": "Entorno",

@@ -29,9 +29,9 @@ import { applyFieldOps } from "../server/lib/merge-fields.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import {
   assertValidFields,
-  FIELD_TYPES,
   normalizePersistedFields,
 } from "../server/lib/validate-fields.js";
+import { formFieldSchema } from "../shared/field-schema.js";
 import type { FormField } from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
@@ -68,10 +68,19 @@ export function withFormLock<T>(
 const fieldOpSchema = z.union([
   z.object({
     op: z.literal("upsert"),
-    field: z
-      .record(z.string(), z.any())
+    // `id` is optional on create-form (auto-generated from the label) but the
+    // merge keys on it, so an id-less upsert would append a field that then
+    // fails validation.
+    field: formFieldSchema
+      .extend({
+        id: formFieldSchema.shape.id
+          .unwrap()
+          .describe(
+            "Stable field id: an existing id replaces that field, a new id appends one.",
+          ),
+      })
       .describe(
-        `Complete field object with id, type, label, and required. Field types: ${FIELD_TYPES.join(", ")}. Never use shorthand strings. This REPLACES the whole field, so never rebuild one from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the field with get-form first, or the options past the cap are deleted.`,
+        "Complete field object, with `id` set to the field being replaced (see the field schema's own per-property descriptions for what each property means per type). Never use shorthand strings. This REPLACES the whole field, so never rebuild one from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the field with get-form first, or the options past the cap are deleted.",
       ),
   }),
   z.object({
@@ -86,7 +95,7 @@ const fieldOpSchema = z.union([
 
 export default defineAction({
   description:
-    "Apply granular field operations (upsert/remove/reorder) to a form using a server-side read-modify-write merge. Concurrent edits to different fields both survive.",
+    "Apply granular field operations (upsert/remove/reorder) to a form using a server-side read-modify-write merge. Concurrent edits to different fields both survive. Before adding or restyling a field, read the form with `get-form` and follow its theme and the other fields' label, required, and help-text conventions so the new field matches its siblings.",
   schema: z.object({
     id: z.string().describe("Form ID"),
     ops: z

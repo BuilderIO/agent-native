@@ -517,12 +517,9 @@ async function readAppStateForBrowserTab<T>(
   key: string,
   browserTabId?: string,
 ): Promise<T | null> {
+  if (!browserTabId) return (await readAppState(key)) as T | null;
   const tabKey = appStateKeyForBrowserTab(key, browserTabId);
-  if (tabKey !== key) {
-    const scoped = (await readAppState(tabKey).catch(() => null)) as T | null;
-    if (scoped) return scoped;
-  }
-  return (await readAppState(key)) as T | null;
+  return (await readAppState(tabKey)) as T | null;
 }
 
 /**
@@ -2593,6 +2590,13 @@ export type AgentLoopFinalResponseGuardResult =
       retryMessage: string;
       fallbackMessage?: string;
       /**
+       * When retries are exhausted and the draft is non-empty, deliver
+       * `${exhaustedDraftPrefix}\n\n${draft}` instead of `fallbackMessage`;
+       * when the draft is empty, `fallbackMessage` is still used. Lets an
+       * app label an unverified draft instead of discarding it.
+       */
+      exhaustedDraftPrefix?: string;
+      /**
        * Number of rejected text-only answers the model may correct before the
        * fallback is emitted. Defaults to one and is capped to keep a broken
        * guard/model combination from looping indefinitely.
@@ -3411,6 +3415,8 @@ export interface ExecuteAgentToolCallOptions {
   signal?: AbortSignal;
   ownerEmail?: string | null;
   orgId?: string | null;
+  /** Hosting app/template id for action attribution. */
+  appId?: string;
   /** Audit/action attribution for this externally selected call. */
   caller?: ActionCaller;
   networkProtocol?: "a2a" | "mcp" | "provider-api";
@@ -3528,6 +3534,7 @@ export async function executeAgentToolCall(
       signal,
       ownerEmail: options.ownerEmail,
       orgId: options.orgId,
+      appId: options.appId,
       actionCaller: options.caller,
       networkProtocol: options.networkProtocol,
       networkId: options.networkId,
@@ -5816,13 +5823,16 @@ export async function runAgentLoop(opts: {
       }
 
       let guard: Awaited<ReturnType<AgentLoopFinalResponseGuard>> | null = null;
+      const finalResponseDraftText = collectTextParts(
+        assistantContentForHistory,
+      );
       if (opts.finalResponseGuard) {
         try {
           guard = await opts.finalResponseGuard({
             messages,
             requestText: finalResponseGuardRequestText,
             assistantContent: assistantContentForHistory,
-            text: collectTextParts(assistantContentForHistory),
+            text: finalResponseDraftText,
             toolCalls: [...toolCallHistory],
             toolResults: [...toolResultHistory],
             retryCount: finalGuardRetries,
@@ -5869,7 +5879,15 @@ export async function runAgentLoop(opts: {
           continue;
         }
         send({ type: "clear" });
-        send({ type: "text", text: fallbackMessage ?? retryMessage });
+        const exhaustedDraftPrefix =
+          typeof guard === "string" ? undefined : guard.exhaustedDraftPrefix;
+        send({
+          type: "text",
+          text:
+            exhaustedDraftPrefix && finalResponseDraftText.trim()
+              ? `${exhaustedDraftPrefix}\n\n${finalResponseDraftText}`
+              : (fallbackMessage ?? retryMessage),
+        });
       } else {
         flushUnstreamedAssistantText();
       }
@@ -9009,7 +9027,9 @@ export function createProductionAgentHandler(
         mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD] = clientPlatform;
       }
     }
-    const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
+    const requestBrowserTabId =
+      normalizeBrowserTabId(browserTabId) ??
+      normalizeBrowserTabId(getRequestRunContext()?.browserTabId);
     const requestChatScope = normalizeChatScope(scope);
     const requestRunCtx = ensureRequestRunContext();
     if (requestRunCtx) {
@@ -11007,6 +11027,7 @@ export function createProductionAgentHandler(
               signal: agentLoopOpts.signal,
               ownerEmail,
               orgId: getRequestOrgId() ?? null,
+              appId: options.appId,
               threadId: effectiveThreadId,
               turnId: effectiveTurnId,
               approvedToolCalls: approvedToolCallsForExecution,

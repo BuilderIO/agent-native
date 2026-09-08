@@ -45,7 +45,7 @@ function stripAppBasePath(pathname: string): string {
 
 function clipIdFromPath(pathname: string): string | null {
   const match = stripAppBasePath(pathname).match(
-    /^\/(?:share|r|embed)\/([^/]+)\/?$/,
+    /^\/(?:share|embed)\/([^/]+)\/?$/,
   );
   if (!match?.[1]) return null;
   try {
@@ -106,8 +106,7 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
   }
 
   const query = getQuery(event);
-  const suppliedToken =
-    queryString(query[CLIPS_AGENT_ACCESS_PARAM]) || queryString(query.t);
+  const suppliedToken = queryString(query[CLIPS_AGENT_ACCESS_PARAM]);
   const tokenGrantsAgentAccess = suppliedToken
     ? verifyScopedAgentAccessToken(suppliedToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
