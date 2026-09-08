@@ -4,6 +4,7 @@ import {
   BUILDER_STATUS_LEGACY_CREDENTIAL_KEYS,
   BUILDER_STATUS_ROUTE_SUFFIXES,
   getBuilderConnectErrorDisposition,
+  getBuilderConnectErrorKey,
   mountBuilderStatusRouteAliases,
   resolveOAuthCustodyBuilderKeyStatus,
 } from "./core-routes-plugin.js";
@@ -63,6 +64,35 @@ describe("Builder connect error correlation", () => {
   it("keeps one-shot consumption for legacy errors without an attempt", () => {
     expect(getBuilderConnectErrorDisposition({ message: "denied" }, null)).toBe(
       "legacy",
+    );
+  });
+
+  it("keeps concurrent attempt errors isolated when writes complete out of order", () => {
+    const rows = new Map<string, { message: string; attemptId: string }>();
+    const write = (attemptId: string, message: string) => {
+      rows.set(getBuilderConnectErrorKey("user@example.com", attemptId), {
+        message,
+        attemptId,
+      });
+    };
+
+    write("attempt-2", "second");
+    write("attempt-1", "first");
+
+    expect(
+      rows.get(getBuilderConnectErrorKey("user@example.com", "attempt-1")),
+    ).toEqual({
+      message: "first",
+      attemptId: "attempt-1",
+    });
+    expect(
+      rows.get(getBuilderConnectErrorKey("user@example.com", "attempt-2")),
+    ).toEqual({
+      message: "second",
+      attemptId: "attempt-2",
+    });
+    expect(getBuilderConnectErrorKey("user@example.com")).toBe(
+      "builder-connect-error:user@example.com",
     );
   });
 });
