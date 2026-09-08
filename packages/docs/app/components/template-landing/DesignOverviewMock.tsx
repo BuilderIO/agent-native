@@ -94,6 +94,9 @@ const FRAME_LABEL_HEIGHT = 28;
 /** The real BREAKPOINT_FRAME_GAP, not the wider gap between separate screens. */
 const BREAKPOINT_FRAME_GAP = 24;
 
+/** Zoom applied to the whole window below 860px, where 1180px cannot fit. */
+const NARROW_SCALE = 0.52;
+
 const DESKTOP_FRAME_WIDTH = Math.round(DESKTOP_ARTBOARD_WIDTH * BOARD_SCALE);
 const MOBILE_FRAME_WIDTH = Math.round(MOBILE_ARTBOARD_WIDTH * BOARD_SCALE);
 const MOBILE_FRAME_X = DESKTOP_FRAME_WIDTH + BREAKPOINT_FRAME_GAP;
@@ -968,7 +971,13 @@ const DESIGN_MOCK_CSS = [
   // scales down and anchors to the left edge rather than letting the canvas
   // collapse to nothing. This block stays last: it has the same specificity as
   // the base rules above and would otherwise lose to them on source order.
-  "@media (max-width: 860px) { .design-mock { padding: 0 16px 18px; } .design-mock .dm-window { width: 1180px; height: 660px; inset: auto; transform: scale(0.52); transform-origin: top left; } }",
+  //
+  // Only the width is fixed. The height is the container's own height divided
+  // back out by the scale, so `scale()` lands it at exactly 100% again: the
+  // hero is 340px tall on mobile and 540px at tablet, and a fixed pre-scale
+  // height can only match one of them — it either crops the bottom toolbar or
+  // leaves the taller box half empty.
+  `@media (max-width: 860px) { .design-mock { padding: 0 16px 18px; } .design-mock .dm-window { width: 1180px; height: calc(100% / ${NARROW_SCALE}); inset: 0 auto auto 0; transform: scale(${NARROW_SCALE}); transform-origin: top left; } }`,
 ].join("\n");
 
 export function DesignOverviewMock({
