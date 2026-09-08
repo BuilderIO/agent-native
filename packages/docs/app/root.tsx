@@ -30,6 +30,7 @@ import {
   Link,
   isRouteErrorResponse,
   useMatches,
+  useHref,
   useNavigate,
   useRouteError,
   useLocation,
@@ -261,6 +262,7 @@ export const meta = () => [
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
   const { starCount } = useRootLocaleData();
+  const routerRootHref = useHref("/");
   const navigate = useNavigate();
 
   const handleClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -296,8 +298,23 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const routerRootPath = new URL(
+      routerRootHref,
+      window.location.href,
+    ).pathname.replace(/\/+$/, "");
+    let pathname = url.pathname;
+    if (routerRootPath) {
+      if (url.pathname === routerRootPath) {
+        pathname = "/";
+      } else if (url.pathname.startsWith(`${routerRootPath}/`)) {
+        pathname = url.pathname.slice(routerRootPath.length);
+      } else {
+        return;
+      }
+    }
+
     event.preventDefault();
-    void navigate(`${url.pathname}${url.search}${url.hash}`);
+    void navigate(`${pathname}${url.search}${url.hash}`);
   };
 
   return (

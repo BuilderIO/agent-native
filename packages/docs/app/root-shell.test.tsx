@@ -5,11 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useShellSettled } from "./shell-ready";
 
-const { agentSidebarSpy, docsWebMcpActions, navigateMock } = vi.hoisted(() => ({
-  agentSidebarSpy: vi.fn(),
-  docsWebMcpActions: [] as Array<{ run: (args: unknown) => unknown }>,
-  navigateMock: vi.fn(),
-}));
+const { agentSidebarSpy, docsWebMcpActions, navigateMock, routerRootHref } =
+  vi.hoisted(() => ({
+    agentSidebarSpy: vi.fn(),
+    docsWebMcpActions: [] as Array<{ run: (args: unknown) => unknown }>,
+    navigateMock: vi.fn(),
+    routerRootHref: { value: "/" },
+  }));
 
 function ShellSettledProbe() {
   const settled = useShellSettled();
@@ -68,6 +70,7 @@ vi.mock("react-router", () => ({
     </>
   ),
   useLocation: () => ({ pathname: "/", hash: "", search: "" }),
+  useHref: () => routerRootHref.value,
   useNavigate: () => navigateMock,
   useNavigation: () => ({ state: "idle" }),
   useMatches: () => [],
@@ -89,6 +92,7 @@ afterEach(() => {
   agentSidebarSpy.mockClear();
   docsWebMcpActions.length = 0;
   navigateMock.mockClear();
+  routerRootHref.value = "/";
 });
 
 describe("RootShell tree stability", () => {
@@ -143,6 +147,19 @@ describe("RootShell tree stability", () => {
     const { RootShell } = await import("./root");
     render(<RootShell mounted />);
 
+    screen.getByTestId("content-link").click();
+
+    expect(navigateMock).toHaveBeenCalledWith("/docs/actions-overview/");
+  });
+
+  it("strips the router basename before navigating content links", async () => {
+    const { RootShell } = await import("./root");
+    routerRootHref.value = "/docs/";
+    render(<RootShell mounted />);
+
+    screen
+      .getByTestId("content-link")
+      .setAttribute("href", "/docs/docs/actions-overview/");
     screen.getByTestId("content-link").click();
 
     expect(navigateMock).toHaveBeenCalledWith("/docs/actions-overview/");
