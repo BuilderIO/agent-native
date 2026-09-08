@@ -7,7 +7,7 @@ import {
 } from "@agent-native/core/client/markdown";
 import {
   IconCheck,
-  IconMessageCircle,
+  IconSparkles,
   IconArrowUp,
   IconArrowBackUp,
   IconFilter,
@@ -1184,7 +1184,7 @@ function ThreadView({
                 }}
                 className="p-1.5 text-muted-foreground hover:text-foreground rounded-l-md hover:bg-accent"
               >
-                <IconMessageCircle size={14} />
+                <IconSparkles size={14} />
               </button>
             </TooltipTrigger>
             <TooltipContent>{t("comments.askAi")}</TooltipContent>
