@@ -88,7 +88,10 @@ describe("page-chat handoff defaults", () => {
         route,
       );
     const usesDurableHardNavigation =
-      /window\.location\.replace\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`\s*\)/s.test(
+      /import\s*\{\s*appPath\s*\}\s*from\s*["']@agent-native\/core\/client\/api-path["']/.test(
+        route,
+      ) &&
+      /window\.location\.replace\(\s*appPath\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`\s*\)\s*\)/s.test(
         route,
       );
     expect(usesClientNavigate || usesDurableHardNavigation).toBe(true);
