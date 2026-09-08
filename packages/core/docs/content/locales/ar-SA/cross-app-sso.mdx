@@ -49,6 +49,7 @@ Desktop تهيئة التطبيقات المسجلة المؤهلة من خلا�
 
 تكون علامة <code>organization.cross-app-federation</code> متوقفة افتراضيا. عند
 تفعيلها، يسجل التطبيق المصدر مؤسسته المحلية لدى Dispatch ويحفظ التعيين الدقيق
+
 <code>(identity_authority, identity_id)</code>. لا يقبل التطبيق الهدف سوى معرّف
 المؤسسة الأساسي واسمها ودور العضوية المتحقق منه من التأكيد الذي تحقق منه الخادم.
 
@@ -60,11 +61,13 @@ Desktop تهيئة التطبيقات المسجلة المؤهلة من خلا�
 
 - اضبط <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> في التطبيق المصدر.
 - اضبط القيمة المطابقة
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> في Dispatch.
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>
+  في Dispatch.
 - لا تعاود استخدام <code>A2A_SECRET</code> لحد السلطة هذا.
 
 تستبدل لاحقة معرّف التطبيق كل سلسلة من المحارف غير الأبجدية الرقمية بشرطة
 سفلية وتحول الناتج إلى أحرف كبيرة. على سبيل المثال، يستخدم معرّف التطبيق
+
 <code>workspace-reports</code> المفتاح
 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
 
@@ -80,6 +83,7 @@ Desktop تهيئة التطبيقات المسجلة المؤهلة من خلا�
 
 في نشر Dispatch مستضاف ذاتيا، سجّل كل تطبيق مخصص بمعرّف التطبيق ومعرّف العميل
 والأصل HTTPS ومسار callback وقدرة <code>identity-sso</code> الدقيقة عبر
+
 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code>.
 
 يجب أن تستخدم تسجيلات الإنتاج HTTPS ومسار callback دقيقا. ولا يسمح بـ Localhost إلا
@@ -97,6 +101,7 @@ Desktop تهيئة التطبيقات المسجلة المؤهلة من خلا�
 4. عند تفعيل اتحاد المؤسسات، تحقق من معرّف المؤسسة الدقيق ودور العضوية في التطبيق الهدف.
 
 للتراجع عن المسار المتبقي، عطّل علامة الميزة المعنية وأزل
+
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> من النشر المستضاف ذاتيا ثم أعد النشر.
 تبقى سجلات الهوية والمؤسسة المضافة متاحة للمصادقة المحلية العادية.
 
