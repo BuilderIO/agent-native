@@ -310,6 +310,7 @@ jobs:
               fi
             else
               export AGENT_NATIVE_BETA_SCHEMA_OWNER=production
+              export AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH=x64
             fi
             export AGENT_NATIVE_ENABLE_KEEP_WARM=1
             export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1

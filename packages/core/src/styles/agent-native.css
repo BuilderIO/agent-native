@@ -637,6 +637,22 @@
   [role="button"] {
     cursor: pointer;
   }
+
+  /* WebKit paints its own cancel/decoration widgets inside every
+     `input[type="search"]`, so a field that also renders a themed clear button
+     shows two "x" affordances side by side. Opting in per field rather than
+     suppressing globally is deliberate: a search field with no clear button of
+     its own still needs the platform widget, and a blanket rule would take
+     away its only pointer-accessible way to clear. `guard:single-search-clear`
+     fails when a field grows its own clear button without this class, so the
+     duplicate cannot come back silently. */
+  .agent-native-search-input::-webkit-search-cancel-button,
+  .agent-native-search-input::-webkit-search-decoration,
+  .agent-native-search-input::-webkit-search-results-button,
+  .agent-native-search-input::-webkit-search-results-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
 }
 
 /* Appearance presets.
@@ -1223,15 +1239,4 @@
       animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
     }
   }
-}
-
-/* Search inputs that render their own clear button must hide the
-   browser's native WebKit cancel icon, or two clear controls stack on
-   top of each other. Scoped to inputs that opt in via this class, since
-   other type="search" inputs rely on the native control as their only
-   clear affordance. Not motion-related, so it must not live inside the
-   surrounding `prefers-reduced-motion: no-preference` block above. */
-input.agent-native-search-input::-webkit-search-cancel-button {
-  -webkit-appearance: none;
-  appearance: none;
 }
