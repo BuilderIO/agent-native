@@ -1,6 +1,5 @@
 import { markAgentChatHomeHandoff } from "@agent-native/core/client/agentkit-chat/rail";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
 
 import { APP_TITLE } from "@/lib/app-config";
 import { getChatHomeThreadId } from "@/lib/chat-home-thread";
@@ -26,7 +25,6 @@ export function meta() {
 
 export default function ChatRoute() {
   const [threadId] = useState(getChatHomeThreadId);
-  const navigate = useNavigate();
   const handoffStartedRef = useRef(false);
 
   useEffect(() => {
@@ -34,19 +32,12 @@ export default function ChatRoute() {
     handoffStartedRef.current = true;
     markAgentChatHomeHandoff("chat");
     try {
-      const navigation = navigate(`/chat/${encodeURIComponent(threadId)}`, {
-        replace: true,
-      });
-      if (navigation instanceof Promise) {
-        void navigation.catch(() => {
-          handoffStartedRef.current = false;
-        });
-      }
+      window.location.replace(`/chat/${encodeURIComponent(threadId)}`);
     } catch (error) {
       handoffStartedRef.current = false;
       throw error;
     }
-  }, [navigate, threadId]);
+  }, [threadId]);
 
   return null;
 }

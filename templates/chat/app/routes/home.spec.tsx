@@ -135,6 +135,7 @@ import ChatHomeRoute from "./home";
 describe("ChatRoute AgentKit surface", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let locationReplace: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -150,6 +151,9 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.sendMessage.mockReset();
     createTransport.mockClear();
     markHandoff.mockClear();
+    locationReplace = vi
+      .spyOn(window.location, "replace")
+      .mockImplementation(() => undefined);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -158,6 +162,7 @@ describe("ChatRoute AgentKit surface", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    locationReplace.mockRestore();
     vi.unstubAllGlobals();
   });
 
@@ -227,14 +232,13 @@ describe("ChatRoute AgentKit surface", () => {
     });
   });
 
-  it("redirects the home route to a durable pending thread", async () => {
+  it("hard-navigates the home route to a durable pending thread", async () => {
     await act(async () => root.render(<ChatHomeRoute />));
 
     expect(createTransport).not.toHaveBeenCalled();
     expect(routeState.rootProps).toBeNull();
-    expect(routeState.navigate).toHaveBeenCalledWith(
+    expect(locationReplace).toHaveBeenCalledWith(
       expect.stringMatching(/^\/chat\/chat-/),
-      { replace: true },
     );
     expect(markHandoff).toHaveBeenCalledWith("chat");
   });
@@ -248,7 +252,7 @@ describe("ChatRoute AgentKit surface", () => {
       ),
     );
 
-    expect(routeState.navigate).toHaveBeenCalledTimes(1);
+    expect(locationReplace).toHaveBeenCalledTimes(1);
     expect(markHandoff).toHaveBeenCalledTimes(1);
   });
 
