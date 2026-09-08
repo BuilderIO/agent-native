@@ -204,6 +204,12 @@ export function isRichTextBlock(element: HTMLElement): boolean {
   );
 }
 
+export function shouldTraverseSlideLayerChildren(
+  element: HTMLElement,
+): boolean {
+  return !isRichTextBlock(element) || isSmartGroup(element);
+}
+
 /** Keep a semantic list inside its containing canvas text block while editing. */
 export function resolveRichTextEditingBlock(element: HTMLElement): HTMLElement {
   let block = element;

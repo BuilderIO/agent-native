@@ -9,6 +9,7 @@ import {
   isTextLeaf,
   resolveRichTextEditingBlock,
   shouldStampBuilderId,
+  shouldTraverseSlideLayerChildren,
 } from "./slide-text-targets";
 
 describe("slide text targets", () => {
@@ -116,7 +117,7 @@ describe("slide text targets", () => {
     );
   });
 
-  it("does not collapse a nested smart group into its layout wrapper", () => {
+  it("keeps nested smart-group leaves in the Layers tree", () => {
     const root = document.createElement("div");
     root.innerHTML = `
       <div class="fmd-slide">
@@ -135,6 +136,9 @@ describe("slide text targets", () => {
 
     expect(isRichTextBlock(group)).toBe(true);
     expect(isRichTextBlock(wrapper)).toBe(false);
+    expect(shouldTraverseSlideLayerChildren(wrapper)).toBe(true);
+    expect(shouldTraverseSlideLayerChildren(group)).toBe(true);
+    expect(shouldTraverseSlideLayerChildren(text)).toBe(false);
     expect(shouldStampBuilderId(wrapper)).toBe(true);
     expect(shouldStampBuilderId(group)).toBe(true);
     expect(shouldStampBuilderId(text)).toBe(true);
