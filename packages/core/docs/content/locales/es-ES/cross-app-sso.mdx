@@ -56,6 +56,7 @@ aparece en una URL del navegador ni es un token portador reutilizable.
 La bandera <code>organization.cross-app-federation</code> está desactivada por
 defecto. Al habilitarla, la aplicación de origen registra su organización local
 en Dispatch y guarda la correspondencia exacta
+
 <code>(identity_authority, identity_id)</code>. La aplicación destino acepta el
 ID canónico, el nombre y el rol verificado solo desde la aserción verificada por
 el servidor.
@@ -70,12 +71,13 @@ La federación usa una credencial separada para cada aplicación de origen:
 - Configura <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> en la aplicación
   de origen.
 - Configura la credencial coincidente
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> en Dispatch.
+  `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<NORMALIZED_APP_ID>` en Dispatch.
 - No reutilices <code>A2A_SECRET</code> para este límite de autoridad.
 
 El sufijo del ID de aplicación reemplaza cada secuencia de caracteres no
 alfanuméricos por un guion bajo y convierte el resultado a mayúsculas. Por
 ejemplo, el ID <code>workspace-reports</code> usa
+
 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
 
 Las escrituras de identidad y organización son aditivas. Los usuarios existentes
@@ -86,11 +88,12 @@ crea un usuario local. Desactivar la federación no elimina datos.
 
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> solo se usa para la ruta restante del
 servidor y Desktop cuando una aplicación autoalojada necesita una implementación
-explícita de Dispatch. No añade una opción de inicio de sesión en el navegador ni
-un traspaso automático.
+explícita de Dispatch. No añade una opción de inicio de sesión en el navegador
+ni un traspaso automático.
 
 Para una implementación autoalojada de Dispatch, registra cada aplicación
 personalizada con su ID, client ID, origen HTTPS, ruta de callback y capacidad
+
 <code>identity-sso</code> exactos mediante
 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code>.
 
@@ -113,6 +116,7 @@ Después del despliegue:
    la organización y el rol de membresía en la aplicación destino.
 
 Para revertir la ruta restante, deshabilita la bandera correspondiente y elimina
+
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> de la implementación autoalojada.
 Después vuelve a desplegar. Los registros aditivos permanecen disponibles para
 la autenticación local normal.

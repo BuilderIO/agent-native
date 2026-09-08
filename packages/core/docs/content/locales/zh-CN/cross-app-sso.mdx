@@ -45,8 +45,8 @@ broker 为符合条件且已注册的应用配置登录。每个目标应用仍�
 
 ## 组织联邦
 
-<code>organization.cross-app-federation</code> 标志默认关闭。启用后，源应用
-向 Dispatch 注册本地组织，并保存精确的
+<code>organization.cross-app-federation</code> 标志默认关闭。启用后，源应用 向
+Dispatch 注册本地组织，并保存精确的
 <code>(identity_authority, identity_id)</code> 映射。目标应用只接受来自
 服务端验证断言的规范组织 ID、名称和已验证成员角色。
 
@@ -57,11 +57,12 @@ broker 为符合条件且已注册的应用配置登录。每个目标应用仍�
 
 - 在源应用设置 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code>。
 - 在 Dispatch 设置匹配的
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>。
+  `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<NORMALIZED_APP_ID>`。
 - 不要为此权限边界重复使用 <code>A2A_SECRET</code>。
 
 应用 ID 后缀会将每段非字母数字字符替换为下划线，并将结果转换为大写。
 例如，应用 ID <code>workspace-reports</code> 使用
+
 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>。
 
 身份和组织写入只会添加数据。相同邮箱的现有用户会原样复用。新的已验证
@@ -74,6 +75,7 @@ broker 为符合条件且已注册的应用配置登录。每个目标应用仍�
 登录选项或自动浏览器跳转。
 
 对于自托管 Dispatch，请通过
+
 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code> 为每个自定义应用注册精确的应用
 ID、客户端 ID、HTTPS 来源、回调路径和 <code>identity-sso</code> 能力。
 
@@ -90,6 +92,7 @@ ID、客户端 ID、HTTPS 来源、回调路径和 <code>identity-sso</code> 能
 4. 如果启用了组织联邦，验证目标应用中的精确组织 ID 和成员角色。
 
 要回滚剩余路径，请关闭相应功能标志，并从自托管部署中移除
+
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code>，然后重新部署。已添加的身份和
 组织记录会保留，可继续用于普通本地认证。
 

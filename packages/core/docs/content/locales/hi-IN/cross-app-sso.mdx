@@ -48,10 +48,12 @@ reusable bearer token नहीं है।
 
 ## Organization federation
 
-<code>organization.cross-app-federation</code> flag default रूप से off है। Enable होने पर
-source app अपनी local organization को Dispatch में register करता है और exact
-<code>(identity_authority, identity_id)</code> mapping रखता है। Target app server-verified
-assertion से केवल canonical organization ID, name और verified membership role स्वीकार करता है।
+<code>organization.cross-app-federation</code> flag default रूप से off है।
+Enable होने पर source app अपनी local organization को Dispatch में register करता
+है और exact
+<code>(identity_authority, identity_id)</code> mapping रखता है। Target app
+server-verified assertion से केवल canonical organization ID, name और verified
+membership role स्वीकार करता है।
 
 Organization names, email domains और browser cookies join keys नहीं हैं। Mapping के बिना
 local organization explicit migration तक unchanged रहती है। Linked memberships target
@@ -61,25 +63,28 @@ Federation हर registered source app के लिए अलग credential �
 
 - Source app में <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> सेट करें।
 - Dispatch में matching
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> सेट करें।
+  `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<NORMALIZED_APP_ID>` सेट करें।
 - इस authority boundary के लिए <code>A2A_SECRET</code> reuse न करें।
 
 App ID suffix non-alphanumeric characters की हर लगातार श्रृंखला को underscore
 से बदलकर परिणाम को uppercase बनाता है। उदाहरण के लिए
+
 <code>workspace-reports</code> app ID में
-<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code> उपयोग करें।
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code> उपयोग
+करें।
 
 Identity और organization writes additive हैं। Same-email users बिना बदलाव reuse होते हैं।
 नया verified email local user बनाता है। Federation बंद करने से data delete नहीं होता।
 
 ## Configuration
 
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> केवल बचे हुए server-side और Desktop path में
-तब उपयोग होता है जब self-hosted app को explicit Dispatch deployment चाहिए। यह browser
-login option या automatic browser handoff नहीं जोड़ता।
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> केवल बचे हुए server-side और Desktop
+path में तब उपयोग होता है जब self-hosted app को explicit Dispatch deployment
+चाहिए। यह browser login option या automatic browser handoff नहीं जोड़ता।
 
 Self-hosted Dispatch में हर custom app को exact app ID, client ID, HTTPS origin, callback
 path और <code>identity-sso</code> capability के साथ
+
 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code> में register करें।
 
 Production registrations में HTTPS और exact callback path जरूरी हैं। Localhost केवल local

@@ -54,6 +54,7 @@ em uma URL do navegador e não é um bearer token reutilizável.
 A flag <code>organization.cross-app-federation</code> vem desativada por padrão.
 Quando habilitada, o aplicativo de origem registra sua organização local no
 Dispatch e armazena o mapeamento exato
+
 <code>(identity_authority, identity_id)</code>. O aplicativo de destino aceita o
 ID canônico da organização, o nome e o papel verificado somente da asserção
 verificada pelo servidor.
@@ -68,12 +69,13 @@ A federação usa uma credencial separada para cada aplicativo de origem registr
 - Defina <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> no aplicativo de
   origem.
 - Defina o valor correspondente
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> no Dispatch.
+  `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<NORMALIZED_APP_ID>` no Dispatch.
 - Não reutilize <code>A2A_SECRET</code> para este limite de autoridade.
 
 O sufixo do ID do aplicativo substitui cada sequência de caracteres não
 alfanuméricos por um sublinhado e converte o resultado para maiúsculas. Por
 exemplo, o ID <code>workspace-reports</code> usa
+
 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
 
 As gravações de identidade e organização são aditivas. Usuários existentes com
@@ -89,6 +91,7 @@ navegador nem um redirecionamento automático.
 
 Em uma implantação auto-hospedada do Dispatch, registre cada aplicativo
 personalizado com ID, client ID, origem HTTPS, caminho de callback e capacidade
+
 <code>identity-sso</code> exatos usando
 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code>.
 
@@ -111,6 +114,7 @@ Depois da implantação:
    organização e o papel de membro no aplicativo de destino.
 
 Para reverter o caminho restante, desative a flag correspondente e remova
+
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> da implantação auto-hospedada. Depois
 faça uma nova implantação. Os registros aditivos continuam disponíveis para a
 autenticação local normal.
