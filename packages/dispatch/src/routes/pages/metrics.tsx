@@ -180,6 +180,7 @@ interface DispatchUsageMetrics {
   byLabel: UsageMetricBucket[];
   byModel: UsageMetricBucket[];
   daily: DailyUsageMetric[];
+  dailyAvailable: boolean;
   appAccess: AppAccessMetric[];
   recent: RecentUsageMetric[];
 }
@@ -1335,8 +1336,8 @@ export default function MetricsRoute() {
               <Link
                 to={
                   backScope === "workspace"
-                    ? "/admin/metrics?scope=workspace"
-                    : "/admin/metrics"
+                    ? "/admin/metrics?scope=workspace&view=adoption"
+                    : "/admin/metrics?view=adoption"
                 }
                 className="inline-flex h-7 items-center rounded-md border px-3 text-xs font-medium text-foreground hover:bg-muted"
               >
@@ -1403,6 +1404,17 @@ export default function MetricsRoute() {
             </TabsList>
 
             <TabsContent value="overview" className="mt-0 min-w-0 space-y-4">
+              {metrics.dailyAvailable === false ? (
+                <Alert variant="destructive">
+                  <IconAlertTriangle className="h-4 w-4" />
+                  <AlertTitle>
+                    {t("dispatch.pages.metricsUnavailable")}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {t("dispatch.pages.unableToLoadUsage")}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               <UsageTrend rows={metrics.daily} billing={billing} />
               <UserActivityTrend rows={metrics.daily} />
 

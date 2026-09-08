@@ -124,6 +124,8 @@ describe("listDispatchUsageMetrics", () => {
     });
     expect(metrics.byUser).toEqual([]);
     expect(metrics.recent).toEqual([]);
+    expect(metrics.daily).toEqual([]);
+    expect(metrics.dailyAvailable).toBe(false);
     expect(metrics.appAccess).toHaveLength(1);
   });
 
@@ -888,6 +890,7 @@ describe("listDispatchUsageMetrics", () => {
     });
 
     expect(metrics.daily).toHaveLength(1);
+    expect(metrics.dailyAvailable).toBe(true);
     expect(metrics.daily[0]).toMatchObject({
       dailyActiveUsers: 1,
       weeklyActiveUsers: null,
