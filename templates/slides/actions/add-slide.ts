@@ -3,6 +3,7 @@ import {
   ActionContractError,
   defineAction,
   embedApp,
+  fail,
 } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -222,7 +223,10 @@ export default defineAction({
         .where(eq(schema.decks.id, deckId));
 
       if (!rows.length) {
-        throw new Error(`Deck ${deckId} not found`);
+        fail(`Deck ${deckId} not found`, {
+          errorCode: "deck_not_found",
+          statusCode: 404,
+        });
       }
 
       const row = rows[0];

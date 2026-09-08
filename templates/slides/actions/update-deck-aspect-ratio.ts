@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -35,7 +35,11 @@ export default defineAction({
       .from(schema.decks)
       .where(eq(schema.decks.id, deckId))
       .limit(1);
-    if (!rows.length) throw new Error(`Deck not found: ${deckId}`);
+    if (!rows.length)
+      fail(`Deck not found: ${deckId}`, {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      });
     const data = JSON.parse(rows[0].data);
     if (data.aspectRatio === aspectRatio) {
       if (isAgentPatchCaller(ctx?.caller)) {

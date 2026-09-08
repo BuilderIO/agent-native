@@ -11,7 +11,7 @@
  * dedicated actions which also use the same per-deck lock.
  */
 import { AgentActionStopError } from "@agent-native/core";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
@@ -806,7 +806,11 @@ export default defineAction({
         .where(eq(schema.decks.id, deckId))
         .limit(1);
 
-      if (!row) throw new Error(`Deck ${deckId} not found`);
+      if (!row)
+        fail(`Deck ${deckId} not found`, {
+          errorCode: "deck_not_found",
+          statusCode: 404,
+        });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deck: any = JSON.parse(row.data);

@@ -172,6 +172,19 @@ describe("update-deck-aspect-ratio action", () => {
     ).rejects.toThrow(/not found/i);
   });
 
+  // A bare `throw new Error` here reaches an agent as "Internal server error":
+  // the action route only echoes tagged errors, so a wrong deck id would look
+  // like a server fault the caller cannot correct.
+  it("reports a missing deck as a caller-correctable contract error", async () => {
+    mockDeckRow = undefined;
+    await expect(
+      action.run({ deckId: "missing", aspectRatio: "16:9" }),
+    ).rejects.toMatchObject({
+      errorCode: "deck_not_found",
+      statusCode: 404,
+    });
+  });
+
   it("rejects an unknown aspect ratio at the schema boundary", async () => {
     await expect(
       action.run({ deckId: "deck-1", aspectRatio: "21:9" as never }),
