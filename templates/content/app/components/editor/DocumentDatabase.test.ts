@@ -67,9 +67,12 @@ import {
   databaseTableRowDensityClass,
   databaseTimelineDays,
   databaseTimelineItemSpans,
+  databaseSearchParamsWithSelectedView,
   databaseViewGroupableProperties,
+  databaseViewConfigWithSelectedView,
   databaseViewConfigWithSavedQueryState,
   databaseViewHasPersonalQueryChanges,
+  databaseViewSelectionSearchParam,
   databaseVisibleItemSummaries,
   databaseVisibleGroups,
   databaseGridColumns,
@@ -91,6 +94,7 @@ import {
   normalizeClientDatabaseViewConfig,
   orderDatabasePropertiesForView,
   pruneDatabaseRowSelection,
+  reconcileDatabaseViewSelection,
   reorderDatabaseView,
   reorderDatabaseViewProperty,
   renameDatabaseView,
@@ -2349,6 +2353,138 @@ describe("database item preview", () => {
 });
 
 describe("database saved views", () => {
+  it("keeps selected views tab-local while shared presentation updates hydrate", () => {
+    const editorial = createDatabaseView("Editorial", "editorial", {
+      tableColumnOrderIds: ["name", "status"],
+    });
+    const numbers = createDatabaseView("Numbers", "numbers", {
+      tableColumnOrderIds: ["name", "number"],
+    });
+    const shared = normalizeClientDatabaseViewConfig({
+      activeViewId: editorial.id,
+      views: [editorial, numbers],
+    });
+    const selectionKey = databaseViewSelectionSearchParam("database", "page");
+    const tabA = new URLSearchParams({ [selectionKey]: editorial.id });
+    const tabB = new URLSearchParams({ [selectionKey]: numbers.id });
+
+    const remote = normalizeClientDatabaseViewConfig({
+      ...shared,
+      activeViewId: numbers.id,
+      views: [
+        { ...editorial, columnWidths: { name: 320 } },
+        {
+          ...numbers,
+          tableColumnOrderIds: ["number", "name"],
+          columnWrapOverrides: { number: true },
+        },
+      ],
+    });
+    const hydratedA = reconcileDatabaseViewSelection({
+      savedViewConfig: remote,
+      viewConfig: remote,
+      requestedViewId: tabA.get(selectionKey),
+    });
+    const hydratedB = reconcileDatabaseViewSelection({
+      savedViewConfig: remote,
+      viewConfig: remote,
+      requestedViewId: tabB.get(selectionKey),
+    });
+
+    expect(hydratedA.viewConfig.activeViewId).toBe(editorial.id);
+    expect(hydratedB.viewConfig.activeViewId).toBe(numbers.id);
+    expect(hydratedA.viewConfig.views[0]?.columnWidths).toEqual({ name: 320 });
+    expect(hydratedB.viewConfig.views[1]).toMatchObject({
+      tableColumnOrderIds: ["number", "name"],
+      columnWrapOverrides: { number: true },
+    });
+    expect(hydratedA.viewConfig).toEqual(hydratedA.savedViewConfig);
+    expect(hydratedB.viewConfig).toEqual(hydratedB.savedViewConfig);
+
+    const reloadedA = reconcileDatabaseViewSelection({
+      savedViewConfig: remote,
+      viewConfig: remote,
+      requestedViewId: tabA.get(selectionKey),
+    });
+    const reloadedB = reconcileDatabaseViewSelection({
+      savedViewConfig: remote,
+      viewConfig: remote,
+      requestedViewId: tabB.get(selectionKey),
+    });
+    expect(reloadedA.viewConfig.activeViewId).toBe(editorial.id);
+    expect(reloadedB.viewConfig.activeViewId).toBe(numbers.id);
+  });
+
+  it("persists the authoritative fallback when a selected view is absent or deleted", () => {
+    const editorial = createDatabaseView("Editorial", "editorial");
+    const shared = normalizeClientDatabaseViewConfig({
+      activeViewId: editorial.id,
+      views: [editorial],
+    });
+
+    const initial = reconcileDatabaseViewSelection({
+      savedViewConfig: shared,
+      viewConfig: shared,
+      requestedViewId: null,
+    });
+    expect(initial.selectedViewId).toBe(editorial.id);
+    expect(initial.requestedViewExists).toBe(false);
+
+    const recovered = reconcileDatabaseViewSelection({
+      savedViewConfig: shared,
+      viewConfig: shared,
+      requestedViewId: "deleted",
+    });
+    expect(recovered.viewConfig.activeViewId).toBe(editorial.id);
+    expect(recovered.savedViewConfig.activeViewId).toBe(editorial.id);
+    expect(recovered.viewConfig).toEqual(recovered.savedViewConfig);
+    expect(recovered.requestedViewExists).toBe(false);
+
+    const selectionKey = databaseViewSelectionSearchParam("database", "page");
+    const repaired = databaseSearchParamsWithSelectedView(
+      new URLSearchParams(`share=team&${selectionKey}=deleted`),
+      selectionKey,
+      recovered.selectedViewId,
+    );
+    expect(repaired.get(selectionKey)).toBe(editorial.id);
+    expect(repaired.get("share")).toBe("team");
+  });
+
+  it("scopes inline view selection without replacing other URL state", () => {
+    const firstKey = databaseViewSelectionSearchParam("first", "inline");
+    const secondKey = databaseViewSelectionSearchParam("second", "inline");
+    const first = databaseSearchParamsWithSelectedView(
+      new URLSearchParams("share=team"),
+      firstKey,
+      "editorial",
+    );
+    const second = databaseSearchParamsWithSelectedView(
+      first,
+      secondKey,
+      "numbers",
+    );
+
+    expect(firstKey).toBe("databaseViewId:first");
+    expect(second.get(firstKey)).toBe("editorial");
+    expect(second.get(secondKey)).toBe("numbers");
+    expect(second.get("share")).toBe("team");
+  });
+
+  it("changes only the local saved baseline when selecting an existing view", () => {
+    const editorial = createDatabaseView("Editorial", "editorial");
+    const numbers = createDatabaseView("Numbers", "numbers", {
+      tableColumnOrderIds: ["number", "name"],
+    });
+    const saved = normalizeClientDatabaseViewConfig({
+      activeViewId: editorial.id,
+      views: [editorial, numbers],
+    });
+
+    const selected = databaseViewConfigWithSelectedView(saved, numbers.id);
+    expect(selected.activeViewId).toBe(numbers.id);
+    expect(selected.views).toEqual(saved.views);
+  });
+
   it("wraps legacy sort, filter, and width settings in a default table view", () => {
     const viewConfig = normalizeClientDatabaseViewConfig({
       sorts: [{ key: "number", label: "Priority", direction: "desc" }],

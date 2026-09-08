@@ -24,4 +24,37 @@ describe("database navigation column presentation", () => {
       databaseEffectiveFrozenColumnIds: [],
     });
   });
+
+  it("reports each tab's effective selected view independently", () => {
+    const base = {
+      document: { id: "database-document", title: "Database" },
+      databaseId: "database",
+      previewItem: null,
+    };
+    const editorial = databaseNavigationState({
+      ...base,
+      activeView: {
+        id: "editorial",
+        name: "Editorial",
+        type: "table" as const,
+      },
+    });
+    const numbers = databaseNavigationState({
+      ...base,
+      activeView: {
+        id: "numbers",
+        name: "Numbers",
+        type: "table" as const,
+      },
+    });
+
+    expect(editorial).toMatchObject({
+      databaseViewId: "editorial",
+      databaseViewName: "Editorial",
+    });
+    expect(numbers).toMatchObject({
+      databaseViewId: "numbers",
+      databaseViewName: "Numbers",
+    });
+  });
 });

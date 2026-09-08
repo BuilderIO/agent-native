@@ -117,7 +117,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
@@ -808,6 +808,7 @@ function DatabaseTable({
 }) {
   const t = useT();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const contentSpacesQuery = useContentSpaces();
   const [, setStoredSpaceId] = useLocalStorage<string | null>(
@@ -890,6 +891,13 @@ function DatabaseTable({
   const isLoadingMoreItems =
     database.isFetching && data?.pagination?.limit !== databaseRequestItemLimit;
   const databaseId = data?.database.id ?? expectedDatabaseId;
+  const viewSelectionSearchParam = databaseViewSelectionSearchParam(
+    databaseId,
+    renderMode,
+  );
+  const serializedSearchParams = searchParams.toString();
+  const requestedViewId =
+    searchParams.get(viewSelectionSearchParam)?.trim() || null;
   const personalViewDatabaseId = data?.database.id ?? null;
   const newDatabaseRowLabel = isWorkspaceCatalog
     ? t("sidebar.addWorkspace")
@@ -1894,6 +1902,23 @@ function DatabaseTable({
     setViewConfig((current) => updateActiveDatabaseView(current, update));
   }
 
+  function handleViewConfigChange(nextViewConfig: ContentDatabaseViewConfig) {
+    const normalized = normalizeClientDatabaseViewConfig(nextViewConfig);
+    setSearchParams(
+      (current) =>
+        databaseSearchParamsWithSelectedView(
+          current,
+          viewSelectionSearchParam,
+          normalized.activeViewId,
+        ),
+      { replace: true },
+    );
+    setSavedViewConfig((current) =>
+      databaseViewConfigWithSelectedView(current, normalized.activeViewId),
+    );
+    setViewConfig(normalized);
+  }
+
   function setActiveSorts(nextSorts: DatabaseSort[]) {
     updatePersonalQueryView((view) => ({ ...view, sorts: nextSorts }));
   }
@@ -2508,23 +2533,50 @@ function DatabaseTable({
       nextSavedViewConfig,
       normalizePersonalDatabaseViewOverrides(personalView.data?.overrides),
     );
-    const nextKey = databaseViewStateKey(data.database.id, nextViewConfig);
+    const reconciled = reconcileDatabaseViewSelection({
+      savedViewConfig: nextSavedViewConfig,
+      viewConfig: nextViewConfig,
+      requestedViewId,
+    });
+    if (!reconciled.requestedViewExists) {
+      setSearchParams(
+        (current) =>
+          databaseSearchParamsWithSelectedView(
+            current,
+            viewSelectionSearchParam,
+            reconciled.selectedViewId,
+          ),
+        { replace: true },
+      );
+    }
+    const nextKey = databaseViewStateKey(
+      data.database.id,
+      reconciled.viewConfig,
+    );
     if (hydratedViewRef.current === nextKey) return;
     hydratedViewRef.current = nextKey;
-    setSavedViewConfig(nextSavedViewConfig);
+    setSavedViewConfig(reconciled.savedViewConfig);
     setPersonalQueryDirty(
-      databaseViewHasPersonalQueryChanges(nextViewConfig, nextSavedViewConfig),
+      databaseViewHasPersonalQueryChanges(
+        reconciled.viewConfig,
+        reconciled.savedViewConfig,
+      ),
     );
     setViewConfig((current) =>
       databaseViewStateKey(data.database.id, current) === nextKey
         ? current
-        : nextViewConfig,
+        : reconciled.viewConfig,
     );
   }, [
     data?.database.id,
     data?.database.viewConfig,
     personalView.data?.overrides,
     personalView.isLoading,
+    requestedViewId,
+    renderMode,
+    serializedSearchParams,
+    setSearchParams,
+    viewSelectionSearchParam,
   ]);
 
   useEffect(() => {
@@ -2647,7 +2699,7 @@ function DatabaseTable({
         <DatabaseViewTabs
           viewConfig={viewConfig}
           canEdit={effectiveCanEdit}
-          onViewConfigChange={setViewConfig}
+          onViewConfigChange={handleViewConfigChange}
         />
         <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
           {searchOpen ? (
@@ -14024,6 +14076,72 @@ export function selectDatabaseView(
     ...config,
     activeViewId: viewId,
   });
+}
+
+export const DATABASE_VIEW_SELECTION_SEARCH_PARAM = "databaseViewId";
+
+export function databaseViewSelectionSearchParam(
+  databaseId: string,
+  renderMode: "page" | "inline",
+) {
+  return renderMode === "page"
+    ? DATABASE_VIEW_SELECTION_SEARCH_PARAM
+    : `${DATABASE_VIEW_SELECTION_SEARCH_PARAM}:${databaseId}`;
+}
+
+export function databaseSearchParamsWithSelectedView(
+  searchParams: URLSearchParams,
+  key: string,
+  viewId: string | null,
+) {
+  const next = new URLSearchParams(searchParams);
+  if (viewId) next.set(key, viewId);
+  else next.delete(key);
+  return next;
+}
+
+export function databaseViewConfigWithSelectedView(
+  viewConfig: ContentDatabaseViewConfig,
+  viewId: string | null | undefined,
+) {
+  const normalized = normalizeClientDatabaseViewConfig(viewConfig);
+  if (!viewId || !normalized.views.some((view) => view.id === viewId)) {
+    return normalized;
+  }
+  return selectDatabaseView(normalized, viewId);
+}
+
+export function reconcileDatabaseViewSelection({
+  savedViewConfig,
+  viewConfig,
+  requestedViewId,
+}: {
+  savedViewConfig: ContentDatabaseViewConfig;
+  viewConfig: ContentDatabaseViewConfig;
+  requestedViewId: string | null;
+}) {
+  const normalizedViewConfig = normalizeClientDatabaseViewConfig(viewConfig);
+  const selectedViewId =
+    requestedViewId &&
+    normalizedViewConfig.views.some((view) => view.id === requestedViewId)
+      ? requestedViewId
+      : normalizedViewConfig.activeViewId;
+  const requestedViewExists =
+    requestedViewId !== null && selectedViewId === requestedViewId;
+  const nextViewConfig = databaseViewConfigWithSelectedView(
+    normalizedViewConfig,
+    selectedViewId,
+  );
+  const nextSavedViewConfig = databaseViewConfigWithSelectedView(
+    savedViewConfig,
+    selectedViewId,
+  );
+  return {
+    savedViewConfig: nextSavedViewConfig,
+    viewConfig: nextViewConfig,
+    selectedViewId,
+    requestedViewExists,
+  };
 }
 
 export function addDatabaseView(
