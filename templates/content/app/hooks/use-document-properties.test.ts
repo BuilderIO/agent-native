@@ -1,4 +1,4 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const useActionMutation = vi.hoisted(() => vi.fn());
@@ -23,6 +23,7 @@ vi.mock("sonner", () => ({
 import {
   documentPropertiesResponseMatchesScope,
   useSetDocumentProperty,
+  useUpdateDatabaseItems,
 } from "./use-document-properties";
 
 describe("documentPropertiesResponseMatchesScope", () => {
@@ -44,6 +45,80 @@ describe("documentPropertiesResponseMatchesScope", () => {
         properties: [],
       }),
     ).toBe(true);
+  });
+});
+
+describe("useUpdateDatabaseItems", () => {
+  beforeEach(() => {
+    useActionMutation.mockReset();
+    useActionQuery.mockReset();
+    useQueryClient.mockReset();
+    useActionMutation.mockImplementation((_name, options) => options);
+  });
+
+  it("refreshes active filtered memberships without fetching inactive or unrelated results", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+    });
+    useQueryClient.mockReturnValue(queryClient);
+    const returnedPage = {
+      items: [{ id: "item-1", document: { id: "row-1" } }],
+    };
+    const boundedKey = [
+      "action",
+      "query-content-database-items",
+      { documentId: "database-page", tableQuery: { filters: ["matching"] } },
+    ] as const;
+    const legacyKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", tableQuery: { filters: ["matching"] } },
+    ] as const;
+    const inactiveKey = [
+      "action",
+      "query-content-database-items",
+      { documentId: "database-page", tableQuery: { filters: ["inactive"] } },
+    ] as const;
+    const unrelatedKey = [
+      "action",
+      "query-content-database-items",
+      { documentId: "other-database", tableQuery: { filters: ["matching"] } },
+    ] as const;
+    const reads = [boundedKey, legacyKey, inactiveKey, unrelatedKey].map(
+      (queryKey) => {
+        const queryFn = vi.fn(async () => returnedPage);
+        queryClient.setQueryData(queryKey, { items: [] });
+        const observer = new QueryObserver(queryClient, { queryKey, queryFn });
+        return { queryKey, queryFn, observer };
+      },
+    );
+    const subscriptions = [reads[0], reads[1], reads[3]].map(({ observer }) =>
+      observer.subscribe(() => {}),
+    );
+
+    try {
+      useUpdateDatabaseItems("database-page");
+      const mutation = useActionMutation.mock.calls.find(
+        ([name]) => name === "update-database-items",
+      )![1];
+      mutation.onSuccess();
+
+      await vi.waitFor(() => {
+        expect(queryClient.getQueryData(boundedKey)).toEqual(returnedPage);
+        expect(queryClient.getQueryData(legacyKey)).toEqual(returnedPage);
+      });
+      expect(reads[0].queryFn).toHaveBeenCalledTimes(1);
+      expect(reads[1].queryFn).toHaveBeenCalledTimes(1);
+      expect(reads[2].queryFn).not.toHaveBeenCalled();
+      expect(queryClient.getQueryState(inactiveKey)?.isInvalidated).toBe(true);
+      expect(reads[3].queryFn).not.toHaveBeenCalled();
+      expect(queryClient.getQueryState(unrelatedKey)?.isInvalidated).toBe(
+        false,
+      );
+    } finally {
+      subscriptions.forEach((unsubscribe) => unsubscribe());
+      queryClient.clear();
+    }
   });
 });
 

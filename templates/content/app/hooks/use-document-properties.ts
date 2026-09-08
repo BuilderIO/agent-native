@@ -289,9 +289,15 @@ export function useUpdateDatabaseItems(databaseDocumentId: string) {
   >("update-database-items", {
     skipActionQueryInvalidation: true,
     onSuccess: () => {
-      void queryClient.invalidateQueries(
-        contentDatabaseQueryFilter(databaseDocumentId),
-      );
+      const databaseQueries = contentDatabaseQueryFilter(databaseDocumentId);
+      const constrainedQueries =
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId);
+      void queryClient.invalidateQueries({
+        queryKey: ["action"],
+        predicate: (query) =>
+          databaseQueries.predicate(query) ||
+          constrainedQueries.predicate(query),
+      });
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
