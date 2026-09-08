@@ -71,6 +71,7 @@ function queryClient(initial = [comment()]) {
 }
 
 function selectedComments(client: ReturnType<typeof queryClient>): Comment[] {
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- Hook dependencies are mocked to expose query options without mounting React.
   const commentsQuery = useComments("doc-1") as any;
   return commentsQuery
     .select(client.read())
@@ -137,6 +138,7 @@ describe("optimistic comment mutations", () => {
     const client = queryClient();
     useQueryClient.mockReturnValue(client);
 
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Hook dependencies are mocked to expose query options without mounting React.
     const commentsQuery = useComments("doc-1") as any;
 
     expect(commentsQuery.structuralSharing).toBe(false);
@@ -228,6 +230,7 @@ describe("optimistic comment mutations", () => {
     });
 
     client.replace([comment()]);
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Hook dependencies are mocked to expose query options without mounting React.
     const commentsQuery = useComments("doc-1") as any;
     const threads = commentsQuery.select(client.read());
 
