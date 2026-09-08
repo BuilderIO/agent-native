@@ -823,22 +823,30 @@ function LLMSectionInner({
   const [envKeys, setEnvKeys] = useState<
     Array<{ key: string; configured: boolean }>
   >([]);
-  const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [engines, setEngines] = useState<EngineInfo[]>([]);
   const [
-    { currentEngine, currentModel, selectedEngine, selectedModel },
+    {
+      currentEngine,
+      currentModel,
+      selectedEngine,
+      selectedModel,
+      apiKey,
+      baseUrl,
+      clearBaseUrl,
+    },
     setSelectionState,
   ] = useState({
     currentEngine: "anthropic",
     currentModel: "",
     selectedEngine: "anthropic",
     selectedModel: "",
+    apiKey: "",
+    baseUrl: "",
+    clearBaseUrl: false,
   });
-  const [baseUrl, setBaseUrl] = useState("");
   const [baseUrlConfigured, setBaseUrlConfigured] = useState(false);
-  const [clearBaseUrl, setClearBaseUrl] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -955,10 +963,14 @@ function LLMSectionInner({
           setSelectionState((previous) => {
             const dirty =
               previous.selectedEngine !== previous.currentEngine ||
-              previous.selectedModel !== previous.currentModel;
+              previous.selectedModel !== previous.currentModel ||
+              !!previous.apiKey.trim() ||
+              !!previous.baseUrl.trim() ||
+              previous.clearBaseUrl;
             const engine = cur.engine ?? "anthropic";
             const model = cur.model ?? "";
             return {
+              ...previous,
               currentEngine: engine,
               currentModel: model,
               selectedEngine: dirty ? previous.selectedEngine : engine,
@@ -1076,9 +1088,12 @@ function LLMSectionInner({
         ...(isEndpointProvider && clearBaseUrl ? { clearBaseUrl: true } : {}),
       });
       setSaved(true);
-      setApiKey("");
-      setBaseUrl("");
-      setClearBaseUrl(false);
+      setSelectionState((previous) => ({
+        ...previous,
+        apiKey: "",
+        baseUrl: "",
+        clearBaseUrl: false,
+      }));
       if (nextBaseUrl) setBaseUrlConfigured(true);
       if (clearBaseUrl) setBaseUrlConfigured(false);
       notifyConfigChanged();
@@ -1169,12 +1184,13 @@ function LLMSectionInner({
         provider: selectedProvider,
         model: selectedModel,
       });
-      setSelectionState({
+      setSelectionState((previous) => ({
+        ...previous,
         currentEngine: selection.engine,
         currentModel: selection.model,
         selectedEngine: selection.engine,
         selectedModel: selection.model,
-      });
+      }));
       setApplyNote(true);
       setTimeout(() => setApplyNote(false), 4000);
     } catch (err) {
@@ -1288,10 +1304,10 @@ function LLMSectionInner({
                       ...previous,
                       selectedEngine: option.engine,
                       selectedModel: option.defaultModel,
+                      apiKey: "",
+                      baseUrl: "",
+                      clearBaseUrl: false,
                     }));
-                    setApiKey("");
-                    setBaseUrl("");
-                    setClearBaseUrl(false);
                     setAdvancedOpen(false);
                     setApplyError(null);
                     setApplyNote(false);
@@ -1377,8 +1393,14 @@ function LLMSectionInner({
                           type="url"
                           value={baseUrl}
                           onChange={(e) => {
-                            setBaseUrl(e.target.value);
-                            if (e.target.value.trim()) setClearBaseUrl(false);
+                            const baseUrl = e.target.value;
+                            setSelectionState((previous) => ({
+                              ...previous,
+                              baseUrl,
+                              clearBaseUrl: baseUrl.trim()
+                                ? false
+                                : previous.clearBaseUrl,
+                            }));
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") void handleSave();
@@ -1401,8 +1423,11 @@ function LLMSectionInner({
                             <Checkbox
                               checked={clearBaseUrl}
                               onChange={(checked) => {
-                                setClearBaseUrl(checked);
-                                if (checked) setBaseUrl("");
+                                setSelectionState((previous) => ({
+                                  ...previous,
+                                  clearBaseUrl: checked,
+                                  baseUrl: checked ? "" : previous.baseUrl,
+                                }));
                               }}
                               aria-label="Clear saved endpoint override"
                               className="shrink-0"
@@ -1451,7 +1476,13 @@ function LLMSectionInner({
                     <input
                       type="password"
                       value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
+                      onChange={(e) => {
+                        const apiKey = e.target.value;
+                        setSelectionState((previous) => ({
+                          ...previous,
+                          apiKey,
+                        }));
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") void handleSave();
                       }}

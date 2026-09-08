@@ -76,6 +76,7 @@ function createFetchFixture({
   disconnectResponse?: () => Promise<Response> | Response;
 }) {
   const setRequests: Array<Record<string, unknown>> = [];
+  const providerSettingsRequests: Array<Record<string, unknown>> = [];
   let listRequests = 0;
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -103,6 +104,10 @@ function createFetchFixture({
         if (!disconnectResponse) throw new Error("Unexpected disconnect");
         return disconnectResponse();
       }
+      if (url.endsWith("/_agent-native/agent-engine/api-key")) {
+        providerSettingsRequests.push(JSON.parse(String(init?.body)));
+        return json({ ok: true });
+      }
       if (url.endsWith("/_agent-native/actions/manage-agent-engine")) {
         const body = JSON.parse(String(init?.body ?? "{}")) as Record<
           string,
@@ -127,6 +132,7 @@ function createFetchFixture({
   return {
     fetchMock,
     setRequests,
+    providerSettingsRequests,
     get listRequests() {
       return listRequests;
     },
@@ -386,6 +392,78 @@ describe("AgentSettingsContent provider save", () => {
     expect(fixture.setRequests).toHaveLength(1);
     act(() => root.unmount());
   });
+
+  it.each(["key", "endpoint", "clear-endpoint"])(
+    "keeps an unsaved %s draft bound to its provider on focus refresh",
+    async (draft) => {
+      let current = { engine: "ai-sdk:openai", model: "gpt-5.4" };
+      const fixture = createFetchFixture({
+        current,
+        envKeys: [],
+        status: { configured: false, openAiBaseUrlConfigured: true },
+        listResponse: () => json({ engines: [anthropic, openai], current }),
+        setResponse: () => json({ ok: true }),
+      });
+      const { root } = await renderSettings(fixture.fetchMock);
+      const setup = Array.from(document.querySelectorAll("button")).find(
+        (button) =>
+          ["Custom keys", "Manage"].includes(button.textContent?.trim() ?? ""),
+      );
+      if (!setup) throw new Error("Missing provider setup button");
+      await click(setup);
+
+      if (draft === "key") {
+        const key = document.querySelector<HTMLInputElement>(
+          'input[type="password"]',
+        );
+        if (!key) throw new Error("Missing API key input");
+        await changeInput(key, "obviously-fake-provider-draft");
+      } else {
+        const advanced = Array.from(document.querySelectorAll("button")).find(
+          (button) => button.textContent?.includes("Advanced"),
+        );
+        if (!advanced) throw new Error("Missing Advanced button");
+        await click(advanced);
+        if (draft === "endpoint") {
+          const endpoint =
+            document.querySelector<HTMLInputElement>('input[type="url"]');
+          if (!endpoint) throw new Error("Missing endpoint input");
+          await changeInput(endpoint, "https://gateway.example/v1");
+        } else {
+          const clear = document.querySelector<HTMLElement>(
+            '[aria-label="Clear saved endpoint override"]',
+          );
+          if (!clear) throw new Error("Missing clear-endpoint checkbox");
+          await click(clear);
+        }
+      }
+
+      current = { engine: "anthropic", model: "claude-sonnet-5" };
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      expect(
+        document.querySelector<HTMLInputElement>(
+          'input[list="model-suggestions-ai-sdk:openai"]',
+        )?.value,
+      ).toBe("gpt-5.4");
+
+      await click(buttonNamed(draft === "key" ? "Save" : "Save endpoint"));
+      expect(fixture.providerSettingsRequests).toEqual([
+        {
+          key: "OPENAI_API_KEY",
+          ...(draft === "key"
+            ? { value: "obviously-fake-provider-draft" }
+            : {}),
+          ...(draft === "endpoint"
+            ? { baseUrl: "https://gateway.example/v1" }
+            : {}),
+          ...(draft === "clear-endpoint" ? { clearBaseUrl: true } : {}),
+        },
+      ]);
+      act(() => root.unmount());
+    },
+  );
 
   it("does not show a provider as connected when its package and configuration are false", async () => {
     const unavailableOpenAi = {
