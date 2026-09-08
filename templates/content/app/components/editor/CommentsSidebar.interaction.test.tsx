@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,19 +17,24 @@ import { CommentsSidebar } from "./CommentsSidebar";
 
 const actions = vi.hoisted(() => ({
   create: vi.fn(),
+  realMutation: false,
   reconcile: vi.fn(),
   edit: vi.fn(),
   resolve: vi.fn(),
 }));
-vi.mock("@/hooks/use-comments", () => ({
-  useCreateComment: () => ({
-    mutate: actions.create,
-    reconcileAmbiguous: actions.reconcile,
-    isPending: false,
-  }),
-  useEditComment: () => ({ mutate: actions.edit, isPending: false }),
-  useResolveComment: () => ({ mutate: actions.resolve, isPending: false }),
-}));
+vi.mock("@/hooks/use-comments", async () => {
+  const { useMutation } = await import("@tanstack/react-query");
+  return {
+    useCreateComment: () => ({
+      ...(actions.realMutation
+        ? useMutation({ mutationFn: actions.create })
+        : { mutateAsync: actions.create, isPending: false }),
+      reconcileAmbiguous: actions.reconcile,
+    }),
+    useEditComment: () => ({ mutateAsync: actions.edit, isPending: false }),
+    useResolveComment: () => ({ mutate: actions.resolve, isPending: false }),
+  };
+});
 vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [] }),
 }));
@@ -87,7 +93,19 @@ function PanelProbe() {
 describe("comment review interactions", () => {
   let root: Root;
   let container: HTMLDivElement;
+  let queryClient: QueryClient;
+  let resolveCreate: (result: { id: string; threadId: string }) => void;
   beforeEach(() => {
+    actions.realMutation = false;
+    queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    actions.create.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -95,6 +113,7 @@ describe("comment review interactions", () => {
   afterEach(() => {
     act(() => root?.unmount());
     container?.remove();
+    queryClient.clear();
     vi.clearAllMocks();
     window.localStorage.clear();
   });
@@ -102,6 +121,11 @@ describe("comment review interactions", () => {
     selected: string | null,
     threads = [thread("one"), thread("two")],
     presentation: "inline" | "history" = "inline",
+    options: {
+      key?: string;
+      pending?: boolean;
+      onPendingDone?: (threadId?: string) => void;
+    } = {},
   ) {
     if (!container) {
       container = document.createElement("div");
@@ -111,27 +135,36 @@ describe("comment review interactions", () => {
     act(() =>
       root.render(
         createElement(
-          TooltipProvider,
-          null,
+          QueryClientProvider,
+          { client: queryClient },
           createElement(
-            CommentDraftProvider,
-            {
-              documentId: "fixture",
-              currentUserEmail: "reviewer@example.test",
-              children: null,
-            },
-            createElement(PanelProbe),
-            createElement(CommentsSidebar, {
-              documentId: "fixture",
-              threads,
-              selectedThreadId: selected,
-              currentUserEmail: "reviewer@example.test",
-              canComment: true,
-              canResolve: true,
-              alignToAnchors: false,
-              forceVisible: true,
-              presentation,
-            }),
+            TooltipProvider,
+            null,
+            createElement(
+              CommentDraftProvider,
+              {
+                documentId: "fixture",
+                currentUserEmail: "reviewer@example.test",
+                children: null,
+              },
+              createElement(PanelProbe),
+              createElement(CommentsSidebar, {
+                key: options.key ?? "sidebar",
+                pendingComment: options.pending
+                  ? { quotedText: "selected anchor", offsetTop: 0 }
+                  : null,
+                onPendingDone: options.onPendingDone,
+                documentId: "fixture",
+                threads,
+                selectedThreadId: selected,
+                currentUserEmail: "reviewer@example.test",
+                canComment: true,
+                canResolve: true,
+                alignToAnchors: false,
+                forceVisible: true,
+                presentation,
+              }),
+            ),
           ),
         ),
       ),
@@ -167,7 +200,7 @@ describe("comment review interactions", () => {
     render("two");
     expect(container.querySelector("textarea")!.value).toBe("Different draft");
   });
-  it("does not clear newer typing when an older reply settles", () => {
+  it("does not clear newer typing when an older reply settles", async () => {
     render("one");
     type("First submitted draft");
     act(() =>
@@ -179,8 +212,8 @@ describe("comment review interactions", () => {
     );
     expect(actions.create).toHaveBeenCalledOnce();
     type("Newer unsent draft");
-    act(() =>
-      actions.create.mock.calls[0][1].onSuccess({
+    await act(async () =>
+      resolveCreate({
         id: "saved",
         threadId: "one",
       }),
@@ -235,6 +268,39 @@ describe("comment review interactions", () => {
         addMentions
           ? [{ email: "reviewer@example.test", name: "Reviewer" }]
           : [],
+      );
+    },
+  );
+
+  it.each([false, true])(
+    "keeps old anchored-save UI effects detached after remount (new draft: %s)",
+    async (newer) => {
+      actions.realMutation = true;
+      const onPendingDone = vi.fn();
+      render(null, [], "inline", {
+        key: "anchor-a",
+        pending: true,
+        onPendingDone,
+      });
+      type("Anchor A draft");
+      await act(async () => {
+        const submit = [...container.querySelectorAll("button")].find(
+          (button) => button.textContent === "comments.submit",
+        )!;
+        submit.click();
+      });
+      render(null, [], "inline", {
+        key: "anchor-b",
+        pending: true,
+        onPendingDone,
+      });
+      if (newer) type("Anchor B draft");
+      await act(async () =>
+        resolveCreate({ id: "saved-a", threadId: "thread-a" }),
+      );
+      expect(onPendingDone).not.toHaveBeenCalled();
+      expect(container.querySelector("textarea")!.value).toBe(
+        newer ? "Anchor B draft" : "",
       );
     },
   );

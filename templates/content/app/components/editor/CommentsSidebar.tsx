@@ -487,7 +487,7 @@ export function CommentsSidebar({
     }
   }, [pendingComment]);
 
-  const handlePendingSubmit = () => {
+  const handlePendingSubmit = async () => {
     if (!canComment) return;
     if (
       !pendingText.trim() ||
@@ -497,28 +497,29 @@ export function CommentsSidebar({
     )
       return;
     const submittedDraft = pendingDraft.markSubmitted();
-    createComment.mutate(
-      {
-        documentId,
-        content: pendingText.trim(),
-        quotedText: pendingComment?.quotedText,
-        anchorPrefix: pendingComment?.anchor?.prefix,
-        anchorSuffix: pendingComment?.anchor?.suffix,
-        anchorStartOffset: pendingComment?.anchor?.startOffset,
-        mentions: mentionsJsonFor(pendingText, pendingMentions),
-      },
-      {
-        onSuccess: (result) => {
-          pendingDraft.clearIfUnchanged(submittedDraft);
-          onPendingDone?.(result.threadId);
-        },
-        onError: (error) => {
-          toast.error(t("empty.genericError"), {
-            description: error.message,
-          });
-        },
-      },
-    );
+    try {
+      await pendingDraft.clearOnSuccess(
+        submittedDraft,
+        createComment.mutateAsync(
+          {
+            documentId,
+            content: pendingText.trim(),
+            quotedText: pendingComment?.quotedText,
+            anchorPrefix: pendingComment?.anchor?.prefix,
+            anchorSuffix: pendingComment?.anchor?.suffix,
+            anchorStartOffset: pendingComment?.anchor?.startOffset,
+            mentions: mentionsJsonFor(pendingText, pendingMentions),
+          },
+          {
+            onSuccess: (result) => onPendingDone?.(result.threadId),
+          },
+        ),
+      );
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
   };
 
   const handlePendingCancel = () => {
@@ -526,7 +527,7 @@ export function CommentsSidebar({
     onPendingDone?.();
   };
 
-  const handleReply = (threadId: string) => {
+  const handleReply = async (threadId: string) => {
     if (!canComment) return;
     if (
       !replyText.trim() ||
@@ -536,25 +537,22 @@ export function CommentsSidebar({
       return;
     const submittedDraft = replyDraft.markSubmitted();
     const thread = threads?.find((t) => t.threadId === threadId);
-    createComment.mutate(
-      {
-        documentId,
-        content: replyText.trim(),
-        threadId,
-        parentId: thread?.comments[0]?.id,
-        mentions: mentionsJsonFor(replyText, replyMentions),
-      },
-      {
-        onSuccess: () => {
-          replyDraft.clearIfUnchanged(submittedDraft);
-        },
-        onError: (error) => {
-          toast.error(t("empty.genericError"), {
-            description: error.message,
-          });
-        },
-      },
-    );
+    try {
+      await replyDraft.clearOnSuccess(
+        submittedDraft,
+        createComment.mutateAsync({
+          documentId,
+          content: replyText.trim(),
+          threadId,
+          parentId: thread?.comments[0]?.id,
+          mentions: mentionsJsonFor(replyText, replyMentions),
+        }),
+      );
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
   };
 
   const handleSendToAI = (thread: CommentThread) => {
@@ -1395,27 +1393,31 @@ function CommentEntry({
     setEditing(false);
     requestAnimationFrame(() => menuRef.current?.focus());
   };
-  const save = () => {
+  const save = async () => {
     if (!draft.draft.text.trim() || edit.isPending) return;
     const submitted = draft.draft;
-    edit.mutate(
-      {
-        id: comment.id,
-        documentId,
-        content: submitted.text.trim(),
-        mentions: mentionsJsonFor(submitted.text, submitted.mentions) ?? "[]",
-      },
-      {
-        onSuccess: () => {
-          draft.clearIfUnchanged(submitted);
-          close();
-        },
-        onError: (error) => {
-          toast.error(t("empty.genericError"), { description: error.message });
-          inputRef.current?.focus();
-        },
-      },
-    );
+    try {
+      await draft.clearOnSuccess(
+        submitted,
+        edit.mutateAsync(
+          {
+            id: comment.id,
+            documentId,
+            content: submitted.text.trim(),
+            mentions:
+              mentionsJsonFor(submitted.text, submitted.mentions) ?? "[]",
+          },
+          {
+            onSuccess: close,
+            onError: () => inputRef.current?.focus(),
+          },
+        ),
+      );
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
   };
   return (
     <div

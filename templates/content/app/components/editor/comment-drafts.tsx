@@ -222,6 +222,14 @@ export function useCommentDraft(
       context.clearIfUnchanged(key, submittedDraft),
     [context, key],
   );
+  const clearOnSuccess = async <T,>(
+    submittedDraft: CommentDraftRevision,
+    mutation: Promise<T>,
+  ): Promise<T> => {
+    const result = await mutation;
+    context.clearIfUnchanged(key, submittedDraft);
+    return result;
+  };
   const discard = useCallback(() => context.discard(key), [context, key]);
 
   const markSubmitted = () => {
@@ -235,6 +243,7 @@ export function useCommentDraft(
     setText,
     setMentions,
     clearIfUnchanged,
+    clearOnSuccess,
     discard,
     markSubmitted,
     submittedDraft,

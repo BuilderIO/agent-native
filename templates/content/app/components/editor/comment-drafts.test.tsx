@@ -1,8 +1,13 @@
 // @vitest-environment happy-dom
 
+import {
+  QueryClient,
+  QueryClientProvider,
+  useMutation,
+} from "@tanstack/react-query";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CommentDraftProvider,
@@ -138,6 +143,98 @@ describe("comment drafts", () => {
     act(() => currentDraft!.clearIfUnchanged(resubmitted));
     expect(currentDraft!.draft.text).toBe("");
   });
+
+  it.each([
+    ["pending", "confirmed"],
+    ["reply:thread-a", "confirmed"],
+    ["edit:comment-a", "confirmed"],
+    ["pending", "newer"],
+    ["reply:thread-a", "newer"],
+    ["edit:comment-a", "newer"],
+    ["pending", "rejected"],
+    ["reply:thread-a", "rejected"],
+    ["edit:comment-a", "rejected"],
+  ])(
+    "settles %s drafts after the mutation observer unmounts (%s)",
+    async (draftKey, outcome) => {
+      const client = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      let resolve!: () => void;
+      let reject!: (error: Error) => void;
+      const request = new Promise<void>((onResolve, onReject) => {
+        resolve = onResolve;
+        reject = onReject;
+      });
+      const perCallSuccess = vi.fn();
+      let submit!: () => Promise<void>;
+      function MutationProbe() {
+        const draft = useCommentDraft(draftKey);
+        const mutation = useMutation({ mutationFn: () => request });
+        submit = () =>
+          draft.clearOnSuccess(
+            draft.markSubmitted(),
+            mutation.mutateAsync(undefined, { onSuccess: perCallSuccess }),
+          );
+        return null;
+      }
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+      const show = (mounted: boolean) =>
+        act(() =>
+          root!.render(
+            <QueryClientProvider client={client}>
+              <CommentDraftProvider documentId="document-a">
+                <Probe draftKey={draftKey} />
+                {mounted && <MutationProbe />}
+              </CommentDraftProvider>
+            </QueryClientProvider>,
+          ),
+        );
+      show(true);
+      act(() => currentDraft!.setText("submitted"));
+      let completion!: Promise<{ error?: unknown }>;
+      await act(async () => {
+        completion = submit().then(
+          () => ({}),
+          (error: unknown) => ({ error }),
+        );
+      });
+      expect(client.getMutationCache().getAll()[0].state.status).toBe(
+        "pending",
+      );
+      show(false);
+      if (outcome === "newer") {
+        act(() => currentDraft!.setText("newer draft"));
+      }
+      const failure = new Error("save failed");
+      let result: { error?: unknown } = {};
+      await act(async () => {
+        if (outcome === "rejected") reject(failure);
+        else resolve();
+        result = await completion;
+      });
+      expect(perCallSuccess).not.toHaveBeenCalled();
+      expect(result.error).toBe(outcome === "rejected" ? failure : undefined);
+      expect(currentDraft!.draft.text).toBe(
+        outcome === "confirmed"
+          ? ""
+          : outcome === "newer"
+            ? "newer draft"
+            : "submitted",
+      );
+      show(true);
+      expect(currentDraft!.draft.text).toBe(
+        outcome === "confirmed"
+          ? ""
+          : outcome === "newer"
+            ? "newer draft"
+            : "submitted",
+      );
+      client.clear();
+    },
+  );
 
   it("clears document-session state across document or account changes", () => {
     render({});
