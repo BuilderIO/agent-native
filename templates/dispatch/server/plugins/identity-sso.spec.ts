@@ -12,6 +12,7 @@ const signA2ATokenMock = vi.hoisted(() => vi.fn());
 const verifyA2ATokenMock = vi.hoisted(() => vi.fn());
 const getOrgDomainMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
+const getRequiredAuthProviderForOrgMock = vi.hoisted(() => vi.fn());
 const invalidateMemberOrgCachesMock = vi.hoisted(() => vi.fn());
 const isGoogleSignInRequiredForEmailMock = vi.hoisted(() => vi.fn());
 const hasGoogleAuthIdentityMock = vi.hoisted(() => vi.fn());
@@ -102,6 +103,7 @@ vi.mock("@agent-native/core/org", () => ({
   CROSS_APP_ORG_FEDERATION_SCOPE: "organization-federation",
   getOrgContext: getOrgContextMock,
   getOrgDomain: getOrgDomainMock,
+  getRequiredAuthProviderForOrg: getRequiredAuthProviderForOrgMock,
   invalidateMemberOrgCaches: invalidateMemberOrgCachesMock,
   isGoogleSignInRequiredForEmail: isGoogleSignInRequiredForEmailMock,
 }));
@@ -449,6 +451,7 @@ beforeEach(() => {
   });
   signInJourneyMock.mockReturnValue({ signInHref: "/_agent-native/sign-in" });
   getOrgDomainMock.mockResolvedValue("example.test");
+  getRequiredAuthProviderForOrgMock.mockResolvedValue(null);
   isGoogleSignInRequiredForEmailMock.mockResolvedValue(false);
   hasGoogleAuthIdentityMock.mockResolvedValue(false);
   createBetterAuthSessionForEmailMock.mockResolvedValue({
@@ -1048,7 +1051,7 @@ describe("silent browser bootstrap", () => {
   it("does not activate a non-Google identity into a Google-only organization", async () => {
     featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
     featureFlagMocks.isEnabled.mockResolvedValue(true);
-    isGoogleSignInRequiredForEmailMock.mockResolvedValue(true);
+    getRequiredAuthProviderForOrgMock.mockResolvedValue("google");
     hasGoogleAuthIdentityMock.mockResolvedValue(true);
     const handle = await createIdentityBootstrapHandle({
       state: STATE,
@@ -1058,6 +1061,7 @@ describe("silent browser bootstrap", () => {
       authority: AUTHORITY,
       codeChallenge: createCodeChallenge(VERIFIER)!,
       email: "user@example.test",
+      orgId: "org-1",
       browserBindingHash: BROWSER_BINDING_HASH,
     });
     const continuationEvent = event(

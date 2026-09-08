@@ -30,6 +30,7 @@ import {
   CROSS_APP_ORG_FEDERATION_SCOPE,
   getOrgContext,
   getOrgDomain,
+  getRequiredAuthProviderForOrg,
   invalidateMemberOrgCaches,
   isGoogleSignInRequiredForEmail,
 } from "@agent-native/core/org";
@@ -1320,8 +1321,13 @@ export const bootstrapActivationHandler = defineEventHandler(
       // Bootstrap has no Dispatch browser request context to prove the auth
       // provider. Match the normal identity assertion policy before minting
       // either Dispatch session when the target organization requires Google.
+      const requiredAuthProvider = bootstrap.orgId
+        ? await getRequiredAuthProviderForOrg(bootstrap.orgId)
+        : (await isGoogleSignInRequiredForEmail(bootstrap.email))
+          ? "google"
+          : null;
       if (
-        (await isGoogleSignInRequiredForEmail(bootstrap.email)) &&
+        requiredAuthProvider === "google" &&
         bootstrap.authProvider !== "google"
       ) {
         await releaseIdentityBootstrapActivation(activation).catch(() => {});
