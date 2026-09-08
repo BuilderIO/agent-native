@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { docsI18nCatalog } from "../i18n";
 import {
   BuildOnlinePopover,
+  BuilderLaunchLink,
   BuilderWaitlistContent,
 } from "./BuilderWaitlistPopover";
 import { TemplateLandingActions } from "./template-landing/TemplateLandingActions";
@@ -48,6 +49,21 @@ function expectAnimatedPopover(element: HTMLElement) {
 }
 
 describe("docs popover controls", () => {
+  it("opens Builder launch links in a new tab", () => {
+    renderWithProviders(
+      <>
+        <BuilderLaunchLink />
+        <BuilderLaunchLink trigger={<a href="/docs">Custom launch</a>} />
+      </>,
+    );
+
+    for (const name of ["Launch Builder", "Custom launch"]) {
+      const link = screen.getByRole("link", { name });
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    }
+  });
+
   it("opens Build online in the shared animated popover", () => {
     renderWithProviders(<BuildOnlinePopover location="templates_index" />);
 
