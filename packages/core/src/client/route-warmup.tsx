@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { matchRoutes, type RouteObject } from "react-router";
 
 import {
@@ -396,9 +396,6 @@ function resetRouteWarmupCachesForTests() {
 export function AgentNativeRouteWarmup({
   config,
 }: AgentNativeRouteWarmupProps) {
-  const [manifestVersion, setManifestVersion] = useState(0);
-  const manifestWaitAttempts = useRef(0);
-
   useEffect(() => {
     const resolved = getRouteWarmupConfig(config);
     if (resolved.strategy === "off") {
@@ -422,20 +419,7 @@ export function AgentNativeRouteWarmup({
     const hasRouteAssets = hasManifestRoutes && hasWarmableRouteAssets();
     const warmData = resolved.data && hasRouteAssets;
     const warmModules = resolved.modules && hasRouteAssets;
-    if (!warmData && !warmModules) {
-      // ponytail: wait at most 2s for the modulepreloaded manifest; native
-      // navigation remains the fallback when a production build is slower.
-      if (!window.__reactRouterManifest && manifestWaitAttempts.current < 40) {
-        manifestWaitAttempts.current += 1;
-        const timer = window.setTimeout(
-          () => setManifestVersion((version) => version + 1),
-          50,
-        );
-        return () => window.clearTimeout(timer);
-      }
-      return;
-    }
-    manifestWaitAttempts.current = 0;
+    if (!warmData && !warmModules) return;
 
     if (warmModules) seedExistingModulepreloads();
 
@@ -610,7 +594,7 @@ export function AgentNativeRouteWarmup({
       document.removeEventListener("touchstart", warmFromIntent, true);
       document.removeEventListener("focusin", warmFromIntent, true);
     };
-  }, [config, manifestVersion]);
+  }, [config]);
 
   return null;
 }
