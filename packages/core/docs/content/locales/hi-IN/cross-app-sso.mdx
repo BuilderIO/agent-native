@@ -61,8 +61,13 @@ Federation हर registered source app के लिए अलग credential �
 
 - Source app में <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> सेट करें।
 - Dispatch में matching
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;APP_ID&gt;</code> सेट करें।
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> सेट करें।
 - इस authority boundary के लिए <code>A2A_SECRET</code> reuse न करें।
+
+App ID suffix non-alphanumeric characters की हर लगातार श्रृंखला को underscore
+से बदलकर परिणाम को uppercase बनाता है। उदाहरण के लिए
+<code>workspace-reports</code> app ID में
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code> उपयोग करें।
 
 Identity और organization writes additive हैं। Same-email users बिना बदलाव reuse होते हैं।
 नया verified email local user बनाता है। Federation बंद करने से data delete नहीं होता।

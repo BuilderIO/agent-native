@@ -73,9 +73,14 @@ Organization federation uses a separate credential for each registered source
 app:
 
 - Set <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> on the source app.
-- Set the matching <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;APP_ID&gt;</code>
+- Set the matching <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>
   on Dispatch.
 - Do not reuse <code>A2A_SECRET</code> for this authority boundary.
+
+The app ID suffix replaces every run of non-alphanumeric characters with an
+underscore and uppercases the result. For example, the app ID
+<code>workspace-reports</code> uses
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
 
 Identity and organization writes are additive. Existing same-email users are
 reused without modification. A new verified email creates a local user.
@@ -95,7 +100,7 @@ exact app ID, client ID, HTTPS origin, callback path, and
 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code>. An example registration is:
 
 ~~~bash
-IDENTITY_SSO_APP_REGISTRY_JSON=[{"appId":"workspace-reports","clientId":"workspace-reports","origin":"https://reports.example.com","callbackPath":"/_agent-native/identity/callback","capabilities":["identity-sso"]}]
+IDENTITY_SSO_APP_REGISTRY_JSON='[{"appId":"workspace-reports","clientId":"workspace-reports","origin":"https://reports.example.com","callbackPath":"/_agent-native/identity/callback","capabilities":["identity-sso"]}]'
 ~~~
 
 Production registrations must use HTTPS and an exact callback path. Localhost

@@ -68,8 +68,13 @@ A federação usa uma credencial separada para cada aplicativo de origem registr
 - Defina <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> no aplicativo de
   origem.
 - Defina o valor correspondente
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;APP_ID&gt;</code> no Dispatch.
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> no Dispatch.
 - Não reutilize <code>A2A_SECRET</code> para este limite de autoridade.
+
+O sufixo do ID do aplicativo substitui cada sequência de caracteres não
+alfanuméricos por um sublinhado e converte o resultado para maiúsculas. Por
+exemplo, o ID <code>workspace-reports</code> usa
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
 
 As gravações de identidade e organização são aditivas. Usuários existentes com
 o mesmo e-mail são reutilizados sem modificação. Um novo e-mail verificado cria

@@ -57,8 +57,12 @@ broker 为符合条件且已注册的应用配置登录。每个目标应用仍�
 
 - 在源应用设置 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code>。
 - 在 Dispatch 设置匹配的
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;APP_ID&gt;</code>。
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>。
 - 不要为此权限边界重复使用 <code>A2A_SECRET</code>。
+
+应用 ID 后缀会将每段非字母数字字符替换为下划线，并将结果转换为大写。
+例如，应用 ID <code>workspace-reports</code> 使用
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>。
 
 身份和组织写入只会添加数据。相同邮箱的现有用户会原样复用。新的已验证
 邮箱会创建本地用户。关闭联邦不会删除数据。

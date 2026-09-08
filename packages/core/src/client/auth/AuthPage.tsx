@@ -64,6 +64,10 @@ export interface AuthPageProps {
   brandMarkSrc: string;
   githubUrl: string;
   showGoogle: boolean;
+  /** @deprecated Browser SSO entry points were removed. */
+  identitySsoEnabled?: boolean;
+  /** @deprecated Automatic browser SSO handoff was removed. */
+  identitySsoAuto?: boolean;
   signupLegalNotice?: AuthLegalNotice;
   signupLocalModeNote?: { text: string; command: string };
   docsAuthUrl: string;

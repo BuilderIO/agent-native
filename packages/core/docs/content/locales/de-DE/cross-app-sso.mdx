@@ -68,8 +68,13 @@ Die Föderation verwendet ein eigenes Secret pro registrierter Quell-App:
 
 - Setze <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> in der Quell-App.
 - Setze das passende
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;APP_ID&gt;</code> in Dispatch.
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> in Dispatch.
 - Verwende <code>A2A_SECRET</code> nicht erneut für diese Autoritätsgrenze.
+
+Das Suffix der App-ID ersetzt jede Folge nicht alphanumerischer Zeichen durch
+einen Unterstrich und schreibt das Ergebnis in Großbuchstaben. Die App-ID
+<code>workspace-reports</code> verwendet zum Beispiel
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
 
 Identitäts- und Organisationsschreibvorgänge sind additiv. Bestehende Benutzer
 mit derselben E-Mail werden unverändert wiederverwendet. Eine neue verifizierte

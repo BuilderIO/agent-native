@@ -70,8 +70,13 @@ La fédération utilise une identifiant distinct pour chaque application source:
 - Définissez <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> dans
   l'application source.
 - Définissez la valeur correspondante
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;APP_ID&gt;</code> dans Dispatch.
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> dans Dispatch.
 - Ne réutilisez pas <code>A2A_SECRET</code> pour cette limite d'autorité.
+
+Le suffixe de l'ID d'application remplace chaque suite de caractères non
+alphanumériques par un trait de soulignement et convertit le résultat en
+majuscules. Par exemple, l'ID <code>workspace-reports</code> utilise
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
 
 Les écritures d'identité et d'organisation sont additives. Les utilisateurs
 existants avec le même e-mail sont réutilisés sans modification. Un nouvel

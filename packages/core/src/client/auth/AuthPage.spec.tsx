@@ -58,8 +58,13 @@ describe("AuthPage", () => {
   });
 
   it("renders the password auth surface on the server without browser globals", () => {
+    const props = propsFromHtml(getOnboardingHtml());
     const html = renderToString(
-      <AuthPage {...propsFromHtml(getOnboardingHtml())} />,
+      <AuthPage
+        {...props}
+        identitySsoEnabled={false}
+        identitySsoAuto={false}
+      />,
     );
 
     expect(html).toContain('id="signup-form"');

@@ -64,8 +64,13 @@ false はオプトアウトとして残ります。フラグ、設定、登録�
 
 - ソースアプリに <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> を設定します。
 - Dispatch に対応する
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;APP_ID&gt;</code> を設定します。
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> を設定します。
 - この権限境界で <code>A2A_SECRET</code> を再利用しないでください。
+
+アプリ ID のサフィックスは、英数字以外の各連続部分をアンダースコアに
+置き換え、結果を大文字にします。たとえばアプリ ID
+<code>workspace-reports</code> には
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code> を使います。
 
 ID と組織の書き込みは追加のみです。同じメールアドレスの既存ユーザーは変更
 せずに再利用されます。新しい検証済みメールアドレスではローカルユーザーを

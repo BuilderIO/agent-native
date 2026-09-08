@@ -60,8 +60,13 @@ Desktop تهيئة التطبيقات المسجلة المؤهلة من خلا�
 
 - اضبط <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> في التطبيق المصدر.
 - اضبط القيمة المطابقة
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;APP_ID&gt;</code> في Dispatch.
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code> في Dispatch.
 - لا تعاود استخدام <code>A2A_SECRET</code> لحد السلطة هذا.
+
+تستبدل لاحقة معرّف التطبيق كل سلسلة من المحارف غير الأبجدية الرقمية بشرطة
+سفلية وتحول الناتج إلى أحرف كبيرة. على سبيل المثال، يستخدم معرّف التطبيق
+<code>workspace-reports</code> المفتاح
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
 
 كتابات الهوية والمؤسسة إضافية فقط. يعاد استخدام المستخدم الحالي ذي البريد نفسه دون
 تعديل. وينشئ البريد الإلكتروني المتحقق منه حديثا مستخدما محليا. ولا يؤدي تعطيل

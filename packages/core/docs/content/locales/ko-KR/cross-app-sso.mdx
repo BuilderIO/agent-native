@@ -60,8 +60,12 @@ assertion은 서버 간 교환으로만 반환됩니다. 브라우저 URL에 나
 
 - 소스 앱에 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code>를 설정합니다.
 - Dispatch에 일치하는
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;APP_ID&gt;</code>를 설정합니다.
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>를 설정합니다.
 - 이 권한 경계에 <code>A2A_SECRET</code>를 재사용하지 않습니다.
+
+앱 ID 접미사는 영숫자가 아닌 각 연속 문자를 밑줄로 바꾸고 결과를 대문자로
+변환합니다. 예를 들어 앱 ID <code>workspace-reports</code>에는
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>를 사용합니다.
 
 ID와 조직 쓰기는 추가만 수행합니다. 같은 이메일을 가진 기존 사용자는 수정 없이
 재사용됩니다. 새로운 검증 이메일은 로컬 사용자를 생성합니다. 페더레이션을
