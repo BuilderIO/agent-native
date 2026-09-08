@@ -71,7 +71,14 @@ export default defineAction({
       .optional()
       .describe("Library search term (sets ?q=… on library/space)"),
     panel: z
-      .enum(["comments", "transcript", "agent", "insights", "settings"])
+      .enum([
+        "comments",
+        "transcript",
+        "agent",
+        "debug",
+        "insights",
+        "settings",
+      ])
       .optional()
       .describe("Viewer panel to focus when opening a recording"),
     atMs: z.coerce

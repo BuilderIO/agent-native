@@ -1863,17 +1863,29 @@ export default function RecordRoute() {
         capture?.dispose();
         return;
       }
-      const localSnapshot = capture?.stop() ?? null;
-      const extensionResponse = extensionCapture
-        ? await sendClipsExtensionMessage<ClipsExtensionDiagnosticsResponse>(
-            extensionCapture.extensionId,
-            {
-              type: "CLIPS_CAPTURE_STOP",
-              sessionId: extensionCapture.sessionId,
-              recordingId,
-            },
-          )
-        : null;
+      let localSnapshot: BrowserDiagnosticsData | null = null;
+      try {
+        localSnapshot = capture?.stop() ?? null;
+      } catch (err) {
+        capture?.dispose();
+        console.warn("[recorder] browser diagnostics stop failed:", err);
+      }
+      let extensionResponse: ClipsExtensionDiagnosticsResponse | null = null;
+      if (extensionCapture) {
+        try {
+          extensionResponse =
+            await sendClipsExtensionMessage<ClipsExtensionDiagnosticsResponse>(
+              extensionCapture.extensionId,
+              {
+                type: "CLIPS_CAPTURE_STOP",
+                sessionId: extensionCapture.sessionId,
+                recordingId,
+              },
+            );
+        } catch (err) {
+          console.warn("[recorder] extension diagnostics stop failed:", err);
+        }
+      }
       const extensionSnapshot =
         extensionResponse?.ok && extensionResponse.diagnostics
           ? extensionResponse.diagnostics
@@ -2029,6 +2041,10 @@ export default function RecordRoute() {
       return;
     }
     setUiState("uploading");
+    // Freeze diagnostics at the user's stop boundary. Transcript and media
+    // finalization can take seconds, but their bookkeeping is not part of the
+    // captured browser session.
+    const browserDiagnosticsSave = saveBrowserDiagnostics(pending.id);
     try {
       // Stop live transcription and save the native web transcript before the
       // engine finalizes. This gives the recording an instant transcript
@@ -2096,7 +2112,7 @@ export default function RecordRoute() {
         stopResult.waitingForStorage || bugReportContextRef.current
           ? undefined
           : copyRecordingShareLink(pending.id).catch(() => false);
-      await saveBrowserDiagnostics(pending.id);
+      await browserDiagnosticsSave;
       await finishSavedRecording(pending.id, stopResult, pendingCopy);
     } catch (err) {
       const message =
@@ -2121,7 +2137,7 @@ export default function RecordRoute() {
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
-      await saveBrowserDiagnostics(pending.id);
+      await browserDiagnosticsSave;
       if (!isStoredButUnservableFinalizeError(message)) {
         fetch(pending.abortUrl, {
           method: "POST",

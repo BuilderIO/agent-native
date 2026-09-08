@@ -1,5 +1,6 @@
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
+import { elapsedMsFromCaptureStart } from "./browser-diagnostics-timing";
 import {
   MediaPermissionRequiredError,
   mediaPermissionErrorFromResponse,
@@ -2049,6 +2050,10 @@ function pushConsole(
   const timestampMs = Number.isFinite(entry.timestampMs)
     ? (entry.timestampMs as number)
     : nowMs();
+  const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
+  // Runtime and Log can replay old entries when the debugger attaches. Those
+  // entries belong to the page history, not the recording that just started.
+  if (elapsedMs === null) return;
   const message = truncate(
     redactString(entry.message, { redactQueryValues: true }),
     MAX_MESSAGE_LENGTH,
@@ -2061,7 +2066,7 @@ function pushConsole(
     : "";
   session.consoleLogs.push({
     timestampMs,
-    elapsedMs: Math.max(0, timestampMs - session.startedAtMs),
+    elapsedMs,
     level: entry.level,
     message,
     ...(stack ? { stack } : {}),
@@ -2180,6 +2185,8 @@ function handleExceptionEvent(session: CaptureSession, params: unknown): void {
     level: "error",
     message: description,
     stack: stackTraceText(item.stackTrace),
+    timestampMs:
+      typeof item.timestamp === "number" ? item.timestamp : undefined,
   });
 }
 
@@ -2226,12 +2233,14 @@ function handleRequestWillBeSent(
       : null;
   if (!type || !requestId || !request) return;
   const timestampMs = requestTimestampMs(event);
+  const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
+  if (elapsedMs === null) return;
   const url = sanitizeUrl(typeof request.url === "string" ? request.url : "");
   if (!url) return;
   session.pendingNetworkRequests.set(requestId, {
     requestId,
     timestampMs,
-    elapsedMs: Math.max(0, timestampMs - session.startedAtMs),
+    elapsedMs,
     startedAtMonotonicSeconds:
       typeof event.timestamp === "number" ? event.timestamp : null,
     type,

@@ -1744,6 +1744,37 @@ const messages = {
     privateReady:
       "Ce clip est privé. Vous pouvez maintenant ajouter l’historique Rewind local.",
   },
+  browserDiagnostics: {
+    debug: "Débogage",
+    title: "Diagnostics du navigateur",
+    failureSummary:
+      "{{consoleCount}} problèmes de console · {{networkCount}} requêtes échouées",
+    noFailures: "Aucun échec détecté",
+    failuresPresent: "Des erreurs de navigateur ont été détectées",
+    captureSuccessful: "Diagnostics capturés avec succès",
+    capturedFrom: "Capturé depuis {{source}}",
+    browserCapture: "Capture du navigateur",
+    views: "Vues de diagnostic",
+    issues: "Problèmes",
+    consoleSource: "Console",
+    networkSource: "Réseau",
+    consoleCount: "Console {{count}}",
+    networkCount: "Réseau {{count}}",
+    afterRecording: "Après l’enregistrement",
+    seekToTime: "Aller à {{time}}",
+    occurrences: "Occurrences",
+    message: "Message",
+    stackTrace: "Trace de la pile",
+    request: "Requête",
+    status: "État",
+    duration: "Durée",
+    error: "Erreur",
+    noIssuesTitle: "Aucun problème de navigateur détecté",
+    noConsoleTitle: "Aucun événement de console",
+    noNetworkTitle: "Aucune requête réseau",
+    capturedDescription:
+      "Les diagnostics ont été capturés pour cet enregistrement.",
+  },
   timeline: { clipStartedHere: "Le clip commence ici" },
 };
 

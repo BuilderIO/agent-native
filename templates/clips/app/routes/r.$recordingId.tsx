@@ -71,6 +71,14 @@ import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
 import { LibraryLayout } from "@/components/library/library-layout";
 import { PageHeader } from "@/components/library/page-header";
+import {
+  BrowserDiagnosticsPanel,
+  isFullBrowserDiagnostics,
+} from "@/components/player/browser-diagnostics-panel";
+import {
+  VIEWER_PREVIEW_BROWSER_DIAGNOSTICS,
+  VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS,
+} from "@/components/player/browser-diagnostics.fixture";
 import { useClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import {
@@ -419,7 +427,7 @@ export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
 
-type SidePanel = "transcript" | "comments" | "agent" | "settings";
+type SidePanel = "transcript" | "comments" | "agent" | "debug" | "settings";
 type ToolbarPanel = Exclude<SidePanel, "comments">;
 
 const WORKFLOW_MENU_ITEMS: Array<{
@@ -759,15 +767,36 @@ export default function RecordingPage() {
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
   const ctas = playerDataQ.data?.ctas ?? [];
   const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const browserDiagnosticsCandidate =
+    recordingId === VIEWER_REDESIGN_PREVIEW_ID
+      ? VIEWER_PREVIEW_BROWSER_DIAGNOSTICS
+      : playerDataQ.data?.browserDiagnostics;
+  const browserDiagnostics =
+    canEdit && isFullBrowserDiagnostics(browserDiagnosticsCandidate)
+      ? browserDiagnosticsCandidate
+      : null;
+  const browserDiagnosticsDurationMs =
+    recordingId === VIEWER_REDESIGN_PREVIEW_ID
+      ? VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS
+      : (recording?.durationMs ?? 0);
+  const hasBrowserDiagnosticFailures = Boolean(
+    browserDiagnostics &&
+    (browserDiagnostics.summary.consoleErrorCount > 0 ||
+      browserDiagnostics.summary.consoleWarnCount > 0 ||
+      browserDiagnostics.summary.networkFailureCount > 0),
+  );
   // Reaching this page already requires a signed-in session with at least
   // viewer access to the recording, so any resolved role qualifies to
   // comment/react — no separate "commenter" tier.
   const canComment = role != null;
   useEffect(() => {
-    if (!canEdit && panel === "settings") {
+    if (
+      (!canEdit && panel === "settings") ||
+      (!browserDiagnostics && panel === "debug")
+    ) {
       setPanel("transcript");
     }
-  }, [canEdit, panel]);
+  }, [browserDiagnostics, canEdit, panel]);
 
   useEffect(() => {
     if (panelParam === "comments") {
@@ -780,13 +809,15 @@ export default function RecordingPage() {
     if (
       (panelParam === "agent" ||
         panelParam === "transcript" ||
+        panelParam === "debug" ||
         panelParam === "insights" ||
         panelParam === "settings") &&
-      (panelParam !== "settings" || canEdit)
+      (panelParam !== "settings" || canEdit) &&
+      (panelParam !== "debug" || browserDiagnostics)
     ) {
       setPanel(panelParam === "insights" ? "transcript" : panelParam);
     }
-  }, [canEdit, panelParam]);
+  }, [browserDiagnostics, canEdit, panelParam]);
 
   const builderCredits =
     (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
@@ -1508,6 +1539,19 @@ export default function RecordingPage() {
       <ViewerTabsTrigger value="agent">
         {t("recordingPage.agent")}
       </ViewerTabsTrigger>
+      {browserDiagnostics ? (
+        <ViewerTabsTrigger value="debug">
+          <span className="flex items-center justify-center gap-1.5">
+            {t("browserDiagnostics.debug")}
+            {hasBrowserDiagnosticFailures ? (
+              <span
+                className="size-1.5 rounded-full bg-destructive"
+                aria-label={t("browserDiagnostics.failuresPresent")}
+              />
+            ) : null}
+          </span>
+        </ViewerTabsTrigger>
+      ) : null}
       {canEdit ? (
         <ViewerTabsTrigger value="settings">
           {t("recordingPage.settings")}
@@ -1640,6 +1684,18 @@ export default function RecordingPage() {
             isRegenerating={requestTranscript.isPending}
           />
         </TabsContent>
+        {browserDiagnostics ? (
+          <TabsContent
+            value="debug"
+            className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
+          >
+            <BrowserDiagnosticsPanel
+              diagnostics={browserDiagnostics}
+              durationMs={browserDiagnosticsDurationMs}
+              onSeek={(ms) => playerRef.current?.seek(ms)}
+            />
+          </TabsContent>
+        ) : null}
         {canEdit ? (
           <TabsContent
             value="settings"

@@ -25,6 +25,7 @@ export type RecordingPanel =
   | "comments"
   | "transcript"
   | "agent"
+  | "debug"
   | "insights"
   | "settings";
 
@@ -94,6 +95,7 @@ export function stateFromLocation(
       ...(panel === "comments" ||
       panel === "transcript" ||
       panel === "agent" ||
+      panel === "debug" ||
       panel === "insights" ||
       panel === "settings"
         ? { panel }
