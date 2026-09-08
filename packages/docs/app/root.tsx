@@ -2,6 +2,7 @@ import { AgentNativeWebMcpActionRegistration } from "@agent-native/core/client/h
 import {
   AgentNativeRouteWarmup,
   defineClientAction,
+  isClientRouteUrl,
 } from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
@@ -297,6 +298,7 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
     ) {
       return;
     }
+    if (!isClientRouteUrl(url)) return;
 
     const routerRootPath = new URL(
       routerRootHref,

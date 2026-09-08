@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { matchRoutes, type RouteObject } from "react-router";
 
 import {
@@ -116,7 +116,9 @@ function isFrameworkOrApiPath(pathname: string): boolean {
     appPath === "/_agent-native" ||
     appPath.startsWith("/_agent-native/") ||
     appPath === "/api" ||
-    appPath.startsWith("/api/")
+    appPath.startsWith("/api/") ||
+    appPath === "/cdn-cgi" ||
+    appPath.startsWith("/cdn-cgi/")
   );
 }
 
@@ -218,6 +220,20 @@ function getManifestRouteTree(
   cachedManifestRoutesSignature = routesSignature;
   cachedManifestRouteTree = tree;
   return tree;
+}
+
+export function isClientRouteUrl(url: URL): boolean {
+  if (!isWarmableRouteUrl(url)) return false;
+  const manifest = window.__reactRouterManifest;
+  if (!manifest?.routes) return false;
+
+  return Boolean(
+    matchRoutes(
+      getManifestRouteTree(manifest) as unknown as RouteObject[],
+      url.pathname,
+      normalizeBasename(window.__reactRouterContext?.basename),
+    )?.length,
+  );
 }
 
 function assetUrlForManifestPath(assetPath: string): string | null {
@@ -380,11 +396,19 @@ function resetRouteWarmupCachesForTests() {
 export function AgentNativeRouteWarmup({
   config,
 }: AgentNativeRouteWarmupProps) {
+  const [manifestVersion, setManifestVersion] = useState(0);
+  const manifestWaitAttempts = useRef(0);
+
   useEffect(() => {
     const resolved = getRouteWarmupConfig(config);
     if (resolved.strategy === "off") {
       return;
     }
+    const connection = (
+      navigator as Navigator & { connection?: { saveData?: boolean } }
+    ).connection;
+    if (connection?.saveData) return;
+
     // Legacy SPA builds still mount AppProviders but do not expose React
     // Router framework `.data` endpoints or a route asset manifest. Only warm
     // route data/modules when that manifest is present; otherwise this would
@@ -398,12 +422,20 @@ export function AgentNativeRouteWarmup({
     const hasRouteAssets = hasManifestRoutes && hasWarmableRouteAssets();
     const warmData = resolved.data && hasRouteAssets;
     const warmModules = resolved.modules && hasRouteAssets;
-    if (!warmData && !warmModules) return;
-
-    const connection = (
-      navigator as Navigator & { connection?: { saveData?: boolean } }
-    ).connection;
-    if (connection?.saveData) return;
+    if (!warmData && !warmModules) {
+      // ponytail: wait at most 2s for the modulepreloaded manifest; native
+      // navigation remains the fallback when a production build is slower.
+      if (!window.__reactRouterManifest && manifestWaitAttempts.current < 40) {
+        manifestWaitAttempts.current += 1;
+        const timer = window.setTimeout(
+          () => setManifestVersion((version) => version + 1),
+          50,
+        );
+        return () => window.clearTimeout(timer);
+      }
+      return;
+    }
+    manifestWaitAttempts.current = 0;
 
     if (warmModules) seedExistingModulepreloads();
 
@@ -578,7 +610,7 @@ export function AgentNativeRouteWarmup({
       document.removeEventListener("touchstart", warmFromIntent, true);
       document.removeEventListener("focusin", warmFromIntent, true);
     };
-  }, [config]);
+  }, [config, manifestVersion]);
 
   return null;
 }
@@ -587,6 +619,7 @@ export const __routeWarmupInternalsForTests = {
   getManifestRouteTree,
   hasReactRouterManifestRoutes,
   hasWarmableRouteAssets,
+  isClientRouteUrl,
   parseBuildTimeRouteWarmupConfig,
   dataRouteUrlForHref,
   renderWarmupLinksForSelector,

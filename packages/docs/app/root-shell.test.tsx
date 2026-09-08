@@ -31,6 +31,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 vi.mock("@agent-native/core/client/host", () => ({
   AgentNativeRouteWarmup: () => null,
   defineClientAction: (action: unknown) => action,
+  isClientRouteUrl: (url: { pathname: string }) =>
+    !url.pathname.startsWith("/cdn-cgi/"),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   AgentNativeWebMcpActionRegistration: () => null,
@@ -66,6 +68,9 @@ vi.mock("react-router", () => ({
       <ShellSettledProbe />
       <a data-testid="content-link" href="/docs/actions-overview/">
         Shared actions
+      </a>
+      <a data-testid="protected-link" href="/cdn-cgi/l/email-protection#abc">
+        Protected email
       </a>
     </>
   ),
@@ -163,5 +168,14 @@ describe("RootShell tree stability", () => {
     screen.getByTestId("content-link").click();
 
     expect(navigateMock).toHaveBeenCalledWith("/docs/actions-overview/");
+  });
+
+  it("leaves non-route same-origin links to the browser", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+
+    screen.getByTestId("protected-link").click();
+
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });
