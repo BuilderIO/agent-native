@@ -40,6 +40,7 @@ data/google-accounts/
 
 # PGlite database files (generated at runtime)
 data/pglite/
+data/*.lock
 
 # Event data (generated at runtime)
 data/events/

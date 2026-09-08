@@ -232,6 +232,13 @@ export function isConfirmedAnonymousAuthSession(
   );
 }
 
+export function isAuthenticatedAuthSession(
+  response: Pick<Response, "ok">,
+  data: Record<string, unknown>,
+): boolean {
+  return response.ok && typeof data.email === "string" && !data.error;
+}
+
 async function requestJson(
   url: string,
   init: RequestInit = {},
@@ -882,7 +889,7 @@ export function AuthPage(props: AuthPageProps) {
               cache: "no-store",
             },
           );
-          if (response.ok && typeof data.email === "string" && !data.error) {
+          if (isAuthenticatedAuthSession(response, data)) {
             redirectToSignedInApp();
             return;
           }
@@ -902,6 +909,49 @@ export function AuthPage(props: AuthPageProps) {
     };
     void probe().finally(() => setSessionProbeComplete(true));
   }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved]);
+
+  React.useEffect(() => {
+    if (!runtimeBasePathResolved || view !== "magicLinkSent") return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const probe = async () => {
+      if (cancelled || inFlight || document.visibilityState === "hidden") {
+        return;
+      }
+      inFlight = true;
+      try {
+        const { response, data } = await requestJson(
+          apiPath("/_agent-native/auth/session"),
+          {
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          },
+        );
+        if (!cancelled && isAuthenticatedAuthSession(response, data)) {
+          redirectToSignedInApp();
+        }
+      } catch {
+        // coercion-ok: a transient probe failure leaves the completion view in place; the
+        // next visibility event or interval retries it.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const probeOnReturn = () => {
+      if (document.visibilityState === "visible") void probe();
+    };
+    const timer = window.setInterval(() => void probe(), 1000);
+    window.addEventListener("focus", probeOnReturn);
+    document.addEventListener("visibilitychange", probeOnReturn);
+    void probe();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", probeOnReturn);
+      document.removeEventListener("visibilitychange", probeOnReturn);
+    };
+  }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved, view]);
 
   React.useEffect(() => {
     if (

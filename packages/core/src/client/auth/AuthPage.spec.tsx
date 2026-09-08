@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { getOnboardingHtml } from "../../server/onboarding-html.js";
 import {
   AuthPage,
+  isAuthenticatedAuthSession,
   isConfirmedAnonymousAuthSession,
   oauthReturnTarget,
   resolveGoogleAuthUrlPath,
@@ -41,6 +42,19 @@ describe("AuthPage", () => {
         true,
       ),
     ).toBe(false);
+  });
+
+  it("only treats a successful session response with an email as signed in", () => {
+    expect(
+      isAuthenticatedAuthSession({ ok: true }, { email: "person@example.com" }),
+    ).toBe(true);
+    expect(
+      isAuthenticatedAuthSession(
+        { ok: true },
+        { error: "Not authenticated", email: "person@example.com" },
+      ),
+    ).toBe(false);
+    expect(isAuthenticatedAuthSession({ ok: false }, {})).toBe(false);
   });
 
   it("renders the password auth surface on the server without browser globals", () => {

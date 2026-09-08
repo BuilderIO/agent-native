@@ -603,6 +603,7 @@ export {
 export {
   BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
+  type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
 export {
   builderDesignSystemUrl,
