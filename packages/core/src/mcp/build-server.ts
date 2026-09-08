@@ -2782,17 +2782,30 @@ async function isConnectTokenAllowed(
   return true;
 }
 
+async function resolveConnectTokenOrgId(
+  jti: string | undefined,
+  claimedOrgId: string | undefined,
+): Promise<string | undefined> {
+  if (claimedOrgId || !jti) return claimedOrgId;
+  const { lookupConnectTokenOrg } = await import("./connect-store.js");
+  const lookup = await lookupConnectTokenOrg(jti);
+  if (lookup.status !== "found") return undefined;
+  return lookup.orgId === null ? undefined : lookup.orgId;
+}
+
 /**
  * Verify the inbound auth header. Returns:
  *   - { authed: true, identity } when verified — `identity` is derived from
- *     the JWT (`sub` / `org_domain`) for JWT auth, or from the
+ *     the JWT (`sub` / `org_domain`) for JWT auth, with stored org scope for
+ *     legacy connect tokens; or from the
  *     `AGENT_NATIVE_OWNER_EMAIL` env / `X-Agent-Native-Owner-Email` header
  *     for static-token auth (the `agent-native mcp install` flow). `identity`
  *     is undefined only for true dev-open with no owner hint.
  *   - { authed: false } on rejection.
  *
  * When A2A_SECRET is set we extract the JWT's `sub` (caller email) and
- * `org_domain` claims so the MCP endpoint can wrap tool runs in
+ * `org_domain` claims, with a stored-org fallback for legacy connect tokens,
+ * so the MCP endpoint can wrap tool runs in
  * `runWithRequestContext({ userEmail, orgId })`. Without that wrap, the
  * MCP endpoint loses tenant identity and downstream `accessFilter` /
  * `resolveCredential` calls fall back to platform-wide defaults.
@@ -2844,11 +2857,17 @@ export async function verifyAuth(
       ) {
         return { authed: false };
       }
+      const orgId = await resolveConnectTokenOrgId(
+        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
+          ? oauthIdentity.jti
+          : undefined,
+        oauthIdentity.orgId,
+      );
       return {
         authed: true,
         identity: {
           userEmail: oauthIdentity.userEmail,
-          ...(oauthIdentity.orgId ? { orgId: oauthIdentity.orgId } : {}),
+          ...(orgId ? { orgId } : {}),
           orgDomain: oauthIdentity.orgDomain,
           oauthScopes: oauthIdentity.scopes,
           oauthClientId: oauthIdentity.clientId,
@@ -2899,6 +2918,17 @@ export async function verifyAuth(
       }
     }
 
+    const claimedOrgId =
+      typeof payload.org_id === "string" && payload.org_id
+        ? payload.org_id
+        : undefined;
+    const orgId = await resolveConnectTokenOrgId(
+      tokenScope === MCP_CONNECT_SCOPE
+        ? (payload.jti as string | undefined)
+        : undefined,
+      claimedOrgId,
+    );
+
     return {
       authed: true,
       identity: {
@@ -2906,10 +2936,9 @@ export async function verifyAuth(
         // Org SERVICE tokens (connect-minted, synthetic `svc-*@service.<org>`
         // subject) carry the org id directly as an `org_id` claim so the
         // resolved identity is org-scoped even when the org has no domain
-        // mapping. Personal/delegation JWTs don't set the claim — unchanged.
-        ...(typeof payload.org_id === "string" && payload.org_id
-          ? { orgId: payload.org_id as string }
-          : {}),
+        // mapping. Legacy connect JWTs use their stored org scope when that
+        // claim is absent; ordinary personal/delegation JWTs are unchanged.
+        ...(orgId ? { orgId } : {}),
         orgDomain:
           typeof payload.org_domain === "string"
             ? (payload.org_domain as string)
