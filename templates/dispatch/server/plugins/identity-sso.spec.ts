@@ -19,6 +19,14 @@ const addSessionMock = vi.hoisted(() => vi.fn());
 const createBetterAuthSessionForEmailMock = vi.hoisted(() => vi.fn());
 const ensureIdentityUserMock = vi.hoisted(() => vi.fn());
 const setIdentityGoogleAuthCookieMock = vi.hoisted(() => vi.fn());
+const getIdentitySsoBootstrapBindingCookieMock = vi.hoisted(() =>
+  vi.fn((event: any) => event.cookies?.an_identity_bootstrap_binding ?? null),
+);
+const clearIdentitySsoBootstrapBindingCookieMock = vi.hoisted(() =>
+  vi.fn((event: any) => {
+    delete event.cookies?.an_identity_bootstrap_binding;
+  }),
+);
 const setFrameworkSessionCookieMock = vi.hoisted(() => vi.fn());
 const setBetterAuthSessionCookieMock = vi.hoisted(() => vi.fn());
 
@@ -104,6 +112,10 @@ vi.mock("@agent-native/core/server", () => ({
   addSession: addSessionMock,
   createBetterAuthSessionForEmail: createBetterAuthSessionForEmailMock,
   ensureIdentityUser: ensureIdentityUserMock,
+  getIdentitySsoBootstrapBindingCookie:
+    getIdentitySsoBootstrapBindingCookieMock,
+  clearIdentitySsoBootstrapBindingCookie:
+    clearIdentitySsoBootstrapBindingCookieMock,
   setIdentityGoogleAuthCookie: setIdentityGoogleAuthCookieMock,
   setFrameworkSessionCookie: setFrameworkSessionCookieMock,
   setBetterAuthSessionCookie: setBetterAuthSessionCookieMock,
@@ -236,15 +248,15 @@ vi.mock("@agent-native/core/db", () => ({
           created_at: args[9],
           expires_at: args[10],
           consumed_at: args[11],
+          browser_binding_hash: args[14],
           activation_hash: null,
           activation_expires_at: null,
           activated_at: null,
-          browser_binding_hash: null,
         });
         return { rows: [], rowsAffected: 1 };
       }
       if (
-        /^SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at, org_id, auth_provider FROM identity_sso_bootstrap/i.test(
+        /^SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at, org_id, auth_provider, browser_binding_hash FROM identity_sso_bootstrap/i.test(
           sql,
         )
       ) {
@@ -280,22 +292,6 @@ vi.mock("@agent-native/core/db", () => ({
         );
         return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
       }
-      if (
-        /^UPDATE identity_sso_bootstrap SET browser_binding_hash = /i.test(sql)
-      ) {
-        const row = bootstrapRows.find(
-          (candidate) => candidate.handle_hash === args[1],
-        );
-        if (
-          row &&
-          row.consumed_at != null &&
-          row.browser_binding_hash == null
-        ) {
-          row.browser_binding_hash = args[0];
-          return { rows: [], rowsAffected: 1 };
-        }
-        return { rows: [], rowsAffected: 0 };
-      }
       if (/^UPDATE identity_sso_bootstrap SET activated_at = NULL/i.test(sql)) {
         const row = bootstrapRows.find(
           (candidate) => candidate.activation_hash === args[0],
@@ -326,7 +322,6 @@ vi.mock("@agent-native/core/db", () => ({
         );
         if (row && row.consumed_at != null) {
           row.consumed_at = null;
-          row.browser_binding_hash = null;
           return { rows: [], rowsAffected: 1 };
         }
         return { rows: [], rowsAffected: 0 };
@@ -335,7 +330,11 @@ vi.mock("@agent-native/core/db", () => ({
         const row = bootstrapRows.find(
           (candidate) => candidate.handle_hash === args[1],
         );
-        if (row && row.consumed_at == null) {
+        if (
+          row &&
+          row.consumed_at == null &&
+          row.browser_binding_hash === args[2]
+        ) {
           row.consumed_at = args[0];
           return { rows: [], rowsAffected: 1 };
         }
@@ -406,6 +405,10 @@ const CALLBACK =
   "https://mail.agent-native.com/_agent-native/identity/callback";
 const STATE = "s".repeat(43);
 const VERIFIER = "v".repeat(64);
+const BROWSER_BINDING = "b".repeat(43);
+const BROWSER_BINDING_HASH = createHash("sha256")
+  .update(BROWSER_BINDING)
+  .digest("base64url");
 
 function event(path: string, extra: Record<string, unknown> = {}): any {
   return {
@@ -877,6 +880,7 @@ describe("silent browser bootstrap", () => {
         redirect_uri: CALLBACK,
         state: STATE,
         code_challenge: createCodeChallenge(VERIFIER),
+        browser_binding_hash: BROWSER_BINDING_HASH,
         org_id: "org-1",
         scope: "identity-bootstrap",
       },
@@ -924,18 +928,23 @@ describe("silent browser bootstrap", () => {
       authority: AUTHORITY,
       codeChallenge: createCodeChallenge(VERIFIER)!,
       email: "user@example.test",
+      browserBindingHash: BROWSER_BINDING_HASH,
     });
     failNextAuthorizationCodeInsert = true;
 
     const failed = await bootstrapHandler(
-      event(`/_agent-native/identity/bootstrap/continue?handle=${handle}`),
+      event(`/_agent-native/identity/bootstrap/continue?handle=${handle}`, {
+        cookies: { an_identity_bootstrap_binding: BROWSER_BINDING },
+      }),
     );
 
     expect(failed.status).toBe(503);
     expect(bootstrapRows[0]?.consumed_at).toBeNull();
 
     const retried = await bootstrapHandler(
-      event(`/_agent-native/identity/bootstrap/continue?handle=${handle}`),
+      event(`/_agent-native/identity/bootstrap/continue?handle=${handle}`, {
+        cookies: { an_identity_bootstrap_binding: BROWSER_BINDING },
+      }),
     );
     expect(retried.status).toBe(302);
     expect(
@@ -953,6 +962,7 @@ describe("silent browser bootstrap", () => {
       authority: AUTHORITY,
       codeChallenge: createCodeChallenge(VERIFIER)!,
       email: "user@example.test",
+      browserBindingHash: BROWSER_BINDING_HASH,
     });
 
     const response = await bootstrapHandler(
@@ -977,9 +987,11 @@ describe("silent browser bootstrap", () => {
       codeChallenge: createCodeChallenge(VERIFIER)!,
       email: "user@example.test",
       authProvider: "google",
+      browserBindingHash: BROWSER_BINDING_HASH,
     });
     const continuationEvent = event(
       `/_agent-native/identity/bootstrap/continue?handle=${handle}`,
+      { cookies: { an_identity_bootstrap_binding: BROWSER_BINDING } },
     );
     const continuation = await bootstrapHandler(continuationEvent);
     const code = new URL(
@@ -1046,9 +1058,11 @@ describe("silent browser bootstrap", () => {
       authority: AUTHORITY,
       codeChallenge: createCodeChallenge(VERIFIER)!,
       email: "user@example.test",
+      browserBindingHash: BROWSER_BINDING_HASH,
     });
     const continuationEvent = event(
       `/_agent-native/identity/bootstrap/continue?handle=${handle}`,
+      { cookies: { an_identity_bootstrap_binding: BROWSER_BINDING } },
     );
     const continuation = await bootstrapHandler(continuationEvent);
     const code = new URL(

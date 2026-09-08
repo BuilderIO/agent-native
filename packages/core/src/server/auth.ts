@@ -3601,7 +3601,9 @@ function createAuthGuardFn(
     const isIdentitySsoEntryPath =
       p === "/_agent-native/identity/login" ||
       p === "/_agent-native/identity/callback" ||
-      p === "/_agent-native/identity/bootstrap";
+      p === "/_agent-native/identity/bootstrap" ||
+      p === "/_agent-native/identity/bootstrap/continue" ||
+      p === "/_agent-native/identity/bootstrap/activate";
     const isDesktopIdentityRequest =
       isDesktopSsoUserAgent(getHeader(event, "user-agent")) &&
       isCanonicalAgentNativeAppRequest(

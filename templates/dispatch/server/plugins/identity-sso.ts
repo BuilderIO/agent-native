@@ -40,20 +40,14 @@ import {
   addSession,
   createBetterAuthSessionForEmail,
   ensureIdentityUser,
+  clearIdentitySsoBootstrapBindingCookie,
+  getIdentitySsoBootstrapBindingCookie,
   setIdentityGoogleAuthCookie,
   setFrameworkSessionCookie,
   setBetterAuthSessionCookie,
 } from "@agent-native/core/server";
 import { signInJourney } from "@agent-native/core/shared";
-import {
-  defineEventHandler,
-  deleteCookie,
-  getCookie,
-  getHeader,
-  getMethod,
-  readBody,
-  setCookie,
-} from "h3";
+import { defineEventHandler, getHeader, getMethod, readBody } from "h3";
 import type { H3Event } from "h3";
 
 import {
@@ -68,7 +62,6 @@ import {
   IDENTITY_SCOPE,
   IDENTITY_SSO_TOKEN_PATH,
   IDENTITY_TOKEN_TTL,
-  bindIdentityBootstrapHandle,
   buildIdentityClaims,
   buildRedirectLocation,
   consumeIdentityBootstrapHandle,
@@ -90,8 +83,6 @@ const AVAILABILITY_PATH = "/_agent-native/identity/availability";
 const AUTHORIZE_PATH = "/_agent-native/identity/authorize";
 const BOOTSTRAP_CONTINUE_PATH = `${IDENTITY_SSO_BOOTSTRAP_PATH}/continue`;
 const BOOTSTRAP_ACTIVATE_PATH = IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH;
-const BOOTSTRAP_BROWSER_BINDING_COOKIE = "an_identity_bootstrap_binding";
-const BOOTSTRAP_BROWSER_BINDING_TTL_SECONDS = 2 * 60;
 export const ORGANIZATION_FEDERATION_PATH =
   "/_agent-native/identity/organization";
 const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
@@ -137,27 +128,6 @@ function redirectWithStagedCookies(event: H3Event, location: string): Response {
   const staged = (event as any).res?.headers?.getSetCookie?.() ?? [];
   for (const cookie of staged) headers.append("set-cookie", cookie);
   return new Response("", { status: 302, headers });
-}
-
-function setBootstrapBrowserBindingCookie(
-  event: H3Event,
-  binding: string,
-): void {
-  setCookie(event, BOOTSTRAP_BROWSER_BINDING_COOKIE, binding, {
-    httpOnly: true,
-    maxAge: BOOTSTRAP_BROWSER_BINDING_TTL_SECONDS,
-    path: IDENTITY_SSO_BOOTSTRAP_PATH,
-    sameSite: "lax",
-    secure:
-      process.env.NODE_ENV === "production" ||
-      getHeader(event, "x-forwarded-proto") === "https",
-  });
-}
-
-function clearBootstrapBrowserBindingCookie(event: H3Event): void {
-  deleteCookie(event, BOOTSTRAP_BROWSER_BINDING_COOKIE, {
-    path: IDENTITY_SSO_BOOTSTRAP_PATH,
-  });
 }
 
 function resolveAuthority(): string | null {
@@ -1077,6 +1047,7 @@ async function verifyIdentityBootstrapRequest(event: H3Event): Promise<{
   name?: string;
   orgId?: string;
   authProvider?: "google";
+  browserBindingHash: string;
   appId: string;
   clientId: string;
   redirectUri: string;
@@ -1106,6 +1077,11 @@ async function verifyIdentityBootstrapRequest(event: H3Event): Promise<{
     const state = typeof claims?.state === "string" ? claims.state : "";
     const codeChallenge =
       typeof claims?.code_challenge === "string" ? claims.code_challenge : "";
+    const browserBindingHash =
+      typeof claims?.browser_binding_hash === "string" &&
+      /^[A-Za-z0-9_-]{43}$/.test(claims.browser_binding_hash)
+        ? claims.browser_binding_hash
+        : "";
     const orgId =
       typeof claims?.org_id === "string" &&
       /^[A-Za-z0-9_-]{1,128}$/.test(claims.org_id)
@@ -1126,6 +1102,7 @@ async function verifyIdentityBootstrapRequest(event: H3Event): Promise<{
       !resolved ||
       !isValidSsoState(state) ||
       !isValidSsoState(codeChallenge) ||
+      !browserBindingHash ||
       issuer !== registration.origin ||
       resolved.origin !== registration.origin ||
       !registration.federationSecret
@@ -1148,6 +1125,7 @@ async function verifyIdentityBootstrapRequest(event: H3Event): Promise<{
       redirectUri,
       state,
       codeChallenge,
+      browserBindingHash,
       authority,
     };
   }
@@ -1183,6 +1161,7 @@ export const bootstrapHandler = defineEventHandler(
           name: verified.name,
           orgId: verified.orgId,
           authProvider: verified.authProvider,
+          browserBindingHash: verified.browserBindingHash,
         });
         return jsonResponse(
           {
@@ -1213,21 +1192,17 @@ export const bootstrapHandler = defineEventHandler(
       } catch {
         return new Response("Invalid sign-in request", { status: 400 });
       }
-      const bootstrap = await consumeIdentityBootstrapHandle(handle).catch(
-        (error) => {
-          void error;
-          return null;
-        },
-      );
+      const bootstrap = await consumeIdentityBootstrapHandle(
+        handle,
+        getIdentitySsoBootstrapBindingCookie(event) ?? "",
+      ).catch((error) => {
+        void error;
+        return null;
+      });
       if (!bootstrap)
         return new Response("Invalid sign-in request", { status: 400 });
 
       try {
-        const browserBinding = randomBytes(32).toString("base64url");
-        if (!(await bindIdentityBootstrapHandle(handle, browserBinding))) {
-          await releaseIdentityBootstrapHandle(handle).catch(() => {});
-          return new Response("Could not finish sign-in", { status: 503 });
-        }
         const code = await createIdentityAuthorizationCode({
           state: bootstrap.state,
           appId: bootstrap.appId,
@@ -1240,7 +1215,6 @@ export const bootstrapHandler = defineEventHandler(
           bootstrapHandle: handle,
           bootstrapAuthProvider: bootstrap.authProvider,
         });
-        setBootstrapBrowserBindingCookie(event, browserBinding);
         return redirectWithStagedCookies(
           event,
           buildRedirectLocation(bootstrap.redirectUri, code, bootstrap.state),
@@ -1318,7 +1292,7 @@ export const bootstrapActivationHandler = defineEventHandler(
     try {
       bootstrap = await consumeIdentityBootstrapActivation(
         activation,
-        getCookie(event, BOOTSTRAP_BROWSER_BINDING_COOKIE) ?? "",
+        getIdentitySsoBootstrapBindingCookie(event) ?? "",
       );
     } catch (error) {
       void error;
@@ -1333,7 +1307,7 @@ export const bootstrapActivationHandler = defineEventHandler(
       ))
     ) {
       await releaseIdentityBootstrapActivation(activation).catch(() => {});
-      clearBootstrapBrowserBindingCookie(event);
+      clearIdentitySsoBootstrapBindingCookie(event);
       return new Response("Not found", { status: 404 });
     }
     const returnUrl = resolveBootstrapReturnUrl(bootstrap, rawReturn);
@@ -1351,7 +1325,7 @@ export const bootstrapActivationHandler = defineEventHandler(
         bootstrap.authProvider !== "google"
       ) {
         await releaseIdentityBootstrapActivation(activation).catch(() => {});
-        clearBootstrapBrowserBindingCookie(event);
+        clearIdentitySsoBootstrapBindingCookie(event);
         return jsonResponse(
           { error: "This organization requires Google sign-in." },
           403,
@@ -1374,7 +1348,7 @@ export const bootstrapActivationHandler = defineEventHandler(
       if (bootstrap.authProvider === "google") {
         setIdentityGoogleAuthCookie(event, bootstrap.email);
       }
-      clearBootstrapBrowserBindingCookie(event);
+      clearIdentitySsoBootstrapBindingCookie(event);
       return redirectWithStagedCookies(event, returnUrl);
     } catch (error) {
       void error;

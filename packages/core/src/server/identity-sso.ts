@@ -37,6 +37,7 @@ import {
   getBetterAuth,
   getBetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
 import { createOAuthSession, getOrigin } from "./google-oauth.js";
 import { hasIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
@@ -68,7 +69,11 @@ export const IDENTITY_SSO_DESKTOP_COMPLETE_PATH =
 export const IDENTITY_SSO_CALLBACK_PATH = "/_agent-native/identity/callback";
 export const IDENTITY_SSO_TOKEN_PATH = "/_agent-native/identity/token";
 export const IDENTITY_SSO_BOOTSTRAP_PATH = "/_agent-native/identity/bootstrap";
+export const IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH = `${IDENTITY_SSO_BOOTSTRAP_PATH}/activate`;
 export const IDENTITY_SSO_BOOTSTRAP_SCOPE = "identity-bootstrap";
+export const IDENTITY_SSO_BOOTSTRAP_BINDING_COOKIE =
+  "an_identity_bootstrap_binding";
+const IDENTITY_SSO_BOOTSTRAP_BINDING_TTL_SECONDS = 2 * 60;
 
 const DESKTOP_COMPLETION_NONCE = /^[A-Za-z0-9_-]{32,128}$/;
 const STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -198,6 +203,90 @@ function setPkceVerifierCookie(
     path: IDENTITY_SSO_CALLBACK_PATH,
     sameSite: "lax",
     secure,
+  });
+}
+
+function identitySsoBootstrapCookieAttrs(
+  event: H3Event,
+  hub?: string,
+): { domain?: string } | null {
+  const rawHost = getHeader(event, "host")?.trim();
+  if (!rawHost) return null;
+  let host: string;
+  try {
+    host = new URL(`http://${rawHost}`).hostname.toLowerCase();
+  } catch (error) {
+    void error;
+    return null;
+  }
+
+  let hubHost: string | undefined;
+  if (hub) {
+    try {
+      hubHost = new URL(hub).hostname.toLowerCase();
+    } catch (error) {
+      void error;
+      return null;
+    }
+  }
+
+  const configuredDomain = resolveAuthCookieNamespace()
+    .configuredCookieDomain?.replace(/^\.+/, "")
+    .toLowerCase();
+  const sharedDomain =
+    host === "agent-native.com" || host.endsWith(".agent-native.com")
+      ? "agent-native.com"
+      : configuredDomain &&
+          (host === configuredDomain || host.endsWith(`.${configuredDomain}`))
+        ? configuredDomain
+        : undefined;
+  if (sharedDomain) {
+    if (
+      hubHost &&
+      hubHost !== sharedDomain &&
+      !hubHost.endsWith(`.${sharedDomain}`)
+    ) {
+      return null;
+    }
+    return { domain: `.${sharedDomain}` };
+  }
+  if (hubHost && hubHost !== host) return null;
+  return {};
+}
+
+export function setIdentitySsoBootstrapBindingCookie(
+  event: H3Event,
+  binding: string,
+  hub: string,
+): boolean {
+  if (!STATE_PATTERN.test(binding)) return false;
+  const attrs = identitySsoBootstrapCookieAttrs(event, hub);
+  if (!attrs) return false;
+  setCookie(event, IDENTITY_SSO_BOOTSTRAP_BINDING_COOKIE, binding, {
+    ...attrs,
+    httpOnly: true,
+    maxAge: IDENTITY_SSO_BOOTSTRAP_BINDING_TTL_SECONDS,
+    path: IDENTITY_SSO_BOOTSTRAP_PATH,
+    sameSite: "lax",
+    secure:
+      process.env.NODE_ENV === "production" ||
+      getHeader(event, "x-forwarded-proto") === "https",
+  });
+  return true;
+}
+
+export function getIdentitySsoBootstrapBindingCookie(
+  event: H3Event,
+): string | null {
+  return getCookie(event, IDENTITY_SSO_BOOTSTRAP_BINDING_COOKIE) ?? null;
+}
+
+export function clearIdentitySsoBootstrapBindingCookie(event: H3Event): void {
+  const attrs = identitySsoBootstrapCookieAttrs(event);
+  if (!attrs) return;
+  deleteCookie(event, IDENTITY_SSO_BOOTSTRAP_BINDING_COOKIE, {
+    ...attrs,
+    path: IDENTITY_SSO_BOOTSTRAP_PATH,
   });
 }
 
@@ -533,6 +622,13 @@ async function startIdentityBootstrap(
     verifier,
     binding.redirectUri.startsWith("https://"),
   );
+  const browserBinding = randomBytes(32).toString("base64url");
+  if (!setIdentitySsoBootstrapBindingCookie(event, browserBinding, hub)) {
+    return redirect(event, returnPath);
+  }
+  const browserBindingHash = createHash("sha256")
+    .update(browserBinding)
+    .digest("base64url");
 
   try {
     const token = await signA2AToken(
@@ -548,6 +644,7 @@ async function startIdentityBootstrap(
           redirect_uri: binding.redirectUri,
           state,
           code_challenge: challenge,
+          browser_binding_hash: browserBindingHash,
           scope: IDENTITY_SSO_BOOTSTRAP_SCOPE,
           ...(current.orgId && ORG_ID_PATTERN.test(current.orgId)
             ? { org_id: current.orgId }
@@ -865,6 +962,8 @@ export function isIdentitySsoBypassPath(p: string): boolean {
   return (
     p === "/_agent-native/identity/login" ||
     p === "/_agent-native/identity/callback" ||
-    p === "/_agent-native/identity/bootstrap"
+    p === "/_agent-native/identity/bootstrap" ||
+    p === `${IDENTITY_SSO_BOOTSTRAP_PATH}/continue` ||
+    p === IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH
   );
 }

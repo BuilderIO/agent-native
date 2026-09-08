@@ -599,6 +599,15 @@ describe("additive JIT linking", () => {
 });
 
 describe("route boundaries", () => {
+  it("bypasses auth for both browser bootstrap hops", () => {
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/bootstrap/continue"),
+    ).toBe(true);
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/bootstrap/activate"),
+    ).toBe(true);
+  });
+
   it("does not bypass auth for the Desktop completion page", () => {
     expect(
       isIdentitySsoBypassPath("/_agent-native/identity/desktop-complete"),

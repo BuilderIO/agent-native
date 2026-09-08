@@ -110,10 +110,10 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       created_at: args[9],
       expires_at: args[10],
       consumed_at: args[11],
+      browser_binding_hash: args[14],
       activation_hash: null,
       activation_expires_at: null,
       activated_at: null,
-      browser_binding_hash: null,
     });
     return { rows: [], rowsAffected: 1 };
   }
@@ -126,7 +126,7 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     return { rows: [], rowsAffected: 0 };
   }
   if (
-    /^SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at, org_id, auth_provider FROM identity_sso_bootstrap/i.test(
+    /^SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at, org_id, auth_provider, browser_binding_hash FROM identity_sso_bootstrap/i.test(
       sql,
     )
   ) {
@@ -162,16 +162,6 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     );
     return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
   }
-  if (/^UPDATE identity_sso_bootstrap SET browser_binding_hash = /i.test(sql)) {
-    const row = bootstrapRows.find(
-      (candidate) => candidate.handle_hash === args[1],
-    );
-    if (row && row.consumed_at != null && row.browser_binding_hash == null) {
-      row.browser_binding_hash = args[0];
-      return { rows: [], rowsAffected: 1 };
-    }
-    return { rows: [], rowsAffected: 0 };
-  }
   if (/^UPDATE identity_sso_bootstrap SET activated_at = NULL/i.test(sql)) {
     const row = bootstrapRows.find(
       (candidate) => candidate.activation_hash === args[0],
@@ -202,7 +192,6 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     );
     if (row && row.consumed_at != null) {
       row.consumed_at = null;
-      row.browser_binding_hash = null;
       return { rows: [], rowsAffected: 1 };
     }
     return { rows: [], rowsAffected: 0 };
@@ -215,7 +204,11 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     const row = bootstrapRows.find(
       (candidate) => candidate.handle_hash === args[1],
     );
-    if (row && row.consumed_at == null) {
+    if (
+      row &&
+      row.consumed_at == null &&
+      row.browser_binding_hash === args[2]
+    ) {
       row.consumed_at = args[0];
       return { rows: [], rowsAffected: 1 };
     }
@@ -236,6 +229,10 @@ const CALLBACK =
 const AUTHORITY = "https://dispatch.agent-native.com";
 const STATE = "s".repeat(43);
 const VERIFIER = "v".repeat(64);
+const BROWSER_BINDING = "b".repeat(43);
+const BROWSER_BINDING_HASH = createHash("sha256")
+  .update(BROWSER_BINDING)
+  .digest("base64url");
 
 beforeEach(() => {
   codeRows.length = 0;
@@ -454,11 +451,14 @@ describe("bootstrap handle store", () => {
       codeChallenge,
       email: "User@Example.Test",
       name: " User ",
+      browserBindingHash: BROWSER_BINDING_HASH,
     });
 
     expect(handle).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(bootstrapRows[0]?.handle_hash).not.toBe(handle);
-    expect(await mod.consumeIdentityBootstrapHandle(handle)).toEqual({
+    expect(
+      await mod.consumeIdentityBootstrapHandle(handle, BROWSER_BINDING),
+    ).toEqual({
       state: STATE,
       appId: "mail",
       clientId: "mail",
@@ -469,12 +469,12 @@ describe("bootstrap handle store", () => {
       name: "User",
     });
     await expect(
-      mod.consumeIdentityBootstrapHandle(handle),
+      mod.consumeIdentityBootstrapHandle(handle, BROWSER_BINDING),
     ).resolves.toBeNull();
 
     await mod.releaseIdentityBootstrapHandle(handle);
     await expect(
-      mod.consumeIdentityBootstrapHandle(handle),
+      mod.consumeIdentityBootstrapHandle(handle, BROWSER_BINDING),
     ).not.resolves.toBeNull();
     expect(
       executedSql
@@ -493,6 +493,7 @@ describe("bootstrap handle store", () => {
       authority: AUTHORITY,
       codeChallenge: mod.createCodeChallenge(VERIFIER)!,
       email: "user@example.test",
+      browserBindingHash: BROWSER_BINDING_HASH,
     });
 
     expect(handle).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -508,26 +509,26 @@ describe("bootstrap handle store", () => {
       authority: AUTHORITY,
       codeChallenge: mod.createCodeChallenge(VERIFIER)!,
       email: "user@example.test",
+      browserBindingHash: BROWSER_BINDING_HASH,
     });
     await expect(
       mod.createIdentityBootstrapActivation(
         createHash("sha256").update(handle).digest("base64url"),
       ),
     ).resolves.toBeNull();
-    await expect(mod.consumeIdentityBootstrapHandle(handle)).resolves.toEqual(
-      expect.objectContaining({ email: "user@example.test" }),
-    );
-    const browserBinding = "b".repeat(43);
     await expect(
-      mod.bindIdentityBootstrapHandle(handle, browserBinding),
-    ).resolves.toBe(true);
+      mod.consumeIdentityBootstrapHandle(handle, BROWSER_BINDING),
+    ).resolves.toEqual(expect.objectContaining({ email: "user@example.test" }));
 
     const activation = await mod.createIdentityBootstrapActivation(
       createHash("sha256").update(handle).digest("base64url"),
     );
     expect(activation).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(
-      await mod.consumeIdentityBootstrapActivation(activation!, browserBinding),
+      await mod.consumeIdentityBootstrapActivation(
+        activation!,
+        BROWSER_BINDING,
+      ),
     ).toEqual({
       appId: "mail",
       clientId: "mail",
@@ -536,7 +537,7 @@ describe("bootstrap handle store", () => {
       email: "user@example.test",
     });
     await expect(
-      mod.consumeIdentityBootstrapActivation(activation!, browserBinding),
+      mod.consumeIdentityBootstrapActivation(activation!, BROWSER_BINDING),
     ).resolves.toBeNull();
   });
 });

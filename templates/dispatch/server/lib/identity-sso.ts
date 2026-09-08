@@ -582,6 +582,7 @@ export interface CreateIdentityBootstrapHandleInput {
   name?: string | null;
   orgId?: string | null;
   authProvider?: "google" | null;
+  browserBindingHash: string;
 }
 
 export interface ConsumedIdentityBootstrapHandle {
@@ -608,6 +609,7 @@ export async function createIdentityBootstrapHandle(
     !input.email.includes("@") ||
     (input.orgId != null && !ORG_ID_PATTERN.test(input.orgId)) ||
     (input.authProvider != null && input.authProvider !== "google") ||
+    !CODE.test(input.browserBindingHash) ||
     !resolveIdentitySsoApp(input.appId, input.clientId, input.redirectUri)
   ) {
     throw new Error("INVALID_IDENTITY_BOOTSTRAP_HANDLE");
@@ -618,8 +620,8 @@ export async function createIdentityBootstrapHandle(
   await getDbExec().execute({
     sql:
       "INSERT INTO identity_sso_bootstrap " +
-      "(handle_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, created_at, expires_at, consumed_at, org_id, auth_provider) " +
-      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+      "(handle_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, created_at, expires_at, consumed_at, org_id, auth_provider, browser_binding_hash) " +
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
     args: [
       identityCodeHash(handle),
       input.state,
@@ -635,6 +637,7 @@ export async function createIdentityBootstrapHandle(
       null,
       input.orgId?.trim() || null,
       input.authProvider ?? null,
+      input.browserBindingHash,
     ],
   });
   void getDbExec()
@@ -648,13 +651,14 @@ export async function createIdentityBootstrapHandle(
 
 export async function consumeIdentityBootstrapHandle(
   handle: string,
+  browserBinding: string,
 ): Promise<ConsumedIdentityBootstrapHandle | null> {
-  if (!CODE.test(handle)) return null;
+  if (!CODE.test(handle) || !CODE.test(browserBinding)) return null;
   await ensureBootstrapTable();
   const handleHash = identityCodeHash(handle);
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at, org_id, auth_provider " +
+      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at, org_id, auth_provider, browser_binding_hash " +
       "FROM identity_sso_bootstrap WHERE handle_hash = $1",
     args: [handleHash],
   });
@@ -663,6 +667,10 @@ export async function consumeIdentityBootstrapHandle(
   const expiresAt = Number(row.expires_at ?? row.expiresAt);
   if (
     row.consumed_at != null ||
+    !safeEqual(
+      String(row.browser_binding_hash ?? ""),
+      identityCodeHash(browserBinding),
+    ) ||
     !Number.isFinite(expiresAt) ||
     expiresAt < Date.now() ||
     !isValidSsoState(row.state) ||
@@ -679,8 +687,8 @@ export async function consumeIdentityBootstrapHandle(
   const result = await getDbExec().execute({
     sql:
       "UPDATE identity_sso_bootstrap SET consumed_at = $1 " +
-      "WHERE handle_hash = $2 AND consumed_at IS NULL",
-    args: [Date.now(), handleHash],
+      "WHERE handle_hash = $2 AND consumed_at IS NULL AND browser_binding_hash = $3",
+    args: [Date.now(), handleHash, identityCodeHash(browserBinding)],
   });
   if (affectedRows(result) !== 1) return null;
   return {
@@ -703,21 +711,6 @@ export async function consumeIdentityBootstrapHandle(
   };
 }
 
-export async function bindIdentityBootstrapHandle(
-  handle: string,
-  browserBinding: string,
-): Promise<boolean> {
-  if (!CODE.test(handle) || !CODE.test(browserBinding)) return false;
-  await ensureBootstrapTable();
-  const result = await getDbExec().execute({
-    sql:
-      "UPDATE identity_sso_bootstrap SET browser_binding_hash = $1 " +
-      "WHERE handle_hash = $2 AND consumed_at IS NOT NULL AND browser_binding_hash IS NULL",
-    args: [identityCodeHash(browserBinding), identityCodeHash(handle)],
-  });
-  return affectedRows(result) === 1;
-}
-
 export async function releaseIdentityBootstrapHandle(
   handle: string,
 ): Promise<void> {
@@ -725,7 +718,7 @@ export async function releaseIdentityBootstrapHandle(
   await ensureBootstrapTable();
   await getDbExec().execute({
     sql:
-      "UPDATE identity_sso_bootstrap SET consumed_at = NULL, browser_binding_hash = NULL " +
+      "UPDATE identity_sso_bootstrap SET consumed_at = NULL " +
       "WHERE handle_hash = $1 AND consumed_at IS NOT NULL",
     args: [identityCodeHash(handle)],
   });
