@@ -885,8 +885,8 @@ function AppAdoptionPanel({
       : t("dispatch.pages.yourAppActivity");
   const backHref =
     backScope === "workspace"
-      ? "/admin/metrics?scope=workspace"
-      : "/admin/metrics";
+      ? "/admin/metrics?scope=workspace&view=adoption"
+      : "/admin/metrics?view=adoption";
 
   if (visibleRows.length === 0) {
     return (
