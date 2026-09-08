@@ -173,7 +173,7 @@ describe("getOnboardingHtml", () => {
       expect(again).toBe(baseline);
     });
 
-    it("canonical hosted login pages include the browser SSO option", () => {
+    it("canonical hosted login pages enable silent federation", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
@@ -182,26 +182,27 @@ describe("getOnboardingHtml", () => {
         identitySsoRequestProtocol: "https",
       });
 
-      expect(html).toContain("identity-sso-btn");
-      expect(html).toContain("Sign in with Agent-Native");
+      expect(html).not.toContain("identity-sso-btn");
+      expect(html).not.toContain("Sign in with Agent-Native");
+      expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
       expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
 
-    it("env set → injects exactly one conditional SSO entry pointing at /identity/login", () => {
+    it("env set → enables silent federation without adding a separate sign-in control", () => {
       vi.stubEnv(
         "AGENT_NATIVE_IDENTITY_HUB_URL",
         "https://dispatch.agent-native.com",
       );
       const html = getOnboardingHtml();
-      expect(html).toContain('id="identity-sso-btn"');
-      expect(html).toContain('href="/_agent-native/identity/login"');
-      expect(html).toContain("Sign in with Agent-Native");
+      expect(html).not.toContain('id="identity-sso-btn"');
+      expect(html).not.toContain('href="/_agent-native/identity/login"');
+      expect(html).not.toContain("Sign in with Agent-Native");
+      expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
+      expect(readAuthPageData(html).identitySsoAuto).toBe(false);
       expect(html).toContain("data-agent-native-embedded-init");
       expect(html).toContain(
         'params.get("embedded") === "1" || window.self !== window.top',
       );
-      // Exactly one rendered element — not duplicated across layout branches.
-      expect(html.split('id="identity-sso-btn"').length - 1).toBe(1);
     });
 
     it("malformed env value is treated as OFF (no button, no throw)", () => {

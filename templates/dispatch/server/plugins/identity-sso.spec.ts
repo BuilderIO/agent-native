@@ -14,6 +14,9 @@ const getOrgDomainMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 const invalidateMemberOrgCachesMock = vi.hoisted(() => vi.fn());
 const hasGoogleAuthIdentityMock = vi.hoisted(() => vi.fn());
+const addSessionMock = vi.hoisted(() => vi.fn());
+const ensureIdentityUserMock = vi.hoisted(() => vi.fn());
+const setFrameworkSessionCookieMock = vi.hoisted(() => vi.fn());
 
 interface CodeRow {
   code_hash: string;
@@ -33,7 +36,22 @@ interface CodeRow {
   expires_at: number;
   consumed_at: number | null;
 }
+interface BootstrapRow {
+  handle_hash: string;
+  state: string;
+  app_id: string;
+  client_id: string;
+  redirect_uri: string;
+  authority: string;
+  code_challenge: string;
+  email: string;
+  name: string | null;
+  created_at: number;
+  expires_at: number;
+  consumed_at: number | null;
+}
 const codeRows: CodeRow[] = [];
+const bootstrapRows: BootstrapRow[] = [];
 let organizationRow: Record<string, unknown> | null = null;
 let centralActorRole: string | null = null;
 let centralMemberRole: string | null = null;
@@ -66,6 +84,9 @@ vi.mock("@agent-native/core/server", () => ({
   getH3App: vi.fn(() => ({ use: vi.fn() })),
   getSession: getSessionMock,
   hasGoogleAuthIdentity: hasGoogleAuthIdentityMock,
+  addSession: addSessionMock,
+  ensureIdentityUser: ensureIdentityUserMock,
+  setFrameworkSessionCookie: setFrameworkSessionCookieMock,
 }));
 vi.mock("@agent-native/core/shared", () => ({
   signInJourney: signInJourneyMock,
@@ -80,6 +101,12 @@ vi.mock("@agent-native/core/db", () => ({
         typeof input === "string" ? [] : (input.args ?? [])
       ) as any[];
       if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
+      if (/^DELETE FROM identity_sso_bootstrap/i.test(sql)) {
+        for (let i = bootstrapRows.length - 1; i >= 0; i--) {
+          if (bootstrapRows[i].expires_at < args[0]) bootstrapRows.splice(i, 1);
+        }
+        return { rows: [], rowsAffected: 0 };
+      }
       if (
         /^SELECT id, name(?:, identity_authority, identity_id(?:,\s+federation_roster_initialized_at)?)?\s+FROM organizations/i.test(
           sql,
@@ -164,6 +191,43 @@ vi.mock("@agent-native/core/db", () => ({
         });
         return { rows: [], rowsAffected: 1 };
       }
+      if (/^INSERT INTO identity_sso_bootstrap/i.test(sql)) {
+        bootstrapRows.push({
+          handle_hash: args[0],
+          state: args[1],
+          app_id: args[2],
+          client_id: args[3],
+          redirect_uri: args[4],
+          authority: args[5],
+          code_challenge: args[6],
+          email: args[7],
+          name: args[8],
+          created_at: args[9],
+          expires_at: args[10],
+          consumed_at: args[11],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
+        /^SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at FROM identity_sso_bootstrap/i.test(
+          sql,
+        )
+      ) {
+        const row = bootstrapRows.find(
+          (candidate) => candidate.handle_hash === args[0],
+        );
+        return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+      }
+      if (/^UPDATE identity_sso_bootstrap SET consumed_at/i.test(sql)) {
+        const row = bootstrapRows.find(
+          (candidate) => candidate.handle_hash === args[1],
+        );
+        if (row && row.consumed_at == null) {
+          row.consumed_at = args[0];
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 0 };
+      }
       if (/^SELECT state, app_id, client_id/i.test(sql)) {
         const row = codeRows.find(
           (candidate) => candidate.code_hash === args[0],
@@ -210,6 +274,7 @@ const {
   isDesktopWorkspaceSsoRequest,
   isWorkspaceSsoEnabledForSession,
   tokenHandler,
+  bootstrapHandler,
   organizationFederationHandler,
 } = await import("./identity-sso.js");
 const { createCodeChallenge } = await import("../lib/identity-sso.js");
@@ -237,6 +302,7 @@ function event(path: string, extra: Record<string, unknown> = {}): any {
 beforeEach(() => {
   vi.clearAllMocks();
   codeRows.length = 0;
+  bootstrapRows.length = 0;
   organizationRow = null;
   centralActorRole = null;
   centralMemberRole = null;
@@ -660,6 +726,51 @@ describe("authorization code and PKCE handlers", () => {
 
     expect(response.status).toBe(400);
     expect(getSessionMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("silent browser bootstrap", () => {
+  it("issues a one-time continuation only for an enabled registered app", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(true);
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "user@example.test",
+      orgDomain: null,
+      orgId: null,
+      claims: {
+        iss: "https://mail.agent-native.com",
+        app_id: "mail",
+        client_id: "mail",
+        redirect_uri: CALLBACK,
+        state: STATE,
+        code_challenge: createCodeChallenge(VERIFIER),
+        scope: "identity-bootstrap",
+      },
+    });
+
+    const response = await bootstrapHandler(
+      event("/_agent-native/identity/bootstrap", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer bootstrap-assertion",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const continuation = new URL(body.continue_url);
+    expect(continuation.origin).toBe(AUTHORITY);
+    expect(continuation.pathname).toBe(
+      "/_agent-native/identity/bootstrap/continue",
+    );
+    expect(continuation.searchParams.get("handle")).toMatch(
+      /^[A-Za-z0-9_-]{43}$/,
+    );
+    expect(bootstrapRows).toHaveLength(1);
+    expect(bootstrapRows[0]?.handle_hash).not.toBe(
+      continuation.searchParams.get("handle"),
+    );
   });
 });
 

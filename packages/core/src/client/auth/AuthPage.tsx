@@ -743,11 +743,24 @@ export function AuthPage(props: AuthPageProps) {
     });
   }, [homePath, runtimeAppBasePath]);
   const resumeHref = React.useCallback(() => journey().resumeHref, [journey]);
+  const identityBootstrapHref = React.useCallback(
+    (target?: string) => {
+      const safeTarget = target || resumeHref();
+      if (!identitySsoEnabled || isAgentNativeDesktop()) return safeTarget;
+      const url = new URL(
+        apiPath("/_agent-native/identity/bootstrap"),
+        window.location.origin,
+      );
+      url.searchParams.set("return", safeTarget);
+      return `${url.pathname}${url.search}`;
+    },
+    [apiPath, identitySsoEnabled, resumeHref],
+  );
   const redirectToSignedInApp = React.useCallback(
     (target?: string) => {
-      window.location.replace(target || resumeHref());
+      window.location.replace(identityBootstrapHref(target));
     },
-    [resumeHref],
+    [identityBootstrapHref],
   );
   const setNotice = React.useCallback((key: string, notice: Notice) => {
     setMessages((current) => ({ ...current, [key]: notice }));
@@ -1378,11 +1391,16 @@ export function AuthPage(props: AuthPageProps) {
       },
     );
     const target = resumeHref();
-    const oauthTarget = oauthReturnTarget(target, workspaceGatewayReturnOrigin);
     const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
     const nativeDesktop = flow === "redirect" && isAgentNativeDesktop();
+    const oauthTarget = oauthReturnTarget(
+      flow === "redirect" && !nativeDesktop
+        ? identityBootstrapHref(target)
+        : target,
+      workspaceGatewayReturnOrigin,
+    );
     if (nativeDesktop) {
       stopNativeOAuth();
       nativeOAuthFlowId.current = flowId;
@@ -1491,6 +1509,7 @@ export function AuthPage(props: AuthPageProps) {
   }, [
     googleAuthUrlPath,
     googleBusy,
+    identityBootstrapHref,
     resolveGoogleFlow,
     resumeHref,
     showGoogle,
@@ -1697,7 +1716,7 @@ export function AuthPage(props: AuthPageProps) {
             body: JSON.stringify({
               email,
               password: signupPassword,
-              callbackURL: resumeHref(),
+              callbackURL: identityBootstrapHref(resumeHref()),
             }),
           },
         );
@@ -1748,6 +1767,7 @@ export function AuthPage(props: AuthPageProps) {
     },
     [
       apiPath,
+      identityBootstrapHref,
       pendingEmailStorageKey,
       redirectToSignedInApp,
       resumeHref,
@@ -1880,7 +1900,7 @@ export function AuthPage(props: AuthPageProps) {
               email,
               callbackURL: desktop
                 ? apiPath("/_agent-native/auth/magic-link/desktop-callback")
-                : resumeHref(),
+                : identityBootstrapHref(resumeHref()),
             }),
           },
         );
@@ -1917,6 +1937,7 @@ export function AuthPage(props: AuthPageProps) {
     },
     [
       apiPath,
+      identityBootstrapHref,
       magicLinkEmail,
       resumeHref,
       setNotice,
@@ -1937,7 +1958,10 @@ export function AuthPage(props: AuthPageProps) {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, callbackURL: resumeHref() }),
+          body: JSON.stringify({
+            email,
+            callbackURL: identityBootstrapHref(resumeHref()),
+          }),
         },
       );
       if (response.ok) {
@@ -1960,6 +1984,7 @@ export function AuthPage(props: AuthPageProps) {
     }
   }, [
     apiPath,
+    identityBootstrapHref,
     readPendingSignupEmail,
     resumeHref,
     setNotice,
@@ -2158,20 +2183,6 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
-      {identitySsoEnabled ? (
-        <a
-          className="btn-identity-sso"
-          id="identity-sso-btn"
-          href={identityHref}
-          onClick={(event) => {
-            event.preventDefault();
-            const params = new URLSearchParams({ return: resumeHref() });
-            window.location.href = `${identityHref}?${params.toString()}`;
-          }}
-        >
-          Sign in with Agent-Native
-        </a>
-      ) : null}
       <div
         className="local-dev-signin"
         id="local-dev-signin"

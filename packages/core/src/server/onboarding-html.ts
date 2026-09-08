@@ -67,8 +67,8 @@ import {
 } from "./google-auth-mode.js";
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
-  identitySsoLoginButtonHtml,
   isCanonicalIdentitySsoClientRequest,
+  isIdentitySsoAvailableForRequest,
 } from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
@@ -1270,21 +1270,16 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
   const identitySsoRequestHost =
     opts.identitySsoRequestHost ?? opts.requestHost;
-  const identitySsoEnabled = Boolean(
-    identitySsoLoginButtonHtml({ requestHost: identitySsoRequestHost }),
-  );
+  const identitySsoEnabled = isIdentitySsoAvailableForRequest({
+    requestHost: identitySsoRequestHost,
+    requestProtocol: opts.identitySsoRequestProtocol,
+  });
   const identitySsoAuto =
     identitySsoEnabled &&
     isCanonicalIdentitySsoClientRequest(
       identitySsoRequestHost,
       opts.identitySsoRequestProtocol,
     );
-  const embeddedAuthCss = identitySsoEnabled
-    ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
-    : "";
-  const identitySsoMagicLinkSelector = identitySsoEnabled
-    ? "  .card.magic-link-complete #identity-sso-btn,\n"
-    : "";
 
   const marketingStyles = hasMarketing
     ? `
@@ -2193,7 +2188,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .card.magic-link-complete .subtitle,
   .card.magic-link-complete #google-signin,
-${identitySsoMagicLinkSelector}
   .card.magic-link-complete #auth-divider,
   .card.magic-link-complete #auth-tabs,
   .card.magic-link-complete #upgrade-note,
@@ -2263,7 +2257,6 @@ ${marketingStyles}
   /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
-${embeddedAuthCss}
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }

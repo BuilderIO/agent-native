@@ -18,8 +18,23 @@ interface CodeRow {
   expires_at: number;
   consumed_at: number | null;
 }
+interface BootstrapRow {
+  handle_hash: string;
+  state: string;
+  app_id: string;
+  client_id: string;
+  redirect_uri: string;
+  authority: string;
+  code_challenge: string;
+  email: string;
+  name: string | null;
+  created_at: number;
+  expires_at: number;
+  consumed_at: number | null;
+}
 
 const codeRows: CodeRow[] = [];
+const bootstrapRows: BootstrapRow[] = [];
 const executedSql: string[] = [];
 const productionServerlessMock = vi.fn(() => false);
 
@@ -28,6 +43,12 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   executedSql.push(sql);
   const args = (typeof input === "string" ? [] : (input.args ?? [])) as any[];
   if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
+  if (/^DELETE FROM identity_sso_bootstrap/i.test(sql)) {
+    for (let i = bootstrapRows.length - 1; i >= 0; i--) {
+      if (bootstrapRows[i].expires_at < args[0]) bootstrapRows.splice(i, 1);
+    }
+    return { rows: [], rowsAffected: 0 };
+  }
   if (/^DELETE FROM identity_sso_authorization_code/i.test(sql)) {
     for (let i = codeRows.length - 1; i >= 0; i--) {
       if (codeRows[i].expires_at < args[0]) codeRows.splice(i, 1);
@@ -55,12 +76,49 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     });
     return { rows: [], rowsAffected: 1 };
   }
+  if (/^INSERT INTO identity_sso_bootstrap/i.test(sql)) {
+    bootstrapRows.push({
+      handle_hash: args[0],
+      state: args[1],
+      app_id: args[2],
+      client_id: args[3],
+      redirect_uri: args[4],
+      authority: args[5],
+      code_challenge: args[6],
+      email: args[7],
+      name: args[8],
+      created_at: args[9],
+      expires_at: args[10],
+      consumed_at: args[11],
+    });
+    return { rows: [], rowsAffected: 1 };
+  }
+  if (/^UPDATE identity_sso_authorization_code SET consumed_at/i.test(sql)) {
+    const row = codeRows.find((candidate) => candidate.code_hash === args[1]);
+    if (row && row.consumed_at == null) {
+      row.consumed_at = args[0];
+      return { rows: [], rowsAffected: 1 };
+    }
+    return { rows: [], rowsAffected: 0 };
+  }
+  if (
+    /^SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at FROM identity_sso_bootstrap/i.test(
+      sql,
+    )
+  ) {
+    const row = bootstrapRows.find(
+      (candidate) => candidate.handle_hash === args[0],
+    );
+    return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+  }
   if (/^SELECT state, app_id, client_id/i.test(sql)) {
     const row = codeRows.find((candidate) => candidate.code_hash === args[0]);
     return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
   }
-  if (/^UPDATE identity_sso_authorization_code SET consumed_at/i.test(sql)) {
-    const row = codeRows.find((candidate) => candidate.code_hash === args[1]);
+  if (/^UPDATE identity_sso_bootstrap SET consumed_at/i.test(sql)) {
+    const row = bootstrapRows.find(
+      (candidate) => candidate.handle_hash === args[1],
+    );
     if (row && row.consumed_at == null) {
       row.consumed_at = args[0];
       return { rows: [], rowsAffected: 1 };
@@ -86,6 +144,7 @@ const VERIFIER = "v".repeat(64);
 
 beforeEach(() => {
   codeRows.length = 0;
+  bootstrapRows.length = 0;
   executedSql.length = 0;
   productionServerlessMock.mockReset().mockReturnValue(false);
   process.env.IDENTITY_SSO_APP_REGISTRY_JSON = "";
@@ -285,6 +344,54 @@ describe("authorization-code store", () => {
         codeVerifier: "wrong".repeat(13),
       }),
     ).resolves.toBeNull();
+  });
+});
+
+describe("bootstrap handle store", () => {
+  it("stores only a hash and consumes a handle once", async () => {
+    const codeChallenge = mod.createCodeChallenge(VERIFIER)!;
+    const handle = await mod.createIdentityBootstrapHandle({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge,
+      email: "User@Example.Test",
+      name: " User ",
+    });
+
+    expect(handle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(bootstrapRows[0]?.handle_hash).not.toBe(handle);
+    expect(await mod.consumeIdentityBootstrapHandle(handle)).toEqual({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge,
+      email: "user@example.test",
+      name: "User",
+    });
+    await expect(
+      mod.consumeIdentityBootstrapHandle(handle),
+    ).resolves.toBeNull();
+  });
+
+  it("does not issue request-time DDL in production serverless runtime", async () => {
+    productionServerlessMock.mockReturnValue(true);
+    const handle = await mod.createIdentityBootstrapHandle({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge: mod.createCodeChallenge(VERIFIER)!,
+      email: "user@example.test",
+    });
+
+    expect(handle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(executedSql.some((sql) => /^CREATE TABLE/i.test(sql))).toBe(false);
   });
 });
 

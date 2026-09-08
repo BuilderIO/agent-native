@@ -260,4 +260,27 @@ export const dispatchMigrations: MigrationEntry[] = [
       ALTER TABLE identity_sso_authorization_code ADD COLUMN IF NOT EXISTS org_role TEXT;
     `,
   },
+  {
+    version: 7,
+    name: "identity-sso-bootstrap-handle-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS identity_sso_bootstrap (
+        handle_hash TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        client_id TEXT NOT NULL,
+        redirect_uri TEXT NOT NULL,
+        authority TEXT NOT NULL,
+        code_challenge TEXT NOT NULL,
+        email TEXT NOT NULL,
+        name TEXT,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        consumed_at INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS identity_sso_bootstrap_expires_idx
+        ON identity_sso_bootstrap (expires_at);
+    `,
+  },
 ];

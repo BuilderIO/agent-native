@@ -36,6 +36,9 @@ import {
   getH3App,
   getSession,
   hasGoogleAuthIdentity,
+  addSession,
+  ensureIdentityUser,
+  setFrameworkSessionCookie,
 } from "@agent-native/core/server";
 import { signInJourney } from "@agent-native/core/shared";
 import { defineEventHandler, getHeader, getMethod, readBody } from "h3";
@@ -47,12 +50,16 @@ import {
 } from "../../shared/feature-flags.js";
 import {
   IDENTITY_AUTHORIZATION_CODE_TTL_MS,
+  IDENTITY_SSO_BOOTSTRAP_PATH,
+  IDENTITY_SSO_BOOTSTRAP_SCOPE,
   IDENTITY_SCOPE,
   IDENTITY_SSO_TOKEN_PATH,
   IDENTITY_TOKEN_TTL,
   buildIdentityClaims,
   buildRedirectLocation,
+  consumeIdentityBootstrapHandle,
   consumeIdentityAuthorizationCode,
+  createIdentityBootstrapHandle,
   createIdentityAuthorizationCode,
   DEFAULT_ALLOWED_ORIGINS,
   isValidSsoState,
@@ -63,6 +70,7 @@ import {
 
 const AVAILABILITY_PATH = "/_agent-native/identity/availability";
 const AUTHORIZE_PATH = "/_agent-native/identity/authorize";
+const BOOTSTRAP_CONTINUE_PATH = `${IDENTITY_SSO_BOOTSTRAP_PATH}/continue`;
 export const ORGANIZATION_FEDERATION_PATH =
   "/_agent-native/identity/organization";
 const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
@@ -97,6 +105,17 @@ function redirect(location: string): Response {
       "Referrer-Policy": "no-referrer",
     },
   });
+}
+
+function redirectWithStagedCookies(event: H3Event, location: string): Response {
+  const headers = new Headers({
+    Location: location,
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+  });
+  const staged = (event as any).res?.headers?.getSetCookie?.() ?? [];
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response("", { status: 302, headers });
 }
 
 function resolveAuthority(): string | null {
@@ -371,10 +390,18 @@ export async function isBrowserIdentitySsoEnabledForSession(
   session: Awaited<ReturnType<typeof getSession>>,
 ): Promise<boolean> {
   if (!session?.email) return false;
+  return isBrowserIdentitySsoEnabledForEmail(session.email, session.orgId);
+}
+
+export async function isBrowserIdentitySsoEnabledForEmail(
+  email: string,
+  orgId?: string,
+): Promise<boolean> {
+  if (!email.trim()) return false;
   return isFeatureFlagEnabled(BROWSER_IDENTITY_SSO_FLAG, {
-    userEmail: session.email,
-    userKey: session.email,
-    orgId: session.orgId,
+    userEmail: email,
+    userKey: email,
+    ...(orgId ? { orgId } : {}),
   }).catch(() => false); // coercion-ok: unreadable rollout state must fail closed.
 }
 
@@ -1003,6 +1030,160 @@ export const availabilityHandler = defineEventHandler(
   },
 );
 
+async function verifyIdentityBootstrapRequest(event: H3Event): Promise<{
+  email: string;
+  name?: string;
+  appId: string;
+  clientId: string;
+  redirectUri: string;
+  state: string;
+  codeChallenge: string;
+  authority: string;
+} | null> {
+  const token = bearerToken(event);
+  if (!token) return null;
+  const authority = resolveAuthority();
+  if (!authority) return null;
+
+  for (const registration of getIdentitySsoAppRegistry()) {
+    if (!registration.federationSecret) continue;
+    const verified = await verifyA2AToken(token, event, {
+      routePrefix: "_agent-native",
+      includeClaims: true,
+      globalSecretOnly: true,
+      verificationSecret: registration.federationSecret,
+    });
+    const claims = verified.claims;
+    const appId = typeof claims?.app_id === "string" ? claims.app_id : "";
+    const clientId =
+      typeof claims?.client_id === "string" ? claims.client_id : "";
+    const redirectUri =
+      typeof claims?.redirect_uri === "string" ? claims.redirect_uri : "";
+    const state = typeof claims?.state === "string" ? claims.state : "";
+    const codeChallenge =
+      typeof claims?.code_challenge === "string" ? claims.code_challenge : "";
+    const issuer =
+      typeof claims?.iss === "string"
+        ? normalizeIdentityAuthority(claims.iss)
+        : null;
+    const resolved = resolveIdentitySsoApp(appId, clientId, redirectUri);
+    if (
+      !verified.email ||
+      claims?.scope !== IDENTITY_SSO_BOOTSTRAP_SCOPE ||
+      appId !== registration.appId ||
+      clientId !== registration.clientId ||
+      !resolved ||
+      !isValidSsoState(state) ||
+      !isValidSsoState(codeChallenge) ||
+      issuer !== registration.origin ||
+      resolved.origin !== registration.origin ||
+      !registration.federationSecret
+    ) {
+      continue;
+    }
+    const email = verified.email.trim().toLowerCase();
+    if (!email.includes("@")) continue;
+    const name =
+      typeof claims?.name === "string" && claims.name.trim()
+        ? claims.name.trim().slice(0, 200)
+        : undefined;
+    return {
+      email,
+      ...(name ? { name } : {}),
+      appId,
+      clientId,
+      redirectUri,
+      state,
+      codeChallenge,
+      authority,
+    };
+  }
+  return null;
+}
+
+export const bootstrapHandler = defineEventHandler(
+  async (event: H3Event): Promise<Response> => {
+    const method = getMethod(event);
+    if (method === "POST") {
+      if (!(await canAttemptBrowserIdentitySso())) {
+        return jsonResponse({ error: "feature_disabled" }, 404);
+      }
+      const verified = await verifyIdentityBootstrapRequest(event);
+      if (!verified) return jsonResponse({ error: "Unauthorized" }, 401);
+      if (!(await isBrowserIdentitySsoEnabledForEmail(verified.email))) {
+        return jsonResponse({ error: "feature_disabled" }, 404);
+      }
+      try {
+        const handle = await createIdentityBootstrapHandle({
+          state: verified.state,
+          appId: verified.appId,
+          clientId: verified.clientId,
+          redirectUri: verified.redirectUri,
+          authority: verified.authority,
+          codeChallenge: verified.codeChallenge,
+          email: verified.email,
+          name: verified.name,
+        });
+        return jsonResponse(
+          {
+            continue_url: `${verified.authority}${BOOTSTRAP_CONTINUE_PATH}?handle=${encodeURIComponent(handle)}`,
+          },
+          200,
+        );
+      } catch (error) {
+        void error;
+        return jsonResponse({ error: "identity_unavailable" }, 503);
+      }
+    }
+
+    if (method === "GET" || method === "HEAD") {
+      let handle = "";
+      try {
+        handle =
+          new URL(getRequestUrl(event), "http://an.invalid").searchParams.get(
+            "handle",
+          ) ?? "";
+      } catch {
+        return new Response("Invalid sign-in request", { status: 400 });
+      }
+      const bootstrap = await consumeIdentityBootstrapHandle(handle).catch(
+        (error) => {
+          void error;
+          return null;
+        },
+      );
+      if (!bootstrap)
+        return new Response("Invalid sign-in request", { status: 400 });
+
+      try {
+        await ensureIdentityUser(bootstrap.email, bootstrap.name);
+        const sessionToken = randomBytes(32).toString("hex");
+        await addSession(sessionToken, bootstrap.email);
+        setFrameworkSessionCookie(event, sessionToken);
+        const code = await createIdentityAuthorizationCode({
+          state: bootstrap.state,
+          appId: bootstrap.appId,
+          clientId: bootstrap.clientId,
+          redirectUri: bootstrap.redirectUri,
+          authority: bootstrap.authority,
+          codeChallenge: bootstrap.codeChallenge,
+          email: bootstrap.email,
+          name: bootstrap.name,
+        });
+        return redirectWithStagedCookies(
+          event,
+          buildRedirectLocation(bootstrap.redirectUri, code, bootstrap.state),
+        );
+      } catch (error) {
+        void error;
+        return new Response("Could not finish sign-in", { status: 503 });
+      }
+    }
+
+    return jsonResponse({ error: "Method not allowed" }, 405);
+  },
+);
+
 export const authorizeHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
     const method = getMethod(event);
@@ -1308,6 +1489,8 @@ export const tokenHandler = defineEventHandler(
 /** Mount the authority and token endpoints. */
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(AVAILABILITY_PATH, availabilityHandler);
+  getH3App(nitroApp).use(BOOTSTRAP_CONTINUE_PATH, bootstrapHandler);
+  getH3App(nitroApp).use(IDENTITY_SSO_BOOTSTRAP_PATH, bootstrapHandler);
   getH3App(nitroApp).use(AUTHORIZE_PATH, authorizeHandler);
   getH3App(nitroApp).use(
     ORGANIZATION_FEDERATION_PATH,

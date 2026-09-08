@@ -187,28 +187,34 @@ export function isCanonicalIdentitySsoClientRequest(
 }
 
 /**
- * The conditional login entry is available on exact canonical hosted clients
- * and on explicitly configured self-hosted deployments. The automatic browser
- * handoff is separately gated by Dispatch's user-scoped feature flag.
+ * Return whether the silent federation flow is available for this request.
+ * The browser entry is intentionally not rendered: local Google/email auth is
+ * the only sign-in UI, and federation happens after that local session exists.
  */
-export function identitySsoLoginButtonHtml(
+export function isIdentitySsoAvailableForRequest(
   options: {
     requestHost?: string;
+    requestProtocol?: string;
   } = {},
-): string {
+): boolean {
   const canonicalRequest = options.requestHost
-    ? isCanonicalIdentitySsoClientRequest(options.requestHost, "https")
+    ? isCanonicalIdentitySsoClientRequest(
+        options.requestHost,
+        options.requestProtocol ?? "https",
+      )
     : isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
-  if (!canonicalRequest && !isIdentitySsoExplicitlyEnabled()) return "";
-  return (
-    `\n  <a class="btn-identity-sso" id="identity-sso-btn" ` +
-    `href="/_agent-native/identity/login" ` +
-    `style="display:flex;align-items:center;justify-content:center;gap:0.5rem;` +
-    `width:100%;padding:0.7rem 1rem;margin-bottom:0.75rem;border-radius:8px;` +
-    `border:1px solid rgba(255,255,255,0.18);background:transparent;` +
-    `color:inherit;font:inherit;font-weight:600;text-decoration:none;` +
-    `cursor:pointer">Sign in with Agent-Native</a>\n`
-  );
+  return canonicalRequest || isIdentitySsoExplicitlyEnabled();
+}
+
+/**
+ * Kept as a compatibility export for custom auth documents. The old visible
+ * entry point is deliberately empty now; federation is silent after local
+ * authentication succeeds.
+ */
+export function identitySsoLoginButtonHtml(
+  _options: { requestHost?: string } = {},
+): string {
+  return "";
 }
 
 export interface CreateSsoStateInput {

@@ -40,6 +40,9 @@ export const IDENTITY_AUTHORIZATION_CODE_TTL_MS =
   IDENTITY_TOKEN_TTL_SECONDS * 1_000;
 export const IDENTITY_SSO_CALLBACK_PATH = "/_agent-native/identity/callback";
 export const IDENTITY_SSO_TOKEN_PATH = "/_agent-native/identity/token";
+export const IDENTITY_SSO_BOOTSTRAP_PATH = "/_agent-native/identity/bootstrap";
+export const IDENTITY_SSO_BOOTSTRAP_TTL_MS = 2 * 60_000;
+export const IDENTITY_SSO_BOOTSTRAP_SCOPE = "identity-bootstrap";
 
 export function isValidSsoState(value: unknown): value is string {
   return typeof value === "string" && STATE_PATTERN.test(value);
@@ -332,6 +335,7 @@ export interface ConsumedIdentityAuthorizationCode {
 }
 
 let codeTableInitPromise: Promise<void> | undefined;
+let bootstrapTableInitPromise: Promise<void> | undefined;
 
 function buildCodeTableSql(): string {
   return `
@@ -371,6 +375,39 @@ async function ensureCodeTable(): Promise<void> {
       });
   }
   return codeTableInitPromise;
+}
+
+function buildBootstrapTableSql(): string {
+  return `
+    CREATE TABLE IF NOT EXISTS identity_sso_bootstrap (
+      handle_hash TEXT PRIMARY KEY,
+      state TEXT NOT NULL,
+      app_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      redirect_uri TEXT NOT NULL,
+      authority TEXT NOT NULL,
+      code_challenge TEXT NOT NULL,
+      email TEXT NOT NULL,
+      name TEXT,
+      created_at ${intType()} NOT NULL,
+      expires_at ${intType()} NOT NULL,
+      consumed_at ${intType()}
+    )
+  `;
+}
+
+async function ensureBootstrapTable(): Promise<void> {
+  if (isProductionServerlessFunctionRuntime()) return;
+  if (!bootstrapTableInitPromise) {
+    bootstrapTableInitPromise = getDbExec()
+      .execute(buildBootstrapTableSql())
+      .then(() => undefined)
+      .catch((error) => {
+        bootstrapTableInitPromise = undefined;
+        throw error;
+      });
+  }
+  return bootstrapTableInitPromise;
 }
 
 function affectedRows(result: any): number {
@@ -503,5 +540,123 @@ export async function consumeIdentityAuthorizationCode(input: {
       ? { orgRole: row.org_role }
       : {}),
     jti: row.jti,
+  };
+}
+
+export interface CreateIdentityBootstrapHandleInput {
+  state: string;
+  appId: string;
+  clientId: string;
+  redirectUri: string;
+  authority: string;
+  codeChallenge: string;
+  email: string;
+  name?: string | null;
+}
+
+export interface ConsumedIdentityBootstrapHandle {
+  state: string;
+  appId: string;
+  clientId: string;
+  redirectUri: string;
+  authority: string;
+  codeChallenge: string;
+  email: string;
+  name?: string;
+}
+
+export async function createIdentityBootstrapHandle(
+  input: CreateIdentityBootstrapHandleInput,
+): Promise<string> {
+  if (
+    !isValidSsoState(input.state) ||
+    !APP_ID.test(input.appId) ||
+    !CLIENT_ID.test(input.clientId) ||
+    !CODE_CHALLENGE.test(input.codeChallenge) ||
+    !input.email.includes("@") ||
+    !resolveIdentitySsoApp(input.appId, input.clientId, input.redirectUri)
+  ) {
+    throw new Error("INVALID_IDENTITY_BOOTSTRAP_HANDLE");
+  }
+  await ensureBootstrapTable();
+  const handle = randomBytes(32).toString("base64url");
+  const now = Date.now();
+  await getDbExec().execute({
+    sql:
+      "INSERT INTO identity_sso_bootstrap " +
+      "(handle_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, created_at, expires_at, consumed_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    args: [
+      identityCodeHash(handle),
+      input.state,
+      input.appId,
+      input.clientId,
+      input.redirectUri,
+      input.authority,
+      input.codeChallenge,
+      input.email.trim().toLowerCase(),
+      input.name?.trim() || null,
+      now,
+      now + IDENTITY_SSO_BOOTSTRAP_TTL_MS,
+      null,
+    ],
+  });
+  void getDbExec()
+    .execute({
+      sql: "DELETE FROM identity_sso_bootstrap WHERE expires_at < ?",
+      args: [now],
+    })
+    .catch(() => {});
+  return handle;
+}
+
+export async function consumeIdentityBootstrapHandle(
+  handle: string,
+): Promise<ConsumedIdentityBootstrapHandle | null> {
+  if (!CODE.test(handle)) return null;
+  await ensureBootstrapTable();
+  const handleHash = identityCodeHash(handle);
+  const { rows } = await getDbExec().execute({
+    sql:
+      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, expires_at, consumed_at " +
+      "FROM identity_sso_bootstrap WHERE handle_hash = ?",
+    args: [handleHash],
+  });
+  if (rows.length !== 1) return null;
+  const row: any = rows[0];
+  const expiresAt = Number(row.expires_at ?? row.expiresAt);
+  if (
+    row.consumed_at != null ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt < Date.now() ||
+    !isValidSsoState(row.state) ||
+    typeof row.app_id !== "string" ||
+    typeof row.client_id !== "string" ||
+    typeof row.redirect_uri !== "string" ||
+    typeof row.authority !== "string" ||
+    typeof row.code_challenge !== "string" ||
+    typeof row.email !== "string" ||
+    !row.email.includes("@")
+  ) {
+    return null;
+  }
+  const result = await getDbExec().execute({
+    sql:
+      "UPDATE identity_sso_bootstrap SET consumed_at = ? " +
+      "WHERE handle_hash = ? AND consumed_at IS NULL",
+    args: [Date.now(), handleHash],
+  });
+  if (affectedRows(result) !== 1) return null;
+  return {
+    state: row.state,
+    appId: row.app_id,
+    clientId: row.client_id,
+    redirectUri: row.redirect_uri,
+    authority: row.authority,
+    codeChallenge: row.code_challenge,
+    email: row.email.trim().toLowerCase(),
+    ...(typeof row.name === "string" && row.name.trim()
+      ? { name: row.name.trim() }
+      : {}),
   };
 }

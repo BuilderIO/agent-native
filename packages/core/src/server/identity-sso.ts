@@ -21,6 +21,7 @@ import type { H3Event } from "h3";
 import { deleteCookie, getCookie, getHeader, getMethod, setCookie } from "h3";
 import * as jose from "jose";
 
+import { canonicalA2AAudience, signA2AToken } from "../a2a/index.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   GOOGLE_AUTH_REQUIRED_MESSAGE,
@@ -36,6 +37,7 @@ import {
   getBetterAuth,
   getBetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
+import { readDeployCredentialEnv } from "./credential-provider.js";
 import { createOAuthSession, getOrigin } from "./google-oauth.js";
 import {
   consumeSsoState,
@@ -64,6 +66,8 @@ export const IDENTITY_SSO_DESKTOP_COMPLETE_PATH =
   "/_agent-native/identity/desktop-complete";
 export const IDENTITY_SSO_CALLBACK_PATH = "/_agent-native/identity/callback";
 export const IDENTITY_SSO_TOKEN_PATH = "/_agent-native/identity/token";
+export const IDENTITY_SSO_BOOTSTRAP_PATH = "/_agent-native/identity/bootstrap";
+export const IDENTITY_SSO_BOOTSTRAP_SCOPE = "identity-bootstrap";
 
 const DESKTOP_COMPLETION_NONCE = /^[A-Za-z0-9_-]{32,128}$/;
 const STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -71,6 +75,7 @@ const CODE = /^[A-Za-z0-9_-]{43}$/;
 const CODE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
 const SSO_VERIFIER_COOKIE_PREFIX = "agent_native_sso_verifier_";
 const MAX_ASSERTION_AGE_SECONDS = 5 * 60;
+const MAX_BOOTSTRAP_NAME_LENGTH = 200;
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 function html(body: string, status = 200): Response {
@@ -382,14 +387,19 @@ async function exchangeIdentityCode(
   }
 }
 
-async function jitLinkIdentity(
-  identity: VerifiedIdentity,
+/** Ensure an authority-issued identity has a local Better Auth account. */
+export async function ensureIdentityUser(
+  email: string,
+  name?: string,
   signupHeaders?: Headers,
-): Promise<void> {
+): Promise<{
+  id: string;
+  accounts: Array<{ providerId: string; accountId: string }>;
+}> {
   const adapter = await getBetterAuthInternalAdapter();
   if (!adapter) throw new Error("Local account storage is unavailable.");
 
-  let existing = await adapter.findUserByEmail(identity.email, {
+  let existing = await adapter.findUserByEmail(email, {
     includeAccounts: true,
   });
 
@@ -398,16 +408,16 @@ async function jitLinkIdentity(
     try {
       await auth.api.signUpEmail({
         body: {
-          email: identity.email,
+          email,
           password: createUnusableSsoCredential(),
-          name: identity.name || identity.email.split("@")[0] || "User",
+          name: name || email.split("@")[0] || "User",
         },
         ...(signupHeaders ? { headers: signupHeaders } : {}),
       });
     } catch (error) {
       if (!isExpectedAuthFailure(error)) throw error;
     }
-    existing = await adapter.findUserByEmail(identity.email, {
+    existing = await adapter.findUserByEmail(email, {
       includeAccounts: true,
     });
   }
@@ -416,8 +426,27 @@ async function jitLinkIdentity(
     throw new Error("Local account could not be resolved.");
   }
 
+  return {
+    id: existing.user.id,
+    accounts: existing.accounts ?? [],
+  };
+}
+
+async function jitLinkIdentity(
+  identity: VerifiedIdentity,
+  signupHeaders?: Headers,
+): Promise<void> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) throw new Error("Local account storage is unavailable.");
+
+  const existing = await ensureIdentityUser(
+    identity.email,
+    identity.name,
+    signupHeaders,
+  );
+
   const accountId = identity.sub || identity.email;
-  const alreadyLinked = (existing.accounts ?? []).some(
+  const alreadyLinked = existing.accounts.some(
     (account) =>
       account.providerId === IDENTITY_SSO_PROVIDER_ID &&
       account.accountId === accountId,
@@ -425,7 +454,7 @@ async function jitLinkIdentity(
   if (!alreadyLinked) {
     try {
       await adapter.linkAccount({
-        userId: existing.user.id,
+        userId: existing.id,
         providerId: IDENTITY_SSO_PROVIDER_ID,
         accountId,
       });
@@ -452,6 +481,102 @@ function localSignInHref(returnPath: string | null): string {
   const safeReturn = safeReturnPath(returnPath);
   if (safeReturn !== "/") url.searchParams.set("return", safeReturn);
   return `${url.pathname}${url.search}`;
+}
+
+const BOOTSTRAP_HANDLE = /^[A-Za-z0-9_-]{43}$/;
+
+async function startIdentityBootstrap(
+  event: H3Event,
+  hub: string,
+  returnPath: string,
+): Promise<Response> {
+  const current = await getSession(event).catch((error) => {
+    void error;
+    return null;
+  });
+  if (!current?.email) return redirect(event, localSignInHref(returnPath));
+
+  const federationSecret = readDeployCredentialEnv(
+    "AGENT_NATIVE_IDENTITY_FEDERATION_SECRET",
+  )?.trim();
+  if (!federationSecret) return redirect(event, returnPath);
+
+  const binding = resolveClientBinding(event, hub);
+  if (!binding) return redirect(event, returnPath);
+  const verifier = createPkceVerifier();
+  const challenge = createPkceChallenge(verifier);
+  let state: string;
+  try {
+    state = await createSsoState({
+      returnPath: returnPath === "/" ? null : returnPath,
+      ...binding,
+      codeChallenge: challenge,
+    });
+  } catch (error: any) {
+    if (error?.message === "RATE_LIMITED") {
+      return redirect(event, returnPath);
+    }
+    return redirect(event, returnPath);
+  }
+
+  setPkceVerifierCookie(
+    event,
+    state,
+    verifier,
+    binding.redirectUri.startsWith("https://"),
+  );
+
+  try {
+    const token = await signA2AToken(
+      current.email.trim().toLowerCase(),
+      undefined,
+      federationSecret,
+      {
+        audience: canonicalA2AAudience(hub),
+        expiresIn: "2m",
+        extraClaims: {
+          app_id: binding.appId,
+          client_id: binding.clientId,
+          redirect_uri: binding.redirectUri,
+          state,
+          code_challenge: challenge,
+          scope: IDENTITY_SSO_BOOTSTRAP_SCOPE,
+          ...(current.name?.trim()
+            ? { name: current.name.trim().slice(0, MAX_BOOTSTRAP_NAME_LENGTH) }
+            : {}),
+        },
+      },
+    );
+    const response = await fetch(`${hub}${IDENTITY_SSO_BOOTSTRAP_PATH}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/json",
+      },
+      redirect: "error",
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return redirect(event, returnPath);
+    const body = (await response.json().catch((error) => {
+      void error;
+      return null;
+    })) as Record<string, unknown> | null;
+    if (typeof body?.continue_url !== "string") {
+      return redirect(event, returnPath);
+    }
+    const continueUrl = new URL(body.continue_url);
+    if (
+      continueUrl.origin !== new URL(hub).origin ||
+      continueUrl.pathname !== `${IDENTITY_SSO_BOOTSTRAP_PATH}/continue` ||
+      !BOOTSTRAP_HANDLE.test(continueUrl.searchParams.get("handle") ?? "")
+    ) {
+      return redirect(event, returnPath);
+    }
+    return redirect(event, continueUrl.toString());
+  } catch (error) {
+    void error;
+    return redirect(event, returnPath);
+  }
 }
 
 export async function handleIdentitySso(
@@ -509,6 +634,13 @@ export async function handleIdentitySso(
 
   const hub = resolveIdentityHubUrl(event);
   if (!hub) return new Response("Not found", { status: 404 });
+
+  if (sub === "/bootstrap") {
+    if (method !== "GET" && method !== "HEAD") {
+      return new Response("Method not allowed", { status: 405 });
+    }
+    return startIdentityBootstrap(event, hub, safeRequestReturnPath(event));
+  }
 
   if (sub === "/login") {
     if (method !== "GET" && method !== "HEAD") {
@@ -703,6 +835,7 @@ export function isIdentitySsoBypassPath(p: string): boolean {
   if (!isIdentitySsoEnabled()) return false;
   return (
     p === "/_agent-native/identity/login" ||
-    p === "/_agent-native/identity/callback"
+    p === "/_agent-native/identity/callback" ||
+    p === "/_agent-native/identity/bootstrap"
   );
 }

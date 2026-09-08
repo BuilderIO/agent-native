@@ -10,6 +10,8 @@ export default setupDispatch({
     },
     publicPaths: [
       "/_agent-native/identity/availability",
+      "/_agent-native/identity/bootstrap",
+      "/_agent-native/identity/bootstrap/continue",
       "/_agent-native/identity/authorize",
       "/_agent-native/identity/token",
       "/_agent-native/identity/organization",
