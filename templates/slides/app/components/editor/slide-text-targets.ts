@@ -196,7 +196,9 @@ export function isRichTextBlock(element: HTMLElement): boolean {
       const childElement = child as HTMLElement;
       return (
         RICH_TEXT_BLOCK_TAGS.has(childElement.tagName) ||
-        (children.length === 1 && isRichTextBlock(childElement))
+        (children.length === 1 &&
+          !isSmartGroup(childElement) &&
+          isRichTextBlock(childElement))
       );
     })
   );

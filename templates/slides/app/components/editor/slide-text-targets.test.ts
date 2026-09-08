@@ -116,6 +116,31 @@ describe("slide text targets", () => {
     );
   });
 
+  it("does not collapse a nested smart group into its layout wrapper", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div class="layout-wrapper">
+          <div class="stage-card">
+            <div class="stage-label">STAGE 1</div>
+            <div class="stage-title">Curiosity</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const wrapper = root.querySelector(".layout-wrapper") as HTMLElement;
+    const group = root.querySelector(".stage-card") as HTMLElement;
+    const text = root.querySelector(".stage-title") as HTMLElement;
+
+    expect(isRichTextBlock(group)).toBe(true);
+    expect(isRichTextBlock(wrapper)).toBe(false);
+    expect(shouldStampBuilderId(wrapper)).toBe(true);
+    expect(shouldStampBuilderId(group)).toBe(true);
+    expect(shouldStampBuilderId(text)).toBe(true);
+    expect(findSmartBlock(text, root)).toBe(text);
+  });
+
   it("keeps table cells selectable instead of owning them as one text layer", () => {
     const root = document.createElement("div");
     root.innerHTML = `
