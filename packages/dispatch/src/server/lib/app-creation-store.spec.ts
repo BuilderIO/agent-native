@@ -68,7 +68,7 @@ const mocks = vi.hoisted(() => {
       source: null,
       lookupFailed: false,
     })),
-    ensureBuilderProject: vi.fn(),
+    createBuilderProject: vi.fn(),
     runBuilderAgent: vi.fn(),
     getBuilderBranchProjectId: vi.fn(() => ""),
     writeAppSecret: vi.fn(async () => "secret-id"),
@@ -117,8 +117,8 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
     ...actual,
     resolveBuilderCredentialsDetailed: (...args: any[]) =>
       mocks.resolveBuilderCredentialsDetailed(...args),
-    ensureBuilderProject: (...args: any[]) =>
-      mocks.ensureBuilderProject(...args),
+    createBuilderProject: (...args: any[]) =>
+      mocks.createBuilderProject(...args),
     runBuilderAgent: (...args: any[]) => mocks.runBuilderAgent(...args),
     getBuilderBranchProjectId: (...args: any[]) =>
       mocks.getBuilderBranchProjectId(...args),
@@ -182,7 +182,13 @@ afterEach(() => {
     lookupFailed: false,
   });
   mocks.getBuilderBranchProjectId.mockReturnValue("");
-  mocks.ensureBuilderProject.mockReset();
+  mocks.createBuilderProject.mockReset();
+  mocks.createBuilderProject.mockResolvedValue({
+    projectId: "project-created",
+    name: "Agent-Native Workspace",
+    browserUrl: "https://builder.io/app/projects/project-created",
+    created: true,
+  });
   globalThis.fetch = originalFetch;
 });
 
@@ -1292,10 +1298,9 @@ describe("startWorkspaceAppCreation", () => {
         userId: "builder-user-42",
       }),
     );
-    mocks.ensureBuilderProject.mockResolvedValue({
+    mocks.createBuilderProject.mockResolvedValue({
       projectId: "project-provisioned",
       name: "Agent-Native Workspace",
-      repoUrl: "https://github.com/BuilderIO/builder-agent-native-workspace",
       browserUrl: "https://builder.io/app/projects/project-provisioned",
       created: true,
     });
@@ -1309,9 +1314,8 @@ describe("startWorkspaceAppCreation", () => {
 
     expect(result.mode).toBe("builder");
     expect(result.projectId).toBe("project-provisioned");
-    expect(mocks.ensureBuilderProject).toHaveBeenCalledWith({
+    expect(mocks.createBuilderProject).toHaveBeenCalledWith({
       name: "Agent-Native Workspace",
-      repoUrl: "https://github.com/BuilderIO/builder-agent-native-workspace",
     });
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: "project-provisioned" }),
@@ -1343,7 +1347,7 @@ describe("startWorkspaceAppCreation", () => {
       mode: "builder-unavailable",
       reason: "settings-management-required",
     });
-    expect(mocks.ensureBuilderProject).not.toHaveBeenCalled();
+    expect(mocks.createBuilderProject).not.toHaveBeenCalled();
     expect(mocks.putSetting).not.toHaveBeenCalled();
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
   });

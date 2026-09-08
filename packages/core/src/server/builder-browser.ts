@@ -33,6 +33,7 @@ import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
+const DEFAULT_BUILDER_TEMPLATE_ID = "agent-native-starter";
 const BUILDER_API_REQUEST_TIMEOUT_MS = 30_000;
 const BUILDER_BROWSER_HOST = "agent-native-browser";
 const BUILDER_BROWSER_CLIENT_ID = "Agent-Native Browser";
@@ -2087,14 +2088,10 @@ export interface RunBuilderAgentResult {
   status: string;
 }
 
-export interface BuilderProjectLookupArgs {
-  repoUrl: string;
-}
-
 export interface BuilderProjectResult {
   projectId: string;
   name: string;
-  repoUrl: string;
+  repoUrl?: string;
   browserUrl: string;
   created: boolean;
 }
@@ -2126,41 +2123,12 @@ function normalizeBuilderProjectString(
   return trimmed;
 }
 
-function normalizeBuilderRepoUrl(value: string): string {
-  const trimmed = value.trim();
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    throw new Error("Builder project repository URL is malformed");
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error("Builder project repository URL must use HTTP or HTTPS");
-  }
-  return trimmed;
-}
-
-function comparableBuilderRepoUrl(value: string): string {
-  try {
-    const parsed = new URL(value);
-    const pathname = parsed.pathname.replace(/\/+$/, "").replace(/\.git$/, "");
-    return `${parsed.hostname.toLowerCase()}${pathname.toLowerCase()}`;
-  } catch {
-    return value
-      .trim()
-      .replace(/\/+$/, "")
-      .replace(/\.git$/, "")
-      .toLowerCase();
-  }
-}
-
 function builderProjectBrowserUrl(projectId: string): string {
   return `${getBuilderAppHost().replace(/\/$/, "")}/app/projects/${encodeURIComponent(projectId)}`;
 }
 
 function builderProjectFromRecord(
   value: unknown,
-  fallbackRepoUrl: string | null,
   created: boolean,
 ): BuilderProjectResult | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -2175,12 +2143,11 @@ function builderProjectFromRecord(
   const repoUrl =
     typeof record.repoUrl === "string" && record.repoUrl.trim()
       ? record.repoUrl.trim()
-      : fallbackRepoUrl;
-  if (!repoUrl) return null;
+      : undefined;
   return {
     projectId: normalizeBuilderProjectString(projectId, "project id"),
     name: normalizeBuilderProjectString(name, "project name"),
-    repoUrl: normalizeBuilderRepoUrl(repoUrl),
+    ...(repoUrl ? { repoUrl } : {}),
     browserUrl: builderProjectBrowserUrl(projectId),
     created,
   };
@@ -2423,67 +2390,19 @@ function builderApiErrorMessage(
 }
 
 /**
- * Find an existing Builder project connected to a repository. Dispatch uses
- * this before provisioning so a first app request cannot create a duplicate
- * workspace project when the project id has not been saved yet.
- */
-export async function findBuilderProjectForRepo(
-  args: BuilderProjectLookupArgs,
-): Promise<BuilderProjectResult | null> {
-  const repoUrl = normalizeBuilderRepoUrl(args.repoUrl);
-  const authorization = await resolveBuilderApiAuthorization(
-    "builder:projects:read",
-  );
-  const url = new URL("/projects", getBuilderApiHost());
-  if (authorization.legacyPublicKey)
-    url.searchParams.set("apiKey", authorization.legacyPublicKey);
-  url.searchParams.set("includeHidden", "true");
-
-  const response = await fetchBuilderApi(
-    url,
-    {
-      method: "GET",
-      headers: { Authorization: authorization.authorization },
-    },
-    "project lookup",
-  );
-  const parsed = await readBuilderApiObject(response, "project lookup");
-  if (!response.ok) {
-    throw new Error(
-      builderApiErrorMessage(
-        parsed,
-        `Builder project lookup failed (${response.status})`,
-      ),
-    );
-  }
-
-  if (!Array.isArray(parsed.projects)) {
-    throw new Error("Builder project lookup returned no projects list");
-  }
-  const comparableRepoUrl = comparableBuilderRepoUrl(repoUrl);
-  for (const project of parsed.projects) {
-    const normalized = builderProjectFromRecord(project, null, false);
-    if (
-      normalized &&
-      comparableBuilderRepoUrl(normalized.repoUrl) === comparableRepoUrl
-    ) {
-      return normalized;
-    }
-  }
-  return null;
-}
-
-/**
- * Create a Builder project connected to a repository through the public
- * projects API. This is the server-side bridge used by Dispatch; online
- * Claude and ChatGPT hosts do not need a separate Builder CMS MCP connector.
+ * Create a Builder project from a template through the public projects API.
+ * This is the server-side bridge used by Dispatch; online Claude and ChatGPT
+ * hosts do not need a separate Builder CMS MCP connector.
  */
 export async function createBuilderProject(args: {
   name: string;
-  repoUrl: string;
+  templateId?: string;
 }): Promise<BuilderProjectResult> {
   const name = normalizeBuilderProjectString(args.name, "project name");
-  const repoUrl = normalizeBuilderRepoUrl(args.repoUrl);
+  const templateId = normalizeBuilderProjectString(
+    args.templateId ?? DEFAULT_BUILDER_TEMPLATE_ID,
+    "template id",
+  );
   const authorization = await resolveBuilderApiAuthorization(
     "builder:projects:write",
   );
@@ -2500,7 +2419,7 @@ export async function createBuilderProject(args: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        source: { kind: "repo", repoUrl },
+        source: { kind: "template", templateId },
         name,
       }),
     },
@@ -2516,24 +2435,11 @@ export async function createBuilderProject(args: {
     );
   }
 
-  const project = builderProjectFromRecord(parsed.project, repoUrl, true);
+  const project = builderProjectFromRecord(parsed.project, true);
   if (!project) {
     throw new Error("Builder project creation returned no project id");
   }
   return project;
-}
-
-/**
- * Reuse a connected Builder project or create it once when Dispatch is first
- * used for a workspace. The lookup and create calls intentionally stay in
- * this shared server helper so all callers use the same authenticated path.
- */
-export async function ensureBuilderProject(args: {
-  name: string;
-  repoUrl: string;
-}): Promise<BuilderProjectResult> {
-  const existing = await findBuilderProjectForRepo({ repoUrl: args.repoUrl });
-  return existing ?? createBuilderProject(args);
 }
 
 function normalizeBuilderBranchUrl(value: unknown): string {

@@ -646,8 +646,6 @@ export {
 } from "./builder-design-systems.js";
 export {
   createBuilderProject,
-  ensureBuilderProject,
-  findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
   requestBuilderBrowserConnection,

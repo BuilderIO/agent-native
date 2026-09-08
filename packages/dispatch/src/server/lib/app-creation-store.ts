@@ -7,11 +7,10 @@ import { signA2AToken } from "@agent-native/core/a2a";
 import { getDbExec } from "@agent-native/core/db";
 import { getOrgA2ASecret, getOrgDomain } from "@agent-native/core/org";
 import {
-  ensureBuilderProject,
+  createBuilderProject,
   getBuilderBranchProjectId,
   getRequestContext,
   isIntegrationCallerRequest,
-  resolveBuilderCredentialsDetailed,
   runBuilderAgent,
 } from "@agent-native/core/server";
 import { getOrgSetting } from "@agent-native/core/settings";
@@ -46,9 +45,6 @@ import {
 } from "./workspace-resources-store.js";
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
-const BUILDER_WORKSPACE_REPO_URL_ENV = "AGENT_NATIVE_WORKSPACE_REPO_URL";
-const DEFAULT_BUILDER_WORKSPACE_REPO_URL =
-  "https://github.com/BuilderIO/builder-agent-native-workspace";
 const DEFAULT_BUILDER_WORKSPACE_PROJECT_NAME = "Agent-Native Workspace";
 const APP_CREATION_SETTINGS_AUTHORIZATION_MESSAGE =
   "Only organization owners and admins can update app creation settings.";
@@ -2170,13 +2166,6 @@ export async function getAppCreationSettings(): Promise<AppCreationSettings> {
   };
 }
 
-function builderWorkspaceRepoUrl(): string {
-  return (
-    process.env[BUILDER_WORKSPACE_REPO_URL_ENV]?.trim() ||
-    DEFAULT_BUILDER_WORKSPACE_REPO_URL
-  );
-}
-
 async function persistProvisionedBuilderProjectId(
   builderProjectId: string,
 ): Promise<void> {
@@ -2212,9 +2201,8 @@ async function ensureBuilderProjectForWorkspace(): Promise<{
     }
 
     await assertCanManageAppCreationSettings();
-    const project = await ensureBuilderProject({
+    const project = await createBuilderProject({
       name: DEFAULT_BUILDER_WORKSPACE_PROJECT_NAME,
-      repoUrl: builderWorkspaceRepoUrl(),
     });
     await persistProvisionedBuilderProjectId(project.projectId);
     return { projectId: project.projectId };
@@ -2259,6 +2247,7 @@ function slugify(value: string): string {
 }
 
 export function isLocalAppCreationRuntime(): boolean {
+  return false;
   if (process.env.NODE_ENV === "production") return false;
   if (
     process.env.NETLIFY ||
@@ -2451,7 +2440,7 @@ function buildWorkspaceAppPrompt(input: {
       "",
       `App name: ${appId}`,
       `App description: ${appDescription}`,
-      `Template to start from: ${input.template || "starter"}`,
+      `Template to start from: ${input.template || "chat"}`,
       `User prompt: ${input.prompt.trim()}`,
       "If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.",
       selectedKeys.length
@@ -2479,6 +2468,11 @@ function buildWorkspaceAppPrompt(input: {
       "- Use Tabler Icons (@tabler/icons-react) for every icon. Never use emojis as icons.",
       `- Expose what the user is looking at via application_state (navigation.view, selection, etc.) so the agent has live context. Mirror the patterns in templates/mail or templates/slides.`,
       "- Optimistic UI for every mutation: update the React Query cache immediately, navigate immediately, run the mutation in the background, roll back on error. Don't await a server round-trip before re-rendering.",
+      `- Commit an agent-native.json at apps/${appId}/agent-native.json with { "version": 1, "onboarding": { "firstRun": { "development": "connect", "production": "connect-and-integrations" } } }. Keep the shared Connect Builder / Add your own keys onboarding visible; never build a second, custom credential form or hardcode a provider key.`,
+      "- Every AI-labeled button must call sendToAgentChat with openSidebar: true — plus submit: true for one-click work, or submit: false when the user should review/edit the proposed prompt first. Keep follow-ups in that same sidebar thread; don't add a second freeform input beside the result. Never use sparkle, wand, magic, robot, or other decorative AI icons on those buttons — a message or neutral action icon, or no icon, instead.",
+      "- Choose a named visual direction in DESIGN.md before styling the first screen and build to it. Don't inherit a sibling app's palette unbuilt.",
+      '- Left navigation must name real domain destinations, not "Chat" as the only or default entry.',
+      "- Anything irreversible — approving, publishing, sending, deleting — must show an explicit confirmation step before it executes. Never default to auto-approve or auto-send just because the workflow could run unattended.",
       "",
       "Branch readiness requirements before handing off:",
       "- The CLI auto-fills package.json name and displayName from the app id; only edit the description / scripts / dependencies if the app actually needs more than the template provides.",
@@ -2672,44 +2666,6 @@ export async function startWorkspaceAppCreation(input: {
   const settings = await getAppCreationSettings();
   let builderProjectId = settings.builderProjectId;
 
-  let builderCreds: Awaited<
-    ReturnType<typeof resolveBuilderCredentialsDetailed>
-  >;
-  try {
-    builderCreds = await resolveBuilderCredentialsDetailed();
-  } catch {
-    return {
-      mode: "builder-unavailable",
-      appId: built.appId,
-      reason: "credential-store-unavailable",
-      projectId: builderProjectId ?? "",
-      message:
-        "Could not read your Builder connection just now. Try creating the app again in a moment.",
-    };
-  }
-
-  if (builderCreds.lookupFailed) {
-    return {
-      mode: "builder-unavailable",
-      appId: built.appId,
-      reason: "credential-store-unavailable",
-      projectId: builderProjectId ?? "",
-      message:
-        "Could not read your Builder connection just now. Try creating the app again in a moment.",
-    };
-  }
-
-  if (!builderCreds.privateKey || !builderCreds.publicKey) {
-    return {
-      mode: "builder-unavailable",
-      appId: built.appId,
-      reason: "builder-not-connected",
-      projectId: builderProjectId ?? "",
-      message:
-        "Connect your Builder account (free tier available) to create apps from Dispatch.",
-    };
-  }
-
   if (!builderProjectId) {
     try {
       builderProjectId = (await ensureBuilderProjectForWorkspace()).projectId;
@@ -2739,7 +2695,6 @@ export async function startWorkspaceAppCreation(input: {
     }
   }
 
-  const builderUserId = builderCreds.userId || undefined;
   await reservePendingWorkspaceApp({
     appId: built.appId,
     description: appDescription,
@@ -2757,9 +2712,7 @@ export async function startWorkspaceAppCreation(input: {
       await runBuilderAgent({
         prompt,
         projectId: builderProjectId,
-        ...(builderUserId
-          ? { userId: builderUserId }
-          : { userEmail: currentOwnerEmail() }),
+        userEmail: currentOwnerEmail(),
       }),
     );
   } catch (err) {
