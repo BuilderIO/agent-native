@@ -918,8 +918,11 @@ const DESIGN_MOCK_CSS = [
   "html.light .design-mock .dm-paint-swatch { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }",
 
   // Light-mode floating toolbar: a raised white bar rather than the editor's
-  // fixed dark slab.
-  "html.light .design-mock .dm-toolbar { border-color: rgba(0, 0, 0, 0.08); background: rgba(255, 255, 255, 0.95); color: hsl(0 0% 20%); box-shadow: 0 22px 55px -24px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(0, 0, 0, 0.05); }",
+  // fixed dark slab. Opaque, not the 95% it used to be — it floats over the
+  // design's own white surface, so any translucency let the artboard bleed
+  // through and the bar stopped reading as a separate object. The edge and
+  // shadow carry all of the separation for the same reason.
+  "html.light .design-mock .dm-toolbar { border-color: rgba(0, 0, 0, 0.14); background: #ffffff; color: hsl(0 0% 20%); box-shadow: 0 24px 55px -22px rgba(0, 0, 0, 0.45), 0 2px 8px -2px rgba(0, 0, 0, 0.12); }",
   "html.light .design-mock .dm-tool { color: hsl(0 0% 28%); }",
   // Needed even though the base rule already sets this: the light `.dm-tool`
   // selector above outranks `.dm-tool.is-active` on specificity, so without it
@@ -929,8 +932,10 @@ const DESIGN_MOCK_CSS = [
   "html.light .design-mock .dm-toolbar-divider { background: rgba(0, 0, 0, 0.12); }",
   "html.light .design-mock .dm-mode-group { background: rgba(0, 0, 0, 0.06); }",
   "html.light .design-mock .dm-mode { color: hsl(0 0% 35%); }",
+  // An accent wash rather than the raised white chip the dark theme inverts to:
+  // white on a now-white bar is invisible.
   // `color` is restated for the same specificity reason as `.dm-tool.is-active`.
-  "html.light .design-mock .dm-mode.is-active { background: #ffffff; color: var(--dm-accent); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06), 0 6px 14px -8px rgba(0, 0, 0, 0.45); }",
+  "html.light .design-mock .dm-mode.is-active { background: rgba(0, 103, 127, 0.14); color: var(--dm-accent); box-shadow: inset 0 0 0 1px rgba(0, 103, 127, 0.22); }",
 
   // Narrow screens. The window is a fixed-width layout, so the whole mock
   // scales down and anchors to the left edge rather than letting the canvas
