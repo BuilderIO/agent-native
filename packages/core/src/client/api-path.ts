@@ -180,6 +180,44 @@ export function isWorkspaceAppPath(path: string): boolean {
   );
 }
 
+/** Resolve the live app mount from the route already visible in the browser. */
+export function appMountPath(appLocalRoute: string): string {
+  const basePath = appBasePath();
+  if (typeof window === "undefined") return basePath;
+
+  const pathname = window.location.pathname;
+  if (basePath && pathMatchesBasePath(pathname, basePath)) return basePath;
+
+  const marker = normalizeBasePath(appLocalRoute);
+  if (!marker) return basePath;
+
+  // Use the first whole-segment match so user-named trailing segments cannot
+  // masquerade as part of the mount.
+  for (
+    let index = pathname.indexOf(marker);
+    index >= 0;
+    index = pathname.indexOf(marker, index + 1)
+  ) {
+    const boundary = index + marker.length;
+    if (boundary === pathname.length || pathname[boundary] === "/") {
+      return normalizeBasePath(pathname.slice(0, index));
+    }
+  }
+
+  return basePath;
+}
+
+/** Prefix an app-local browser URL with the mount resolved from the live route. */
+export function appMountedPath(path: string, appLocalRoute: string): string {
+  if (!path.startsWith("/")) return path;
+  const mountPath = appMountPath(appLocalRoute);
+  if (!mountPath) return path;
+
+  const mounted = `${mountPath}${normalizeBasePath(appLocalRoute)}`;
+  if (path === mounted || path.startsWith(`${mounted}/`)) return path;
+  return `${mountPath}${path}`;
+}
+
 export function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
   const basePath = appBasePath();

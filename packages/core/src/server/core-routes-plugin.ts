@@ -3303,6 +3303,11 @@ export function createCoreRoutesPlugin(
             allowMemberInitiation: true,
           });
           if (orgConnectDenied) {
+            await putSetting(`builder-connect-error:${ownerEmail}`, {
+              message: orgConnectDenied,
+              at: Date.now(),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+            }).catch(() => {});
             await trackBuilderLifecycle(
               event,
               "builder connect failed",
