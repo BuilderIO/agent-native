@@ -680,6 +680,7 @@ export function AuthPage(props: AuthPageProps) {
   const [verificationEmail, setVerificationEmail] = React.useState("");
   const [verificationResendUntil, setVerificationResendUntil] =
     React.useState(0);
+  const [verificationResendNow, setVerificationResendNow] = React.useState(0);
   const [googleBusy, setGoogleBusy] = React.useState(false);
   const [magicLinkBusy, setMagicLinkBusy] = React.useState(false);
   const [environmentVisible, setEnvironmentVisible] = React.useState(false);
@@ -1714,7 +1715,9 @@ export function AuthPage(props: AuthPageProps) {
   React.useEffect(() => {
     if (!verificationResendUntil) return;
     const timer = window.setInterval(() => {
-      if (Date.now() >= verificationResendUntil) setVerificationResendUntil(0);
+      const now = Date.now();
+      setVerificationResendNow(now);
+      if (now >= verificationResendUntil) setVerificationResendUntil(0);
     }, 1000);
     return () => window.clearInterval(timer);
   }, [verificationResendUntil]);
@@ -1991,7 +1994,9 @@ export function AuthPage(props: AuthPageProps) {
         },
       );
       if (response.ok) {
-        setVerificationResendUntil(Date.now() + 60_000);
+        const resendUntil = Date.now() + 60_000;
+        setVerificationResendNow(Date.now());
+        setVerificationResendUntil(resendUntil);
         setNotice("verification", {
           kind: "success",
           text: t("sentVerification"),
@@ -2468,13 +2473,13 @@ export function AuthPage(props: AuthPageProps) {
               type="button"
               className="link-button"
               id="resend-verification"
-              disabled={verificationResendUntil > Date.now()}
+              disabled={verificationResendUntil > verificationResendNow}
               data-i18n="resendEmail"
               onClick={() => void resendVerification()}
             >
               {t("resendEmail")}
-              {verificationResendUntil > Date.now()
-                ? ` (${Math.ceil((verificationResendUntil - Date.now()) / 1000)}s)`
+              {verificationResendUntil > verificationResendNow
+                ? ` (${Math.ceil((verificationResendUntil - verificationResendNow) / 1000)}s)`
                 : ""}
             </button>
             <button

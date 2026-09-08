@@ -4,11 +4,14 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useDecksMock } = vi.hoisted(() => ({ useDecksMock: vi.fn() }));
+const { agentSidebarMock, useDecksMock } = vi.hoisted(() => ({
+  agentSidebarMock: vi.fn(),
+  useDecksMock: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentSidebar: ({ children, ...props }: { children: ReactNode }) => {
-    void props;
+    agentSidebarMock(props);
     return <div data-testid="agent-sidebar">{children}</div>;
   },
   focusAgentChat: vi.fn(),
@@ -75,7 +78,16 @@ function renderLayout(path: string) {
 
 describe("Slides Layout", () => {
   beforeEach(() => {
+    agentSidebarMock.mockClear();
     useDecksMock.mockReturnValue({ decks: [], loading: false });
+  });
+
+  it("opens the agent panel when a run starts", () => {
+    renderLayout("/");
+
+    expect(agentSidebarMock).toHaveBeenCalledWith(
+      expect.objectContaining({ openOnChatRunning: true }),
+    );
   });
 
   it("keeps the app shell visible on the empty root route", () => {

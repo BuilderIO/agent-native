@@ -257,7 +257,7 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen={false}
           chatViewTransition
           chatViewTransitionHandoff={chatHomeHandoffPending}
-          openOnChatRunning={chatHomeHandoffActive}
+          openOnChatRunning
           onFullscreenRequest={openAgentChatFullscreen}
           emptyStateText={t("agent.emptyState")}
           suggestions={[
