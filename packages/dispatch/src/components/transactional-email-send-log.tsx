@@ -15,7 +15,6 @@ import {
 import { ActionQueryError } from "./action-query-error";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Checkbox } from "./ui/checkbox";
 import {
   Command,
   CommandEmpty,
@@ -156,6 +155,9 @@ function AddressFilterControl({
             <Input
               id={containsId}
               value={contains}
+              placeholder={t(
+                "dispatch.transactionalEmail.sendLogContainsPlaceholder",
+              )}
               onChange={(event) => onContainsChange(event.target.value)}
               aria-label={t(
                 "dispatch.transactionalEmail.sendLogAddressFilterLabel",
@@ -176,6 +178,9 @@ function AddressFilterControl({
             <Input
               id={excludeId}
               value={exclude}
+              placeholder={t(
+                "dispatch.transactionalEmail.sendLogExcludePlaceholder",
+              )}
               onChange={(event) => onExcludeChange(event.target.value)}
               aria-label={t(
                 "dispatch.transactionalEmail.sendLogAddressFilterLabel",
@@ -257,7 +262,6 @@ export function SendLogSection({
   const [dateRange, setDateRange] = useState<DateRange>("7d");
   const [templateId, setTemplateId] = useState("all");
   const [templatePopoverOpen, setTemplatePopoverOpen] = useState(false);
-  const [excludeTemplateIds, setExcludeTemplateIds] = useState<string[]>([]);
   const [to, setTo] = useState("");
   const [excludeTo, setExcludeTo] = useState("");
   const [from, setFrom] = useState("");
@@ -275,7 +279,6 @@ export function SendLogSection({
 
   useEffect(() => {
     setTemplateId("all");
-    setExcludeTemplateIds([]);
   }, [selectedApp?.path]);
 
   useEffect(() => {
@@ -284,7 +287,6 @@ export function SendLogSection({
     appId,
     dateRange,
     templateId,
-    excludeTemplateIds,
     debouncedTo,
     debouncedExcludeTo,
     debouncedFrom,
@@ -306,7 +308,9 @@ export function SendLogSection({
     staleTime: Infinity,
   });
 
-  const templates = catalogQuery.data?.emails ?? [];
+  const templates = [...(catalogQuery.data?.emails ?? [])].sort(
+    (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+  );
   const selectedTemplate = templates.find((email) => email.id === templateId);
 
   const query = useQuery({
@@ -315,7 +319,6 @@ export function SendLogSection({
       selectedApp?.path,
       dateRange,
       templateId,
-      excludeTemplateIds.join(","),
       debouncedTo,
       debouncedExcludeTo,
       debouncedFrom,
@@ -331,9 +334,6 @@ export function SendLogSection({
         {
           sinceMs: Date.now() - dateRangeToInterval(dateRange) * 86_400_000,
           ...(templateId !== "all" ? { templateId } : {}),
-          ...(excludeTemplateIds.length > 0
-            ? { excludeTemplateIds: excludeTemplateIds.join(",") }
-            : {}),
           ...(debouncedTo ? { to: debouncedTo } : {}),
           ...(debouncedExcludeTo ? { excludeTo: debouncedExcludeTo } : {}),
           ...(debouncedFrom ? { from: debouncedFrom } : {}),
@@ -402,8 +402,9 @@ export function SendLogSection({
                 <CommandEmpty>
                   {t("dispatch.transactionalEmail.sendLogNoTemplatesFound")}
                 </CommandEmpty>
-                <CommandGroup>
+                <CommandGroup forceMount>
                   <CommandItem
+                    forceMount
                     value="all"
                     onSelect={() => {
                       setTemplateId("all");
@@ -420,6 +421,8 @@ export function SendLogSection({
                     />
                     {t("dispatch.transactionalEmail.sendLogAllTemplates")}
                   </CommandItem>
+                </CommandGroup>
+                <CommandGroup>
                   {templates.map((email) => (
                     <CommandItem
                       key={email.id}
@@ -446,53 +449,6 @@ export function SendLogSection({
                 </CommandGroup>
               </CommandList>
             </Command>
-          </PopoverContent>
-        </Popover>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              aria-label={t(
-                "dispatch.transactionalEmail.sendLogExcludeTemplates",
-              )}
-              disabled={catalogQuery.isLoading || templates.length === 0}
-              className="w-40 justify-start"
-            >
-              {excludeTemplateIds.length > 0
-                ? t(
-                    "dispatch.transactionalEmail.sendLogExcludedTemplatesCount",
-                    { count: excludeTemplateIds.length },
-                  )
-                : t("dispatch.transactionalEmail.sendLogExcludeTemplates")}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-80 p-2">
-            <div className="max-h-64 overflow-y-auto">
-              {templates.map((email) => (
-                <label
-                  key={email.id}
-                  className="flex cursor-pointer items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-accent"
-                >
-                  <Checkbox
-                    checked={excludeTemplateIds.includes(email.id)}
-                    onCheckedChange={(checked) =>
-                      setExcludeTemplateIds((current) =>
-                        checked === true
-                          ? [...current, email.id]
-                          : current.filter((id) => id !== email.id),
-                      )
-                    }
-                  />
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm">{email.name}</span>
-                    <span className="block truncate font-mono text-xs text-muted-foreground">
-                      {email.id}
-                    </span>
-                  </span>
-                </label>
-              ))}
-            </div>
           </PopoverContent>
         </Popover>
         <AddressFilterControl
@@ -539,7 +495,6 @@ export function SendLogSection({
           </SelectContent>
         </Select>
         {(templateId !== "all" ||
-          excludeTemplateIds.length > 0 ||
           to ||
           excludeTo ||
           from ||
@@ -551,7 +506,6 @@ export function SendLogSection({
             size="sm"
             onClick={() => {
               setTemplateId("all");
-              setExcludeTemplateIds([]);
               setTo("");
               setExcludeTo("");
               setFrom("");
