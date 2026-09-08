@@ -201,6 +201,16 @@ describe("getOnboardingHtml", () => {
       const html = getOnboardingHtml();
       expect(html).not.toContain("identity-sso-btn");
     });
+
+    it("ignores the removed browser SSO request fields", () => {
+      const html = getOnboardingHtml({
+        identitySsoRequestHost: "dispatch.agent-native.com",
+        identitySsoRequestProtocol: "https",
+      });
+
+      expect(html).not.toContain("identity-sso-btn");
+      expect(html).not.toContain("Sign in with Agent-Native");
+    });
   });
 
   describe("googleOnly login follows deployment credentials", () => {

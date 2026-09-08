@@ -1125,6 +1125,10 @@ export interface OnboardingHtmlOptions {
    * default auth guard serves before a template-specific auth plugin.
    */
   requestHost?: string;
+  /** @deprecated Browser SSO was removed. The fields are retained for patch compatibility. */
+  identitySsoRequestHost?: string;
+  /** @deprecated Browser SSO was removed. The field is retained for patch compatibility. */
+  identitySsoRequestProtocol?: string;
   requestPath?: string;
   requestOrigin?: string;
   /**

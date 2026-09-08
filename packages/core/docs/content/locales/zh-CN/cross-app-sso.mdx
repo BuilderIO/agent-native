@@ -1,347 +1,98 @@
 ---
-title: "跨应用SSO"
-description: "使用 Dispatch 作为身份授权，通过身份联合在每个托管代理本机应用程序中登录一次 - 每个应用程序选择加入，可通过单个环境变量进行逆转。"
+title: "跨应用 SSO"
+description: "记录 Desktop 工作区 SSO 和服务端组织联邦的剩余行为。浏览器中的 Agent-Native 登录已移除。"
 ---
 
-# 跨应用SSO
-
-`*.agent-native.com` 上的每个托管应用程序都使用其**自己的独立用户存储**运行自己的部署。 `mail.agent-native.com`和`calendar.agent-native.com`不共享数据库、会话表或cookie域。因此，“登录一次，使用每个应用程序”不能是共享 cookie — 它必须是**身份联合**，其中 [Dispatch](/docs/dispatch) 充当工作区的身份授权机构。
-
-这与 [A2A](/docs/a2a-protocol) 和 [External Agents](/docs/external-agents) 已经使用的信任原语相同 - 在请求边界验证的 `A2A_SECRET` 签名的 JWT - 应用于人工登录路径，而不是代理到代理的调用。
-
-<Callout tone="info">
-
-**统一部署与每个域部署。** 如果您在一个源（`your-agents.com/mail`、`your-agents.com/calendar`）托管所有应用程序，您已经通过单个 cookie 域获得共享登录 - 无需联合。仅当应用程序在不同的域上运行时，才需要跨应用程序 SSO。参见[Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment)。
-
-</Callout>
-
-## 用户看到的体验 {#user-flow}
-
-Cross-App SSO 应该让用户感觉是在同一个工作区的产品之间切换，而不是创建第二个账户。例如：
-
-1. 登录 [Dispatch](https://dispatch.agent-native.com)，或登录任何已经使用工作区身份的应用。
-2. 在新标签页中打开 [Mail](https://mail.agent-native.com)、[Calendar](https://calendar.agent-native.com) 或其他已启用的应用。
-3. 只有在浏览器没有 Dispatch 会话时，应用才会将浏览器发送到 Dispatch。如果会话已经存在，重定向几乎不会被察觉。
-4. 返回应用时已经处于登录状态，并保留相同的电子邮件、记录和组织上下文。
-
-重要区别是：这是**一次登录，而不是共享 Cookie**。每个单独托管的应用仍然创建并管理自己的本地会话。Dispatch 在应用入口证明用户身份，之后应用继续使用自己的本地身份验证和访问检查。
-
-产品演示可以按此顺序录制：在 Dispatch 中登录一次，打开另外两个托管应用，展示它们都不会再次要求凭据，然后从其中一个应用退出登录，展示另一个应用的会话仍然独立。这样可以直观看到安全边界。
-
-## 什么以及为什么 {#what-why}
-
-每个应用程序的用户存储意味着浏览器 cookie 没有一个可以被每个应用程序信任的地方。相反，联合模型将一个应用程序命名为 **Dispatch** 作为身份授权机构。任何其他应用程序都可以委托“这个人是谁？”要调度，取回用户已验证电子邮件的短暂签名断言，然后**通过电子邮件将其链接到其自己的本地帐户**。
-
-链接规则故意狭窄和附加：
-
-- **现有同一电子邮件用户→链接。**本地帐户与经过验证的电子邮件匹配并按原样重复使用。它**永远不会被修改、重命名或删除** - 联合层只会读取它并为其创建一个会话。
-- **新电子邮件 → 创建。** 为该经过验证的电子邮件创建一个新的本地帐户，然后创建一个正常的本地会话。
-
-这使得部署安全，即使它会导致人们退出。 **预计会注销。** 当应用程序打开此功能时，现有会话将结束，并且用户通过 Dispatch 重新进行身份验证。但他们总是重新登录**同一个电子邮件匹配帐户，所有数据都完好无损**，因为身份行只会*添加到* — 永远不会被销毁、重命名或重新指向。
-
-### 组织上下文 {#organization-context}
-
-默认关闭的 `organization.cross-app-federation` 标志会为工作区组织增加一个仅在服务端
-执行的步骤。当应用创建或读取组织时，它会向 Dispatch 注册该组织，并保存精确的
-`(identity_authority, identity_id)` 映射。之后在另一个已启用的应用中登录时，签名断言会
-携带相同的规范 `org_id`、组织名称和成员角色。目标应用会根据该 ID 创建或关联本地组织。
-
-组织名称、电子邮件域名和浏览器 cookie 都不是关联键。没有持久映射的现有本地组织保持不变，
-不会自动合并。确认预期的匹配后，请使用明确的迁移流程。
-
-未关联的本地组织在 Dispatch 临时中断期间仍可使用。已关联的联合成员资格在
-身份授权恢复可访问前会安全地拒绝，并在之后读取组织时重试注册。
-
-## 它是如何工作的 {#how-it-works}
-
-该流程是标准授权 → 签名令牌 → 回调重定向，其中电子邮件是唯一跨越信任边界的内容。
-
-<Diagram id="doc-block-c31qt7" title={"身份联合流程"} summary={"Dispatch 对人员进行身份验证，并返回包含已验证电子邮件以及启用时精确组织上下文的短暂签名断言。应用按电子邮件连接帐户，按 ID 映射组织，并创建自己的本地会话。"}>
-
-```html
-<div class="diagram-sso">
-  <div class="diagram-card" data-rough>
-    <strong>客户端应用</strong
-    ><small class="diagram-muted">own user store</small>
-  </div>
-  <div class="diagram-step">
-    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-    <span class="diagram-pill">authorize</span>
-  </div>
-  <div class="diagram-card" data-rough>
-    <strong>Dispatch</strong
-    ><small class="diagram-muted">identity authority</small
-    ><span class="diagram-pill accent">authenticates human</span>
-  </div>
-  <div class="diagram-step">
-    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-    <span class="diagram-pill accent">302 + signed JWT</span>
-  </div>
-  <div class="diagram-card" data-rough>
-    <strong>应用回调</strong
-    ><small class="diagram-muted"
-      >verify signature · scope:identity · exp &le; 2 min</small
-    ><span class="diagram-pill ok">通过邮箱即时关联</span
-    ><span class="diagram-pill ok">mint local session</span>
-  </div>
-</div>
-```
-
-```css
-.diagram-sso {
-  display: flex;
-  align-items: stretch;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-sso .diagram-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
-  min-width: 150px;
-}
-.diagram-sso .diagram-step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-.diagram-sso .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-1. **应用 → Dispatch（授权）。** 应用端的 `GET /_agent-native/identity/login` 路由（“使用 Agent-Native 登录”按钮链接到的路由）构建重定向，并将用户发送到身份授权机构：
-
-   ```http
-   GET https://dispatch.agent-native.com/_agent-native/identity/authorize
-       ?app=<requesting-app>
-       &redirect_uri=<app-callback-url>
-       &状态=<csrf-state>
-   ```
-
-   `redirect_uri` 是此应用自己的 `GET /_agent-native/identity/callback` 路由，也就是在步骤 3 中接收签名令牌的路由。
-
-<Endpoint id="cross-app-sso-identity-authorize-zh-cn" title={"身份授权端点"} method="GET" path="/_agent-native/identity/authorize" summary={"Dispatch（身份授权）对人员进行身份验证并使用签名的身份令牌重定向回来"} auth={"调度会话（如果没有则交互式登录）"} params={[
-  {
-    "name": "app",
-    "in": "query",
-    "type": "string",
-    "required": true,
-    "description": "请求的应用程序标识符。"
-  },
-  {
-    "name": "redirect_uri",
-    "in": "query",
-    "type": "string",
-    "required": true,
-    "description": "应用程序回调 URL。根据严格的白名单进行验证（默认为 `*.agent-native.com` 或 localhost）。"
-  },
-  {
-    "name": "state",
-    "in": "query",
-    "type": "string",
-    "required": true,
-    "description": "CSRF 状态在重定向上回显。"
-  }
-]} responses={[
-  {
-    "status": "302",
-    "description": "重定向到 `redirect_uri`，携带短暂的 `A2A_SECRET` 签名身份 JWT（`scope: \"identity\"`、`exp` ≤ 2 分钟）加上原始 `state`。"
-  },
-  {
-    "status": "400",
-    "description": "`redirect_uri` 未通过白名单验证（跨源、方案相关 `//host` 或未列出的后缀）。"
-  }
-]}>
-
-</Endpoint>
-
-2. **Dispatch 对人员进行身份验证。** 如果用户已有 Dispatch 会话，则这是透明的。如果没有，Dispatch 将显示其自己的正常登录信息（电子邮件/密码、Google 等 — 请参阅 [Authentication](/docs/authentication)）。 Dispatch 只是一个常规的代理原生应用程序；它没有运行特殊的身份验证模式。
-
-3. **调度→应用程序（签名身份令牌）。**调度根据严格的白名单验证`redirect_uri`，并302重定向回应用程序的`redirect_uri`，携带短暂的**`A2A_SECRET`签名身份JWT**。令牌的声明故意最小化：
-
-   | 声明         | 含义                                              |
-   | ------------ | ------------------------------------------------- |
-   | `sub`        | 身份机构的稳定用户ID                              |
-   | `email`      | 用户的**已验证**电子邮件 - 唯一的加入密钥         |
-   | `name`       | 显示名称（非权威，仅适用于UI）                    |
-   | `org_domain` | 工作空间/组织域（如果存在）                       |
-   | `org_id`     | 仅在启用组织联合时提供的规范组织 ID               |
-   | `org_name`   | 与 `org_id` 配对的组织名称                        |
-   | `org_role`   | 与 `org_id` 配对的已验证成员角色                  |
-   | `scope`      | 始终为 `"identity"`。仅在启用 flag 时接受组织字段 |
-   | `exp`        | **≤ 2 分钟** 距问题                               |
-
-4. **应用通过电子邮件验证并进行 JIT 链接。** 应用的 `GET /_agent-native/identity/callback` 路由使用自己的 `A2A_SECRET` 验证令牌签名，检查 `scope: "identity"` 和 `exp`，然后**按已验证电子邮件执行即时链接**：
-   - 如果具有该电子邮件地址的本地用户存在 → 不加修改地重新使用它。
-   - 如果没有 → 为该电子邮件创建本地用户。
-     启用 `organization.cross-app-federation` 后，应用还会一起验证签名的 `org_id`、`org_name` 和 `org_role`。本地组织只按完全匹配的 authority 和 ID 进行映射，不按名称或电子邮件域映射。
-
-5. **应用程序创建一个普通的本地会话。**从这里开始，用户在该应用程序自己的商店中拥有一个普通的本地会话 - 每个现有的访问检查、组织范围和操作防护都与以前完全相同。联邦只发生在前门。
-
-### 选择加入 {#opt-in}
-
-应用**仅**在其部署中设置此环境变量时参与：
-
-```bash
-AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
-```
-
-- **设置** → 应用程序显示运行上述流程的**“使用 Agent-Native 登录”**选项。直接本地登录（电子邮件/密码、Google）仍然可以与它一起使用。
-- **规范托管客户端** → 具有已注册来源的应用会显示**“使用 Agent-Native 登录”**选项；自托管应用仍需设置该变量。部署后可能存在新增的映射列，但 flag 关闭时不会使用它们。
-
-## 安全 {#security}
-
-整个模型依赖于一些故意的小保证：
-
-- **短暂的签名令牌。**身份断言是 `A2A_SECRET` 签名的 JWT，具有 **≤ 2 分钟** 到期时间和 `scope: "identity"`。它授权单次登录，并且不能长时间重播或重新用于 API/A2A 访问。
-- **与应用绑定的严格 `redirect_uri` 允许列表。** 每个规范应用 ID 都映射到一个精确的生产源和回调路径；localhost 仍可用于开发。未知子域、不匹配的应用 ID、任意路径和跨源目标都会被拒绝。
-- **已验证电子邮件连接和精确组织映射。** 已验证电子邮件仍是用户帐户唯一的连接键。启用组织 flag 后，应用只接受经过加密验证的 Dispatch 断言中的 `org_id`、`org_name` 和 `org_role`，并且只按完全匹配的 authority 和 ID 映射组织。
-- **仅添加身份和组织写入。**链接可以不受影响地重复使用现有的同一电子邮件帐户，也可以插入一个新帐户。组织映射仅会添加。此路径上不会发生现有身份或组织行的重命名、重新分配或删除。
-- **规范托管客户端按来源启用。**具有已注册来源的规范托管应用会自动启用；自托管应用在未设置 `AGENT_NATIVE_IDENTITY_HUB_URL` 时保持停用。
-
-<Callout id="doc-block-spb3q0" tone="success">
-
-**启用安全，恢复安全。**身份和组织映射写入**仅可添加**。现有帐户不变地重复使用，新电子邮件插入新行，迁移添加可为空的映射列。关闭任一 flag 都不会删除本地用户、组织、成员资格或凭据。
-
-</Callout>
-
-即时链接是完全基于经过验证的电子邮件的单一决策：
-
-<Diagram id="doc-block-1ieaklz" title={"JIT-link 决定"} summary={"用户帐户按已验证电子邮件连接。启用时，组织按完全匹配的 authority 和 ID 映射。所有写入都仅为添加。"}>
-
-```html
-<div class="diagram-jit">
-  <div class="diagram-node" data-rough>
-    已验证邮箱<br /><small class="diagram-muted">来自已签名身份 JWT</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-branch">
-    <div class="diagram-box" data-rough>
-      Local user exists?<span class="diagram-pill ok"
-        >yes &rarr; reuse unchanged</span
-      ><span class="diagram-pill accent">no &rarr; create local user</span>
-    </div>
-    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-    <div class="diagram-box" data-rough>签发普通本地会话</div>
-  </div>
-</div>
-```
-
-```css
-.diagram-jit {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-jit .diagram-node {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-}
-.diagram-jit .diagram-branch {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-jit .diagram-box {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-}
-.diagram-jit .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-## 自托管 {#self-hosting}
-
-任何 Dispatch 部署都可以充当身份中心 - 您不限于 `dispatch.agent-native.com`。在每个客户端应用程序上设置 `AGENT_NATIVE_IDENTITY_HUB_URL` 以指向您的 Dispatch 实例：
-
-```bash
-AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
-```
-
-**重定向允许列表。** 集线器（调度）在发出令牌之前验证授权端点上的 `redirect_uri`。允许名单在`templates/dispatch/server/lib/identity-sso.ts`中配置：
-
-- **默认值：** 仅允许精确注册的 Agent-Native 应用 ID/源对和 localhost（`CANONICAL_IDENTITY_SSO_APP_ORIGINS`）。
-- **扩展它：**在 Dispatch 部署上设置 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 环境变量，并使用逗号分隔的其他主机后缀列表：
-
-  ```bash
-  # 除默认值外还允许 yourcompany.com 子域
-  IDENTITY_SSO_ALLOWED_HOST_SUFFIXES=".yourcompany.com,.staging.yourcompany.com"
-  ```
-
-  每个条目都被标准化为点前缀后缀 (`.yourcompany.com`)，因此后缀检查既足够又最不容易发生 — 无需按应用程序列表保持同步。与所有内容匹配的条目（空或只是 `.`）将被过滤掉。
-
-- 无论 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 为何，**Localhost** 始终允许本地开发客户端应用程序。
-
-如果没有 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`，自托管 Dispatch 只能向 `*.agent-native.com` 上的应用程序颁发令牌。在 Dispatch 部署上设置环境变量以解锁其他域。
-
-## 金丝雀推出运行手册 {#canary-rollout}
-
-切换和回滚是**每个应用程序部署的单个环境变量**。一次推出一个应用程序，验证，然后扩展。不要同时在每个应用程序上设置变量。
-
-先推出浏览器身份 flag。在应用程序和 Dispatch 部署组织映射迁移后，为一个组织启用 `organization.cross-app-federation`，并验证规范 ID 和角色。浏览器 SSO 继续使用 `A2A_SECRET`，但组织联邦使用每个应用单独的凭据：在源应用设置 `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET`，并在 Dispatch 设置匹配的 `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>`。不要在此联邦权限边界重复使用共享的 `A2A_SECRET`。没有映射的现有组织在明确迁移前保持不变。
-
-**1。部署代码——没有行为改变。**
-使用 `AGENT_NATIVE_IDENTITY_HUB_URL` **将版本发布到每个应用程序**到处都未设置\*\*。确认正常登录在几个应用程序上仍然有效。
-
-**2。一次在 ONE 应用程序上启用金丝雀。**
-仅在一次部署上设置：
-
-```bash
-AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
-```
-
-保留所有其他应用程序的环境未设置。重新部署/重新启动，以便它获取变量。
-
-**3。验证金丝雀（清单）。**
-
-- 注销应用程序。
-- 登录屏幕现在显示**“使用 Agent-Native 登录”**。单击它。
-- 您将进入 **Dispatch** 并完成登录（如果已经登录，则直接通过）。
-- 您将被重定向**返回应用程序并登录** — 并且它是您之前拥有的**相同的现有帐户**（同一电子邮件），而不是新帐户。
-- **应用数据完好无损** — 您的现有记录、设置和组织范围与原来完全相同。
-- **现有的直接登录仍然有效** - 电子邮件/密码和 Google 登录继续与 SSO 一起使用。
-
-如果任何检查失败，请直接进入步骤 4（回滚）——这是即时且数据安全的。
-
-**4。逐个应用程序展开。**
-验证一个应用程序后，对下一个应用程序重复步骤 2-3 - 一次在一个部署上设置 `AGENT_NATIVE_IDENTITY_HUB_URL`。切勿批量启用。
-
-**5。回滚 = 取消设置该应用程序部署上的环境变量。**
-要恢复任何应用程序，**从该应用程序的环境中删除 `AGENT_NATIVE_IDENTITY_HUB_URL` 并重新部署/重新启动它。**应用程序立即返回到其之前的身份验证行为。身份和组织映射写入仅为添加，取消设置变量不会删除本地用户、组织、成员资格或凭据。每个应用的割接和回滚都是独立且可逆的。
-
-<Callout tone="info">
-
-启用每个应用程序时，Rollout 会将用户注销（他们通过 Dispatch 重新进行身份验证），但他们始终会重新登录到**相同的电子邮件匹配帐户，并且数据完好无损**，因为身份行永远不会被销毁或重命名 - 只是添加。
-
-</Callout>
-
-## 下一步 {#whats-next}
-
-- [Authentication](/docs/authentication) — 本地身份验证模式、会话、组织、`A2A_SECRET` 环境变量。
-- [A2A Protocol](/docs/a2a-protocol) — 已签名的 JWT，它重用的边界验证信任模型。
-- [External Agents](/docs/external-agents) — 应用于代理连接和深层链接的相同 `A2A_SECRET` 签名身份模式。
-- [Dispatch](/docs/dispatch) — 工作区身份授权和路由中心。
-- [Security & Data Scoping](/docs/security) - 仅附加数据写入和每个帐户范围。
-- [Multi-App Workspaces](/docs/multi-app-workspace) — 统一的单源部署，完全避免跨域 SSO。
-
-Dispatch 的 `desktop.workspace-sso` 标志默认关闭且只控制可用性；身份验证、签名、nonce、来源、回调、会话和撤销检查始终强制执行。标志关闭或无法读取时，Desktop 不会更改逐应用登录、退出或设置。
-User-Agent 中的 Canary 标记仅是可用性提示，不是远程证明；身份验证和授权均不信任该标记。
-每个 Desktop 版本都可以在设备偏好 `desktopSsoEnabled` 为 true（默认值）时初始化代理；显式持久化的 `false` 仍表示用户选择退出。Dispatch 的 `desktop.workspace-sso` 标志也必须启用。Canary 用户代理标记不再控制代理初始化，只用于标识更新渠道。
-Canary 不会拦截匿名用户进入应用登录页的导航。用户必须在 Desktop 设置中为当前活动的已注册应用明确选择工作区登录；普通应用登录仍是默认路径。
+# 跨应用 SSO
+
+浏览器中的“Sign in with Agent-Native”选项和自动浏览器跳转已移除。对于
+Web 用户，每个应用独立登录仍是默认方式。本页只介绍剩余的显式 Desktop
+流程和服务端联邦协议。
+
+## 保留的功能
+
+### Desktop 工作区
+
+工作区登录是 Desktop 设置中的显式操作。启用后，Desktop 可以通过专用
+broker 为符合条件且已注册的应用配置登录。每个目标应用仍然拥有自己的
+用户存储、会话和访问检查。Desktop 不会拦截浏览器前往应用登录页的匿名
+导航。
+
+应用必须同时满足以下条件才符合要求：
+
+- Desktop 为该应用启用工作区 SSO。
+- 生产 URL 是精确的 HTTPS 地址。
+- Dispatch 为该应用保存了精确的服务端注册信息。
+- <code>desktop.workspace-sso</code> 发布标志已启用。
+
+设备级偏好 <code>desktopSsoEnabled</code> 默认启用。显式设置为 false 仍然
+表示退出。如果标志、偏好、注册信息或资格检查不可用，普通的应用登录
+仍然可用。
+
+### 服务端联邦
+
+剩余的 broker 和服务端调用方使用短时、服务端验证的协议。它不会作为
+浏览器登录控件提供：
+
+1. 调用方请求一个精确的已注册应用绑定。
+2. Dispatch 验证工作区身份并返回短时的一次性授权码。
+3. 目标应用服务器使用 PKCE 验证器兑换代码。
+4. 目标应用验证签名断言、精确应用绑定、回调、范围、nonce 和过期时间。
+5. 目标应用按已验证邮箱关联或创建本地用户，并签发自己的普通会话。
+
+断言只通过服务端到服务端交换返回。它不会出现在浏览器 URL 中，也不是
+可重复使用的 bearer token。
+
+## 组织联邦
+
+<code>organization.cross-app-federation</code> 标志默认关闭。启用后，源应用
+向 Dispatch 注册本地组织，并保存精确的
+<code>(identity_authority, identity_id)</code> 映射。目标应用只接受来自
+服务端验证断言的规范组织 ID、名称和已验证成员角色。
+
+组织名称、邮箱域名和浏览器 Cookie 不是关联键。没有映射的本地组织在显式
+迁移前保持不变。已关联的成员关系仍使用目标应用的普通访问检查。
+
+组织联邦为每个已注册源应用使用独立凭据：
+
+- 在源应用设置 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code>。
+- 在 Dispatch 设置匹配的
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;APP_ID&gt;</code>。
+- 不要为此权限边界重复使用 <code>A2A_SECRET</code>。
+
+身份和组织写入只会添加数据。相同邮箱的现有用户会原样复用。新的已验证
+邮箱会创建本地用户。关闭联邦不会删除数据。
+
+## 配置
+
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> 仅用于剩余的服务端和 Desktop
+路径。当自托管应用需要指定 Dispatch 部署时才设置它。它不会添加浏览器
+登录选项或自动浏览器跳转。
+
+对于自托管 Dispatch，请通过
+<code>IDENTITY_SSO_APP_REGISTRY_JSON</code> 为每个自定义应用注册精确的应用
+ID、客户端 ID、HTTPS 来源、回调路径和 <code>identity-sso</code> 能力。
+
+生产注册必须使用 HTTPS 和精确的回调路径。Localhost 只允许用于本地开发。
+未知子域、不匹配的应用 ID、任意路径和跨来源回调都会被拒绝。
+
+## 验证和回滚
+
+部署后：
+
+1. 验证浏览器中的邮箱、密码、魔法链接和已配置的提供商登录仍然有效。
+2. 验证浏览器认证页面不提供 Agent-Native 登录选项。
+3. 如果启用了 Desktop SSO，从 Desktop 设置中的显式操作验证一个精确注册的应用。
+4. 如果启用了组织联邦，验证目标应用中的精确组织 ID 和成员角色。
+
+要回滚剩余路径，请关闭相应功能标志，并从自托管部署中移除
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code>，然后重新部署。已添加的身份和
+组织记录会保留，可继续用于普通本地认证。
+
+## 相关文档
+
+- [身份验证](/docs/authentication)
+- [A2A 协议](/docs/a2a-protocol)
+- [Dispatch](/docs/dispatch)
+- [安全与数据范围](/docs/security)
+- [多应用工作区](/docs/multi-app-workspace)
