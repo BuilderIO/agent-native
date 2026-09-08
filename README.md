@@ -234,7 +234,24 @@ Draft, organize, and publish content.
 <br />
 
 </td>
-<td width="33%"></td>
+<td width="33%" align="center" valign="top">
+
+<br />
+
+**Plans**
+
+<a href="https://agent-native.com/apps/plan/">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe89439e917044fc9ac9663737e35bf1f?format=webp&width=800">
+<img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F98427229c8c84c30afee56172503c294?format=webp&width=800" alt="Plans app screenshot" width="100%">
+</picture>
+</a>
+
+Create and review visual plans with diagrams, wireframes, and prototypes.
+
+<br />
+
+</td>
 </tr>
 </table>
 
