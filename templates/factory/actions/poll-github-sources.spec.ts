@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 const requireFactoryAutomationMock = vi.hoisted(() => vi.fn());
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
+const readTriageConfigRowMock = vi.hoisted(() => vi.fn());
+const readCallingFactoryAutomationMock = vi.hoisted(() => vi.fn());
+const recordFactoryAuditMock = vi.hoisted(() => vi.fn());
+const getDbMock = vi.hoisted(() => vi.fn());
+const createGitHubClientMock = vi.hoisted(() => vi.fn());
+const insertMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -17,7 +24,7 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  getDb: vi.fn(),
+  getDb: getDbMock,
 }));
 
 vi.mock("../server/lib/factory-automation-repair.js", () => ({
@@ -25,15 +32,23 @@ vi.mock("../server/lib/factory-automation-repair.js", () => ({
 }));
 
 vi.mock("../server/lib/factory-automation-caller.js", () => ({
-  readCallingFactoryAutomation: vi.fn().mockResolvedValue(null),
+  readCallingFactoryAutomation: readCallingFactoryAutomationMock,
+}));
+
+vi.mock("../server/lib/factory-scope.js", () => ({
+  factoryIdSchema: z.string(),
+  orgFactoryItemFilter: vi.fn(),
+  readTriageConfigRow: readTriageConfigRowMock,
+  requireExistingFactory: vi.fn(),
 }));
 
 vi.mock("../server/triage/github-client.js", () => ({
-  createGitHubClient: vi.fn(),
+  createGitHubClient: createGitHubClientMock,
+  GitHubRequestError: class extends Error {},
 }));
 
 vi.mock("../server/triage/audit.js", () => ({
-  recordFactoryAudit: vi.fn(),
+  recordFactoryAudit: recordFactoryAuditMock,
 }));
 
 beforeEach(() => {
@@ -44,6 +59,23 @@ beforeEach(() => {
     role: "owner",
   });
   requireFactoryAutomationMock.mockRejectedValue(new Error("gated"));
+  readCallingFactoryAutomationMock.mockResolvedValue(null);
+  readTriageConfigRowMock.mockResolvedValue(null);
+  insertMock.mockReturnValue({
+    values: () => ({ onConflictDoUpdate: async () => undefined }),
+  });
+  const tx = {
+    select: () => ({
+      from: () => ({ where: () => ({ limit: async () => [] }) }),
+    }),
+    insert: insertMock,
+  };
+  getDbMock.mockReturnValue({
+    // The parked-PR pre-scan awaits `.where()` itself, while the in-transaction
+    // lookups await `.limit()`; mocking both the same way breaks confusingly.
+    select: () => ({ from: () => ({ where: async () => [] }) }),
+    transaction: async (run: (tx: unknown) => Promise<void>) => run(tx),
+  });
 });
 
 describe("selectParkedRowsForRecheck", () => {
@@ -150,6 +182,147 @@ describe("poll-github-sources action", () => {
       { userEmail: "owner@example.com", orgId: "org-1" },
       "githubPolling",
       "enzo-test-factory-3",
+    );
+  });
+
+  it("records the unconfigured repository instead of failing invisibly", async () => {
+    const { default: action } = await import("./poll-github-sources.js");
+    requireFactoryAutomationMock.mockResolvedValue(undefined);
+    readCallingFactoryAutomationMock.mockResolvedValue({
+      name: "factories/testingfactory/factory-pr-babysit",
+      content: "",
+      config: { repository: null },
+    });
+    readTriageConfigRowMock.mockResolvedValue({ repository: null });
+
+    await expect(
+      action.run(
+        {
+          factoryId: "testingfactory",
+          includeIssues: false,
+          includePullRequests: true,
+        },
+        {
+          caller: "automation" as const,
+          userEmail: "owner@example.com",
+          orgId: "org-1",
+        },
+      ),
+    ).rejects.toThrow("Configure a GitHub repository before polling GitHub.");
+
+    expect(recordFactoryAuditMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      expect.objectContaining({
+        action: "poll-github-sources",
+        status: "error",
+      }),
+      "testingfactory",
+    );
+  });
+});
+
+describe("poll-github-sources author filter", () => {
+  function pullRequest(number: number, userId: number, userLogin: string) {
+    return {
+      number,
+      title: `PR ${number}`,
+      body: null,
+      state: "open",
+      draft: false,
+      htmlUrl: `https://github.com/acme/repo/pull/${number}`,
+      userId,
+      userLogin,
+      headSha: `sha-${number}`,
+      headRef: "feature",
+      baseRef: "main",
+      mergeable: true,
+      mergeableState: "clean",
+      createdAt: "2026-09-04T00:00:00.000Z",
+      updatedAt: "2026-09-04T00:00:00.000Z",
+    };
+  }
+
+  function runWithAuthors(authorMode: "include" | "exclude", ids: string[]) {
+    requireFactoryAutomationMock.mockResolvedValue(undefined);
+    readCallingFactoryAutomationMock.mockResolvedValue({
+      name: "factories/testingfactory/factory-pr-babysit",
+      content: "",
+      config: {
+        repository: "acme/repo",
+        authorMode,
+        authorIds: ids,
+        inboxLimit: 25,
+      },
+    });
+    createGitHubClientMock.mockReturnValue({
+      listOpenIssues: async () => [],
+      listOpenPullRequests: async () => [
+        pullRequest(1, 138030887, "builder-io-integration[bot]"),
+        pullRequest(2, 844291, "steve8708"),
+      ],
+    });
+  }
+
+  const context = {
+    caller: "automation" as const,
+    userEmail: "owner@example.com",
+    orgId: "org-1",
+  };
+
+  const input = {
+    factoryId: "testingfactory",
+    includeIssues: false,
+    includePullRequests: true,
+  };
+
+  it("never stores a pull request whose author the filter excludes", async () => {
+    const { default: action } = await import("./poll-github-sources.js");
+    runWithAuthors("include", ["138030887"]);
+
+    const result = await action.run(input, context);
+
+    expect(result).toMatchObject({ pullRequests: 1, authorFiltered: 1 });
+    expect(insertMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the inbox budget for matching authors only", async () => {
+    const { default: action } = await import("./poll-github-sources.js");
+    runWithAuthors("include", ["138030887"]);
+
+    await action.run(input, context);
+
+    expect(recordFactoryAuditMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      expect.objectContaining({
+        details: expect.objectContaining({
+          authorFiltered: 1,
+          added: 1,
+          truncated: false,
+        }),
+      }),
+      "testingfactory",
+    );
+  });
+
+  it("separates an all-filtered run from an empty repository queue", async () => {
+    const { default: action } = await import("./poll-github-sources.js");
+    runWithAuthors("include", ["999999"]);
+
+    const result = await action.run(input, context);
+
+    expect(result).toMatchObject({ pullRequests: 0, authorFiltered: 2 });
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(recordFactoryAuditMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      expect.objectContaining({
+        status: "skipped",
+        summary:
+          "Every open item was skipped by the automation's author filter (2 skipped).",
+      }),
+      "testingfactory",
     );
   });
 });

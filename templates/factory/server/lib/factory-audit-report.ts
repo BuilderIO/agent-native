@@ -407,15 +407,15 @@ export function auditItemSubject(
   item: FactoryAuditItemSnapshot | undefined,
   events: FactoryAuditEventRecord[],
 ): string {
-  const storedSummary = readStoredFeedbackText(item, events);
-  if (storedSummary) return firstLine(storedSummary, 110);
-
   const storedTitle = item?.title?.trim() ?? "";
   if (storedTitle && !isGenericSlackTitle(storedTitle)) return storedTitle;
 
   const listed = events.find((event) => event.action === "list-triage-items");
   const listedTitle = listed?.summary.trim() ?? "";
   if (listedTitle && !isGenericSlackTitle(listedTitle)) return listedTitle;
+
+  const storedSummary = readStoredFeedbackText(item, events);
+  if (storedSummary) return firstLine(storedSummary, 110);
 
   return storedTitle || "Item";
 }

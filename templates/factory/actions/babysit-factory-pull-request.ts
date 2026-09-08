@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import { triageItems } from "../server/db/schema.js";
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
 import {
   factoryIdSchema,
   factoryStillPresent,
@@ -172,9 +173,13 @@ export default defineAction({
       return { ok: true, action: "skipped", reason };
     }
 
-    const configuredRepository = (
-      await readTriageConfigRow(db, orgId, factoryId)
-    )?.repository;
+    const job = await readCallingFactoryAutomation(context, {
+      userEmail,
+      orgId,
+    });
+    const configuredRepository =
+      job?.config.repository ||
+      (await readTriageConfigRow(db, orgId, factoryId))?.repository;
     if (
       !configuredRepository ||
       !item.repository ||

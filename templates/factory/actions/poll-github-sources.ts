@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import { triageItems } from "../server/db/schema.js";
 import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
+import { authorMatchesFilter } from "../server/lib/factory-automation-config.js";
 import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import {
   factoryIdSchema,
@@ -186,7 +187,7 @@ function githubPollRollupSummary(
 
 export default defineAction({
   description:
-    "Poll the configured GitHub repository for bounded open issues and pull requests and record them in the Factory queue. This does not write to GitHub.",
+    "Poll the configured GitHub repository for bounded open issues and pull requests and record them in the Factory queue. Items whose author the calling automation's author filter excludes are counted in authorFiltered and never added to the queue. This does not write to GitHub.",
   schema: z.object({
     factoryId: factoryIdSchema,
     includeIssues: z.boolean().default(true),
@@ -212,6 +213,19 @@ export default defineAction({
     });
     const repositoryRef = job?.config.repository || config?.repository;
     if (!repositoryRef) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "poll-github-sources",
+          kind: "observed",
+          status: "error",
+          source: "github",
+          summary:
+            "No GitHub repository is configured on this factory or its automation.",
+        },
+        factoryId,
+      );
       throw new Error("Configure a GitHub repository before polling GitHub.");
     }
     const inboxLimit = job?.config.inboxLimit ?? 25;
@@ -308,10 +322,22 @@ export default defineAction({
     let pullRequestCount = 0;
     let added = 0;
     let updated = 0;
+    let authorFiltered = 0;
     const newlyObserved: NewlyObservedSource[] = [];
 
     await db.transaction(async (tx) => {
       for (const issue of issues) {
+        if (
+          job &&
+          !authorMatchesFilter(
+            issue.userId,
+            job.config.authorMode,
+            job.config.authorIds,
+          )
+        ) {
+          authorFiltered += 1;
+          continue;
+        }
         const id = itemDedupeKey(
           {
             source: "github_issue",
@@ -404,6 +430,17 @@ export default defineAction({
       }
 
       for (const pullRequest of pullRequests) {
+        if (
+          job &&
+          !authorMatchesFilter(
+            String(pullRequest.userId),
+            job.config.authorMode,
+            job.config.authorIds,
+          )
+        ) {
+          authorFiltered += 1;
+          continue;
+        }
         const id = itemDedupeKey(
           {
             source: "github",
@@ -618,6 +655,30 @@ export default defineAction({
         },
         factoryId,
       );
+    } else if (issueCount + pullRequestCount === 0) {
+      // Open items existed but none belong to this automation's authors; that
+      // is not the same state as an empty repository queue.
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "poll-github-sources",
+          kind: "observed",
+          status: "skipped",
+          source: "github",
+          summary: `Every open item was skipped by the automation's author filter (${authorFiltered} skipped).`,
+          details: {
+            repository: repositoryName,
+            inboxLimit,
+            added: 0,
+            updated: 0,
+            authorFiltered,
+            newlyObserved: 0,
+            truncated: false,
+          },
+        },
+        factoryId,
+      );
     } else {
       await recordFactoryAudit(
         context,
@@ -634,9 +695,11 @@ export default defineAction({
             inboxLimit,
             added,
             updated,
-            authorFiltered: 0,
+            authorFiltered,
             newlyObserved: newlyObserved.filter((item) => item.added).length,
-            truncated: added + updated < issues.length + pullRequests.length,
+            truncated:
+              added + updated + authorFiltered <
+              issues.length + pullRequests.length,
             itemIds: newlyObserved
               .filter((item) => item.added)
               .map((item) => item.itemId),
@@ -672,6 +735,7 @@ export default defineAction({
       repository: repositoryName,
       issues: issueCount,
       pullRequests: pullRequestCount,
+      authorFiltered,
     };
   },
 });
