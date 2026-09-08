@@ -510,7 +510,7 @@ function Inspector() {
           <span className="dm-avatar dm-avatar-3">ID</span>
         </div>
         <div className="dm-preview-btn">
-          <IconPlayerPlay size={20} />
+          <IconPlayerPlay size={16} />
           <IconChevronDown size={12} />
         </div>
         <div className="dm-share-btn">Share</div>
