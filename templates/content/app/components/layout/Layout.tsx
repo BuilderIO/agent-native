@@ -210,16 +210,6 @@ export function Layout({ children }: LayoutProps) {
                 />
               </SheetContent>
             </Sheet>
-            {showHeader ? null : (
-              <button
-                type="button"
-                aria-label={t("navigation.openSidebar")}
-                className="fixed start-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
-                onClick={() => setMobileSidebarOpen(true)}
-              >
-                <IconMenu2 size={18} />
-              </button>
-            )}
           </>
         ) : (
           <div className="agent-layout-left-drawer flex shrink-0">
@@ -257,6 +247,10 @@ export function Layout({ children }: LayoutProps) {
           >
             {showHeader ? (
               <Header sidebarTrigger={mobileSidebarTrigger} />
+            ) : isCompactLayout ? (
+              <div className="flex h-12 shrink-0 items-center px-2">
+                {mobileSidebarTrigger}
+              </div>
             ) : null}
             <InvitationBanner
               className={`${showHeader ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
