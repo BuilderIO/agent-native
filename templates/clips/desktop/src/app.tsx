@@ -1803,8 +1803,9 @@ export function App({
           setExperimentValues(values);
           emit("clips:experiments-updated", { values }).catch(() => {});
         }
-      } catch {
+      } catch (error) {
         // Keep the last known-good values. A failed read is not an opt-out.
+        console.warn("[clips-tray] experiment refresh failed:", error);
       }
     };
 
