@@ -32,6 +32,15 @@ export type DocumentCommentNotificationResult = ActivityNotificationResult;
 const LOG_LABEL = "[content] comment notification";
 const EXCERPT_LIMIT = 240;
 
+function escapeEmailText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function excerpt(content: string): string {
   const collapsed = content.replace(/\s+/g, " ").trim();
   return collapsed.length > EXCERPT_LIMIT
@@ -123,8 +132,12 @@ export function renderDocumentCommentEmail({
           ? "New reply on your document"
           : "New comment",
       paragraphs: attribution
-        ? [attribution, lead, `"${excerpt(content)}"`]
-        : [lead, `"${excerpt(content)}"`],
+        ? [
+            escapeEmailText(attribution),
+            lead,
+            `"${escapeEmailText(excerpt(content))}"`,
+          ]
+        : [lead, `"${escapeEmailText(excerpt(content))}"`],
       cta: { label: "Open document", url },
       footer:
         "You received this because you own, were mentioned in, or participated in this thread. Turn these off in Documents settings.",
