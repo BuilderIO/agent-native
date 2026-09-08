@@ -446,16 +446,14 @@ function IconAction({
 function Section({
   title,
   actions,
-  first,
   children,
 }: {
   title: string;
   actions?: React.ReactNode;
-  first?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div className={first ? "dm-section is-first" : "dm-section"}>
+    <div className="dm-section">
       <div className="dm-section-bar">
         <IconChevronDown size={12} className="dm-section-chevron" />
         <span className="dm-section-label">{title}</span>
@@ -556,7 +554,7 @@ function Inspector() {
         </span>
       </div>
 
-      <Section title="Position" first>
+      <Section title="Position">
         <div className="dm-prop">
           <span className="dm-prop-label">Alignment</span>
           <div className="dm-prop-row">
@@ -850,7 +848,7 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-context-glyph { flex-shrink: 0; color: var(--dm-component); }",
   ".design-mock .dm-context-title { flex: 1; min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }",
 
-  ".design-mock .dm-state { flex-shrink: 0; padding: 4px 8px; }",
+  ".design-mock .dm-state { flex-shrink: 0; padding: 9px 8px; }",
   ".design-mock .dm-state-control { display: flex; height: 28px; align-items: center; justify-content: space-between; padding: 0 8px; border: 1px solid var(--dm-border); border-radius: 6px; background: var(--dm-control-bg); }",
   ".design-mock .dm-state-value { font-size: 11px; font-weight: 600; }",
   ".design-mock .dm-state-chevron { flex-shrink: 0; opacity: 0.7; }",
@@ -858,7 +856,6 @@ const DESIGN_MOCK_CSS = [
   // Property sections. The top shadow is the divider, matching
   // `.design-sidebar-section` in the editor stylesheet.
   ".design-mock .dm-section { flex-shrink: 0; box-shadow: inset 0 1px var(--dm-border); }",
-  ".design-mock .dm-section.is-first { box-shadow: none; }",
   ".design-mock .dm-section-bar { display: flex; height: 32px; align-items: center; gap: 4px; padding: 0 8px; }",
   ".design-mock .dm-section-chevron { flex-shrink: 0; color: var(--dm-fg-muted); }",
   ".design-mock .dm-section-label { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; }",
