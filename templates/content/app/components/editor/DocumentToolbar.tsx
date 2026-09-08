@@ -49,6 +49,7 @@ import {
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -519,6 +520,7 @@ export function DocumentToolbar({
   onUndo,
   onRedo,
 }: DocumentToolbarProps) {
+  const sidebarTrigger = useSidebarTrigger();
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
@@ -889,6 +891,7 @@ export function DocumentToolbar({
   return (
     <>
       <div className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4">
+        {sidebarTrigger}
         <ToolbarBreadcrumb
           items={
             breadcrumbItems.length
@@ -907,7 +910,7 @@ export function DocumentToolbar({
           }}
         />
 
-        <div className="ml-auto flex min-w-0 items-center gap-0.5 sm:gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
           {editedLabel ? (
             <span className="hidden shrink-0 px-2 text-sm text-muted-foreground lg:inline">
               {editedLabel}
