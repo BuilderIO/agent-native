@@ -120,7 +120,9 @@ describe("docs popover controls", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
       target: { value: "reader@example.com" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Join waitlist" }));
+    const form = screen.getByRole("textbox", { name: "Email" }).closest("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form as HTMLFormElement);
 
     const waitlistRequests = () =>
       fetchMock.mock.calls.filter(([url]) =>
@@ -135,6 +137,13 @@ describe("docs popover controls", () => {
       source: "docs_template_customize",
       template: templates[0].slug,
       useCase: "docs_edit_online_waitlist",
+    });
+    await waitFor(() => {
+      const success = screen.getByText(
+        "You're on the waitlist. We'll email you when build-online access opens.",
+      );
+      expect(success.getAttribute("role")).toBe("status");
+      expect(success.getAttribute("aria-live")).toBe("polite");
     });
   });
 

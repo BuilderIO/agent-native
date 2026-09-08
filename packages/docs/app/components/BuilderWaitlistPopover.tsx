@@ -153,7 +153,13 @@ export function BuilderWaitlistContent({
   }, [email, location, source, t, template, useCase]);
 
   return (
-    <div className="space-y-3">
+    <form
+      className="space-y-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void handleJoinWaitlist();
+      }}
+    >
       <div>
         <p className="m-0 text-sm font-semibold text-[var(--fg)]">
           {t("buildFromScratch.popoverTitle")}
@@ -170,7 +176,11 @@ export function BuilderWaitlistContent({
       {BUILDER_BUILD_ONLINE_SUPPORTED ? (
         <BuilderLaunchLink />
       ) : joined ? (
-        <p className="m-0 text-sm leading-relaxed text-[var(--docs-accent)]">
+        <p
+          role="status"
+          aria-live="polite"
+          className="m-0 text-sm leading-relaxed text-[var(--docs-accent)]"
+        >
           {t("buildFromScratch.joined")}
         </p>
       ) : (
@@ -204,8 +214,7 @@ export function BuilderWaitlistContent({
             ) : null}
           </div>
           <button
-            type="button"
-            onClick={() => void handleJoinWaitlist()}
+            type="submit"
             disabled={joining}
             className={primaryButtonClassName}
           >
@@ -220,7 +229,7 @@ export function BuilderWaitlistContent({
           </button>
         </>
       )}
-    </div>
+    </form>
   );
 }
 
@@ -283,9 +292,13 @@ export function BuilderLaunchAction({
   onClick?: () => void;
 }) {
   const t = useT();
+  const handleLaunch = () => {
+    trackEvent("click build online", { location });
+    onClick?.();
+  };
 
   if (BUILDER_BUILD_ONLINE_SUPPORTED) {
-    return <BuilderLaunchLink className={className} onClick={onClick} />;
+    return <BuilderLaunchLink className={className} onClick={handleLaunch} />;
   }
 
   return (
