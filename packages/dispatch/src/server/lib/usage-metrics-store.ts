@@ -87,7 +87,7 @@ export interface DailyUsageMetric {
   chatCalls: number;
   activeUsers: number;
   dailyActiveUsers: number;
-  weeklyActiveUsers: number;
+  weeklyActiveUsers: number | null;
 }
 
 export interface MonthlyUserUsageMetric {
@@ -732,6 +732,7 @@ async function loadDailyAndMonthlyUsage(usage: {
 }): Promise<{
   daily: DailyUsageMetric[];
   monthlyByUser: Omit<MonthlyUserUsageMetric, "credits">[];
+  usersByDay: Map<string, Set<string>>;
 }> {
   const dayBucketExpression = `CAST(created_at / ${DAY_MS} AS INTEGER)`;
   const rows = await queryRows<Record<string, unknown>>(
@@ -758,6 +759,7 @@ async function loadDailyAndMonthlyUsage(usage: {
     string,
     Omit<MonthlyUserUsageMetric, "credits">
   >();
+  const usersByDay = new Map<string, Set<string>>();
 
   for (const row of rows) {
     const date = new Date(
@@ -776,6 +778,9 @@ async function loadDailyAndMonthlyUsage(usage: {
     daily.chatCalls += numberField(row, "chat_calls");
     daily.users.add(ownerEmail.toLowerCase());
     dailyMap.set(day, daily);
+    const users = usersByDay.get(day) ?? new Set<string>();
+    users.add(ownerEmail.toLowerCase());
+    usersByDay.set(day, users);
 
     const month = day.slice(0, 7);
     const monthlyKey = `${ownerEmail}\u0000${month}`;
@@ -809,7 +814,7 @@ async function loadDailyAndMonthlyUsage(usage: {
         chatCalls: value.chatCalls,
         activeUsers: value.users.size,
         dailyActiveUsers: value.users.size,
-        weeklyActiveUsers: value.users.size,
+        weeklyActiveUsers: null,
       }))
       .sort((a, b) => a.date.localeCompare(b.date)),
     monthlyByUser: [...monthlyByUserMap.values()].sort(
@@ -817,25 +822,38 @@ async function loadDailyAndMonthlyUsage(usage: {
         a.month.localeCompare(b.month) ||
         a.ownerEmail.localeCompare(b.ownerEmail),
     ),
+    usersByDay,
   };
 }
 
 async function loadWeeklyActiveUsers(
   usage: { where: string; args: unknown[] },
+  visibleUsersByDay: Map<string, Set<string>>,
   startDate: string,
   endDate: string,
-): Promise<Map<string, number>> {
+): Promise<Map<string, number> | null> {
   const dayBucketExpression = `CAST(created_at / ${DAY_MS} AS INTEGER)`;
-  const result = await getDbExec().execute({
-    sql: `SELECT ${dayBucketExpression} AS day_bucket, owner_email
-        FROM token_usage
-        WHERE ${usage.where}
-        GROUP BY ${dayBucketExpression}, owner_email
-        ORDER BY ${dayBucketExpression} ASC`,
-    args: usage.args,
-  });
+  let result;
+  try {
+    result = await getDbExec().execute({
+      sql: `SELECT ${dayBucketExpression} AS day_bucket, owner_email
+          FROM token_usage
+          WHERE ${usage.where}
+          GROUP BY ${dayBucketExpression}, owner_email
+          ORDER BY ${dayBucketExpression} ASC`,
+      args: usage.args,
+    });
+    // coercion-ok: null distinguishes an unavailable optional trend from empty activity.
+  } catch {
+    return null;
+  }
   const rows = result.rows as Record<string, unknown>[];
-  const usersByDay = new Map<string, Set<string>>();
+  const usersByDay = new Map(
+    [...visibleUsersByDay.entries()].map(([day, users]) => [
+      day,
+      new Set(users),
+    ]),
+  );
   for (const row of rows) {
     const day = new Date(numberField(row, "day_bucket") * DAY_MS)
       .toISOString()
@@ -1017,6 +1035,10 @@ export async function listDispatchUsageMetrics(input: {
             : usageScope(adoptionSinceMs, memberEmails),
           orgId,
         );
+  const weeklyLookbackUsage = {
+    where: `${adoptionUsage.where} AND created_at < ?`,
+    args: [...adoptionUsage.args, sinceMs],
+  };
   const threads = selectedUserEmail
     ? ownerThreadScope(sinceMs, selectedUserEmail)
     : threadScope(sinceMs, memberEmails);
@@ -1151,19 +1173,22 @@ export async function listDispatchUsageMetrics(input: {
     });
   }
 
-  const [{ daily: usageDaily, monthlyByUser: monthlyUsage }, appAdoptionMap] =
-    await Promise.all([
-      loadDailyAndMonthlyUsage(usage),
-      loadAppAdoption(usage, adoptionUsage, generatedAt),
-    ]);
+  const [
+    { daily: usageDaily, monthlyByUser: monthlyUsage, usersByDay },
+    appAdoptionMap,
+  ] = await Promise.all([
+    loadDailyAndMonthlyUsage(usage),
+    loadAppAdoption(usage, adoptionUsage, generatedAt),
+  ]);
   const usageByDate = new Map(usageDaily.map((row) => [row.date, row]));
   const weeklyActiveUsers =
     usageDaily.length === 0
       ? null
       : await loadWeeklyActiveUsers(
-          adoptionUsage,
-          usageDaily[0].date,
-          usageDaily[usageDaily.length - 1].date,
+          weeklyLookbackUsage,
+          usersByDay,
+          new Date(visibleSinceMs).toISOString().slice(0, 10),
+          new Date(generatedAt).toISOString().slice(0, 10),
         );
   const daily = weeklyActiveUsers
     ? [...weeklyActiveUsers.entries()].map(([date, weeklyUsers]) => ({
@@ -1178,7 +1203,7 @@ export async function listDispatchUsageMetrics(input: {
         }),
         weeklyActiveUsers: weeklyUsers,
       }))
-    : usageDaily;
+    : usageDaily.map((row) => ({ ...row, weeklyActiveUsers: null }));
 
   const monthlyByUser =
     viewScope === "app"

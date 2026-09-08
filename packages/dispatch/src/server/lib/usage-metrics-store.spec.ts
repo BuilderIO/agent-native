@@ -55,6 +55,7 @@ vi.mock("./dispatch-store.js", () => ({
 const { listDispatchUsageMetrics } = await import("./usage-metrics-store.js");
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.clearAllMocks();
   mocks.currentOrgId.mockReturnValue(null);
   mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
@@ -700,6 +701,8 @@ describe("listDispatchUsageMetrics", () => {
   });
 
   it("returns monthly credits and workspace app creation rows from shared tables", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T12:00:00Z"));
     const firstUsageAt = Date.UTC(2026, 6, 1, 12);
     const secondUsageAt = Date.UTC(2026, 6, 15, 12);
     const firstCreationAt = Date.UTC(2026, 6, 2, 12);
@@ -783,7 +786,7 @@ describe("listDispatchUsageMetrics", () => {
     });
 
     const metrics = await listDispatchUsageMetrics({
-      sinceDays: 365,
+      sinceDays: 60,
       scope: "workspace",
     });
 
@@ -801,8 +804,15 @@ describe("listDispatchUsageMetrics", () => {
         cacheWriteTokens: 2,
       },
     ]);
-    expect(metrics.daily).toHaveLength(15);
+    expect(metrics.daily).toHaveLength(61);
     expect(metrics.daily[0]).toMatchObject({
+      date: "2026-06-21",
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 0,
+    });
+    expect(
+      metrics.daily.find((row) => row.date === "2026-07-01"),
+    ).toMatchObject({
       date: "2026-07-01",
       costCents: 100,
       calls: 1,
@@ -811,12 +821,16 @@ describe("listDispatchUsageMetrics", () => {
       dailyActiveUsers: 1,
       weeklyActiveUsers: 1,
     });
-    expect(metrics.daily[9]).toMatchObject({
+    expect(
+      metrics.daily.find((row) => row.date === "2026-07-10"),
+    ).toMatchObject({
       date: "2026-07-10",
       dailyActiveUsers: 0,
       weeklyActiveUsers: 1,
     });
-    expect(metrics.daily[14]).toMatchObject({
+    expect(
+      metrics.daily.find((row) => row.date === "2026-07-15"),
+    ).toMatchObject({
       date: "2026-07-15",
       costCents: 200,
       calls: 1,
@@ -824,6 +838,11 @@ describe("listDispatchUsageMetrics", () => {
       activeUsers: 1,
       dailyActiveUsers: 1,
       weeklyActiveUsers: 2,
+    });
+    expect(metrics.daily.at(-1)).toMatchObject({
+      date: "2026-08-20",
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 0,
     });
     expect(metrics.workspaceAppCreationsByUserMonth).toEqual([
       {
@@ -833,5 +852,45 @@ describe("listDispatchUsageMetrics", () => {
         appIds: ["app-one", "app-two"],
       },
     ]);
+  });
+
+  it("preserves daily usage when the optional WAU lookback is unavailable", async () => {
+    const now = Date.now();
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("FROM token_usage") && sql.includes("day_bucket")) {
+        if (!sql.includes("cost_cents_x100")) {
+          throw new Error("lookback unavailable");
+        }
+        return {
+          rows: [
+            {
+              day_bucket: Math.floor(now / 86_400_000),
+              owner_email: "owner@example.test",
+              cost_x100: 100,
+              calls: 1,
+              chat_calls: 1,
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_read_tokens: 0,
+              cache_write_tokens: 0,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 7,
+      scope: "me",
+    });
+
+    expect(metrics.daily).toHaveLength(1);
+    expect(metrics.daily[0]).toMatchObject({
+      dailyActiveUsers: 1,
+      weeklyActiveUsers: null,
+    });
   });
 });

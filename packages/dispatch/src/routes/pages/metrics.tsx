@@ -117,7 +117,7 @@ interface DailyUsageMetric {
   chatCalls: number;
   activeUsers: number;
   dailyActiveUsers: number;
-  weeklyActiveUsers: number;
+  weeklyActiveUsers: number | null;
 }
 
 interface RecentUsageMetric {
