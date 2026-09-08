@@ -12,6 +12,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 
 import { CLIPS_MEETINGS } from "../../../shared/experiments";
+import { loadDesktopAuthToken } from "../app";
 import { dismissMeetingNotification } from "../lib/meeting-notification-dismissal";
 import {
   detectMeetingJoinProvider,
@@ -176,10 +177,14 @@ export function MeetingNotification() {
       meetingsExperimentEnabledRef.current = enabled;
       if (!enabled) hideNotification();
     };
-    void fetch(
-      `${loadStoredServerUrl()}/_agent-native/actions/get-experiments`,
-      { credentials: "include" },
-    )
+    const serverUrl = loadStoredServerUrl();
+    const authToken = loadDesktopAuthToken(serverUrl);
+    void fetch(`${serverUrl}/_agent-native/actions/get-experiments`, {
+      credentials: "include",
+      ...(authToken
+        ? { headers: { Authorization: `Bearer ${authToken}` } }
+        : {}),
+    })
       .then((response) => response.json())
       .then((payload) => {
         if (!cancelled) applyValues(payload?.result ?? payload);

@@ -579,7 +579,7 @@ function videoStorageConfiguredKey(serverUrl: string, account: string): string {
   return `${VIDEO_STORAGE_CONFIGURED_KEY}:${originForServer(serverUrl)}:${account}`;
 }
 
-function loadDesktopAuthToken(serverUrl: string): string {
+export function loadDesktopAuthToken(serverUrl: string): string {
   return loadString(authTokenStorageKey(serverUrl), "");
 }
 
@@ -7132,6 +7132,19 @@ function Setup({
     });
   }
 
+  const settingsTabIsAvailable =
+    settingsTab === "general" ||
+    settingsTab === "recording" ||
+    settingsTab === "rewind" ||
+    settingsTab === "advanced" ||
+    (settingsTab === "meetings" && meetingsExperimentEnabled) ||
+    (settingsTab === "dictation" && wisprFlowExperimentEnabled);
+
+  useEffect(() => {
+    if (surface !== "settings" || settingsTabIsAvailable) return;
+    setSettingsTab("general");
+  }, [settingsTabIsAvailable, surface]);
+
   if (surface === "memory") {
     return (
       <div className="setup popover-view rewind-memory-surface">
@@ -8424,16 +8437,6 @@ function Setup({
   ];
   const activeSettingsTab =
     settingsTabs.find((tab) => tab.id === settingsTab) ?? settingsTabs[0];
-
-  useEffect(() => {
-    if (
-      surface !== "settings" ||
-      settingsTabs.some((tab) => tab.id === settingsTab)
-    ) {
-      return;
-    }
-    setSettingsTab(settingsTabs[0].id);
-  }, [settingsTab, settingsTabs, surface]);
 
   function renderSettingsTab() {
     switch (activeSettingsTab?.id) {
