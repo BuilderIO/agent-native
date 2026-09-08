@@ -6,24 +6,22 @@ import {
 export const CLIPS_VIDEO_EDITING = defineExperiment({
   key: "clips.video-editing",
   displayName: "Video editing",
-  description: "Try the new video editor. It is unstable and may have bugs.",
+  description: "Try the new video editor.",
   keywords: "clips editor trim cut timeline",
 });
 
 export const CLIPS_MEETINGS = defineExperiment({
   key: "clips.meetings",
   displayName: "Meetings and transcription",
-  description:
-    "Try automatic meeting capture and transcription. It is unstable and may have bugs.",
-  keywords: "meetings meeting transcription granola notes",
+  description: "Try automatic meeting capture and transcription.",
+  keywords: "meetings meeting transcription notes",
 });
 
 export const CLIPS_WISPRFLOW = defineExperiment({
   key: "clips.wisprflow",
-  displayName: "WisprFlow dictation",
-  description:
-    "Try WisprFlow voice dictation. It is unstable and may have bugs.",
-  keywords: "wisprflow wispr flow dictate dictation voice",
+  displayName: "Voice dictation",
+  description: "Try the new voice dictation feature.",
+  keywords: "dictate dictation voice speech microphone",
 });
 
 export const CLIPS_EXPERIMENTS = defineExperiments([

@@ -721,14 +721,12 @@ const messages = {
     experimentsIntro:
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     experimentVideoEditing: "動画編集",
-    experimentVideoEditingDescription:
-      "新しい動画エディターをお試しください。不安定でバグがある可能性があります。",
+    experimentVideoEditingDescription: "新しい動画エディターをお試しください。",
     experimentMeetings: "会議と文字起こし",
     experimentMeetingsDescription:
-      "会議の自動キャプチャと文字起こしをお試しください。不安定でバグがある可能性があります。",
-    experimentWisprFlow: "WisprFlow 音声入力",
-    experimentWisprFlowDescription:
-      "WisprFlow の音声入力をお試しください。不安定でバグがある可能性があります。",
+      "会議の自動キャプチャと文字起こしをお試しください。",
+    experimentWisprFlow: "音声入力",
+    experimentWisprFlowDescription: "新しい音声入力機能をお試しください。",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
     preferencesTitle: "環境設定",
     languageTitle: "言語",
@@ -1822,7 +1820,7 @@ const messages = {
     refreshing: "Refreshing… (ローカライズ済み)",
     howToTriggerTitle: "How to trigger meeting notes (ローカライズ済み)",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (ローカライズ済み)",
+      "Meeting notes in Clips bring calendar events, desktop audio capture, and transcripts plus AI notes together in one history. (ローカライズ済み)",
     guideCalendarTitle: "Connect Google Calendar (ローカライズ済み)",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you. (ローカライズ済み)",

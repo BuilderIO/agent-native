@@ -711,14 +711,11 @@ const messages = {
     experimentsIntro:
       "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
     experimentVideoEditing: "동영상 편집",
-    experimentVideoEditingDescription:
-      "새 동영상 편집기를 사용해 보세요. 불안정하며 버그가 있을 수 있습니다.",
+    experimentVideoEditingDescription: "새 동영상 편집기를 사용해 보세요.",
     experimentMeetings: "회의 및 전사",
-    experimentMeetingsDescription:
-      "자동 회의 캡처 및 전사를 사용해 보세요. 불안정하며 버그가 있을 수 있습니다.",
-    experimentWisprFlow: "WisprFlow 받아쓰기",
-    experimentWisprFlowDescription:
-      "WisprFlow 음성 받아쓰기를 사용해 보세요. 불안정하며 버그가 있을 수 있습니다.",
+    experimentMeetingsDescription: "자동 회의 캡처 및 전사를 사용해 보세요.",
+    experimentWisprFlow: "음성 받아쓰기",
+    experimentWisprFlowDescription: "새 음성 받아쓰기 기능을 사용해 보세요.",
     intro: "이 Clips 워크스페이스의 환경설정과 연결된 서비스입니다.",
     preferencesTitle: "환경설정",
     languageTitle: "언어",
@@ -1798,7 +1795,7 @@ const messages = {
     refreshing: "Refreshing… (현지화됨)",
     howToTriggerTitle: "How to trigger meeting notes (현지화됨)",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (현지화됨)",
+      "Meeting notes in Clips bring calendar events, desktop audio capture, and transcripts plus AI notes together in one history. (현지화됨)",
     guideCalendarTitle: "Connect Google Calendar (현지화됨)",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you. (현지화됨)",

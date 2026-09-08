@@ -680,14 +680,11 @@ const messages = {
     experimentsIntro:
       "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
     experimentVideoEditing: "视频编辑",
-    experimentVideoEditingDescription:
-      "试用新的视频编辑器。它不稳定，可能存在错误。",
+    experimentVideoEditingDescription: "试用新的视频编辑器。",
     experimentMeetings: "会议和转录",
-    experimentMeetingsDescription:
-      "试用自动会议捕获和转录功能。它不稳定，可能存在错误。",
-    experimentWisprFlow: "WisprFlow 听写",
-    experimentWisprFlowDescription:
-      "试用 WisprFlow 语音听写功能。它不稳定，可能存在错误。",
+    experimentMeetingsDescription: "试用自动会议捕获和转录功能。",
+    experimentWisprFlow: "语音听写",
+    experimentWisprFlowDescription: "试用新的语音听写功能。",
     intro: "此 Clips 工作区的偏好设置和已连接服务。",
     preferencesTitle: "偏好设置",
     languageTitle: "语言",
@@ -1733,7 +1730,7 @@ const messages = {
     refreshing: "Refreshing… (已本地化)",
     howToTriggerTitle: "How to trigger meeting notes (已本地化)",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (已本地化)",
+      "Clips 中的会议笔记会将日历事件、桌面音频捕获、逐字稿和 AI 笔记汇集到同一历史记录中。（已本地化）",
     guideCalendarTitle: "Connect Google Calendar (已本地化)",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you. (已本地化)",

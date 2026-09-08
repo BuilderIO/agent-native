@@ -706,14 +706,12 @@ const messages = {
     experimentsIntro:
       "These are new, unstable features and may have bugs. We value your feedback.",
     experimentVideoEditing: "Video editing",
-    experimentVideoEditingDescription:
-      "Try the new video editor. It is unstable and may have bugs.",
+    experimentVideoEditingDescription: "Try the new video editor.",
     experimentMeetings: "Meetings and transcription",
     experimentMeetingsDescription:
-      "Try automatic meeting capture and transcription. It is unstable and may have bugs.",
-    experimentWisprFlow: "WisprFlow dictation",
-    experimentWisprFlowDescription:
-      "Try WisprFlow voice dictation. It is unstable and may have bugs.",
+      "Try automatic meeting capture and transcription.",
+    experimentWisprFlow: "Voice dictation",
+    experimentWisprFlowDescription: "Try the new voice dictation feature.",
     intro: "Preferences and connected services for this Clips workspace.",
     preferencesTitle: "Preferences",
     languageTitle: "Language",
@@ -1782,7 +1780,7 @@ const messages = {
     refreshing: "Refreshing…",
     howToTriggerTitle: "How to trigger meeting notes",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history.",
+      "Meeting notes in Clips bring calendar events, desktop audio capture, and transcripts plus AI notes together in one history.",
     guideCalendarTitle: "Connect Google Calendar",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you.",

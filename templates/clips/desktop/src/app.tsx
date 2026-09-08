@@ -5916,8 +5916,8 @@ function MeetingsPopoverView({
 
       <div className="setup-section">
         <p className="setup-hint">
-          Start Granola-style live notes from calendar meetings without hunting
-          through Settings.
+          Start live notes from calendar meetings without hunting through
+          Settings.
         </p>
       </div>
 

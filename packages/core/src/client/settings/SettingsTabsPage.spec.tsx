@@ -274,6 +274,31 @@ describe("SettingsTabsPage", () => {
     expect(container.querySelector("#settings-tab-experiments")).toBeNull();
   });
 
+  it("places experiments after app-specific tabs such as notifications", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "notifications",
+              label: "Notifications",
+              content: <div>Notifications content</div>,
+            },
+          ]}
+          experiments={[{ key: "clips.meetings", displayName: "Meetings" }]}
+        />,
+      );
+    });
+
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLElement>("[id^='settings-tab-']"),
+    ).map((tab) => tab.id);
+    expect(tabs.indexOf("settings-tab-notifications")).toBeLessThan(
+      tabs.indexOf("settings-tab-experiments"),
+    );
+  });
+
   it("restores a connections tab from its canonical route after a remount", () => {
     const props = {
       general: <div>General content</div>,

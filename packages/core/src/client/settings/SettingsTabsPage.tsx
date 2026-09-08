@@ -336,6 +336,7 @@ function SettingsTabsPageContent({
         keywords: "profile photo avatar identity signed in email name",
       });
     }
+    next.push(...inlineTabs);
     if (experiments.length > 0) {
       next.push({
         id: "experiments",
@@ -358,7 +359,6 @@ function SettingsTabsPageContent({
         })),
       });
     }
-    next.push(...inlineTabs);
     if (team && !hasOrganizationTab) {
       next.push({
         id: "team",

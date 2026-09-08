@@ -6,8 +6,7 @@ import {
 export const DESIGN_TWEAKS = defineExperiment({
   key: "design.tweaks",
   displayName: "Design tweaks",
-  description:
-    "Try AI-powered design tweaks. It is unstable and may have bugs.",
+  description: "Try AI-powered design tweaks.",
   keywords: "tweaks ai edit improve design",
 });
 

@@ -703,14 +703,11 @@ const messages = {
     experimentsIntro:
       "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
     experimentVideoEditing: "वीडियो संपादन",
-    experimentVideoEditingDescription:
-      "नया वीडियो संपादक आज़माएँ। यह अस्थिर है और इसमें बग हो सकते हैं।",
+    experimentVideoEditingDescription: "नया वीडियो संपादक आज़माएँ।",
     experimentMeetings: "मीटिंग और ट्रांसक्रिप्शन",
-    experimentMeetingsDescription:
-      "स्वचालित मीटिंग कैप्चर और ट्रांसक्रिप्शन आज़माएँ। यह अस्थिर है और इसमें बग हो सकते हैं।",
-    experimentWisprFlow: "WisprFlow डिक्टेशन",
-    experimentWisprFlowDescription:
-      "WisprFlow वॉइस डिक्टेशन आज़माएँ। यह अस्थिर है और इसमें बग हो सकते हैं।",
+    experimentMeetingsDescription: "स्वचालित मीटिंग कैप्चर और ट्रांसक्रिप्शन आज़माएँ।",
+    experimentWisprFlow: "वॉइस डिक्टेशन",
+    experimentWisprFlowDescription: "नया वॉइस डिक्टेशन फीचर आज़माएँ।",
     intro: "इस Clips वर्कस्पेस के लिए प्राथमिकताएँ और कनेक्टेड सेवाएँ।",
     preferencesTitle: "प्राथमिकताएँ",
     languageTitle: "भाषा",
@@ -1778,7 +1775,7 @@ const messages = {
     refreshing: "Refreshing… (स्थानीयकृत)",
     howToTriggerTitle: "How to trigger meeting notes (स्थानीयकृत)",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (स्थानीयकृत)",
+      "Meeting notes in Clips bring calendar events, desktop audio capture, and transcripts plus AI notes together in one history. (स्थानीयकृत)",
     guideCalendarTitle: "Connect Google Calendar (स्थानीयकृत)",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you. (स्थानीयकृत)",

@@ -712,14 +712,12 @@ const messages = {
     experimentsIntro:
       "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
     experimentVideoEditing: "تحرير الفيديو",
-    experimentVideoEditingDescription:
-      "جرّب محرر الفيديو الجديد. إنه غير مستقر وقد يحتوي على أخطاء.",
+    experimentVideoEditingDescription: "جرّب محرر الفيديو الجديد.",
     experimentMeetings: "الاجتماعات والنسخ النصي",
     experimentMeetingsDescription:
-      "جرّب الالتقاط والنسخ النصي التلقائي للاجتماعات. إنها غير مستقرة وقد تحتوي على أخطاء.",
-    experimentWisprFlow: "الإملاء عبر WisprFlow",
-    experimentWisprFlowDescription:
-      "جرّب الإملاء الصوتي عبر WisprFlow. إنه غير مستقر وقد يحتوي على أخطاء.",
+      "جرّب الالتقاط والنسخ النصي التلقائي للاجتماعات.",
+    experimentWisprFlow: "الإملاء الصوتي",
+    experimentWisprFlowDescription: "جرّب ميزة الإملاء الصوتي الجديدة.",
     intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",
     preferencesTitle: "التفضيلات",
     languageTitle: "اللغة",
@@ -1800,7 +1798,7 @@ const messages = {
     refreshing: "Refreshing… (مترجم)",
     howToTriggerTitle: "How to trigger meeting notes (مترجم)",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (مترجم)",
+      "Meeting notes in Clips bring calendar events, desktop audio capture, and transcripts plus AI notes together in one history. (مترجم)",
     guideCalendarTitle: "Connect Google Calendar (مترجم)",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you. (مترجم)",
