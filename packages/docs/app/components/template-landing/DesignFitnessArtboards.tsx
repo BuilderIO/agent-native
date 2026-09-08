@@ -405,7 +405,9 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-stats { display: grid; flex-shrink: 0; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 24px 0; }",
   ".design-mock .ft-stat { display: flex; flex-direction: column; gap: 6px; padding: 24px 26px; border-radius: 24px; }",
   ".design-mock .ft-stat.is-lime { background: var(--ft-lime); }",
-  ".design-mock .ft-stat.is-coral { background: var(--ft-coral); color: var(--ft-surface); }",
+  // Ink, not surface: coral is a light mid-tone, so white on it lands near 2:1
+  // and the label's 0.72 opacity drops it further. Matches its siblings.
+  ".design-mock .ft-stat.is-coral { background: var(--ft-coral); }",
   ".design-mock .ft-stat.is-cyan { background: var(--ft-cyan); }",
   ".design-mock .ft-stat-value { font-size: 44px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }",
   ".design-mock .ft-stat-label { font-size: 15px; font-weight: 600; opacity: 0.72; }",
