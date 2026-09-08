@@ -732,7 +732,9 @@ export default defineAction({
         input.routeId ??
         manifestRoute?.id ??
         makeLocalhostRouteId(
-          connectionOriginMatches(primaryDevServerUrl, url) ? path : url,
+          routeConnection.id === connection.id
+            ? path
+            : `${routeConnection.id}:${path}`,
         );
       const routeRequestKey = `${routeConnection.id}::${routeId}::${input.width ?? ""}x${input.height ?? ""}`;
       if (seenRouteRequestKeys.has(routeRequestKey)) continue;

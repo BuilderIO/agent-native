@@ -106,6 +106,9 @@ function fallbackRouteIdentity(
   devServerUrl: string,
   connectionId: string,
 ): string {
+  if (route.connectionId && route.connectionId !== connectionId) {
+    return `${route.connectionId}:${route.path}`;
+  }
   if (route.url) {
     try {
       const routeUrl = new URL(route.url, devServerUrl);
@@ -116,9 +119,7 @@ function fallbackRouteIdentity(
       // coercion-ok: add-localhost-screens validates malformed route URLs later.
     }
   }
-  return route.connectionId && route.connectionId !== connectionId
-    ? `${route.connectionId}:${route.path}`
-    : route.path;
+  return route.path;
 }
 
 export default defineAction({

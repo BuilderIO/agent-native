@@ -150,6 +150,7 @@ vi.mock("../server/db/index.js", () => ({
   }),
 }));
 
+import { makeLocalhostRouteId } from "../shared/source-mode.js";
 import action from "./add-localhost-screens.js";
 
 describe("add-localhost-screens refresh behavior", () => {
@@ -499,6 +500,40 @@ describe("add-localhost-screens refresh behavior", () => {
       connectionId: "conn_2",
       url: "http://127.0.0.2:5173/settings",
     });
+  });
+
+  it("keeps placed ids connection-aware for same-origin secondary routes", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://localhost:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        routes: [],
+      }),
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ connectionId: "conn_2", path: "/settings" }],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.routeId).toBe(
+      makeLocalhostRouteId("conn_2:/settings"),
+    );
+    expect(result.screens[0]?.routeId).not.toBe(
+      makeLocalhostRouteId("/settings"),
+    );
   });
 
   it("does not reuse a legacy path-only screen from another connection", async () => {

@@ -233,6 +233,7 @@ async function createCallerHandoff(
 
 function routeManifestFromScreens(args: {
   devServerUrl: string;
+  connectionId?: string;
   routes?: Array<z.infer<typeof screenRouteSchema>>;
   paths?: string[];
 }) {
@@ -255,8 +256,19 @@ function routeManifestFromScreens(args: {
     const path = pathFromUrl(args.devServerUrl, url, input.path ?? "/");
     const isPrimaryOrigin =
       new URL(url).origin === new URL(args.devServerUrl).origin;
+    const isPrimaryConnection =
+      !input.connectionId ||
+      (!!args.connectionId && input.connectionId === args.connectionId);
     return {
-      id: input.routeId ?? makeLocalhostRouteId(isPrimaryOrigin ? path : url),
+      id:
+        input.routeId ??
+        makeLocalhostRouteId(
+          isPrimaryConnection
+            ? isPrimaryOrigin
+              ? path
+              : url
+            : `${input.connectionId}:${path}`,
+        ),
       connectionId: input.connectionId,
       path,
       url: input.url,
@@ -387,6 +399,7 @@ export default defineAction({
             routes:
               routeManifestFromScreens({
                 devServerUrl,
+                connectionId: args.connectionId,
                 routes: args.routes,
                 paths: args.paths,
               }) ?? [],
@@ -436,7 +449,7 @@ export default defineAction({
         : args.paths?.length
           ? args.paths.map((path) => ({ path }))
           : viewports
-            ? routeManifest.routes.map((route) => ({
+            ? connection.routes.map((route) => ({
                 routeId: route.id,
                 connectionId: route.connectionId,
                 path: route.path,
