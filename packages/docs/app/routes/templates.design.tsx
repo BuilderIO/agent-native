@@ -168,10 +168,7 @@ export default function DesignTemplate() {
             },
           ].map((item) => (
             <TemplateStatOrStepsGridItem key={item.step}>
-              <div
-                className="font-mono text-sm font-semibold"
-                style={{ color: template.color }}
-              >
+              <div className="font-mono text-sm font-semibold text-[var(--fg)]">
                 {item.step}
               </div>
               <h3 className="m-0 text-xl font-medium leading-tight text-[var(--fg)]">
@@ -235,8 +232,7 @@ export default function DesignTemplate() {
                   <IconCheck
                     aria-hidden="true"
                     size={18}
-                    className="mt-0.5 shrink-0"
-                    style={{ color: template.color }}
+                    className="mt-0.5 shrink-0 text-[var(--fg)]"
                   />
                   <span>{item}</span>
                 </li>
@@ -284,7 +280,7 @@ export default function DesignTemplate() {
             },
             {
               id: "design",
-              agentNative: { color: template.color, name: template.name },
+              agentNative: { color: "var(--fg)", name: template.name },
               emphasized: true,
             },
           ]}
@@ -352,7 +348,7 @@ export default function DesignTemplate() {
       <TemplateLandingFaq
         idPrefix="design-faq"
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg)]">
             {t("templateLanding.faq.eyebrow")}
           </span>
         }
