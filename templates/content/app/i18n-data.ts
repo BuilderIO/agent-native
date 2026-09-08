@@ -1,6 +1,7 @@
 import { type LocaleCode } from "@agent-native/core/client/i18n";
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
+import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
 import zhTW from "./i18n/zh-TW";
 
 const databaseMessages = {
@@ -3311,6 +3312,7 @@ const enUS = {
     untitledDatabase: "Untitled database",
   },
   comments: {
+    ...commentAttributionMessagesByLocale["en-US"],
     filter: "Filter",
     add: "Add a comment...",
     title: "Comments",
@@ -9419,6 +9421,7 @@ const contentReferenceMessagesByLocale = {
 
 const commentMessagesByLocale = {
   "zh-CN": {
+    ...commentAttributionMessagesByLocale["zh-CN"],
     filter: "筛选",
     hideIndicators: "隐藏评论和高亮",
     showIndicators: "显示评论和高亮",
@@ -9434,6 +9437,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "没有匹配的评论。",
   },
   "zh-TW": {
+    ...commentAttributionMessagesByLocale["zh-TW"],
     filter: "篩選",
     hideIndicators: "隱藏留言和醒目提示",
     showIndicators: "顯示留言和醒目提示",
@@ -9449,6 +9453,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "沒有相符的留言。",
   },
   "es-ES": {
+    ...commentAttributionMessagesByLocale["es-ES"],
     filter: "Filtro",
     hideIndicators: "Ocultar comentarios y resaltados",
     showIndicators: "Mostrar comentarios y resaltados",
@@ -9464,6 +9469,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "No hay comentarios coincidentes.",
   },
   "fr-FR": {
+    ...commentAttributionMessagesByLocale["fr-FR"],
     filter: "Filtrer",
     hideIndicators: "Masquer les commentaires et surlignages",
     showIndicators: "Afficher les commentaires et surlignages",
@@ -9479,6 +9485,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "Aucun commentaire correspondant.",
   },
   "de-DE": {
+    ...commentAttributionMessagesByLocale["de-DE"],
     filter: "Filter",
     hideIndicators: "Kommentare und Hervorhebungen ausblenden",
     showIndicators: "Kommentare und Hervorhebungen anzeigen",
@@ -9494,6 +9501,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "Keine passenden Kommentare.",
   },
   "ja-JP": {
+    ...commentAttributionMessagesByLocale["ja-JP"],
     filter: "フィルター",
     hideIndicators: "コメントとハイライトを非表示",
     showIndicators: "コメントとハイライトを表示",
@@ -9509,6 +9517,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "一致するコメントはありません。",
   },
   "ko-KR": {
+    ...commentAttributionMessagesByLocale["ko-KR"],
     filter: "필터",
     hideIndicators: "댓글과 강조 표시 숨기기",
     showIndicators: "댓글과 강조 표시 보기",
@@ -9524,6 +9533,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "일치하는 댓글이 없습니다.",
   },
   "pt-BR": {
+    ...commentAttributionMessagesByLocale["pt-BR"],
     filter: "Filtro",
     hideIndicators: "Ocultar comentários e destaques",
     showIndicators: "Mostrar comentários e destaques",
@@ -9539,6 +9549,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "Nenhum comentário correspondente.",
   },
   "hi-IN": {
+    ...commentAttributionMessagesByLocale["hi-IN"],
     filter: "फ़िल्टर",
     hideIndicators: "टिप्पणियाँ और हाइलाइट छिपाएँ",
     showIndicators: "टिप्पणियाँ और हाइलाइट दिखाएँ",
@@ -9554,6 +9565,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "कोई मेल खाती टिप्पणी नहीं।",
   },
   "ar-SA": {
+    ...commentAttributionMessagesByLocale["ar-SA"],
     filter: "تصفية",
     hideIndicators: "إخفاء التعليقات والتمييزات",
     showIndicators: "إظهار التعليقات والتمييزات",

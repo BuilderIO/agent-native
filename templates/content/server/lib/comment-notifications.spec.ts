@@ -147,6 +147,30 @@ describe("content comment notifications", () => {
     expect(owner.subject).toBe('Writer commented on "Launch plan"');
   });
 
+  it.each(["mcp", "agent"])(
+    "identifies %s comments without changing the account",
+    async (submissionSource) => {
+      await notifyDocumentComment({ ...BASE, submissionSource });
+      const args = notifyArgs();
+      expect(args.actorEmail).toBe("writer@example.com");
+      await args.send("owner@example.com");
+      const email = mocks.sendEmail.mock.calls[0][0];
+      expect(email.subject).toBe('Writer commented on "Launch plan" · AI');
+      expect(email.text).toContain("Posted via AI on behalf of Writer");
+    },
+  );
+
+  it.each([undefined, null, "frontend", "cli", "automation"])(
+    "does not label %s submissions as AI",
+    async (submissionSource) => {
+      await notifyDocumentComment({ ...BASE, submissionSource });
+      await notifyArgs().send("owner@example.com");
+      expect(mocks.sendEmail.mock.calls[0][0].subject).toBe(
+        'Writer commented on "Launch plan"',
+      );
+    },
+  );
+
   it("drops a mentioned address with no access to the document", async () => {
     mocks.filterRecipients.mockResolvedValue(["owner@example.com"]);
 

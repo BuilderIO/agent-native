@@ -19,6 +19,7 @@ import {
 import { filterRecipientsByResourceAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 
+import { commentAttributionMessagesByLocale } from "../../shared/comment-attribution-messages.js";
 import { CONTENT_USER_PREFS_KEY } from "../../shared/content-user-prefs.js";
 import { getDb, schema } from "../db/index.js";
 import {
@@ -69,6 +70,7 @@ export interface DocumentCommentNotificationInput {
   ownerEmail: string;
   authorEmail: string;
   authorName?: string | null;
+  submissionSource?: string | null;
   content: string;
   mentions: { email: string; name: string }[];
   isReply: boolean;
@@ -81,6 +83,7 @@ export function renderDocumentCommentEmail({
   content,
   isReply,
   wasMentioned,
+  submissionSource,
 }: {
   actor: string;
   title: string;
@@ -88,27 +91,40 @@ export function renderDocumentCommentEmail({
   content: string;
   isReply: boolean;
   wasMentioned: boolean;
+  submissionSource?: string | null;
 }) {
+  const attribution =
+    submissionSource === "mcp" || submissionSource === "agent"
+      ? commentAttributionMessagesByLocale["en-US"].aiAttribution.replace(
+          "{{name}}",
+          () => actor,
+        )
+      : null;
   const lead = wasMentioned
     ? `${emailStrong(actor)} mentioned you in a comment on ${emailStrong(title)}.`
     : isReply
       ? `${emailStrong(actor)} replied in a comment thread on ${emailStrong(title)}.`
       : `${emailStrong(actor)} commented on ${emailStrong(title)}.`;
+  const subject = wasMentioned
+    ? `${actor} mentioned you on "${title}"`
+    : isReply
+      ? `${actor} replied to a comment on "${title}"`
+      : `${actor} commented on "${title}"`;
 
   return {
-    subject: wasMentioned
-      ? `${actor} mentioned you on "${title}"`
-      : isReply
-        ? `${actor} replied to a comment on "${title}"`
-        : `${actor} commented on "${title}"`,
+    subject: attribution
+      ? `${subject} · ${commentAttributionMessagesByLocale["en-US"].aiBadge}`
+      : subject,
     ...renderEmail({
-      preheader: `${actor} commented on ${title}.`,
+      preheader: attribution ?? `${actor} commented on ${title}.`,
       heading: wasMentioned
         ? "You were mentioned"
         : isReply
           ? "New reply on your document"
           : "New comment",
-      paragraphs: [lead, `"${excerpt(content)}"`],
+      paragraphs: attribution
+        ? [attribution, lead, `"${excerpt(content)}"`]
+        : [lead, `"${excerpt(content)}"`],
       cta: { label: "Open document", url },
       footer:
         "You received this because you own, were mentioned in, or participated in this thread. Turn these off in Documents settings.",
@@ -166,6 +182,7 @@ async function deliverDocumentCommentEmails(
           content: input.content,
           isReply: input.isReply,
           wasMentioned,
+          submissionSource: input.submissionSource,
         }),
         to,
         templateId: wasMentioned
