@@ -52,6 +52,7 @@ import {
 } from "../../shared/feature-flags.js";
 import {
   IDENTITY_AUTHORIZATION_CODE_TTL_MS,
+  IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH,
   IDENTITY_SSO_BOOTSTRAP_PATH,
   IDENTITY_SSO_BOOTSTRAP_SCOPE,
   IDENTITY_SCOPE,
@@ -60,13 +61,16 @@ import {
   buildIdentityClaims,
   buildRedirectLocation,
   consumeIdentityBootstrapHandle,
+  consumeIdentityBootstrapActivation,
   consumeIdentityAuthorizationCode,
+  createIdentityBootstrapActivation,
   createIdentityBootstrapHandle,
   createIdentityAuthorizationCode,
   DEFAULT_ALLOWED_ORIGINS,
   isValidSsoState,
   normalizeIdentityAuthority,
   releaseIdentityBootstrapHandle,
+  releaseIdentityBootstrapActivation,
   resolveIdentitySsoApp,
   getIdentitySsoAppRegistry,
 } from "../lib/identity-sso.js";
@@ -74,6 +78,7 @@ import {
 const AVAILABILITY_PATH = "/_agent-native/identity/availability";
 const AUTHORIZE_PATH = "/_agent-native/identity/authorize";
 const BOOTSTRAP_CONTINUE_PATH = `${IDENTITY_SSO_BOOTSTRAP_PATH}/continue`;
+const BOOTSTRAP_ACTIVATE_PATH = IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH;
 export const ORGANIZATION_FEDERATION_PATH =
   "/_agent-native/identity/organization";
 const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
@@ -1151,7 +1156,14 @@ export const bootstrapHandler = defineEventHandler(
       }
     }
 
-    if (method === "GET" || method === "HEAD") {
+    if (method === "HEAD") {
+      return new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
+    if (method === "GET") {
       let handle = "";
       try {
         handle =
@@ -1171,23 +1183,6 @@ export const bootstrapHandler = defineEventHandler(
         return new Response("Invalid sign-in request", { status: 400 });
 
       try {
-        const identityUser = await ensureIdentityUser(
-          bootstrap.email,
-          bootstrap.name,
-        );
-        const betterAuthSession = await createBetterAuthSessionForEmail(
-          bootstrap.email,
-        );
-        if (
-          !betterAuthSession ||
-          betterAuthSession.userId !== identityUser.id
-        ) {
-          throw new Error("Could not create the local auth session.");
-        }
-        await setBetterAuthSessionCookie(event, betterAuthSession.token);
-        const sessionToken = randomBytes(32).toString("hex");
-        await addSession(sessionToken, bootstrap.email);
-        setFrameworkSessionCookie(event, sessionToken);
         const code = await createIdentityAuthorizationCode({
           state: bootstrap.state,
           appId: bootstrap.appId,
@@ -1197,6 +1192,7 @@ export const bootstrapHandler = defineEventHandler(
           codeChallenge: bootstrap.codeChallenge,
           email: bootstrap.email,
           name: bootstrap.name,
+          bootstrapHandle: handle,
         });
         return redirectWithStagedCookies(
           event,
@@ -1210,6 +1206,101 @@ export const bootstrapHandler = defineEventHandler(
     }
 
     return jsonResponse({ error: "Method not allowed" }, 405);
+  },
+);
+
+function resolveBootstrapReturnUrl(
+  bootstrap: {
+    appId: string;
+    clientId: string;
+    redirectUri: string;
+  },
+  rawReturn: string,
+): string | null {
+  const registration = resolveIdentitySsoApp(
+    bootstrap.appId,
+    bootstrap.clientId,
+    bootstrap.redirectUri,
+  );
+  if (!registration) return null;
+  try {
+    const returnUrl = new URL(rawReturn || "/", registration.origin);
+    if (
+      returnUrl.origin !== registration.origin ||
+      returnUrl.username ||
+      returnUrl.password ||
+      returnUrl.hash
+    ) {
+      return null;
+    }
+    return returnUrl.toString();
+    // coercion-ok: malformed return URLs are an explicit absent result.
+  } catch {
+    return null;
+  }
+}
+
+export const bootstrapActivationHandler = defineEventHandler(
+  async (event: H3Event): Promise<Response> => {
+    const method = getMethod(event);
+    if (method === "HEAD") {
+      return new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+    if (method !== "GET") {
+      return jsonResponse({ error: "Method not allowed" }, 405);
+    }
+
+    let activation = "";
+    let rawReturn = "/";
+    try {
+      const url = new URL(getRequestUrl(event), "http://an.invalid");
+      activation = url.searchParams.get("activation") ?? "";
+      rawReturn = url.searchParams.get("return") ?? "/";
+    } catch {
+      return new Response("Invalid sign-in request", { status: 400 });
+    }
+
+    let bootstrap: Awaited<
+      ReturnType<typeof consumeIdentityBootstrapActivation>
+    >;
+    try {
+      bootstrap = await consumeIdentityBootstrapActivation(activation);
+    } catch (error) {
+      void error;
+      return new Response("Could not verify sign-in", { status: 503 });
+    }
+    if (!bootstrap)
+      return new Response("Invalid sign-in request", { status: 400 });
+    const returnUrl = resolveBootstrapReturnUrl(bootstrap, rawReturn);
+    if (!returnUrl) {
+      await releaseIdentityBootstrapActivation(activation).catch(() => {});
+      return new Response("Invalid sign-in request", { status: 400 });
+    }
+
+    try {
+      const identityUser = await ensureIdentityUser(
+        bootstrap.email,
+        bootstrap.name,
+      );
+      const betterAuthSession = await createBetterAuthSessionForEmail(
+        bootstrap.email,
+      );
+      if (!betterAuthSession || betterAuthSession.userId !== identityUser.id) {
+        throw new Error("Could not create the local auth session.");
+      }
+      await setBetterAuthSessionCookie(event, betterAuthSession.token);
+      const sessionToken = randomBytes(32).toString("hex");
+      await addSession(sessionToken, bootstrap.email);
+      setFrameworkSessionCookie(event, sessionToken);
+      return redirectWithStagedCookies(event, returnUrl);
+    } catch (error) {
+      void error;
+      await releaseIdentityBootstrapActivation(activation).catch(() => {});
+      return new Response("Could not finish sign-in", { status: 503 });
+    }
   },
 );
 
@@ -1502,6 +1593,21 @@ export const tokenHandler = defineEventHandler(
       return jsonResponse({ error: "sign_failed" }, 500);
     }
 
+    let bootstrapActivation: string | null = null;
+    if (identity.bootstrapHandleHash) {
+      try {
+        bootstrapActivation = await createIdentityBootstrapActivation(
+          identity.bootstrapHandleHash,
+        );
+      } catch (error) {
+        void error;
+        return jsonResponse({ error: "identity_unavailable" }, 503);
+      }
+      if (!bootstrapActivation) {
+        return jsonResponse({ error: "identity_unavailable" }, 503);
+      }
+    }
+
     // This response is server-to-server. It is never redirected through the
     // browser and is intentionally not rendered or logged.
     return jsonResponse(
@@ -1509,6 +1615,9 @@ export const tokenHandler = defineEventHandler(
         assertion,
         token_type: "identity-assertion",
         expires_in: Math.floor(IDENTITY_AUTHORIZATION_CODE_TTL_MS / 1_000),
+        ...(bootstrapActivation
+          ? { bootstrap_activation: bootstrapActivation }
+          : {}),
       },
       200,
     );
@@ -1519,6 +1628,7 @@ export const tokenHandler = defineEventHandler(
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(AVAILABILITY_PATH, availabilityHandler);
   getH3App(nitroApp).use(BOOTSTRAP_CONTINUE_PATH, bootstrapHandler);
+  getH3App(nitroApp).use(BOOTSTRAP_ACTIVATE_PATH, bootstrapActivationHandler);
   getH3App(nitroApp).use(IDENTITY_SSO_BOOTSTRAP_PATH, bootstrapHandler);
   getH3App(nitroApp).use(AUTHORIZE_PATH, authorizeHandler);
   getH3App(nitroApp).use(

@@ -25,6 +25,7 @@ const dispatchTimestampColumns: Record<string, string[]> = {
   workspace_resources: ["created_at", "updated_at"],
   workspace_resource_grants: ["synced_at", "created_at", "updated_at"],
   identity_sso_authorization_code: ["created_at", "expires_at", "consumed_at"],
+  identity_sso_bootstrap: ["created_at", "expires_at", "consumed_at"],
 };
 
 async function widenLegacyDispatchTimestamps(exec: DbExec): Promise<void> {
@@ -327,13 +328,28 @@ export const dispatchMigrations: MigrationEntry[] = [
         code_challenge TEXT NOT NULL,
         email TEXT NOT NULL,
         name TEXT,
-        created_at INTEGER NOT NULL,
-        expires_at INTEGER NOT NULL,
-        consumed_at INTEGER
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        consumed_at BIGINT
       );
 
       CREATE INDEX IF NOT EXISTS identity_sso_bootstrap_expires_idx
         ON identity_sso_bootstrap (expires_at);
     `,
+  },
+  {
+    version: 8,
+    name: "identity-sso-pkce-bootstrap-activation",
+    sql: `
+      ALTER TABLE identity_sso_authorization_code
+        ADD COLUMN IF NOT EXISTS bootstrap_handle_hash TEXT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS activation_hash TEXT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS activation_expires_at BIGINT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS activated_at BIGINT;
+    `,
+    run: widenLegacyDispatchTimestamps,
   },
 ];

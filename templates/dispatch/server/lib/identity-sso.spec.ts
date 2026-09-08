@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 interface CodeRow {
@@ -14,9 +16,13 @@ interface CodeRow {
   org_id: string | null;
   org_name: string | null;
   org_role: "owner" | "admin" | "member" | null;
+  bootstrap_handle_hash: string | null;
   jti: string;
   expires_at: number;
   consumed_at: number | null;
+  activation_hash: string | null;
+  activation_expires_at: number | null;
+  activated_at: number | null;
 }
 interface BootstrapRow {
   handle_hash: string;
@@ -31,6 +37,9 @@ interface BootstrapRow {
   created_at: number;
   expires_at: number;
   consumed_at: number | null;
+  activation_hash: string | null;
+  activation_expires_at: number | null;
+  activated_at: number | null;
 }
 
 const codeRows: CodeRow[] = [];
@@ -73,6 +82,10 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       org_id: args[14],
       org_name: args[15],
       org_role: args[16],
+      bootstrap_handle_hash: args[17],
+      activation_hash: null,
+      activation_expires_at: null,
+      activated_at: null,
     });
     return { rows: [], rowsAffected: 1 };
   }
@@ -90,6 +103,9 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       created_at: args[9],
       expires_at: args[10],
       consumed_at: args[11],
+      activation_hash: null,
+      activation_expires_at: null,
+      activated_at: null,
     });
     return { rows: [], rowsAffected: 1 };
   }
@@ -110,6 +126,52 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       (candidate) => candidate.handle_hash === args[0],
     );
     return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+  }
+  if (/^UPDATE identity_sso_bootstrap SET activation_hash = /i.test(sql)) {
+    const row = bootstrapRows.find(
+      (candidate) => candidate.handle_hash === args[2],
+    );
+    if (
+      row &&
+      row.consumed_at != null &&
+      row.activation_hash == null &&
+      row.activated_at == null
+    ) {
+      row.activation_hash = args[0];
+      row.activation_expires_at = args[1];
+      return { rows: [], rowsAffected: 1 };
+    }
+    return { rows: [], rowsAffected: 0 };
+  }
+  if (
+    /^SELECT app_id, client_id, redirect_uri, authority, email, name, activation_expires_at, activated_at FROM identity_sso_bootstrap/i.test(
+      sql,
+    )
+  ) {
+    const row = bootstrapRows.find(
+      (candidate) => candidate.activation_hash === args[0],
+    );
+    return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+  }
+  if (/^UPDATE identity_sso_bootstrap SET activated_at = NULL/i.test(sql)) {
+    const row = bootstrapRows.find(
+      (candidate) => candidate.activation_hash === args[0],
+    );
+    if (row && row.activated_at != null) {
+      row.activated_at = null;
+      return { rows: [], rowsAffected: 1 };
+    }
+    return { rows: [], rowsAffected: 0 };
+  }
+  if (/^UPDATE identity_sso_bootstrap SET activated_at = /i.test(sql)) {
+    const row = bootstrapRows.find(
+      (candidate) => candidate.activation_hash === args[1],
+    );
+    if (row && row.activated_at == null) {
+      row.activated_at = args[0];
+      return { rows: [], rowsAffected: 1 };
+    }
+    return { rows: [], rowsAffected: 0 };
   }
   if (/^UPDATE identity_sso_bootstrap SET consumed_at = NULL/i.test(sql)) {
     const row = bootstrapRows.find(
@@ -406,6 +468,41 @@ describe("bootstrap handle store", () => {
 
     expect(handle).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(executedSql.some((sql) => /^CREATE TABLE/i.test(sql))).toBe(false);
+  });
+
+  it("issues and consumes a one-time activation after PKCE redemption", async () => {
+    const handle = await mod.createIdentityBootstrapHandle({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge: mod.createCodeChallenge(VERIFIER)!,
+      email: "user@example.test",
+    });
+    await expect(
+      mod.createIdentityBootstrapActivation(
+        createHash("sha256").update(handle).digest("base64url"),
+      ),
+    ).resolves.toBeNull();
+    await expect(mod.consumeIdentityBootstrapHandle(handle)).resolves.toEqual(
+      expect.objectContaining({ email: "user@example.test" }),
+    );
+
+    const activation = await mod.createIdentityBootstrapActivation(
+      createHash("sha256").update(handle).digest("base64url"),
+    );
+    expect(activation).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(await mod.consumeIdentityBootstrapActivation(activation!)).toEqual({
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      email: "user@example.test",
+    });
+    await expect(
+      mod.consumeIdentityBootstrapActivation(activation!),
+    ).resolves.toBeNull();
   });
 });
 

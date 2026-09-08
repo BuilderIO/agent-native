@@ -354,7 +354,7 @@ async function exchangeIdentityCode(
   hub: string,
   binding: SsoClientBinding,
   input: { code: string; state: string; codeVerifier: string },
-): Promise<string | null> {
+): Promise<{ assertion: string; bootstrapActivation?: string } | null> {
   if (!CODE.test(input.code) || !STATE_PATTERN.test(input.state)) return null;
   if (!CODE_VERIFIER.test(input.codeVerifier)) return null;
   const tokenEndpoint = `${hub}${IDENTITY_SSO_TOKEN_PATH}`;
@@ -381,7 +381,13 @@ async function exchangeIdentityCode(
       void error;
       return null;
     })) as Record<string, unknown> | null;
-    return typeof body?.assertion === "string" ? body.assertion : null;
+    if (typeof body?.assertion !== "string") return null;
+    return {
+      assertion: body.assertion,
+      ...(typeof body.bootstrap_activation === "string"
+        ? { bootstrapActivation: body.bootstrap_activation }
+        : {}),
+    };
   } catch (error) {
     void error;
     return null;
@@ -759,13 +765,13 @@ export async function handleIdentitySso(
       return redirect(event, localSignInHref(stateResult.returnPath));
     }
 
-    const assertion = await exchangeIdentityCode(hub, binding, {
+    const exchange = await exchangeIdentityCode(hub, binding, {
       code,
       state,
       codeVerifier: verifier,
     });
-    const identity = assertion
-      ? await verifyIdentityAssertion(assertion, binding)
+    const identity = exchange
+      ? await verifyIdentityAssertion(exchange.assertion, binding)
       : null;
     if (!identity || (await isJtiReplayed(identity.jti))) {
       return errorPage(
@@ -828,6 +834,20 @@ export async function handleIdentitySso(
         "Signed in, but could not start your session. Please try again.",
         loginPath,
       );
+    }
+    if (exchange?.bootstrapActivation) {
+      const activationUrl = new URL(
+        `${hub}${IDENTITY_SSO_BOOTSTRAP_PATH}/activate`,
+      );
+      activationUrl.searchParams.set(
+        "activation",
+        exchange.bootstrapActivation,
+      );
+      activationUrl.searchParams.set(
+        "return",
+        safeReturnPath(stateResult.returnPath),
+      );
+      return redirect(event, activationUrl.toString());
     }
     return redirect(event, safeReturnPath(stateResult.returnPath));
   }

@@ -40,6 +40,7 @@ export const IDENTITY_AUTHORIZATION_CODE_TTL_MS =
 export const IDENTITY_SSO_CALLBACK_PATH = "/_agent-native/identity/callback";
 export const IDENTITY_SSO_TOKEN_PATH = "/_agent-native/identity/token";
 export const IDENTITY_SSO_BOOTSTRAP_PATH = "/_agent-native/identity/bootstrap";
+export const IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH = `${IDENTITY_SSO_BOOTSTRAP_PATH}/activate`;
 export const IDENTITY_SSO_BOOTSTRAP_TTL_MS = 2 * 60_000;
 export const IDENTITY_SSO_BOOTSTRAP_SCOPE = "identity-bootstrap";
 
@@ -321,6 +322,7 @@ export interface CreateIdentityAuthorizationCodeInput {
   orgId?: string | null;
   orgName?: string | null;
   orgRole?: "owner" | "admin" | "member" | null;
+  bootstrapHandle?: string | null;
 }
 
 export interface ConsumedIdentityAuthorizationCode {
@@ -330,6 +332,7 @@ export interface ConsumedIdentityAuthorizationCode {
   orgId?: string;
   orgName?: string;
   orgRole?: "owner" | "admin" | "member";
+  bootstrapHandleHash?: string;
   jti: string;
 }
 
@@ -355,7 +358,8 @@ function buildCodeTableSql(): string {
       consumed_at BIGINT,
       org_id TEXT,
       org_name TEXT,
-      org_role TEXT
+      org_role TEXT,
+      bootstrap_handle_hash TEXT
     )
   `;
 }
@@ -390,7 +394,10 @@ function buildBootstrapTableSql(): string {
       name TEXT,
       created_at BIGINT NOT NULL,
       expires_at BIGINT NOT NULL,
-      consumed_at BIGINT
+      consumed_at BIGINT,
+      activation_hash TEXT,
+      activation_expires_at BIGINT,
+      activated_at BIGINT
     )
   `;
 }
@@ -426,6 +433,7 @@ export async function createIdentityAuthorizationCode(
     !CLIENT_ID.test(input.clientId) ||
     !CODE_CHALLENGE.test(input.codeChallenge) ||
     !input.email ||
+    (input.bootstrapHandle != null && !CODE.test(input.bootstrapHandle)) ||
     !resolveIdentitySsoApp(input.appId, input.clientId, input.redirectUri)
   ) {
     throw new Error("INVALID_IDENTITY_AUTHORIZATION_CODE");
@@ -434,11 +442,14 @@ export async function createIdentityAuthorizationCode(
   const code = randomBytes(32).toString("base64url");
   const now = Date.now();
   const claims = buildIdentityClaims(input);
+  const bootstrapHandleHash = input.bootstrapHandle
+    ? identityCodeHash(input.bootstrapHandle)
+    : null;
   await getDbExec().execute({
     sql:
       "INSERT INTO identity_sso_authorization_code " +
-      "(code_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, created_at, expires_at, consumed_at, org_id, org_name, org_role) " +
-      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+      "(code_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, created_at, expires_at, consumed_at, org_id, org_name, org_role, bootstrap_handle_hash) " +
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
     args: [
       identityCodeHash(code),
       input.state,
@@ -457,6 +468,7 @@ export async function createIdentityAuthorizationCode(
       claims.org_id ?? null,
       claims.org_name ?? null,
       claims.org_role ?? null,
+      bootstrapHandleHash,
     ],
   });
   void getDbExec()
@@ -492,7 +504,7 @@ export async function consumeIdentityAuthorizationCode(input: {
   const codeHash = identityCodeHash(input.code);
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, expires_at, consumed_at, org_id, org_name, org_role " +
+      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, expires_at, consumed_at, org_id, org_name, org_role, bootstrap_handle_hash " +
       "FROM identity_sso_authorization_code WHERE code_hash = $1",
     args: [codeHash],
   });
@@ -537,6 +549,10 @@ export async function consumeIdentityAuthorizationCode(input: {
     row.org_role === "admin" ||
     row.org_role === "member"
       ? { orgRole: row.org_role }
+      : {}),
+    ...(typeof row.bootstrap_handle_hash === "string" &&
+    row.bootstrap_handle_hash
+      ? { bootstrapHandleHash: row.bootstrap_handle_hash }
       : {}),
     jti: row.jti,
   };
@@ -670,5 +686,96 @@ export async function releaseIdentityBootstrapHandle(
       "UPDATE identity_sso_bootstrap SET consumed_at = NULL " +
       "WHERE handle_hash = ? AND consumed_at IS NOT NULL",
     args: [identityCodeHash(handle)],
+  });
+}
+
+export async function createIdentityBootstrapActivation(
+  bootstrapHandleHash: string,
+): Promise<string | null> {
+  if (!CODE.test(bootstrapHandleHash)) return null;
+  await ensureBootstrapTable();
+  const activation = randomBytes(32).toString("base64url");
+  const now = Date.now();
+  const result = await getDbExec().execute({
+    sql:
+      "UPDATE identity_sso_bootstrap SET activation_hash = ?, activation_expires_at = ?, activated_at = NULL " +
+      "WHERE handle_hash = ? AND consumed_at IS NOT NULL AND activation_hash IS NULL AND activated_at IS NULL",
+    args: [
+      identityCodeHash(activation),
+      now + IDENTITY_SSO_BOOTSTRAP_TTL_MS,
+      bootstrapHandleHash,
+    ],
+  });
+  return affectedRows(result) === 1 ? activation : null;
+}
+
+export interface ConsumedIdentityBootstrapActivation {
+  appId: string;
+  clientId: string;
+  redirectUri: string;
+  authority: string;
+  email: string;
+  name?: string;
+}
+
+export async function consumeIdentityBootstrapActivation(
+  activation: string,
+): Promise<ConsumedIdentityBootstrapActivation | null> {
+  if (!CODE.test(activation)) return null;
+  await ensureBootstrapTable();
+  const activationHash = identityCodeHash(activation);
+  const { rows } = await getDbExec().execute({
+    sql:
+      "SELECT app_id, client_id, redirect_uri, authority, email, name, activation_expires_at, activated_at " +
+      "FROM identity_sso_bootstrap WHERE activation_hash = ?",
+    args: [activationHash],
+  });
+  if (rows.length !== 1) return null;
+  const row: any = rows[0];
+  const expiresAt = Number(
+    row.activation_expires_at ?? row.activationExpiresAt,
+  );
+  if (
+    row.activated_at != null ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt < Date.now() ||
+    typeof row.app_id !== "string" ||
+    typeof row.client_id !== "string" ||
+    typeof row.redirect_uri !== "string" ||
+    typeof row.authority !== "string" ||
+    typeof row.email !== "string" ||
+    !row.email.includes("@")
+  ) {
+    return null;
+  }
+  const result = await getDbExec().execute({
+    sql:
+      "UPDATE identity_sso_bootstrap SET activated_at = ? " +
+      "WHERE activation_hash = ? AND activated_at IS NULL",
+    args: [Date.now(), activationHash],
+  });
+  if (affectedRows(result) !== 1) return null;
+  return {
+    appId: row.app_id,
+    clientId: row.client_id,
+    redirectUri: row.redirect_uri,
+    authority: row.authority,
+    email: row.email.trim().toLowerCase(),
+    ...(typeof row.name === "string" && row.name.trim()
+      ? { name: row.name.trim() }
+      : {}),
+  };
+}
+
+export async function releaseIdentityBootstrapActivation(
+  activation: string,
+): Promise<void> {
+  if (!CODE.test(activation)) return;
+  await ensureBootstrapTable();
+  await getDbExec().execute({
+    sql:
+      "UPDATE identity_sso_bootstrap SET activated_at = NULL " +
+      "WHERE activation_hash = ? AND activated_at IS NOT NULL",
+    args: [identityCodeHash(activation)],
   });
 }
