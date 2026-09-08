@@ -86,6 +86,16 @@ describe("breadcrumb menu interaction", () => {
 
     await pointer(trigger, "pointerdown", "touch");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    await pointer(trigger, "pointerup", "touch");
+    await pointer(trigger, "pointerout", "touch");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 180));
+    });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    await pointer(trigger, "pointerdown", "touch");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("still opens with Enter and dismisses with Escape", async () => {

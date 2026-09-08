@@ -409,11 +409,18 @@ function ToolbarBreadcrumbMenu({
           }}
           onPointerDown={(event) => {
             // Hover already opened the menu; don't toggle it closed on click.
-            if (open && event.button === 0 && !event.ctrlKey) {
+            if (
+              event.pointerType === "mouse" &&
+              open &&
+              event.button === 0 &&
+              !event.ctrlKey
+            ) {
               event.preventDefault();
             }
           }}
-          onPointerLeave={scheduleClose}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") scheduleClose();
+          }}
           onKeyDown={(event) => {
             if (
               event.key === "Enter" ||
