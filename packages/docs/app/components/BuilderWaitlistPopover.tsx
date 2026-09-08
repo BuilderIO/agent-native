@@ -107,20 +107,7 @@ export function BuilderWaitlistContent({
         },
       );
       if (!res.ok) {
-        let data: unknown;
-        try {
-          data = await res.json();
-        } catch {
-          throw new Error(t("buildFromScratch.submitError"));
-        }
-        throw new Error(
-          typeof data === "object" &&
-            data !== null &&
-            "error" in data &&
-            typeof data.error === "string"
-            ? data.error
-            : t("buildFromScratch.submitError"),
-        );
+        throw new Error(t("buildFromScratch.submitError"));
       }
       let data: unknown;
       try {
@@ -143,10 +130,8 @@ export function BuilderWaitlistContent({
         ...(template ? { template } : {}),
       });
       setJoined(true);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : t("buildFromScratch.submitError"),
-      );
+    } catch {
+      setError(t("buildFromScratch.submitError"));
     } finally {
       setJoining(false);
     }
