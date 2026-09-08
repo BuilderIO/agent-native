@@ -1033,9 +1033,22 @@ function DocumentEditorBody({
     t,
   ]);
 
+  const handledSuggestionDeepLinkRef = useRef<string | null>(null);
   useEffect(() => {
     const suggestionId = new URLSearchParams(location.search).get("suggestion");
-    if (!suggestionId || !suggestionsQuery.data) return;
+    if (!suggestionId) {
+      handledSuggestionDeepLinkRef.current = null;
+      return;
+    }
+    const deepLinkKey = `${documentId}:${suggestionId}`;
+    if (
+      handledSuggestionDeepLinkRef.current === deepLinkKey ||
+      !suggestionsQuery.data?.suggestions.some(
+        (suggestion) => suggestion.id === suggestionId,
+      )
+    )
+      return;
+    setSelectedSuggestionId(suggestionId);
     if (utilityPanel !== "comments" || !commentsBrowseOpen) {
       setUtilityPanel("comments");
       setCommentsBrowseOpen(true);
@@ -1044,11 +1057,16 @@ function DocumentEditorBody({
     const target = globalThis.document.querySelector<HTMLElement>(
       `[data-suggestion-id="${CSS.escape(suggestionId)}"]`,
     );
-    target?.scrollIntoView({ block: "nearest" });
-    target?.focus();
+    if (!target) return;
+    handledSuggestionDeepLinkRef.current = deepLinkKey;
+    target.scrollIntoView({ block: "nearest" });
+    target.focus();
   }, [
     commentsBrowseOpen,
+    commentsHistoryRailMounted,
+    documentId,
     location.search,
+    selectedSuggestionId,
     suggestionsQuery.data,
     utilityPanel,
   ]);

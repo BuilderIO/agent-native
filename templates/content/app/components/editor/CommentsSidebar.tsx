@@ -551,8 +551,9 @@ export function CommentsSidebar({
     );
   }, [suggestions, threads]);
   const historySuggestions = useMemo(() => {
-    if (historyKind === "comments") return [];
     return suggestions.filter((suggestion) => {
+      if (suggestion.id === activeSuggestionId) return true;
+      if (historyKind === "comments") return false;
       if (historyStatus === "open" && suggestion.status !== "pending") {
         return false;
       }
@@ -567,7 +568,13 @@ export function CommentsSidebar({
       }
       return !historyAuthor || suggestion.authorEmail === historyAuthor;
     });
-  }, [historyAuthor, historyKind, historyStatus, suggestions]);
+  }, [
+    activeSuggestionId,
+    historyAuthor,
+    historyKind,
+    historyStatus,
+    suggestions,
+  ]);
   const historyThreads = useMemo(() => {
     if (historyKind === "suggestions") return [];
     return threads.filter((thread) => {

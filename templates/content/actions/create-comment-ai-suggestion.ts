@@ -11,6 +11,7 @@ import {
   updateCommentAiRequest,
 } from "../server/lib/comment-ai.js";
 import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edits.js";
+import type { CommentAiRequest } from "../shared/comment-ai.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 import addComment from "./add-comment.js";
@@ -27,6 +28,16 @@ const payloadSchema = z.object({
     .max(24000)
     .describe("Proposed replacement; canonical text remains unchanged"),
 });
+
+function suggestionResult(request: CommentAiRequest) {
+  if (!request.result?.suggestionId)
+    throw new Error("The completed proposal has no suggestion result");
+  return {
+    ...request,
+    urlPath: `/page/${encodeURIComponent(request.documentId)}?suggestion=${encodeURIComponent(request.result.suggestionId)}`,
+  };
+}
+
 export default defineAction({
   description:
     "Create one real anchored suggestion with Accept/Reject controls, linked to the original feedback. Provide one independently reviewable exact replacement. This leaves canonical text and original comment resolution unchanged.",
@@ -34,7 +45,7 @@ export default defineAction({
   run: async (args, ctx) => {
     const request = await requireCommentAiRequest("suggest");
     if (request.status === "suggested")
-      return serializeCommentAiRequest(request);
+      return suggestionResult(serializeCommentAiRequest(request));
     try {
       const { document } = await assertCommentAiSourceUnchanged(request);
       let retained: typeof args & {
@@ -101,10 +112,12 @@ export default defineAction({
         },
         ctx,
       );
-      return await updateCommentAiRequest(request, {
-        status: "suggested",
-        result: { suggestionId: suggestion.id, commentId: reply.id },
-      });
+      return suggestionResult(
+        await updateCommentAiRequest(request, {
+          status: "suggested",
+          result: { suggestionId: suggestion.id, commentId: reply.id },
+        }),
+      );
     } catch (error) {
       await updateCommentAiRequest(request, {
         status: "needs-review",
