@@ -19,7 +19,12 @@ import { getRequestOrgId } from "../server/request-context.js";
 
 let _initPromise: Promise<void> | undefined;
 
-const ADDITIVE_TEXT_COLUMNS = ["request_payload", "response_body"] as const;
+const ADDITIVE_TEXT_COLUMNS = [
+  "request_payload",
+  "response_body",
+  "html_body",
+  "text_body",
+] as const;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -96,6 +101,10 @@ export interface RecordEmailSendArgs {
   responseStatus?: number;
   /** Raw HTTP response body text from the provider, when a response was received. */
   responseBody?: string;
+  /** Rendered HTML body of the message that was sent. */
+  htmlBody?: string;
+  /** Rendered plain-text body, when the send included one. */
+  textBody?: string;
 }
 
 /**
@@ -114,8 +123,8 @@ export async function recordEmailSend(
     const orgId = args.orgId ?? getRequestOrgId() ?? null;
     await getDbExec().execute({
       sql: `INSERT INTO email_log
-        (id, org_id, template_id, app, recipient, sender, subject, status, error, provider, request_payload, response_status, response_body, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, org_id, template_id, app, recipient, sender, subject, status, error, provider, request_payload, response_status, response_body, html_body, text_body, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         randomUUID(),
         orgId,
@@ -130,6 +139,8 @@ export async function recordEmailSend(
         args.requestPayload ?? null,
         args.responseStatus ?? null,
         args.responseBody ?? null,
+        args.htmlBody ?? null,
+        args.textBody ?? null,
         Date.now(),
       ],
     });
@@ -187,6 +198,8 @@ export interface EmailLogEntry {
   requestPayload: string | null;
   responseStatus: number | null;
   responseBody: string | null;
+  htmlBody: string | null;
+  textBody: string | null;
   createdAt: number;
 }
 
@@ -210,7 +223,7 @@ export interface ListEmailLogFilters {
 
 const LOG_COLUMNS =
   "id, template_id, app, recipient, sender, subject, status, error, provider, " +
-  "request_payload, response_status, response_body, created_at";
+  "request_payload, response_status, response_body, html_body, text_body, created_at";
 
 /**
  * Most recent sends for one app, newest first, combinably filtered — modeled
@@ -268,6 +281,8 @@ export async function listEmailLog(
     responseStatus:
       row.response_status == null ? null : Number(row.response_status),
     responseBody: row.response_body == null ? null : String(row.response_body),
+    htmlBody: row.html_body == null ? null : String(row.html_body),
+    textBody: row.text_body == null ? null : String(row.text_body),
     createdAt: Number(row.created_at),
   }));
 }

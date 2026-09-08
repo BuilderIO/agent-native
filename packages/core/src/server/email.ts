@@ -333,12 +333,13 @@ class EmailProviderError extends Error {
 
 /**
  * Serialize a provider payload for the audit log, stripping attachment bytes
- * and message bodies. Attachment `content` is base64 file data with no
- * diagnostic value for "who did this go to". The HTML/text body is omitted
- * too: transactional emails routinely embed a one-time magic-link, password-
- * reset, or verification URL, which is bearer-token-equivalent — logging it
- * verbatim would let anyone with `email_log` read access sign in as the
- * recipient. `subject` and `templateId` already identify what was sent.
+ * and the duplicated HTML/text body. Attachment `content` is base64 file data
+ * with no diagnostic value for "who did this go to". The body itself is
+ * logged separately via `htmlBody`/`textBody` on `recordEmailSend` (below)
+ * rather than inline here, so it is stored once instead of once per provider
+ * shape. Read access to `email_log` — and therefore to any bearer-token-
+ * equivalent link a body contains, such as a magic link or password reset —
+ * is restricted to org admins by `authorizeTransactionalEmailRead`.
  */
 const MAX_LOGGED_TEXT_LENGTH = 8_000;
 
@@ -577,6 +578,8 @@ async function sendEmailWithSignal(
     orgId: args.orgId ?? getRequestOrgId(),
     recipient: args.to,
     subject: args.subject,
+    htmlBody: truncateForLog(args.html),
+    textBody: args.text ? truncateForLog(args.text) : undefined,
   };
   let outcome: DeliveryOutcome | undefined;
   try {

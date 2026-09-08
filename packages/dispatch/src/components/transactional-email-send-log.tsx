@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { callAppAction } from "../client/transactional-emails";
+import { resolveEmailPreviewAssets } from "../lib/transactional-email-preview";
 import { ActionQueryError } from "./action-query-error";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -29,6 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "./ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 interface SendLogEntry {
   id: string;
@@ -41,6 +43,8 @@ interface SendLogEntry {
   error: string | null;
   provider: string;
   responseStatus: number | null;
+  htmlBody: string | null;
+  textBody: string | null;
   createdAt: number;
 }
 
@@ -104,6 +108,42 @@ function SendLogDetailDialog({
             </>
           ) : null}
         </div>
+        {entry.htmlBody || entry.textBody ? (
+          <Tabs defaultValue={entry.htmlBody ? "html" : "text"}>
+            <TabsList>
+              {entry.htmlBody ? (
+                <TabsTrigger value="html">
+                  {t("dispatch.transactionalEmail.sendLogBodyHtml")}
+                </TabsTrigger>
+              ) : null}
+              {entry.textBody ? (
+                <TabsTrigger value="text">
+                  {t("dispatch.transactionalEmail.sendLogBodyText")}
+                </TabsTrigger>
+              ) : null}
+            </TabsList>
+            {entry.htmlBody ? (
+              <TabsContent value="html">
+                {/* sandbox="" (no allow-scripts) keeps the logged HTML from
+                    running script in the Dispatch origin. */}
+                <iframe
+                  title={t("dispatch.transactionalEmail.sendLogBodyFrameTitle")}
+                  sandbox=""
+                  srcDoc={resolveEmailPreviewAssets(entry.htmlBody)}
+                  // guard:allow-raw-color — the frame previews sent email HTML, which renders on white in mail clients regardless of app theme.
+                  className="h-96 w-full rounded-xl border bg-white"
+                />
+              </TabsContent>
+            ) : null}
+            {entry.textBody ? (
+              <TabsContent value="text">
+                <pre className="h-96 w-full overflow-auto rounded-xl border p-3 text-xs whitespace-pre-wrap">
+                  {entry.textBody}
+                </pre>
+              </TabsContent>
+            ) : null}
+          </Tabs>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

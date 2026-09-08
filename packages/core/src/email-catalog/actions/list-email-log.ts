@@ -8,7 +8,7 @@ import { listEmailLog } from "../log.js";
 
 export default defineAction({
   description:
-    "List recent transactional email sends from this app, newest first — the audit trail of every attempted send, including the raw request sent to the mail provider and its raw response. Supports filtering by registered email id, recipient/sender substring, status, provider, and a date range. Use this to answer 'did this email go out' or 'why did this email go to the wrong person'.",
+    "List recent transactional email sends from this app, newest first — the audit trail of every attempted send, including the raw request sent to the mail provider, its raw response, and the rendered HTML/text body that was sent. Supports filtering by registered email id, recipient/sender substring, status, provider, and a date range. Use this to answer 'did this email go out', 'why did this email go to the wrong person', or 'what did this email actually say'.",
   schema: z.object({
     templateId: z.string().optional(),
     to: z
