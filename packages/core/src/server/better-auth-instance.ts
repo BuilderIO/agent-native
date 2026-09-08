@@ -47,6 +47,7 @@ import {
   onSharedDbPoolReplaced,
 } from "../db/client.js";
 import {
+  CORE_MAGIC_LINK_EMAIL_ID,
   CORE_RESET_PASSWORD_EMAIL_ID,
   CORE_VERIFY_SIGNUP_EMAIL_ID,
 } from "../email-catalog/system-emails.js";
@@ -1644,6 +1645,7 @@ async function createBetterAuthInstance(
         text,
         appSender,
         disableClickTracking: true,
+        templateId: CORE_MAGIC_LINK_EMAIL_ID,
       });
     },
   });
