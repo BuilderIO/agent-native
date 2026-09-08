@@ -60,7 +60,7 @@ describe("renderClipsTransactionalEmail", () => {
       },
       subject: "Still need to watch “Launch notes”?",
       heading: "Alex shared a Clip with you",
-      cta: "Watch the Clip Manually: https://clips.example/r/rec-2",
+      cta: "Watch the Clip Manually: https://clips.example/share/rec-2",
     },
     {
       input: {
@@ -268,9 +268,9 @@ describe("renderClipsTransactionalEmail", () => {
     expect(reminder.html).toContain(
       "border:1px solid #3f3f46; border-radius:10px; background:#0a0a0c;",
     );
-    expect(reminder.html).toContain(">https://clips.example/r/rec-2</a>");
+    expect(reminder.html).toContain(">https://clips.example/share/rec-2</a>");
     expect(
-      reminder.html.match(/href="https:\/\/clips\.example\/r\/rec-2"/g),
+      reminder.html.match(/href="https:\/\/clips\.example\/share\/rec-2"/g),
     ).toHaveLength(2);
 
     const firstImport = render({
@@ -285,6 +285,31 @@ describe("renderClipsTransactionalEmail", () => {
       firstImport.html.indexOf("Open your Agent-Native Clip"),
     );
     expect(firstImport.html).toContain(">https://clips.example/r/rec-3</a>");
+  });
+
+  it("sends meeting recordings to the notes page and drops the video wording", () => {
+    const reminder = render({
+      kind: "unviewed-reminder",
+      to: "attendee@example.test",
+      recordingId: "rec-2",
+      meetingId: "meet-9",
+      title: "Company All-Hands",
+      senderName: "Alex Rivera",
+    });
+
+    expect(reminder.subject).toBe(
+      "Still need to read the notes from \u201CCompany All-Hands\u201D?",
+    );
+    expect(reminder.html).toContain(
+      "Alex Rivera shared meeting notes with you",
+    );
+    expect(reminder.html).toContain("Read the Notes");
+    expect(reminder.text).not.toMatch(/watch/i);
+    expect(
+      reminder.html.match(
+        /href="https:\/\/clips\.example\/share\/meeting\/meet-9"/g,
+      ),
+    ).toHaveLength(2);
   });
 
   it("names the reading agent and falls back when it is unidentified", () => {

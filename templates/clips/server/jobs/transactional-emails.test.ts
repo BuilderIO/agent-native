@@ -66,9 +66,14 @@ beforeEach(async () => {
   await createTables();
 });
 
-function recording(id: string, ownerEmail = "sender@example.com"): Recording {
+function recording(
+  id: string,
+  ownerEmail = "sender@example.com",
+  meetingId: string | null = null,
+): Recording {
   return {
     id,
+    meetingId,
     organizationId: "org-1",
     ownerEmail,
     title: `Clip ${id}`,
@@ -543,6 +548,7 @@ describe("transactional email worker", () => {
       kind: "unviewed-reminder",
       to: "person@example.com",
       recordingId: "recording-1",
+      meetingId: null,
       title: "Clip recording-1",
       senderEmail: "sender@example.com",
       senderName: "Alex Rivera",
@@ -1185,16 +1191,19 @@ describe("transactional email worker", () => {
   it("finds the second distinct Clip after more than 100 duplicate shares", async () => {
     const clock = await setup();
     clock.setNow("2026-08-01T01:00:00.000Z");
-    const duplicates: Share[] = Array.from({ length: 125 }, (_, index) => ({
-      id: `duplicate-${String(index).padStart(3, "0")}`,
-      recordingId: "recording-1",
-      recipient: "person@example.com",
-      createdBy: "first-sender@example.com",
-      createdAt: new Date(
-        Date.parse("2026-08-01T00:01:00.000Z") + index,
-      ).toISOString(),
-    }));
-    const second: Share = {
+    const duplicates: ShareFixture[] = Array.from(
+      { length: 125 },
+      (_, index) => ({
+        id: `duplicate-${String(index).padStart(3, "0")}`,
+        recordingId: "recording-1",
+        recipient: "person@example.com",
+        createdBy: "first-sender@example.com",
+        createdAt: new Date(
+          Date.parse("2026-08-01T00:01:00.000Z") + index,
+        ).toISOString(),
+      }),
+    );
+    const second: ShareFixture = {
       id: "second-distinct",
       recordingId: "recording-2",
       recipient: "person@example.com",

@@ -71,6 +71,7 @@ type DirectShare = {
 
 type RecordingState = {
   id: string;
+  meetingId: string | null;
   organizationId: string;
   ownerEmail: string;
   title: string;
@@ -527,8 +528,13 @@ function defaultRepository(): TransactionalEmailRepository {
           status: schema.recordings.status,
           archivedAt: schema.recordings.archivedAt,
           trashedAt: schema.recordings.trashedAt,
+          meetingId: schema.meetings.id,
         })
         .from(schema.recordings)
+        .leftJoin(
+          schema.meetings,
+          eq(schema.meetings.recordingId, schema.recordings.id),
+        )
         .where(
           and(
             eq(schema.recordings.status, "ready"),
@@ -564,8 +570,13 @@ function defaultRepository(): TransactionalEmailRepository {
           status: schema.recordings.status,
           archivedAt: schema.recordings.archivedAt,
           trashedAt: schema.recordings.trashedAt,
+          meetingId: schema.meetings.id,
         })
         .from(schema.recordings)
+        .leftJoin(
+          schema.meetings,
+          eq(schema.meetings.recordingId, schema.recordings.id),
+        )
         .where(eq(schema.recordings.id, recordingId))
         .limit(1);
       return recording ?? null;
@@ -1029,6 +1040,7 @@ async function makeSendInput(
       kind: "unviewed-reminder",
       to: recipient,
       recordingId: recordings[0].id,
+      meetingId: recordings[0].meetingId,
       title: recordings[0].title,
       senderEmail,
       senderName,
