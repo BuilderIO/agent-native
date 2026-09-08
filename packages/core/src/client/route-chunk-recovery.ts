@@ -118,11 +118,31 @@ function isAgentNativeDesktop(win: Window): boolean {
 }
 
 function hasViteDevRecovery(win: Window): boolean {
-  return (
+  if (
     (win as unknown as Record<string, unknown>)[
       "__agentNativeViteDevRecoveryInstalled"
     ] === true
-  );
+  ) {
+    return true;
+  }
+
+  // The inline script is normally the earliest signal, but React Router can
+  // mount through a dev entry before transformIndexHtml has run. The module
+  // environment is the same ownership boundary and prevents the route
+  // recovery layer from replaying an in-flight handoff in that window.
+  try {
+    const hostname = win.location.hostname;
+    return (
+      (hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "[::1]" ||
+        hostname === "::1") &&
+      (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV ===
+        true
+    );
+  } catch {
+    return false;
+  }
 }
 
 function readStaleChunkReloadAt(win: Window): number {
