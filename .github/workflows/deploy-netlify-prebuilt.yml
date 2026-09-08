@@ -349,7 +349,8 @@ jobs:
           fi
           if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "analytics" ]]; then
             : "${ANALYTICS_DATABASE_URL_SECRET:?ANALYTICS_DATABASE_URL secret is required for prebuilt Analytics deployments}"
-            export ANALYTICS_DATABASE_URL="$ANALYTICS_DATABASE_URL_SECRET"
+            export NETLIFY_DATABASE_URL="$ANALYTICS_DATABASE_URL_SECRET"
+            export DATABASE_URL="$ANALYTICS_DATABASE_URL_SECRET"
           fi
           unset ANALYTICS_DATABASE_URL_SECRET
           if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
