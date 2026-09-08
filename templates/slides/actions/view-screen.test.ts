@@ -183,6 +183,14 @@ describe("view-screen", () => {
           selectedText: "Text",
           textTruncated: false,
         },
+        {
+          selector: '[data-slide-object-id="object-2"]',
+          objectId: "object-2",
+          kind: "element",
+          tagName: "div",
+          text: "Other text",
+          textTruncated: false,
+        },
       ],
     };
 
@@ -199,6 +207,12 @@ describe("view-screen", () => {
     );
     expect(result).toContain(
       "textStatus: element preview; use selectedText for a literal replacement",
+    );
+    expect(result).toContain(
+      "objectIdStatus: stable selected-element target; use it with one update-slide replace edit when selectedText is unavailable",
+    );
+    expect(result).toContain(
+      "textStatus: element preview is not an exact browser-range selection; use objectId with update-slide for an element-only replacement",
     );
   });
 

@@ -10,6 +10,33 @@ import {
 } from "./slide-content-patch.js";
 
 describe("applySlideContentEdits", () => {
+  it("replaces a selected object's inner content without rewriting its wrapper", async () => {
+    const result = await applySlideContentEdits(
+      '<div class="fmd-slide"><div data-slide-object-id="title" style="color:red"><span>Old</span><p>Keep</p></div></div>',
+      [{ objectId: "title", replace: "New", expectedMatches: 1 }],
+    );
+
+    expect(result.content).toBe(
+      '<div class="fmd-slide"><div data-slide-object-id="title" style="color:red">New</div></div>',
+    );
+    expect(result.applied).toEqual(["replace:object"]);
+  });
+
+  it("requires a unique object id for selected-object edits", async () => {
+    await expect(
+      applySlideContentEdits('<div data-slide-object-id="title">One</div>', [
+        { objectId: "missing", replace: "New" },
+      ]),
+    ).rejects.toThrow('objectId "missing" found no matching slide object');
+
+    await expect(
+      applySlideContentEdits(
+        '<div data-slide-object-id="title">One</div><p data-slide-object-id="title">Two</p>',
+        [{ objectId: "title", replace: "New" }],
+      ),
+    ).rejects.toThrow('objectId "title" matched 2 slide objects');
+  });
+
   it("applies several exact edits in order without regenerating untouched source", async () => {
     const result = await applySlideContentEdits(
       '<section data-id="hero"><h1>Old</h1><p>Keep\nthis</p></section>',

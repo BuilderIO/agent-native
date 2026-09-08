@@ -242,6 +242,35 @@ describe("update-slide", () => {
     expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
+  it("replaces a selected object through the compact WebMCP input", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><h1 data-slide-object-id="title" style="color:red">Old</h1></div>',
+        },
+      ],
+    });
+
+    const result = await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        objectId: "title",
+        replace: "New",
+      },
+      { caller: "webmcp" },
+    );
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      '<div class="fmd-slide" style="padding: 80px 110px;"><h1 data-slide-object-id="title" style="color:red">New</h1></div>',
+    );
+  });
+
   it("preserves dismissed overflow warnings for human content edits", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",

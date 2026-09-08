@@ -19,7 +19,6 @@ import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useCollaborativeDoc,
   isReconcileLeadClient,
-  dedupeCollabUsersByEmail,
   emailToColor,
   emailToName,
   usePresence,
@@ -67,6 +66,7 @@ import {
 } from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
+  PresenceBar,
   RemoteSelectionRings,
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
@@ -225,8 +225,6 @@ import {
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
-import type { DesignCollaborator } from "@/components/design/editor/DesignCollaborators";
-import { DesignCollaboratorsMenu } from "@/components/design/editor/DesignCollaborators";
 import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
@@ -5276,7 +5274,7 @@ function DesignEditor() {
   );
 
   // Collaborative editing for the active file
-  const { ydoc, awareness, isSynced, activeUsers, agentActive } =
+  const { ydoc, awareness, isSynced, activeUsers, agentPresent, agentActive } =
     useCollaborativeDoc({
       docId:
         isSignedIn && canEditDesign && viewMode === "single"
@@ -6244,29 +6242,6 @@ function DesignEditor() {
     },
     [followingEmail, stopFollowing],
   );
-
-  const designCollaborators = useMemo<DesignCollaborator[]>(() => {
-    const currentEmail = currentUser?.email.trim().toLowerCase() ?? null;
-    const humans = dedupeCollabUsersByEmail([
-      ...(currentUser ? [currentUser] : []),
-      ...activeUsers,
-    ]).filter((user) => user.email.trim().toLowerCase() !== "agent@system");
-    const otherHumans = humans.filter(
-      (user) => user.email.trim().toLowerCase() !== currentEmail,
-    );
-    const collaborators = otherHumans.map((user) => ({ user }));
-
-    if (!currentUser) return collaborators;
-
-    return [
-      {
-        user: currentUser,
-        image: session?.image,
-        isCurrent: true,
-      },
-      ...collaborators,
-    ];
-  }, [activeUsers, currentUser, session?.image]);
 
   // Resolve the content to render: prefer collab content only after the
   // per-file reconcile state has reset for the current active file. Otherwise a
@@ -19492,11 +19467,14 @@ function DesignEditor() {
         {minimalUi ? minimalRightSidebarToggle : null}
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
-            <DesignCollaboratorsMenu
-              collaborators={designCollaborators}
+            <PresenceBar
+              activeUsers={activeUsers ?? []}
+              agentPresent={agentPresent}
+              agentActive={agentActive}
+              currentUserEmail={currentUser?.email}
               followingEmail={followingEmail}
-              label={t("designEditor.collaborators")}
               onAvatarClick={handleAvatarClick}
+              className="shrink-0"
             />
           )}
         </div>
