@@ -26,7 +26,7 @@ Agent-Native 應用程式執行於 Nitro。請選擇符合部署內容的路徑�
 
 ## 部署前：選擇持久性資料庫 {#persistent-database}
 
-每個已部署的應用程式都需要持久性 PostgreSQL 資料庫。在第一次正式環境部署前，請將 `DATABASE_URL` 設定在部署環境中。
+每個已部署的應用程式都需要持久性 PostgreSQL 資料庫。在第一次正式環境部署前，請將 `DATABASE_URL` 設定在部署環境中。託管 PostgreSQL 提供者包括 [Neon](/docs/neon)、[Supabase](/docs/supabase)、Railway、Render、[Amazon RDS for PostgreSQL](/docs/aws-rds)、[Cloud SQL for PostgreSQL](/docs/cloud-sql) 和 [Azure Database for PostgreSQL](/docs/azure-postgresql)。其他代管服務與自行託管的 PostgreSQL 伺服器請參閱 [Plain Postgres](/docs/postgres) 指南。
 
 獨立應用程式需要穩定的 `BETTER_AUTH_SECRET`。使用簽署跨應用程式要求的工作區需要 `A2A_SECRET`。
 
