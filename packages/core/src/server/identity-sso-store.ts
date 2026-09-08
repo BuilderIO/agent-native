@@ -20,9 +20,7 @@ import { randomBytes } from "node:crypto";
 
 import {
   getDbExec,
-  intType,
   isConnectionError,
-  isPostgres,
   isProductionServerlessFunctionRuntime,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
@@ -186,29 +184,11 @@ export function isCanonicalIdentitySsoClientRequest(
   return isCanonicalIdentitySsoClientOrigin(`https://${host}`);
 }
 
-/**
- * The conditional login entry is available on exact canonical hosted clients
- * and on explicitly configured self-hosted deployments. The automatic browser
- * handoff is separately gated by Dispatch's user-scoped feature flag.
- */
+/** @deprecated Browser sign-in with Agent-Native was removed. */
 export function identitySsoLoginButtonHtml(
-  options: {
-    requestHost?: string;
-  } = {},
+  _options: { requestHost?: string } = {},
 ): string {
-  const canonicalRequest = options.requestHost
-    ? isCanonicalIdentitySsoClientRequest(options.requestHost, "https")
-    : isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
-  if (!canonicalRequest && !isIdentitySsoExplicitlyEnabled()) return "";
-  return (
-    `\n  <a class="btn-identity-sso" id="identity-sso-btn" ` +
-    `href="/_agent-native/identity/login" ` +
-    `style="display:flex;align-items:center;justify-content:center;gap:0.5rem;` +
-    `width:100%;padding:0.7rem 1rem;margin-bottom:0.75rem;border-radius:8px;` +
-    `border:1px solid rgba(255,255,255,0.18);background:transparent;` +
-    `color:inherit;font:inherit;font-weight:600;text-decoration:none;` +
-    `cursor:pointer">Sign in with Agent-Native</a>\n`
-  );
+  return "";
 }
 
 export interface CreateSsoStateInput {
@@ -243,9 +223,9 @@ function buildIdentitySsoFlowStateCreateSql(): string {
           redirect_uri TEXT NOT NULL,
           authority TEXT NOT NULL,
           code_challenge TEXT NOT NULL,
-          created_at ${intType()},
-          expires_at ${intType()},
-          consumed_at ${intType()}
+          created_at BIGINT,
+          expires_at BIGINT,
+          consumed_at BIGINT
         )
       `;
 }
@@ -254,7 +234,7 @@ function buildIdentitySsoJtiCreateSql(): string {
   return `
         CREATE TABLE IF NOT EXISTS identity_sso_jti (
           jti TEXT PRIMARY KEY,
-          seen_at ${intType()}
+          seen_at BIGINT
         )
       `;
 }
@@ -267,7 +247,7 @@ export async function ensureTable(): Promise<void> {
     _initPromise = (async () => {
       const flowStateSql = buildIdentitySsoFlowStateCreateSql();
       const jtiSql = buildIdentitySsoJtiCreateSql();
-      if (isPostgres()) {
+      {
         await ensureTableExists("identity_sso_flow_state", flowStateSql);
         await ensureTableExists("identity_sso_jti", jtiSql);
         return;

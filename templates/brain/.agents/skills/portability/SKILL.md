@@ -1,9 +1,8 @@
 ---
 name: portability
 description: >-
-  How to keep template code database-agnostic and hosting-agnostic. Use when
-  defining schemas, writing raw SQL, creating server routes, or anything that
-  could leak a SQLite-only, Postgres-only, or Node-only assumption.
+  How to keep template code PostgreSQL-specific and hosting-agnostic. Use when
+  defining schemas, writing raw SQL, or creating server routes.
 scope: dev
 metadata:
   internal: true
@@ -13,44 +12,46 @@ metadata:
 
 ## Rule
 
-**Never write code that only works on one database or one hosting platform.** Templates must run on portable SQL backends (SQLite, Postgres, D1, Turso/libSQL, Supabase, Neon, managed platform SQL environments when available) and any Nitro deploy target (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) without code changes.
+Templates use one PostgreSQL schema and query contract. Local PGlite and hosted
+PostgreSQL share the same SQL semantics.
 
-## Database Agnostic
+## Database
 
-Use the dialect-agnostic schema helpers from `@agent-native/core/db/schema` for schemas and Drizzle's query builder for reads/writes:
+Use Drizzle's PostgreSQL exports directly for schemas and its query builder for reads/writes:
 
 ```ts
+import { sql } from "drizzle-orm";
 import {
-  table,
-  text,
+  boolean,
+  doublePrecision,
   integer,
-  real,
-  now,
-  sql,
-} from "@agent-native/core/db/schema";
+  pgTable,
+  text,
+} from "drizzle-orm/pg-core";
 
-export const meals = table("meals", {
+export const meals = pgTable("meals", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   calories: integer("calories").notNull(),
-  weight: real("weight"),
-  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
-  createdAt: text("created_at").notNull().default(now()),
+  weight: doublePrecision("weight"),
+  archived: boolean("archived").notNull().default(false),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
-| Helper    | Purpose                                                                                   |
-| --------- | ----------------------------------------------------------------------------------------- |
-| `table`   | Delegates to `pgTable` or `sqliteTable` based on dialect                                  |
-| `text`    | Works in both dialects, supports `{ enum: [...] }`                                        |
-| `integer` | `{ mode: "boolean" }` maps to Postgres `boolean` automatically                            |
-| `real`    | `real` on SQLite, `double precision` on Postgres                                          |
-| `now`     | Dialect-agnostic current timestamp — use with `.default(now())` on text timestamp columns |
-| `sql`     | Re-exported from `drizzle-orm` for raw SQL expressions                                    |
+| Export            | Purpose                                      |
+| ----------------- | -------------------------------------------- |
+| `pgTable`         | Defines a PostgreSQL table                   |
+| `text`            | Defines a text column, with optional enum values |
+| `integer`         | Defines an integer column                    |
+| `boolean`         | Defines a boolean column                     |
+| `doublePrecision` | Defines a double-precision column            |
+| `sql`             | Builds SQL expressions such as `now()`       |
 
-**Never import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` directly in template code.** Always use `@agent-native/core/db/schema` instead.
+Use `@agent-native/core/db/schema` only for framework-owned sharing helpers such
+as `ownableColumns()` and `createSharesTable()`.
 
-Use Drizzle's portable query DSL for app code:
+Use Drizzle's PostgreSQL query builder for app code:
 
 ```ts
 import { and, desc, eq } from "drizzle-orm";
@@ -62,21 +63,21 @@ const rows = await db
   .orderBy(desc(meals.createdAt));
 ```
 
-Avoid `db.execute(...)`, `getDbExec()`, and handwritten SQL in actions, handlers, and stores when Drizzle can express the query. Raw SQL should be limited to additive migrations, health checks, carefully reviewed advanced queries, or one-off maintenance scripts. For timestamps in Drizzle schemas, use `.default(now())`; for migration SQL, use `runMigrations()` so framework-supported compatibility rewrites and dialect-gated statements stay centralized.
+Avoid `db.execute(...)`, `getDbExec()`, and handwritten SQL in actions, handlers, and stores when Drizzle can express the query. Raw SQL should be limited to additive migrations, health checks, carefully reviewed advanced queries, or one-off maintenance scripts. For timestamps in Drizzle schemas, use `.default(now())`; for migration SQL, use `runMigrations()`.
 
 ### Raw SQL helpers
 
-- `getDbExec()` — auto-converts `?` params to `$1` for Postgres
-- `isPostgres()` — runtime dialect check
-- `intType()` — returns correct integer type for the dialect
+- `getDbExec()` — executes parameterized PostgreSQL SQL
+- Use PostgreSQL types such as `BIGINT` directly in raw SQL.
 
 ### Never
 
-Never write SQLite-only syntax in product code or docs examples: `INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`. When writing docs, say "SQL database" — not "SQLite".
+When writing docs, say "PostgreSQL" or "PGlite" precisely.
 
-Never write Postgres-only syntax in shared app code either: `ILIKE`, `::type` casts, `jsonb_*`, `RETURNING` assumptions, serial/identity syntax, `ON CONFLICT` upserts, or `ALTER ... TYPE` unless the code is inside a dialect-gated migration block. Prefer Drizzle APIs or framework helpers.
+Use Postgres syntax deliberately in advanced queries and migrations, and prefer
+Drizzle APIs or framework helpers for ordinary application code.
 
-When giving deployment guidance, be precise about durability: local SQLite is the development fallback, while production needs a persistent `DATABASE_URL`. Do not steer users to Turso as the only path; it is one option among Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and managed platform SQL environments when available.
+When giving deployment guidance, be precise about durability: local PGlite is for development, while shared and production environments need a persistent hosted PostgreSQL `DATABASE_URL`.
 
 ## Hosting Agnostic
 

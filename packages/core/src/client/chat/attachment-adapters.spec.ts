@@ -2,10 +2,22 @@ import { describe, expect, it } from "vitest";
 
 import {
   BinaryDocumentAttachmentAdapter,
+  DownscalingImageAttachmentAdapter,
   isTextLikeFile,
   serializeAttachmentContentPart,
   serializeQueuedAttachments,
 } from "./attachment-adapters.js";
+
+describe("DownscalingImageAttachmentAdapter", () => {
+  it("preserves the uploaded image MIME type", async () => {
+    const adapter = new DownscalingImageAttachmentAdapter();
+    const attachment = await adapter.add({
+      file: new File(["jpeg"], "photo.jpg", { type: "image/jpeg" }),
+    });
+
+    expect(attachment.contentType).toBe("image/jpeg");
+  });
+});
 
 describe("BinaryDocumentAttachmentAdapter", () => {
   it("accepts SVGs as document attachments in the main chat UI", () => {

@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { gotoEditor } from "./helpers";
+import { childNodeIds, gotoEditor } from "./helpers";
 
 /**
  * Keyboard nudge in NORMAL BLOCK FLOW.
@@ -113,32 +113,9 @@ test.describe("block flow keyboard nudge", () => {
   });
 });
 
-/** DOM order of the stack's children, by node id. */
+/** DOM order of the stack's flow children, by node id. */
 function flowOrder(html: string): string[] {
-  const inner = elementInner(html, "bf-stack");
-  return Array.from(
-    inner.matchAll(/data-agent-native-node-id="([^"]+)"/g),
-    (match) => match[1]!,
-  );
-}
-
-/** Inner markup of one node, matched by walking tag depth from its open tag. */
-function elementInner(html: string, nodeId: string): string {
-  const openIndex = html.indexOf(`data-agent-native-node-id="${nodeId}"`);
-  if (openIndex < 0) throw new Error(`node ${nodeId} not found`);
-  const tagStart = html.lastIndexOf("<", openIndex);
-  const tag = /^<([a-zA-Z0-9-]+)/.exec(html.slice(tagStart))?.[1];
-  if (!tag) throw new Error(`no tag for ${nodeId}`);
-  const contentStart = html.indexOf(">", openIndex) + 1;
-  const pattern = new RegExp(`</?${tag}\\b`, "g");
-  pattern.lastIndex = contentStart;
-  let depth = 1;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(html))) {
-    depth += match[0].startsWith("</") ? -1 : 1;
-    if (depth === 0) return html.slice(contentStart, match.index);
-  }
-  throw new Error(`unbalanced ${tag} for ${nodeId}`);
+  return childNodeIds(html, "bf-stack");
 }
 
 async function createBlockFlowDesign(

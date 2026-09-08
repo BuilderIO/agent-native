@@ -69,6 +69,34 @@ const messages: AgentChatTranslation = {
     "جارٍ إنشاء حساب Builder.io الخاص بك أو إعادة استخدامه. يستغرق ذلك عادةً بضع ثوانٍ.",
   "onboarding.builderConnectionDescription":
     "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
+  "onboarding.capability.llm.keySummary":
+    "اربط مزود ذكاء اصطناعي أو نموذجًا محليًا",
+  "onboarding.capability.fileStorage.keySummary":
+    "تخزين Builder أو حاوية متوافقة مع S3",
+  "onboarding.capability.voiceInput.label": "الإدخال الصوتي",
+  "onboarding.capability.voiceInput.keySummary":
+    "التعرف على الكلام في المتصفح أو تحويل الكلام إلى نص",
+  "onboarding.capability.voiceInput.why":
+    "يحوّل الإدخال الصوتي الطلبات المنطوقة إلى نص؛ وتظل الكتابة متاحة دائمًا.",
+  "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "أرصدة Builder أو مفتاح مزود صور",
+  "onboarding.capability.assetsImageGeneration.why":
+    "إنشاء الصور هو سير العمل الأساسي لإنشاء أصول متوافقة مع العلامة التجارية.",
+  "onboarding.capability.assetsVideoGeneration.label": "إنشاء الفيديو",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "مفتاح Gemini API",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "إنشاء الفيديو اختياري؛ سير العمل الأساسي في Assets هو إنشاء الصور.",
+  "onboarding.capability.clipsObjectStorage.label": "تخزين الكائنات",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "تخزين Builder أو حاوية متوافقة مع S3",
+  "onboarding.capability.clipsObjectStorage.why":
+    "تحتاج الفيديوهات المسجلة إلى تخزين كائنات دائم قبل تشغيلها أو مشاركتها.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "مفتاح مزود تحويل الكلام إلى نص",
+  "onboarding.capability.about": "حول {{label}}",
+  "onboarding.capability.why": "لماذا نحتاج إلى {{label}}",
+  "onboarding.openAiKeySettings": "فتح إعدادات مفاتيح الذكاء الاصطناعي",
   "aboutAgentNative.title": "حول Agent-Native",
   "aboutAgentNative.version": "الإصدار",
   "aboutAgentNative.environment": "البيئة",

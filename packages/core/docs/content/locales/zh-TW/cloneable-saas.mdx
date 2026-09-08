@@ -139,7 +139,7 @@ npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?ap
 
 - **工作代理** — 已連線到應用程式，能夠在您的資料上執行 actions，並了解您正在檢視的內容。請參閱 [Messaging the agent](/docs/messaging)。
 - **Auth** — 登入、工作階段、組織以及多租戶隔離。
-- **資料庫** — 架構、查詢和遷移，皆已準備就緒可供使用。帶上您自己的 SQL 資料庫（Postgres、SQLite、Turso、D1）；框架會進行調整。
+- **資料庫** — 架構、查詢和遷移皆可直接使用。開發時使用本機 PGlite，部署環境使用託管 PostgreSQL。
 - **即時 UI** — 螢幕與代理保持同步。舉例來說，在聊天中起草電子郵件會立即更新收件箱。
 - **部署就緒** — 部署到 Netlify、Vercel、Cloudflare、AWS，或任何可執行 Node 的主機。
 - **品牌掛鉤** — 更改名稱、顏色、徽標和文案。
@@ -283,6 +283,6 @@ CLI 會先詢問 **如何開始？**。選擇 **Chat** 可建立包含 Chat 和 
 
 填寫 `.env`（`ANTHROPIC_API_KEY` 和 `DATABASE_URL`），然後執行 `pnpm install` 和 `pnpm dev`。沒有登入需要實作，也沒有預留位置路由。
 
-部署目標：任何 Nitro 相容主機（Node、Cloudflare、Netlify、Vercel、Deno、Lambda、Bun）和任何 Drizzle 相容 SQL 資料庫（SQLite、Postgres、Turso、D1、Supabase、Neon）。對於工作區，`npx @agent-native/core@latest deploy` 一次建置每個應用程式並將它們傳送到單一來源。參見[Deployment](/docs/deployment)。
+部署目標：任何受支援的 Nitro 相容主機和託管 PostgreSQL 資料庫。對於工作區，`npx @agent-native/core@latest deploy` 一次建置所有應用程式，並將它們部署在單一來源之後。參見 [Deployment](/docs/deployment)。
 
 要創作和發布您自己的應用程式範本，請參閱 [Creating Templates](/docs/creating-templates)。

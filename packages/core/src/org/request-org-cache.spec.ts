@@ -6,7 +6,6 @@ const mockGetUserSetting = vi.fn();
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
   getDbExec: () => ({ execute: mockExecute }),
-  isPostgres: () => false,
   isLocalDatabase: () => true,
 }));
 vi.mock("../server/auth.js", () => ({ getSession: vi.fn() }));

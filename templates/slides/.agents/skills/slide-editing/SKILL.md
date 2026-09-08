@@ -76,19 +76,25 @@ To edit a slide's content:
    approved native template or component when it already fits; generate
    net-new structure only when the relevant corpus is empty.
 4. **Update the slide** with `update-slide` using `deckId`, `slideId`, and
-   ordered `edits`. For a focused selected-text replacement, send one literal
-   replace with the selected text as `find` and `expectedMatches: 1`; do not
-   fetch the full deck, use `fullContent`, or wait for layout-fit. If the text
-   is truncated, ambiguous, contains markup that prevents a literal match, or
-   the edit is structural, read only this slide with `get-deck` first and use
-   its `contentHash` as `baseContentHash` when appropriate. For code-style
-   work, request `compact=false` and `format=true`. Use exact replace, insert
-   before/after, replace between markers, or regex replace. All edits are
+   ordered `edits`. When `view-screen` returns an exact `selectedText` range,
+   edit immediately: send one literal replace with the selected text as
+   `find`, `expectedMatches: 1`, and `currentSlideContentHash` as
+   `baseContentHash`; do not load the full deck, use `fullContent`, or wait
+   for layout-fit. If the text is truncated, ambiguous, contains markup that
+   prevents a literal match, or the edit is structural, use targeted
+   `get-deck` first, use its `contentHash` as `baseContentHash`, then read
+   back. For code-style work, request `compact=false` and `format=true`. Use
+   exact replace, insert before/after, replace between markers, or regex
+   replace. All edits are
    applied in memory under the deck lock; if one required edit fails, nothing is
    written. Set `format=true` on `update-slide` to persist readable Prettier
    line breaks. Use `fullContent` only for an intentional full rewrite - do not
    regenerate a slide to make a small change. Do not write deck rows directly
    or add raw full-deck writes; use `patch-deck` for browser/editor changes.
+   Read a write back with `get-deck` (or a thumbnail's `.slide-content`
+   `textContent`), never `document.body.innerText`: sidebar thumbnails use
+   `content-visibility: auto`, so `innerText` is empty for them in a hidden
+   tab, and the canvas only ever shows the selected slide.
 5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
 

@@ -12,7 +12,7 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import shareResource from "@agent-native/core/sharing/actions/share-resource";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -70,6 +70,14 @@ export default defineAction({
     "Stop a meeting recording. Stamps actualEnd on the meeting, marks the linked recording 'ready' (if still uploading), and signals the UI to finalize the underlying recording.",
   schema: z.object({
     meetingId: z.string().describe("Meeting id"),
+    reason: z
+      .string()
+      .trim()
+      .max(64)
+      .optional()
+      .describe(
+        "Why the recording stopped, e.g. 'manual' or a native detector name. Omit to leave end_reason untouched.",
+      ),
   }),
   run: async (args) => {
     const access = await assertAccess("meeting", args.meetingId, "editor");
@@ -109,12 +117,24 @@ export default defineAction({
       hasTranscript = Boolean(transcript?.fullText?.trim());
     }
 
+    // actualEnd and endReason are first-writer-wins, enforced in SQL so two
+    // concurrent stops (desktop detector and a manual click, say) cannot race
+    // the read above. The reason rides the same actual_end transition, so a
+    // retry can never attach a cause to an end it did not perform.
+    // transcriptStatus stays a plain write: live rows start as "pending", so
+    // "pending" cannot be read as a finalizer claim here; finalize-meeting's
+    // own compare-and-swap guards its claim.
     await db
       .update(schema.meetings)
       .set({
-        actualEnd: meeting.actualEnd ?? nowIso,
+        actualEnd: sql`coalesce(${schema.meetings.actualEnd}, ${nowIso})`,
         updatedAt: nowIso,
         transcriptStatus: hasTranscript ? "ready" : "failed",
+        ...(args.reason
+          ? {
+              endReason: sql`case when ${schema.meetings.actualEnd} is null then ${args.reason} else ${schema.meetings.endReason} end`,
+            }
+          : {}),
       })
       .where(eq(schema.meetings.id, args.meetingId));
 

@@ -59,6 +59,7 @@ const enUS = {
   },
   common: {
     copied: "Copied",
+    copyFailed: "Copy failed",
     copyCommand: "Copy command",
     copyCode: "Copy code",
     tryIt: "Try It",
@@ -176,8 +177,8 @@ const enUS = {
           body: "Define work once and use it from the UI, agent, HTTP, MCP, A2A, and CLI.",
         },
         sqlStateOrm: {
-          title: "SQL state and ORM",
-          body: "Durable app data, application state, migrations, and provider-agnostic schemas.",
+          title: "PostgreSQL state and ORM",
+          body: "Durable app data, application state, migrations, and PostgreSQL/PGlite schemas.",
         },
         dbAdmin: {
           title: "DB admin",
@@ -230,7 +231,7 @@ const enUS = {
       body1:
         "Agent-Native is an open-source framework for building agentic applications: start with chat, define shared actions, then add UI, jobs, and collaboration around the same state.",
       body2:
-        "Bring your own database, hosting provider, model stack, and app code.",
+        "Use local PGlite or hosted PostgreSQL, your hosting provider, model stack, and app code.",
       cta: "Read the framework guide",
       primitives: {
         actions: {
@@ -241,17 +242,17 @@ const enUS = {
         sharedState: {
           title: "Shared state",
           description:
-            "SQL-backed app state keeps humans, agents, and sessions in sync.",
+            "PostgreSQL/PGlite-backed app state keeps humans, agents, and sessions in sync.",
         },
         agentRuntime: {
           title: "Agent runtime",
           description:
             "The app-agent loop, tools, skills, memory, jobs, and observability ship together.",
         },
-        backendAgnostic: {
-          title: "Backend agnostic",
+        postgresSpecific: {
+          title: "PostgreSQL-specific",
           description:
-            "Plug in any Drizzle-supported SQL database and Nitro-compatible host.",
+            "Use the framework’s PostgreSQL schema helpers with local PGlite or hosted Postgres on any Nitro-compatible host.",
         },
       },
     },
@@ -330,7 +331,7 @@ const enUS = {
     },
     quickStart: {
       title: "Start with a Command",
-      body: "One command creates a chat-first local app backed by actions, durable threads, and SQLite. Use `--headless` only for automation-first workflows with no browser UI yet.",
+      body: "One command creates a chat-first local app backed by actions, durable threads, and PGlite. Use `--headless` only for automation-first workflows with no browser UI yet.",
     },
     finalCta: {
       title: "Software built for the agentic era",
@@ -445,9 +446,9 @@ const enUS = {
     },
     actions: {
       title: "One Action powers every surface",
-      bodyLine1: "Actions define what your agent can do.",
+      bodyLine1: "Define a capability once with defineAction().",
       bodyLine2:
-        "Define each capability once, then use it from the agent, UI, HTTP API, MCP, A2A, or CLI.",
+        "Your agent, React UI, HTTP clients, and integrations all call the same code.",
       diagramAlt:
         "One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI",
     },
@@ -468,7 +469,7 @@ const enUS = {
           body: "The agent knows what users are viewing, selecting, and editing.",
         },
         sharedSql: {
-          title: "Shared SQL data",
+          title: "Shared PostgreSQL data",
           body: "Users and agents read and update the same source of truth.",
         },
         skillsMemory: {
@@ -494,13 +495,13 @@ const enUS = {
       },
     },
     stack: {
-      title: "Works with your stack",
-      body: "Bring your LLM, database, tools, and infrastructure. Agent-Native is open-source TypeScript, so everything you build stays yours.",
+      title: "Bring your own stack",
+      body: "Agent-Native is open-source TypeScript. Choose your model, database, and host, then keep the application code in your repository.",
       exploreApps: "Explore apps built with Agent-Native",
     },
     showcase: {
-      title: "What can you build with Agent-Native?",
-      body: "Build agents with UIs for meetings, design, presentations, data, and more. Start from one of these open-source apps or build your own.",
+      title: "Real apps built with Agent-Native",
+      body: "Open-source Agent-Native apps you can use for free or infinitely customize",
       browseApps: "Browse apps",
       scrollLeft: "Scroll apps left",
       scrollRight: "Scroll apps right",
@@ -519,17 +520,31 @@ const enUS = {
       download: "Download",
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
-      saasTerms: "Hosted Terms",
-      legalResources: "Legal resources",
+      saasTerms: "SaaS Terms",
+      // i18n-copy-ignore: English-only capitalization fix; translations unchanged
+      legalResources: "Legal Resources",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Not building locally?",
-      exploreApp: "Explore a live app",
-      between: "first, or",
-      joinWaitlist: "join the waitlist",
-      end: "to build in the browser instead.",
+    tabs: {
+      label: "Choose how to build",
+      local: "Build locally",
+      localDescription: "Use the CLI to build on your machine.",
+      cloud: "Build in the cloud",
+      cloudDescription: "Build in the browser with Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Build the same apps without installing anything. You describe what you want; the agent writes and runs the code in a workspace Builder hosts for you.",
+      stepOneTitle: "Create a Builder account",
+      stepOneBody:
+        "Use your Builder account to build in the browser. Free to start, and no API keys to bring.",
+      stepTwoTitle: "Prompt away",
+      stepTwoBody:
+        "Describe what you want to build in plain language and the agent will create it for you.",
+      stepThreeTitle: "Deploy",
+      stepThreeBody:
+        "When you're ready, deploy your agent and its UI with one click in Builder.",
     },
   },
   templatesPage: {
@@ -609,6 +624,8 @@ const enUS = {
     buildOnline: "Build online",
     popoverTitle: "Build in the browser",
     popoverBody:
+      "Rapidly generate agent-native apps in the cloud with Builder.io.",
+    waitlistBody:
       "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
     emailLabel: "Email",
     emailPlaceholder: "you@company.com",
@@ -618,6 +635,9 @@ const enUS = {
       "You're on the waitlist. We'll email you when build-online access opens.",
     invalidEmail: "Enter a valid email address.",
     submitError: "Couldn't join the waitlist. Please try again.",
+    waitlistUnavailable:
+      "Waitlist signups aren't available in this environment yet. Please try the hosted docs site instead.",
+    launchBuilder: "Launch Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",
@@ -1093,7 +1113,7 @@ const enUS = {
       s004: "Refine",
       s005: "All Apps",
       s006: "Open-Source Figma alternative",
-      s007: "Generate interactive Alpine/Tailwind prototypes from a prompt, compare variants, refine with tweak controls, and export real files you own.",
+      s007: "Create interactive designs and prototypes. Refine with familiar tools or make conversational edits. Export anywhere.",
       s008: "Design Something",
       s009: "How it works",
       s010: "Everything you need",
@@ -1147,6 +1167,7 @@ const enUS = {
       s058: "Start from the app and begin generating interactive prototypes with an agent that edits the source.",
       s059: "Read the docs",
       s060: "View all apps",
+      s061: "100% free, open-source, and customizable.",
     },
     dispatch: {
       faq: {
@@ -2095,6 +2116,9 @@ const enUS = {
     databaseProviders: "Database providers",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "Internationalization",
     localFileMode: "Local File Mode",

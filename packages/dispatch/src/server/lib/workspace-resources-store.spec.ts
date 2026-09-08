@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   getDbExec: vi.fn(),
-  isPostgres: vi.fn(() => false),
   currentOwnerEmail: vi.fn(() => "owner@example.test"),
   currentOrgId: vi.fn(() => "org_123"),
   getApprovalPolicy: vi.fn(async () => ({
@@ -93,7 +92,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => mocks.getDbExec(),
-  isPostgres: () => mocks.isPostgres(),
 }));
 
 vi.mock("../../db/index.js", async () => {
@@ -274,7 +272,6 @@ function dispatchMetadata(resource: Pick<ResourceRow, "id">) {
 beforeEach(() => {
   mocks.getDb.mockReturnValue(createFakeDb({ resources: [] }));
   mocks.getDbExec.mockReturnValue({ execute: vi.fn() });
-  mocks.isPostgres.mockReturnValue(false);
   mocks.getApprovalPolicy.mockResolvedValue({
     enabled: false,
     approverEmails: [],

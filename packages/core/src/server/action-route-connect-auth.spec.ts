@@ -78,9 +78,8 @@ function mockEmptyDb() {
   const execute = vi.fn().mockResolvedValue({ rows: [] });
   vi.doMock("../db/client.js", () => ({
     getDbExec: () => ({ execute }),
-    isPostgres: () => false,
+    isProductionServerlessFunctionRuntime: () => false,
     isLocalDatabase: () => true,
-    intType: () => "INTEGER",
     retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
   }));
 }

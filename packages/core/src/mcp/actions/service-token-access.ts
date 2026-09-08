@@ -30,7 +30,10 @@ export async function getOrgRoleForEmail(
 ): Promise<OrgRole | null> {
   try {
     const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [orgId, email.toLowerCase()],
     });
     const role = rows[0]?.role;
@@ -50,7 +53,9 @@ export async function getOrgRoleForEmail(
 async function getOrgIdsForEmail(email: string): Promise<string[]> {
   try {
     const { rows } = await getDbExec().execute({
-      sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?`,
+      sql: `SELECT org_id FROM org_members
+            WHERE LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL`,
       args: [email.toLowerCase()],
     });
     return rows.map((r) => String(r.org_id)).filter(Boolean);

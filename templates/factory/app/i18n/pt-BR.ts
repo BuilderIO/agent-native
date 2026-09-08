@@ -105,14 +105,10 @@ const messages = {
     empty: "Nenhuma observação ainda.",
     risk: "Risco",
     status: "Status",
-    author: "Autor",
     coverage: "Cobertura",
     reason: "Motivo",
     evidence: "Evidência",
-    evidenceDescription: "O tópico ou relatório de origem deste item.",
     actionsTaken: "Registro",
-    actionsTakenDescription:
-      "Decisões shadow, governança e trabalho já iniciado para este item.",
     threadTruncated: "Este tópico do Slack está truncado.",
     threadUnavailable: "Não foi possível carregar este tópico do Slack.",
     noEvidence: "Nenhuma evidência de origem está armazenada para este item.",
@@ -134,8 +130,6 @@ const messages = {
     noteLabel: "Nota de feedback",
     submitFeedback: "Registrar feedback",
     feedbackTitle: "Registrar feedback",
-    feedbackDescription:
-      "Marque se a decisão shadow estava correta. Isso é salvo para revisão; não inicia uma execução.",
     feedbackError: "Não foi possível registrar o feedback.",
     noDecisions: "Nenhuma decisão registrada ainda.",
     rulesTitle: "Regras de triagem",

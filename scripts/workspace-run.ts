@@ -1,8 +1,6 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
 
-import { ensureNativeDependencies } from "../packages/core/src/cli/native-dependencies.ts";
-
 type ProfileName = "test" | "typecheck";
 
 type Profile = {
@@ -84,18 +82,12 @@ if (parsedArgs.dryRun) {
   process.exit(0);
 }
 
-// Test files can import better-sqlite3 before an app startup preflight runs.
-if (profileName === "test") {
-  ensureNativeDependencies({
-    fromDirectory: process.cwd(),
-    label: "workspace-test",
-    repair: true,
-  });
-}
-
 const child = spawn(command, pnpmArgs, {
   cwd: process.cwd(),
-  env: process.env,
+  env:
+    profileName === "test" && !process.env.DATABASE_URL
+      ? { ...process.env, DATABASE_URL: "pglite:memory" }
+      : process.env,
   stdio: "inherit",
 });
 

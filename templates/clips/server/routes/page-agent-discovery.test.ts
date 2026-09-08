@@ -107,9 +107,9 @@ describe("Clips page agent discovery", () => {
     mockSsrHandler.mockImplementation(() => htmlResponse());
   });
 
-  it("puts transcript discovery metadata in the head of legacy /r links", async () => {
+  it("puts transcript discovery metadata in the head of share links", async () => {
     const response = (await (handler as any)({
-      url: "https://clips.example.com/r/rec-1",
+      url: "https://clips.example.com/share/rec-1",
       query: {},
     })) as Response;
     const html = await response.text();
@@ -159,14 +159,14 @@ describe("Clips page agent discovery", () => {
   it("does not inject tokenized discovery into the public SSR shell", async () => {
     mockRecording.value = recording({ visibility: "private" });
     const publicResponse = (await (handler as any)({
-      url: "https://clips.example.com/r/rec-1",
+      url: "https://clips.example.com/share/rec-1",
       query: {},
     })) as Response;
     expect(await publicResponse.text()).not.toContain("agent-context.json");
 
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     const tokenEvent = {
-      url: "https://clips.example.com/r/rec-1?agent_access=tok%2B1",
+      url: "https://clips.example.com/share/rec-1?agent_access=tok%2B1",
       query: { agent_access: "tok+1" },
       responseHeaders: new Map<string, string>(),
     };
@@ -181,5 +181,15 @@ describe("Clips page agent discovery", () => {
     expect(tokenEvent.responseHeaders.get("referrer-policy")).toBe(
       "no-referrer",
     );
+  });
+
+  it("treats t as playback state rather than an access token", async () => {
+    const response = (await (handler as any)({
+      url: "https://clips.example.com/share/rec-1?t=1500",
+      query: { t: "1500" },
+    })) as Response;
+
+    expect(await response.text()).toContain("clips-agent-context");
+    expect(mockVerifyScopedAgentAccessToken).not.toHaveBeenCalled();
   });
 });

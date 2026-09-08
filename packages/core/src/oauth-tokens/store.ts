@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
@@ -47,20 +47,7 @@ function parseStoredTokens(
 }
 
 function oauthTokensTable(): string {
-  return isPostgres() ? "public.oauth_tokens" : "oauth_tokens";
-}
-
-function isDuplicateColumnError(err: unknown): boolean {
-  const codeValue = (err as { code?: unknown })?.code;
-  const code = typeof codeValue === "string" ? codeValue : "";
-  const message = String((err as { message?: unknown })?.message ?? err)
-    .toLowerCase()
-    .trim();
-  return (
-    code === "42701" ||
-    message.includes("duplicate column") ||
-    message.includes("already exists")
-  );
+  return "public.oauth_tokens";
 }
 
 export async function ensureTable(): Promise<void> {
@@ -74,13 +61,13 @@ export async function ensureTable(): Promise<void> {
           account_id TEXT NOT NULL,
           owner TEXT,
           tokens TEXT NOT NULL,
-          updated_at ${intType()} NOT NULL,
-          revision ${intType()} NOT NULL,
+          updated_at BIGINT NOT NULL,
+          revision BIGINT NOT NULL,
           PRIMARY KEY (provider, account_id)
         )
       `;
 
-      if (isPostgres()) {
+      {
         // Hot path: the `oauth_tokens` table and its additive columns are
         // virtually always already present in production. Issuing `CREATE
         // TABLE`/`ALTER TABLE` still takes an ACCESS EXCLUSIVE lock that, in a
@@ -122,37 +109,6 @@ export async function ensureTable(): Promise<void> {
         await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"], client);
         return;
       }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // Migration: add owner column to existing tables
-      try {
-        await client.execute(`ALTER TABLE ${table} ADD COLUMN owner TEXT`);
-      } catch (err) {
-        if (!isDuplicateColumnError(err)) throw err;
-      }
-      // Migration: add display_name column
-      try {
-        await client.execute(
-          `ALTER TABLE ${table} ADD COLUMN display_name TEXT`,
-        );
-      } catch (err) {
-        if (!isDuplicateColumnError(err)) throw err;
-      }
-      try {
-        await client.execute(
-          `ALTER TABLE ${table} ADD COLUMN revision INTEGER`,
-        );
-      } catch (err) {
-        if (!isDuplicateColumnError(err)) throw err;
-      }
-      // Backfill: set owner = account_id for existing rows without an owner
-      await client.execute(
-        `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
-      );
-      await client.execute(
-        `UPDATE ${table} SET revision = updated_at WHERE revision IS NULL`,
-      );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -353,11 +309,10 @@ function ownersRepresentSameUser(
  * `OAuthAccountOwnedByOtherUserError` (statusCode 409) to prevent silently
  * stealing another user's linked account.
  *
- * Read + write happen as a single linearised batch (Postgres) or paired
- * statements (SQLite). On both backends the per-row PK serialises concurrent
- * writes for the same `(provider, account_id)` so the owner check cannot be
- * raced by an attacker calling saveOAuthTokens twice in flight — the second
- * caller sees the first caller's owner row and raises 409.
+ * Read + write happen as a single linearised Postgres batch. The per-row PK
+ * serialises concurrent writes for the same `(provider, account_id)` so the
+ * owner check cannot be raced by an attacker calling saveOAuthTokens twice in
+ * flight — the second caller sees the first caller's owner row and raises 409.
  */
 export async function saveOAuthTokens(
   provider: string,
@@ -427,9 +382,7 @@ export async function saveOAuthTokens(
   }
 
   const result = await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at, revision=GREATEST(COALESCE(${table}.revision, 0) + 1, EXCLUDED.revision) WHERE ${table}.owner = EXCLUDED.owner OR (LOWER(${table}.owner) = LOWER(EXCLUDED.owner) AND LOWER(${table}.owner) LIKE 'user:%' AND LOWER(EXCLUDED.owner) LIKE 'user:%')`
-      : `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=excluded.owner, display_name=COALESCE(excluded.display_name, ${table}.display_name), tokens=excluded.tokens, updated_at=excluded.updated_at, revision=MAX(COALESCE(${table}.revision, 0) + 1, excluded.revision) WHERE ${table}.owner = excluded.owner OR (LOWER(${table}.owner) = LOWER(excluded.owner) AND LOWER(${table}.owner) LIKE 'user:%' AND LOWER(excluded.owner) LIKE 'user:%')`,
+    sql: `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at, revision=GREATEST(COALESCE(${table}.revision, 0) + 1, EXCLUDED.revision) WHERE ${table}.owner = EXCLUDED.owner OR (LOWER(${table}.owner) = LOWER(EXCLUDED.owner) AND LOWER(${table}.owner) LIKE 'user:%' AND LOWER(EXCLUDED.owner) LIKE 'user:%')`,
     args: [
       provider,
       accountId,

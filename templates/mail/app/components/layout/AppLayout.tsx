@@ -6,6 +6,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
@@ -315,6 +316,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <AgentSidebar
+      browserTabId={getBrowserTabId()}
       position="right"
       defaultOpen={false}
       agentPageHref="/settings/agent"
@@ -542,7 +544,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "true";
   });
+  const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =
+    useState(false);
   const perAppChatOpen = usePerAppChatOpen();
+  useEffect(() => {
+    if (!perAppChatOpen) setSidebarExpandedWhileChatOpen(false);
+  }, [perAppChatOpen]);
   useEffect(() => {
     if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
     else localStorage.removeItem("mail-sidebar-pinned");
@@ -558,18 +565,26 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const showCollapsedSidebar =
     !isMobile &&
     showSidebar &&
-    (sidebarPinned ? sidebarCollapsed : perAppChatOpen);
+    (sidebarPinned
+      ? sidebarCollapsed
+      : perAppChatOpen && !sidebarExpandedWhileChatOpen);
   const closeSidebar = useCallback(() => {
     if (!sidebarPinned || isMobile) setSidebarOpen(false);
   }, [sidebarPinned, isMobile]);
 
   const collapseButton =
-    sidebarPinned && !isMobile ? (
+    !isMobile && (sidebarPinned || (perAppChatOpen && showSidebar)) ? (
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
-            onClick={() => setSidebarCollapsed((value) => !value)}
+            onClick={() => {
+              if (!sidebarPinned && perAppChatOpen) {
+                setSidebarExpandedWhileChatOpen((value) => !value);
+                return;
+              }
+              setSidebarCollapsed((value) => !value);
+            }}
             className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
             aria-label={
               showCollapsedSidebar
@@ -946,7 +961,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const fetchNav = async () => {
       try {
         const res = await fetch(
-          agentNativePath("/_agent-native/application-state/navigation"),
+          agentNativePath(
+            `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+          ),
         );
         if (res.ok) {
           const nav = await res.json();
@@ -1193,6 +1210,28 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     setDropIndicator(null);
   }, []);
 
+  // Global keyboard shortcuts
+  const cycleTab = useCallback(
+    (reverse?: boolean) => {
+      if (topBarTabs.length < 2) return;
+      const activeIdx = topBarTabs.findIndex((tab) => tab.isActive);
+      const delta = reverse ? -1 : 1;
+      const nextIdx =
+        (activeIdx === -1 ? 0 : activeIdx + delta + topBarTabs.length) %
+        topBarTabs.length;
+      void navigate(topBarTabs[nextIdx].href);
+    },
+    [topBarTabs, navigate],
+  );
+
+  const canCycleTab = useCallback(
+    (event: KeyboardEvent) =>
+      topBarTabs.length >= 2 &&
+      event.target instanceof Element &&
+      event.target.closest("[data-mail-tab-list]") !== null,
+    [topBarTabs.length],
+  );
+
   const handleSnooze = useCallback(() => {
     const listSnoozeEvent = new CustomEvent("email:shortcut-snooze", {
       cancelable: true,
@@ -1252,6 +1291,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { key: "h", handler: handleSnooze },
     { key: "!", shift: true, handler: handleSpam },
     { key: "z", handler: runUndo },
+    {
+      key: "Tab",
+      shouldHandle: canCycleTab,
+      handler: () => cycleTab(false),
+    },
+    {
+      key: "Tab",
+      shift: true,
+      shouldHandle: canCycleTab,
+      handler: () => cycleTab(true),
+    },
     {
       key: "Escape",
       handler: () => {
@@ -1460,7 +1510,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 ))}
               </nav>
             ) : (
-              <nav className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
+              <nav
+                className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar"
+                data-mail-tab-list
+              >
                 {topBarTabs.map((tab, idx) => {
                   const visibleIndex = visibleTabs.findIndex(
                     (item) => item.id === tab.id,

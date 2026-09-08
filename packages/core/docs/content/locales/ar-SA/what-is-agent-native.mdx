@@ -1,6 +1,6 @@
 ---
 title: "ما هو Agent-Native؟"
-description: "ما هو Agent-Native، وكيف تعمل بنيته ذات الإجراءات المشتركة، ومتى تبني تطبيقًا بهذه الطريقة."
+description: "ما هو Agent-Native، ولماذا يحتاج الوكلاء إلى واجهات مستخدم، وكيف تعمل بنيته ذات الإجراءات المشتركة، ومتى تستخدمه."
 ---
 
 # ما هو Agent-Native؟
@@ -10,15 +10,6 @@ Agent-Native هو إطار عمل TypeScript مفتوح المصدر لبناء 
 مكتوبة الأنواع يستخدمها الوكيل كأداة وتستدعيها واجهة المستخدم من الكود.
 
 ## لماذا نبني وكلاء بواجهات مستخدم
-
-<WireframeBlock id="doc-block-agent-ui-why">
-  <Screen
-    surface="desktop"
-    html={
-      "<div dir='rtl' style='display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(0,1.15fr);gap:18px;align-items:center;padding:28px;min-height:420px;box-sizing:border-box'><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>وكيل مع مربع نص فقط</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:18px;padding:20px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><span class='wf-muted'>الوكيل</span><div style='flex:1;display:flex;align-items:center;justify-content:center'><div class='wf-box' style='width:72%;height:42px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div></div><span class='wf-muted'>ماذا يمكنه أن يفعل؟</span></section><div aria-hidden='true' style='font-size:32px;text-align:center'>&larr;</div><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>وكيل مع واجهة مستخدم</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><strong>عرض الإطلاق</strong><div style='display:flex;gap:7px'><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>المخطط</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>الشرائح</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>المراجعة</span></div><div style='display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:10px;flex:1;min-height:0'><div style='display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;min-width:0'><div style='display:flex;flex-direction:column;gap:7px'><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;border-radius:calc(var(--wf-radius) * 0.45)'><strong>إطلاق المنتج للربع الثالث</strong></div></div><aside class='wf-box' style='display:flex;flex-direction:column;gap:8px;padding:10px;min-width:0;border-radius:calc(var(--wf-radius) * 0.45)'><strong>الوكيل</strong><div style='flex:1'></div><div style='display:flex;align-items:center;gap:6px'><div class='wf-box' style='height:26px;flex:1;border-radius:calc(var(--wf-radius) * 0.45)'></div><button aria-hidden='true' tabindex='-1' style='width:26px;height:26px;padding:0;border-radius:calc(var(--wf-radius) * 0.45)'>&uarr;</button></div></aside></div></div><span class='wf-muted'>الوكيل وواجهة المستخدم في مساحة عمل واحدة</span></section></div>"
-    }
-  />
-</WireframeBlock>
 
 قد تجعل وكلاء البرمجة مربع النص يبدو كافيًا. لكن مربع النص ليس سوى جزء واحد
 من بيئة عملهم. توفر قاعدة الشفرة السياق، وتمنحهم الأدوات طرقًا واضحة للتنفيذ،
@@ -86,7 +77,7 @@ Agent-Native هو إطار عمل TypeScript مفتوح المصدر لبناء 
 
 ### [البدء](/docs/getting-started)
 
-أنشئ تطبيقًا واستدعِ الإجراء نفسه من الوكيل وواجهة المستخدم.
+أنشئ وكيلاً بواجهة مستخدم واستدعِ الإجراء نفسه من الوكيل وواجهة المستخدم.
 
 ### [المفاهيم الأساسية](/docs/key-concepts)
 
@@ -95,11 +86,10 @@ Agent-Native هو إطار عمل TypeScript مفتوح المصدر لبناء 
 
 ### [أسطح الوكيل](/docs/agent-surfaces)
 
-اطّلع على كيفية دعم النموذج نفسه لتطبيقات تقودها واجهة مستخدم أو دردشة أو
-أتمتة أو وكيل آخر.
+اطّلع على كيفية عمل الوكلاء من خلال واجهة مستخدم أو دردشة أو أتمتة أو وكيل آخر.
 
 ### [التطبيقات](/docs/cloneable-saas)
 
-انطلق من منتج SaaS كامل بدلاً من البناء تدريجيًا انطلاقًا من Chat.
+ابدأ من وكيل كامل مفتوح المصدر بواجهة مستخدم بدلاً من البدء من الصفر.
 
 </Cards>

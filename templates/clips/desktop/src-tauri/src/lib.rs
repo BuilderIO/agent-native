@@ -16,6 +16,7 @@ mod echo_guard;
 mod eventkit;
 mod logfile;
 mod meetings_watcher;
+mod mic_attribution;
 mod native_screen;
 mod native_speech;
 mod notifications;
@@ -609,6 +610,7 @@ pub fn run() {
                 native_speech::shutdown();
                 let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
                 native_screen::kill_active_screencapture_child(&state);
+                mic_attribution::shutdown();
             }
         });
 }

@@ -193,6 +193,8 @@ export interface RequestContext {
    * fallback. Optional — absent on paths that don't populate it.
    */
   requestOrigin?: string;
+  /** True only after the selected organization membership passed federation validation. */
+  federationMembershipValidated?: boolean;
   /**
    * True when the request's real socket peer is loopback, captured by the
    * action-route handler while the h3 event is still in scope (nothing below

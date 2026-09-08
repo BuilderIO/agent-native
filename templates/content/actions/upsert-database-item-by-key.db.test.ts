@@ -11,14 +11,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
-// guard:allow-unscoped — isolated SQLite fixtures intentionally inspect rows directly.
+// guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-row-mutations-${process.pid}-${Date.now()}.sqlite`,
+  `content-row-mutations-${process.pid}-${Date.now()}.pglite`,
 );
 const TEST_DATABASE_URL =
-  process.env.CONTENT_ROW_MUTATION_POSTGRES_URL ?? `file:${TEST_DB_PATH}`;
+  process.env.CONTENT_ROW_MUTATION_POSTGRES_URL ?? `pglite:${TEST_DB_PATH}`;
 const OWNER = "owner@example.com";
 const OUTSIDER = "outsider@example.com";
 const COLLABORATOR = "collaborator@example.com";
@@ -66,10 +66,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  if (TEST_DATABASE_URL.startsWith("file:")) {
-    for (const suffix of ["", "-shm", "-wal"])
-      rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function fixture() {

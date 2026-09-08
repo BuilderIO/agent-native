@@ -10,7 +10,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 - **Backend**: Nitro (via @agent-native/core)
 - **UI components**: Radix UI + Lucide icons
 - **Google Integration**: googleapis npm package
-- **Database**: Drizzle ORM over portable SQL (`DATABASE_URL`; local dev defaults to SQLite)
+- **Database**: Drizzle ORM over PostgreSQL (`DATABASE_URL`; local dev uses PGlite)
 - **State**: Settings in SQL via settings API, structured data in SQL via Drizzle
 - **Path aliases**: `@/*` → app/, `@shared/*` → shared/
 
@@ -89,7 +89,7 @@ export default defineNitroPlugin(async (nitroApp) => {
 
 ### SQL (via Drizzle ORM)
 
-Structured data lives in SQL. Use `@agent-native/core/db/schema` helpers for schema and Drizzle's query builder for reads/writes so the same code runs across SQLite, Postgres, libSQL/Turso, D1, and other supported backends:
+Structured data lives in PostgreSQL. Use `@agent-native/core/db/schema` helpers for schema and Drizzle's query builder for reads/writes:
 
 | Table      | Contents                                       |
 | ---------- | ---------------------------------------------- |
@@ -110,7 +110,7 @@ Google OAuth tokens are stored in the SQL `oauth_tokens` table. Use the oauth-to
 
 ### Database Access
 
-Use `getDb()` from `server/db/index.ts` to get a Drizzle database instance. All queries are async. Local development defaults to `file:./data/app.db`; deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required. Common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
+Use `getDb()` from `server/db/index.ts` to get a Drizzle database instance. All queries are async. Local development uses `pglite:./data/pglite`; deployed apps need a persistent hosted PostgreSQL `DATABASE_URL`.
 
 ## Build & Dev Commands
 

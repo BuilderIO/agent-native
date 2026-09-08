@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-03
+
+### Fixed
+
+- Database records can be added even when older rows use legacy positions.
+
 ## 2026-08-28
 
 ### Fixed

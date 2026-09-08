@@ -25,6 +25,7 @@ import {
   text,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 /**
  * Grouped error issues. A stable `fingerprint` (error type + top meaningful
@@ -116,7 +117,7 @@ export const errorEvents = table(
     stack: text("stack").notNull().default("[]"),
     /** Bounded raw stack string kept for display fidelity. */
     rawStack: text("raw_stack"),
-    handled: integer("handled", { mode: "boolean" }).notNull().default(true),
+    handled: boolean("handled").notNull().default(true),
     url: text("url"),
     userId: text("user_id"),
     anonymousId: text("anonymous_id"),

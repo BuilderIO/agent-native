@@ -555,3 +555,69 @@ export async function cdpScreenshot(
   const { writeFile } = await import("node:fs/promises");
   await writeFile(filePath, Buffer.from(data, "base64"));
 }
+
+/** Inner markup of one node, matched by walking tag depth from its open tag —
+ * a non-greedy regex would stop at the first `</div>` of a nested child. */
+export function elementInner(html: string, nodeId: string): string {
+  const openIndex = html.indexOf(`data-agent-native-node-id="${nodeId}"`);
+  if (openIndex < 0) throw new Error(`node ${nodeId} not found`);
+  const tagStart = html.lastIndexOf("<", openIndex);
+  const tag = /^<([a-zA-Z0-9-]+)/.exec(html.slice(tagStart))?.[1];
+  if (!tag) throw new Error(`no tag for ${nodeId}`);
+  const contentStart = html.indexOf(">", openIndex) + 1;
+  const pattern = new RegExp(`</?${tag}\\b`, "g");
+  pattern.lastIndex = contentStart;
+  let depth = 1;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(html))) {
+    depth += match[0].startsWith("</") ? -1 : 1;
+    if (depth === 0) return html.slice(contentStart, match.index);
+  }
+  throw new Error(`unbalanced ${tag} for ${nodeId}`);
+}
+
+const VOID_TAGS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "source",
+  "track",
+  "wbr",
+]);
+
+/** Node ids of one node's direct children, in DOM order. A subtree-wide scan
+ * also collects the generated `<span data-an-text>` ids inside painted or
+ * padded text leaves, which are not flow children of this node. */
+export function childNodeIds(html: string, parentId: string): string[] {
+  const ids: string[] = [];
+  let depth = 0;
+  for (const tag of elementInner(html, parentId).matchAll(
+    /<(\/?)([a-zA-Z0-9-]+)([^>]*)>/g,
+  )) {
+    const [, slash, name, attrs] = tag as unknown as [
+      string,
+      string,
+      string,
+      string,
+    ];
+    if (slash === "/") {
+      depth -= 1;
+      continue;
+    }
+    if (depth === 0) {
+      const id = /data-agent-native-node-id="([^"]+)"/.exec(attrs)?.[1];
+      if (id) ids.push(id);
+    }
+    if (!attrs.trimEnd().endsWith("/") && !VOID_TAGS.has(name.toLowerCase())) {
+      depth += 1;
+    }
+  }
+  return ids;
+}

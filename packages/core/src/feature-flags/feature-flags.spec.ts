@@ -27,7 +27,6 @@ vi.mock("../settings/store.js", () => ({
 }));
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
-  isPostgres: () => false,
 }));
 vi.mock("../settings/org-settings.js", () => ({
   getOrgSetting: (...args: any[]) => getOrgSettingMock(...args),
