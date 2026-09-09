@@ -299,4 +299,17 @@ describe("SlideContentEditError transport contract", () => {
       expect(isActionContractError(error)).toBe(true);
     }
   });
+
+  it("keeps formatter failures out of the caller-correctable contract", async () => {
+    const error = await applySlideContentEdits(
+      "<div><span></div>",
+      [],
+      true,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(SlideContentEditError);
+    expect(isActionContractError(error)).toBe(false);
+    expect((error as Error).message).toContain("Unexpected closing tag");
+  });
 });
