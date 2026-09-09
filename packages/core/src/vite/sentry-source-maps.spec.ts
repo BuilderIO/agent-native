@@ -182,7 +182,7 @@ describe("vite/sentry-source-maps", () => {
       expect(existsSync(path.join(publishDirectory, "client.js"))).toBe(true);
     });
 
-    it("keeps source maps and rejects when upload fails", async () => {
+    it("removes source maps and completes when upload fails", async () => {
       const { entryPath, mapPath, publishDirectory } = temporaryBuild();
       sentryUpload.mockImplementation(async () => {
         expect(existsSync(mapPath)).toBe(true);
@@ -194,10 +194,11 @@ describe("vite/sentry-source-maps", () => {
         SENTRY_PROJECT: "web",
       });
 
-      await expect(
-        runViteBuild(entryPath, publishDirectory, plugins),
-      ).rejects.toThrow("upload rejected");
-      expect(existsSync(mapPath)).toBe(true);
+      await runViteBuild(entryPath, publishDirectory, plugins);
+
+      expect(sentryUpload).toHaveBeenCalledOnce();
+      expect(existsSync(mapPath)).toBe(false);
+      expect(existsSync(path.join(publishDirectory, "client.js"))).toBe(true);
     });
   });
 });

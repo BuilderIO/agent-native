@@ -118,11 +118,13 @@ export function createSentrySourceMapUploadPlugin(
       name: config.release,
       inject: false,
     },
-    // Sentry's built-in filesToDeleteAfterUpload runs in a finally block, even
-    // after a failed upload. Throw here so the build cannot publish an artifact
-    // whose maps were neither uploaded nor intentionally retained.
-    errorHandler: (error) => {
-      throw error;
+    // A source-map upload is optional observability work. The cleanup plugin
+    // still removes maps when this handler returns, so a bad token cannot
+    // block the deploy or publish source contents.
+    errorHandler: () => {
+      console.warn(
+        "Sentry source map upload failed; continuing without publishing source maps.",
+      );
     },
   }) as Plugin[];
 
