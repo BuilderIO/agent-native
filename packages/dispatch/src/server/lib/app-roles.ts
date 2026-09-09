@@ -1,7 +1,10 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import { defineAppRoles, type AppRoles } from "@agent-native/core/org";
 import {
-  currentRequestUserIsOrgAdmin,
+  defineAppRoles,
+  type AppRoles,
+  validateFederatedOrganizationMembershipForCurrentRequest,
+} from "@agent-native/core/org";
+import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
@@ -32,7 +35,17 @@ export async function authorizeDispatchAdmin(
     );
   }
   if (!orgId?.trim()) return;
-  if (await currentRequestUserIsOrgAdmin(orgId)) return;
+  const membership =
+    await validateFederatedOrganizationMembershipForCurrentRequest({
+      orgId,
+      email,
+    });
+  if (!membership.active) {
+    throw new ForbiddenError(
+      "Dispatch administration requires active organization membership.",
+    );
+  }
+  if (membership.role === "owner" || membership.role === "admin") return;
   await getDispatchAccess().assertAny(["admin"], {
     userEmail: email,
     orgId,

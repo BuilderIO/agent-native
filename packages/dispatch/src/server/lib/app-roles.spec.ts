@@ -2,17 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertAny: vi.fn(),
-  currentRequestUserIsOrgAdmin: vi.fn(),
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
+  validateFederatedOrganizationMembershipForCurrentRequest: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/org", () => ({
   defineAppRoles: () => ({ assertAny: mocks.assertAny }),
+  validateFederatedOrganizationMembershipForCurrentRequest:
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  currentRequestUserIsOrgAdmin: mocks.currentRequestUserIsOrgAdmin,
   getRequestOrgId: mocks.getRequestOrgId,
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
@@ -30,7 +31,9 @@ const context = {
 describe("authorizeDispatchAdmin", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(false);
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
+      { active: true, role: "member" },
+    );
     mocks.assertAny.mockResolvedValue("admin");
     mocks.getRequestOrgId.mockReturnValue(undefined);
     mocks.getRequestUserEmail.mockReturnValue(undefined);
@@ -44,6 +47,12 @@ describe("authorizeDispatchAdmin", () => {
     await expect(authorizeDispatchAdmin({}, context)).rejects.toThrow(
       "Requires dispatch role admin",
     );
+    expect(
+      mocks.validateFederatedOrganizationMembershipForCurrentRequest,
+    ).toHaveBeenCalledWith({
+      orgId: "org-1",
+      email: "member@example.test",
+    });
     expect(mocks.assertAny).toHaveBeenCalledWith(["admin"], {
       orgId: "org-1",
       userEmail: "member@example.test",
@@ -51,9 +60,22 @@ describe("authorizeDispatchAdmin", () => {
   });
 
   it("allows an organization admin without an app-role assignment", async () => {
-    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
+      { active: true, role: "admin" },
+    );
 
     await expect(authorizeDispatchAdmin({}, context)).resolves.toBeUndefined();
+    expect(mocks.assertAny).not.toHaveBeenCalled();
+  });
+
+  it("denies a stale linked organization admin", async () => {
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
+      { active: false, role: null },
+    );
+
+    await expect(authorizeDispatchAdmin({}, context)).rejects.toThrow(
+      "active organization membership",
+    );
     expect(mocks.assertAny).not.toHaveBeenCalled();
   });
 
@@ -69,7 +91,9 @@ describe("authorizeDispatchAdmin", () => {
     await expect(
       authorizeDispatchAdmin({}, { ...context, orgId: null }),
     ).resolves.toBeUndefined();
-    expect(mocks.currentRequestUserIsOrgAdmin).not.toHaveBeenCalled();
+    expect(
+      mocks.validateFederatedOrganizationMembershipForCurrentRequest,
+    ).not.toHaveBeenCalled();
     expect(mocks.assertAny).not.toHaveBeenCalled();
   });
 
