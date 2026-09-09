@@ -3,6 +3,10 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
 import zhTW from "./i18n/zh-TW";
+import {
+  trashMessagesByLocale,
+  trashRecoveryMessagesByLocale,
+} from "./trash-messages";
 
 const databaseMessages = {
   aField: "a field",
@@ -3135,6 +3139,8 @@ const localFilesMessages = {
 };
 
 const enUS = {
+  ...trashMessagesByLocale["en-US"],
+  trashRecovery: trashRecoveryMessagesByLocale["en-US"],
   creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandContent: "Content",
@@ -9930,6 +9936,9 @@ const landingMessagesByLocale = {
 
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
+    trashBrowser: { ...enUS.trashBrowser, ...overrides.trashBrowser },
+    trashPreview: { ...enUS.trashPreview, ...overrides.trashPreview },
+    trashRecovery: { ...enUS.trashRecovery, ...overrides.trashRecovery },
     root: { ...enUS.root, ...overrides.root },
     theme: { ...enUS.theme, ...overrides.theme },
     navigation: { ...enUS.navigation, ...overrides.navigation },
@@ -10030,6 +10039,8 @@ function mergeMessagesForLocale(
   });
   return {
     ...base,
+    ...trashMessagesByLocale[locale],
+    trashRecovery: trashRecoveryMessagesByLocale[locale],
     comments: { ...base.comments, ...commentMessagesByLocale[locale] },
     landing: { ...base.landing, ...landingMessagesByLocale[locale] },
     root: { ...base.root, ...rawLiteralOverrides.root },

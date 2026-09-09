@@ -323,8 +323,12 @@ function loadCatalog(root: string, errors: string[]): ProductCatalog {
   };
 }
 
+function readMarkdown(file: string) {
+  return readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+}
+
 function parseRecord(file: string): ProductRecord {
-  const source = readFileSync(file, "utf8");
+  const source = readMarkdown(file);
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
   if (!match) throw new Error("expected YAML frontmatter between --- markers");
   const data = parseYaml(match[1]) as Record<string, unknown>;
@@ -824,7 +828,7 @@ function validateLinksAndPrivacy(
   if (existsSync(skillRoot)) files.push(...collectMarkdownFiles(skillRoot));
 
   for (const file of files) {
-    const source = readFileSync(file, "utf8");
+    const source = readMarkdown(file);
     const privacyFindings: Array<[RegExp, string]> = [
       [
         /(?:^|[\s('"`:<>=])\/(?:Users|home|private|Volumes)\//m,
@@ -977,7 +981,7 @@ function compareProjection(file: string, expected: string, errors: string[]) {
     );
     return;
   }
-  const actual = readFileSync(file, "utf8");
+  const actual = readMarkdown(file);
   if (actual !== expected) {
     errors.push(
       `${displayPath(file)}: stale generated projection; run pnpm guard:content-product-docs --write`,

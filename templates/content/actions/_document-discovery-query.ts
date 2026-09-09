@@ -36,10 +36,6 @@ export function softDeletedDatabaseDocumentExclusions(documentId: SQLWrapper) {
     schema.contentDatabases,
     "deleted_database_document_exclusions",
   );
-  const deletedDatabaseItems = alias(
-    schema.contentDatabaseItems,
-    "deleted_database_membership_exclusions",
-  );
   const deletedDatabaseDocument = db
     .select({ id: deletedDatabases.id })
     .from(deletedDatabases)
@@ -49,24 +45,7 @@ export function softDeletedDatabaseDocumentExclusions(documentId: SQLWrapper) {
         isNotNull(deletedDatabases.deletedAt),
       ),
     );
-  const deletedDatabaseMembership = db
-    .select({ id: deletedDatabaseItems.id })
-    .from(deletedDatabaseItems)
-    .innerJoin(
-      deletedDatabases,
-      eq(deletedDatabases.id, deletedDatabaseItems.databaseId),
-    )
-    .where(
-      and(
-        eq(deletedDatabaseItems.documentId, documentId),
-        isNotNull(deletedDatabases.deletedAt),
-      ),
-    );
-
-  return [
-    notExists(deletedDatabaseDocument),
-    notExists(deletedDatabaseMembership),
-  ] as const;
+  return [notExists(deletedDatabaseDocument)] as const;
 }
 
 export function documentDiscoveryWhere({

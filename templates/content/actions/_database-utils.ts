@@ -250,6 +250,9 @@ export const contentDatabaseListDocumentSelection = {
   sourceUpdatedAt: schema.documents.sourceUpdatedAt,
   trashedAt: schema.documents.trashedAt,
   trashRootId: schema.documents.trashRootId,
+  trashedBy: schema.documents.trashedBy,
+  trashOrigin: schema.documents.trashOrigin,
+  trashParentId: schema.documents.trashParentId,
   visibility: schema.documents.visibility,
   ownerEmail: schema.documents.ownerEmail,
   orgId: schema.documents.orgId,
@@ -1279,22 +1282,7 @@ export async function isSoftDeletedDatabaseDocument(documentId: string) {
         sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
       ),
     );
-  if (ownedDatabase) return true;
-
-  const [databaseItem] = await db
-    .select({ id: schema.contentDatabaseItems.id })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.contentDatabases,
-      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.documentId, documentId),
-        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
-      ),
-    );
-  return !!databaseItem;
+  return !!ownedDatabase;
 }
 
 export async function getDatabaseByDocumentId(

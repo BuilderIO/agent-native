@@ -15,9 +15,18 @@ const COMMENT_MUTATIONS = new Set([
   "update-comment",
 ]);
 
-const DOCUMENT_MUTATIONS = new Set([
-  "create-and-link-notion-page",
+const DOCUMENT_LIFECYCLE_MUTATIONS = new Set([
   "delete-document",
+  "permanently-delete-document",
+  "restore-document",
+  "trash-documents",
+  "share-resource",
+  "unshare-resource",
+]);
+
+const DOCUMENT_MUTATIONS = new Set([
+  ...DOCUMENT_LIFECYCLE_MUTATIONS,
+  "create-and-link-notion-page",
   "delete-document-property",
   "delete-content-database",
   "duplicate-document-property",
@@ -37,7 +46,6 @@ const DOCUMENT_MUTATIONS = new Set([
   "reorder-document-property",
   "resolve-local-folder-conflict",
   "resolve-notion-sync-conflict",
-  "restore-document",
   "restore-content-database",
   "restore-document-version",
   "set-document-discoverability",
@@ -50,10 +58,10 @@ const DOCUMENT_MUTATIONS = new Set([
 ]);
 
 const DATABASE_RESULT_MUTATIONS = new Set([
+  ...DOCUMENT_LIFECYCLE_MUTATIONS,
   "add-database-item",
   "configure-document-property",
   "delete-content-database",
-  "delete-document",
   "delete-document-property",
   "duplicate-database-item",
   "duplicate-database-items",
@@ -67,7 +75,6 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "remove-database-items",
   "reorder-document-property",
   "restore-content-database",
-  "restore-document",
   "set-document-property",
   "submit-content-database-form",
   "update-database-item",
@@ -84,6 +91,11 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
 const CONTENT_MUTATIONS = new Set([
   ...COMMENT_MUTATIONS,
   ...DOCUMENT_MUTATIONS,
+]);
+
+const RECENT_MUTATIONS = new Set([
+  ...DOCUMENT_MUTATIONS,
+  "update-content-database-view",
 ]);
 
 function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
@@ -115,11 +127,15 @@ function isDatabaseQuery(query: ActionQuery): boolean {
   return true;
 }
 
-function queryTargetsDatabase(query: ActionQuery, documentId: string): boolean {
+function queryTargetsDatabase(
+  query: ActionQuery,
+  documentId: string | undefined,
+): boolean {
   if (!isDatabaseQuery(query)) return false;
   const args = query.queryKey[2];
   return (
-    (!!args &&
+    (documentId !== undefined &&
+      !!args &&
       typeof args === "object" &&
       "documentId" in args &&
       args.documentId === documentId) ||
@@ -156,8 +172,23 @@ export function contentActionInvalidatePredicate(
             ? args.documentId
             : undefined
         : undefined;
-    if (documentId === undefined) {
-      return false;
+    if (
+      query.queryKey[0] === "action" &&
+      [
+        "get-content-recent",
+        "list-trashed-documents",
+        "list-trashed-content-databases",
+        "list-content-trash",
+        "get-trashed-document",
+        "plan-content-trash-recovery",
+      ].includes(query.queryKey[1] as string)
+    ) {
+      return events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          RECENT_MUTATIONS.has(event.key),
+      );
     }
     if (
       typeof targetId === "string" &&

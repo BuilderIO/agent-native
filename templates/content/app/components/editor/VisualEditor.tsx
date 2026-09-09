@@ -2698,7 +2698,7 @@ export function VisualEditor({
   useEffect(() => {
     return () => {
       clearTimeout(selectionSyncTimerRef.current);
-      writeContentSelectionState(null);
+      if (documentId) writeContentSelectionState(null);
     };
   }, [documentId]);
 

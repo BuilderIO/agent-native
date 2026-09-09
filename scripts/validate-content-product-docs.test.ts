@@ -21,6 +21,54 @@ test("accepts a coherent product graph", () => {
   assert.deepEqual(result.errors, []);
 });
 
+test("LF and CRLF records and projections produce identical validation", () => {
+  const root = copyFixture();
+  const initial = validateContentProductDocs(root, {
+    strictCatalog: false,
+    checkProjections: false,
+  });
+  const files = initial.catalog.records.map((record) => record.file);
+  for (const file of files) {
+    writeFileSync(file, readFileSync(file, "utf8").replace(/\r\n/g, "\n"));
+  }
+  writeFileSync(join(root, "roadmap.md"), initial.roadmap);
+  writeFileSync(join(root, "encyclopedia.md"), initial.encyclopedia);
+  files.push(join(root, "roadmap.md"), join(root, "encyclopedia.md"));
+  const lf = validateContentProductDocs(root, {
+    strictCatalog: false,
+    validationRoot: root,
+  });
+  assert.deepEqual(lf.errors, []);
+
+  for (const file of files) {
+    writeFileSync(file, readFileSync(file, "utf8").replace(/\n/g, "\r\n"));
+  }
+  const crlf = validateContentProductDocs(root, {
+    strictCatalog: false,
+    validationRoot: root,
+  });
+  assert.deepEqual(crlf, lf);
+});
+
+test("a genuinely missing heading still fails in a CRLF record", () => {
+  const root = copyFixture();
+  const file = join(root, "capabilities/content.test.alpha.md");
+  const source = readFileSync(file, "utf8")
+    .replace(/\r\n/g, "\n")
+    .replace("## Why this exists", "## Missing human problem")
+    .replace(/\n/g, "\r\n");
+  writeFileSync(file, source);
+  const result = validateContentProductDocs(root, {
+    strictCatalog: false,
+    checkProjections: false,
+  });
+  assert(
+    result.errors.some((error) =>
+      error.includes("requires ## Why this exists"),
+    ),
+  );
+});
+
 test("reports unknown references and dependency cycles with exact fields", () => {
   const root = copyFixture();
   replace(
@@ -390,7 +438,7 @@ function copyFixture() {
 }
 
 function replace(file: string, find: string, replacement: string) {
-  const source = readFileSync(file, "utf8");
+  const source = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
   assert(source.includes(find), `Fixture text not found in ${file}: ${find}`);
   writeFileSync(file, source.replace(find, replacement));
 }

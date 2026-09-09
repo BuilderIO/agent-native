@@ -1119,6 +1119,15 @@ export const runContentMigrations = runMigrations(
       name: "content-databases-document-idx",
       sql: `CREATE INDEX IF NOT EXISTS content_databases_document_idx ON content_databases (document_id)`,
     },
+    {
+      version: 91,
+      name: "content-trash-attribution",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_by TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_origin TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_parent_id TEXT;
+        CREATE INDEX IF NOT EXISTS documents_trash_order_idx ON documents (trashed_at, id);
+        CREATE INDEX IF NOT EXISTS documents_trash_group_idx ON documents (trash_root_id, parent_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

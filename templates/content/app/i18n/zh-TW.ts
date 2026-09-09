@@ -1,6 +1,13 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
+import {
+  trashMessagesByLocale,
+  trashRecoveryMessagesByLocale,
+} from "../trash-messages";
+
 const messages = {
+  ...trashMessagesByLocale["zh-TW"],
+  trashRecovery: trashRecoveryMessagesByLocale["zh-TW"],
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandContent: "內容",

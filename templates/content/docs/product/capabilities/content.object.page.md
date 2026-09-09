@@ -43,6 +43,8 @@ An editor creates a brief, adds body content and Properties, places it in two Da
 - UI, agents, automations, and APIs use shared Actions and the same authorization boundary.
 - References, comments, Discussion, history, Versions, sources, and exports target the Page identity, not a transient renderer or location.
 - Trash suspends ordinary use without silently reusing the identity; restore returns the Page with its durable context.
+- Recovery may select a complete child subtree within its deletion group. An explicit destination must preserve ownership, organization, space, and access; recovering that subtree removes it from later recovery or permanent deletion of the old group.
+- A separately deleted descendant remains a separate recovery item. Permanent deletion must disclose any surviving Pages it reparents and requires authority over those survivors as well as the deleted selection.
 
 ## Boundaries and non-goals
 
@@ -59,6 +61,10 @@ Given a Page in two Databases, when an editor moves it in navigation or removes 
 ### Deny before revealing context
 
 Given a person who knows a Page link but lacks access, when they open it through UI or an Action, then they receive an honest denial and no title, body, membership, or comment data leaks.
+
+### Recover a child without recovering its parent
+
+Given a deleted parent and child subtree, when an authorized person restores the child to an explicit live location in the same scope, then its identity, body, comments, memberships, and access remain unchanged. Later restoring or permanently deleting the remaining parent group cannot move or delete the recovered child.
 
 ## Current evidence
 
