@@ -1925,15 +1925,19 @@ export function describeToolParameterSignature(
 }
 
 /**
- * Marks a value already returned by `validateActionArgs` so `wrapWithValidation`
- * passes it straight to `run()` instead of parsing it again. Identity-based
- * (not a context flag) so it can't be spoofed by a caller-supplied object, and
- * it exists because a second pass through a non-idempotent schema (a
- * `.preprocess`/`.transform` that isn't stable under re-parsing) could hand
- * `run()` a different value than the one a `needsApproval` predicate decided
- * against — re-validating would silently reopen that gap.
+ * Records which schema already validated a value returned by
+ * `validateActionArgs`, so `wrapWithValidation` can pass it straight to
+ * `run()` instead of parsing it again. Identity-based (not a context flag) so
+ * it can't be spoofed by a caller-supplied object, and keyed by the specific
+ * schema — not just object identity — so a value validated for one action can
+ * never skip a *different* action's validation if the same object reference
+ * were ever handed to both. It exists because a second pass through a
+ * non-idempotent schema (a `.preprocess`/`.transform` that isn't stable under
+ * re-parsing) could hand `run()` a different value than the one a
+ * `needsApproval` predicate decided against — re-validating would silently
+ * reopen that gap.
  */
-const preValidatedActionArgs = new WeakSet<object>();
+const preValidatedActionArgs = new WeakMap<object, StandardSchemaV1>();
 
 /**
  * Validate + coerce raw args against a Standard Schema, returning the same
@@ -2007,7 +2011,9 @@ export async function validateActionArgs(
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
-  if (value && typeof value === "object") preValidatedActionArgs.add(value);
+  if (value && typeof value === "object") {
+    preValidatedActionArgs.set(value, schema);
+  }
   return value;
 }
 
@@ -2022,7 +2028,11 @@ function wrapWithValidation(
   toolParameters?: ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
-    if (args && typeof args === "object" && preValidatedActionArgs.has(args)) {
+    if (
+      args &&
+      typeof args === "object" &&
+      preValidatedActionArgs.get(args) === schema
+    ) {
       return run(args, ctx);
     }
     return run(await validateActionArgs(schema, args, toolParameters), ctx);

@@ -9,6 +9,7 @@ import {
   isAgentActionStopError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  validateActionArgs,
 } from "./action.js";
 
 describe("ActionContractError", () => {
@@ -791,6 +792,47 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     // The truncation ellipsis is appended; the full 2000-char blob is not echoed.
     expect(message).toContain("…");
     expect(message.length).toBeLessThan(1000);
+  });
+
+  it("validateActionArgs lets a matching schema's run() skip re-validation", async () => {
+    let received: unknown;
+    const schema = z.object({ tag: z.preprocess((v) => `${v}!`, z.string()) });
+    const action = defineAction({
+      description: "tag",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    const validated = await validateActionArgs(schema, { tag: "a" });
+    await action.run(validated);
+    // A second pass through the non-idempotent preprocess would have produced
+    // "a!!"; the marker means run() executes with the exact value validated.
+    expect(received).toEqual({ tag: "a!" });
+  });
+
+  it("does not let a value validated for one action's schema skip a different action's validation", async () => {
+    const schemaA = z.object({ tag: z.string() });
+    const schemaB = z.object({ name: z.string() });
+    let ranB = false;
+    const actionB = defineAction({
+      description: "needs name",
+      schema: schemaB,
+      run: async () => {
+        ranB = true;
+        return "ok";
+      },
+    });
+
+    // Validated against schemaA, so it satisfies schemaA but is missing the
+    // field schemaB requires.
+    const validatedForA = await validateActionArgs(schemaA, { tag: "x" });
+    await expect(actionB.run(validatedForA)).rejects.toThrow(
+      /Invalid action parameters/,
+    );
+    expect(ranB).toBe(false);
   });
 });
 
