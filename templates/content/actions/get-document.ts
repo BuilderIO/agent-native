@@ -20,6 +20,7 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
+import { documentTrashedError } from "./_document-lifecycle.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getDatabaseById,
@@ -85,9 +86,7 @@ export default defineAction({
       access.resource.trashedAt ||
       (await isSoftDeletedDatabaseDocument(args.id))
     ) {
-      throw Object.assign(new Error(`Document "${args.id}" not found`), {
-        statusCode: 404,
-      });
+      throw documentTrashedError();
     }
     const doc = access.resource;
     if (args.databaseDocumentId && !args.databaseId) {

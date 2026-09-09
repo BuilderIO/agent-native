@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { closeDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -90,7 +91,8 @@ beforeAll(async () => {
   await plugin(undefined as any);
 }, 60000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -956,6 +958,88 @@ describe("database-scoped document properties", () => {
 });
 
 describe("document trash lifecycle", () => {
+  it("preserves canonical Page reads across live and trashed database memberships", async () => {
+    const first = await createDatabase({});
+    const second = await createDatabase({});
+    const documentId = await createDocument({
+      title: "Shared member",
+      content: "Keep this body",
+    });
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values(
+        [first, second].map(({ databaseId }) => ({
+          id: nextId("membership"),
+          databaseId,
+          documentId,
+          ownerEmail: OWNER,
+          position: 0,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteContentDatabaseAction.run({ databaseId: first.databaseId }),
+    );
+    expect(await documentRow(documentId)).toMatchObject({
+      trashedAt: null,
+      parentId: null,
+      content: "Keep this body",
+    });
+    expect((await databaseRow(second.databaseId)).deletedAt).toBeNull();
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        getDocumentAction.run({ id: first.databaseDocumentId }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_TRASHED", statusCode: 409 });
+    const databases = await runWithRequestContext({ userEmail: OWNER }, () =>
+      listDocumentsAction.run({ documentType: "database", limit: 200 }),
+    );
+    expect(databases.documents.map((document) => document.id)).not.toContain(
+      first.databaseDocumentId,
+    );
+
+    const readable = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({ id: documentId }),
+    );
+    expect(readable).toMatchObject({
+      id: documentId,
+      content: "Keep this body",
+    });
+    const listed = await runWithRequestContext({ userEmail: OWNER }, () =>
+      listDocumentsAction.run({ exactTitle: "Shared member" }),
+    );
+    expect(listed.documents).toContainEqual(
+      expect.objectContaining({ id: documentId }),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentAction.run({ id: documentId }),
+    );
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        listDocumentPropertiesAction.run({
+          documentId,
+          databaseId: second.databaseId,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_TRASHED", statusCode: 409 });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreDocumentAction.run({ id: documentId }),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreContentDatabaseAction.run({ databaseId: first.databaseId }),
+    );
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.documentId, documentId)),
+    ).toHaveLength(2);
+  });
+
   it("round-trips a page subtree without changing ids, bodies, or hierarchy", async () => {
     const rootId = await createDocument({
       title: "Trash root",
@@ -993,7 +1077,7 @@ describe("document trash lifecycle", () => {
       runWithRequestContext({ userEmail: OWNER }, () =>
         getDocumentAction.run({ id: rootId }),
       ),
-    ).rejects.toMatchObject({ statusCode: 404 });
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_TRASHED", statusCode: 409 });
 
     const trash = await runWithRequestContext({ userEmail: OWNER }, () =>
       listTrashedDocumentsAction.run({}),
@@ -1080,7 +1164,10 @@ describe("document trash lifecycle", () => {
       runWithRequestContext({ userEmail: OWNER }, () =>
         permanentlyDeleteDocumentAction.run({ id: documentId }),
       ),
-    ).rejects.toThrow("must be in Trash");
+    ).rejects.toMatchObject({
+      errorCode: "TRASH_UNAVAILABLE",
+      statusCode: 404,
+    });
 
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: documentId }),
@@ -1157,25 +1244,49 @@ describe("document trash lifecycle", () => {
     expect(await databaseRow(retainedDatabase.databaseId)).toBeDefined();
   });
 
-  it("permanently deletes only a selected Trash root", async () => {
+  it("permanently deletes only the selected trashed subtree", async () => {
     const rootId = await createDocument({ title: "Trash root" });
     const childId = await createDocument({
       parentId: rootId,
-      title: "Trash child",
+      title: "Selected child",
     });
+    const grandchildId = await createDocument({
+      parentId: childId,
+      title: "Selected grandchild",
+    });
+    const siblingId = await createDocument({
+      parentId: rootId,
+      title: "Retained sibling",
+    });
+    const independentId = await createDocument({
+      parentId: childId,
+      title: "Independently trashed descendant",
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentAction.run({ id: independentId }),
+    );
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: rootId }),
     );
-
-    await expect(
-      runWithRequestContext({ userEmail: OWNER }, () =>
-        permanentlyDeleteDocumentAction.run({ id: childId }),
-      ),
-    ).rejects.toThrow("Trash root");
-    expect(await documentRow(rootId)).toBeDefined();
-    expect(await documentRow(childId)).toBeDefined();
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      permanentlyDeleteDocumentAction.run({ id: childId }),
+    );
+    expect(result).toMatchObject({ success: true, deleted: 2 });
+    expect(new Set(result.affectedDocumentIds)).toEqual(
+      new Set([childId, grandchildId]),
+    );
+    expect(await documentRow(rootId)).toMatchObject({ trashRootId: rootId });
+    expect(await documentRow(siblingId)).toMatchObject({
+      parentId: rootId,
+      trashRootId: rootId,
+    });
+    expect(await documentRow(independentId)).toMatchObject({
+      parentId: null,
+      trashRootId: independentId,
+    });
+    expect(await documentRow(childId)).toBeUndefined();
+    expect(await documentRow(grandchildId)).toBeUndefined();
   });
-
   it("preserves an independently trashed descendant when deleting its parent root", async () => {
     const rootId = await createDocument({ title: "Later root" });
     const childId = await createDocument({
@@ -1509,10 +1620,10 @@ describe("content database soft-delete actions and reads", () => {
     const listedIds = new Set(listResponse.documents.map((doc) => doc.id));
     expect(listedIds.has(hostDocumentId)).toBe(true);
     expect(listedIds.has(databaseDocumentId)).toBe(false);
-    expect(listedIds.has(rowDocumentId)).toBe(false);
+    expect(listedIds.has(rowDocumentId)).toBe(true);
   });
 
-  it("hides soft-deleted database documents and rows from Files until restore", async () => {
+  it("hides soft-deleted database documents from Files while retaining live member Pages", async () => {
     const files = await createDatabase({ systemRole: "files" });
     const hostDocumentId = await createDocument({ title: "Host" });
     const ownerBlockId = nextId("inline_database");
@@ -1573,11 +1684,12 @@ describe("content database soft-delete actions and reads", () => {
       queryContentDatabaseItemsAction.run({ databaseId: files.databaseId }),
     );
     expect(hidden.items.map((item) => item.document.id)).toEqual([
+      rowDocumentId,
       retainedDocumentId,
     ]);
     expect(hidden.pagination).toMatchObject({
-      totalItems: 1,
-      returnedItems: 1,
+      totalItems: 2,
+      returnedItems: 2,
     });
 
     await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -1780,7 +1892,7 @@ describe("content database soft-delete actions and reads", () => {
     expect(page.hydratedItemCount).toBe(1);
   });
 
-  it("blocks direct document and property reads for soft-deleted database pages", async () => {
+  it("blocks deleted database reads while preserving live member document reads", async () => {
     const deletedAt = new Date().toISOString();
     const { databaseId, databaseDocumentId } = await createDatabase({
       deletedAt,
@@ -1804,17 +1916,17 @@ describe("content database soft-delete actions and reads", () => {
       runWithRequestContext({ userEmail: OWNER }, () =>
         getDocumentAction.run({ id: databaseDocumentId }),
       ),
-    ).rejects.toThrow(`Document "${databaseDocumentId}" not found`);
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_TRASHED", statusCode: 409 });
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
         getDocumentAction.run({ id: rowDocumentId }),
       ),
-    ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
+    ).resolves.toMatchObject({ id: rowDocumentId });
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
         pullDocumentAction.run({ id: rowDocumentId, format: "markdown" }),
       ),
-    ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
+    ).resolves.toMatchObject({ id: rowDocumentId });
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
         listDocumentPropertiesAction.run({
@@ -1822,7 +1934,7 @@ describe("content database soft-delete actions and reads", () => {
           databaseId,
         }),
       ),
-    ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
+    ).rejects.toThrow(`Database "${databaseId}" not found`);
   });
 
   it("reads one shared private database row's properties without exposing its Files container", async () => {

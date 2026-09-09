@@ -20,13 +20,20 @@ import type {
   ContentDatabaseResponse,
   CreateDatabaseRequest,
 } from "../shared/api.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   organizationContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  lockLiveDocuments,
+  documentTrashedError,
+} from "./_document-lifecycle.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -150,6 +157,7 @@ export async function resolveContentDatabaseSpace(
 ): Promise<string> {
   if (args.documentId) {
     const access = await assertAccess("document", args.documentId, "editor");
+    if (access.resource.trashedAt) throw documentTrashedError();
     const spaceId =
       (access.resource.spaceId as string | null) ??
       (await healLegacyDocumentSpace(db, access.resource));
@@ -162,6 +170,7 @@ export async function resolveContentDatabaseSpace(
   }
   if (args.parentId) {
     const access = await assertAccess("document", args.parentId, "editor");
+    if (access.resource.trashedAt) throw documentTrashedError();
     const spaceId =
       (access.resource.spaceId as string | null) ??
       (await healLegacyDocumentSpace(db, access.resource));
@@ -207,7 +216,45 @@ export async function createContentDatabaseRecord(
     resolveSpaceAccess?: typeof resolveContentSpaceAccess;
   } = {},
 ): Promise<string> {
-  const db = options.db ?? getDb();
+  if (!options.db) {
+    return getDb().transaction((tx) =>
+      createContentDatabaseRecord(args, { ...options, db: tx }),
+    );
+  }
+  const db = options.db;
+  const targetDocumentId = args.documentId ?? args.parentId;
+  if (targetDocumentId) {
+    if (args.documentId) {
+      const existingDatabases = await db
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.documentId, args.documentId));
+      const memberships = await db
+        .select({
+          id: schema.contentDatabaseItems.id,
+          databaseId: schema.contentDatabaseItems.databaseId,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.documentId, args.documentId));
+      const databaseIds = [
+        ...new Set<string>([
+          ...existingDatabases.map((database: { id: string }) => database.id),
+          ...memberships.map(
+            (membership: { databaseId: string }) => membership.databaseId,
+          ),
+        ]),
+      ].sort();
+      for (const databaseId of databaseIds) {
+        await lockContentDatabaseMutation(db, databaseId);
+      }
+      await lockDatabaseMemberships(
+        db,
+        memberships.map((membership: { id: string }) => membership.id),
+      );
+    }
+    await lockLiveDocuments(db, [targetDocumentId]);
+    await assertDocumentMutationAccess(db, [targetDocumentId], "editor");
+  }
   const now = new Date().toISOString();
   let title = args.title?.trim() || "";
 
@@ -316,43 +363,48 @@ export async function createContentDatabaseRecord(
     // non-undefined narrowing from the guard above (`let` bindings lose
     // narrowing across a closure boundary).
     const resolvedOwnerEmail = ownerEmail;
-    await withPositionLock(
-      documentsPositionScope(resolvedOwnerEmail, parentId),
-      async () => {
-        const [maxPos] = await db
-          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-          .from(schema.documents)
-          .where(
-            parentId
-              ? and(
-                  eq(schema.documents.ownerEmail, resolvedOwnerEmail),
-                  eq(schema.documents.parentId, parentId),
-                )
-              : and(
-                  eq(schema.documents.ownerEmail, resolvedOwnerEmail),
-                  sql`parent_id IS NULL`,
-                ),
-          );
+    const insertDocument = async () => {
+      const [maxPos] = await db
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+        .from(schema.documents)
+        .where(
+          parentId
+            ? and(
+                eq(schema.documents.ownerEmail, resolvedOwnerEmail),
+                eq(schema.documents.parentId, parentId),
+              )
+            : and(
+                eq(schema.documents.ownerEmail, resolvedOwnerEmail),
+                sql`parent_id IS NULL`,
+              ),
+        );
 
-        await db.insert(schema.documents).values({
-          id: documentId!,
-          spaceId,
-          ownerEmail: resolvedOwnerEmail,
-          orgId,
-          parentId,
-          title,
-          content: "",
-          description: args.description?.trim() ?? "",
-          icon: null,
-          position: nextAppendPosition(maxPos?.max),
-          isFavorite: 0,
-          hideFromSearch,
-          visibility,
-          createdAt: now,
-          updatedAt: now,
-        });
-      },
-    );
+      await db.insert(schema.documents).values({
+        id: documentId!,
+        spaceId,
+        ownerEmail: resolvedOwnerEmail,
+        orgId,
+        parentId,
+        title,
+        content: "",
+        description: args.description?.trim() ?? "",
+        icon: null,
+        position: nextAppendPosition(maxPos?.max),
+        isFavorite: 0,
+        hideFromSearch,
+        visibility,
+        createdAt: now,
+        updatedAt: now,
+      });
+    };
+    if (parentId) {
+      await insertDocument();
+    } else {
+      await withPositionLock(
+        documentsPositionScope(resolvedOwnerEmail, null),
+        insertDocument,
+      );
+    }
 
     if (inheritedShares.length > 0) {
       await db.insert(schema.documentShares).values(

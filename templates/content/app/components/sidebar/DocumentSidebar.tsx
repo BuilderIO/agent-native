@@ -23,11 +23,9 @@ import {
   IconFolderOpen,
   IconArrowsSort,
   IconPlus,
-  IconRestore,
   IconSearch,
   IconSettings,
   IconPin,
-  IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconChevronDown,
@@ -54,7 +52,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
@@ -83,8 +80,6 @@ import {
   useUpdateContentDatabasePersonalView,
   useCreateContentDatabase,
   useDeleteContentDatabase,
-  useRestoreContentDatabase,
-  useTrashedContentDatabases,
 } from "@/hooks/use-content-database";
 import {
   shouldAutoEnsureContentSpaces,
@@ -96,9 +91,6 @@ import {
   useDocuments,
   useCreateDocument,
   useDeleteDocument,
-  usePermanentlyDeleteDocument,
-  useRestoreDocument,
-  useTrashedDocuments,
   useUpdateDocument,
   filterDocumentTreeDocuments,
   documentQueryFilter,
@@ -878,12 +870,7 @@ export function DocumentSidebar({
   });
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
-  const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
 
-  const restoreDocument = useRestoreDocument();
-  const { data: trashedDocuments } = useTrashedDocuments();
-  const restoreContentDatabase = useRestoreContentDatabase();
-  const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
   const contentSpacesQuery = useContentSpaces();
@@ -1314,8 +1301,6 @@ export function DocumentSidebar({
   const activeDocument = activeDocumentId
     ? documents.find((doc) => doc.id === activeDocumentId)
     : null;
-  const trashItems = trashedDatabases?.databases ?? [];
-  const trashedPageItems = trashedDocuments?.documents ?? [];
   const parentByDocumentId = useMemo(
     () => new Map(documents.map((doc) => [doc.id, doc.parentId])),
     [documents],
@@ -1768,72 +1753,6 @@ export function DocumentSidebar({
     [t, updateDocument],
   );
 
-  const handleRestoreDatabase = useCallback(
-    async (databaseId: string) => {
-      try {
-        await restoreContentDatabase.mutateAsync({ databaseId });
-        toast.success(t("sidebar.databaseRestored"));
-      } catch (err) {
-        toast.error(t("sidebar.failedRestoreDatabase"), {
-          description:
-            err instanceof Error ? err.message : t("empty.genericError"),
-        });
-      }
-    },
-    [restoreContentDatabase, t],
-  );
-
-  const handlePermanentDeleteDatabase = useCallback(
-    async (documentId: string) => {
-      try {
-        await permanentlyDeleteDocument.mutateAsync({ id: documentId });
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-trashed-content-databases"],
-        });
-        toast.success(t("sidebar.databasePermanentlyDeleted"));
-      } catch (err) {
-        toast.error(t("sidebar.failedPermanentDeleteDatabase"), {
-          description:
-            err instanceof Error ? err.message : t("empty.genericError"),
-        });
-      }
-    },
-    [permanentlyDeleteDocument, queryClient, t],
-  );
-
-  const handleRestoreDocument = useCallback(
-    async (documentId: string) => {
-      try {
-        await restoreDocument.mutateAsync({ id: documentId });
-        toast.success(t("sidebar.pageRestored"));
-      } catch (err) {
-        toast.error(t("sidebar.failedRestorePage"), {
-          description:
-            err instanceof Error ? err.message : t("empty.genericError"),
-        });
-      }
-    },
-    [restoreDocument, t],
-  );
-
-  const handlePermanentDeleteDocument = useCallback(
-    async (documentId: string) => {
-      try {
-        await permanentlyDeleteDocument.mutateAsync({ id: documentId });
-        toast.success(t("sidebar.pagePermanentlyDeleted"));
-      } catch (err) {
-        toast.error(t("sidebar.failedPermanentDeletePage"), {
-          description:
-            err instanceof Error ? err.message : t("empty.genericError"),
-        });
-      }
-    },
-    [permanentlyDeleteDocument, t],
-  );
-
   const handleRemoveLocalFiles = useCallback(async () => {
     try {
       const result = await removeLocalFileSource.mutateAsync({});
@@ -2156,212 +2075,16 @@ export function DocumentSidebar({
     </div>
   );
 
-  const renderTrashSection = () => {
-    const collapsed = collapsedSections.trash;
-
-    return (
-      <div className="mt-3 pt-2">
-        <div className="px-2">
-          <button
-            type="button"
-            aria-expanded={!collapsed}
-            aria-label={`${collapsed ? t("sidebar.expand") : t("sidebar.collapse")} ${t("sidebar.trash")}`}
-            className="group/trash flex h-7 w-full min-w-0 items-center rounded-md px-1 text-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-            onClick={() => toggleSection("trash")}
-          >
-            <span className="flex size-7 shrink-0 items-center justify-center">
-              <span className="relative size-3.5">
-                <IconTrash
-                  aria-hidden="true"
-                  className="absolute inset-0 size-3.5 transition-opacity group-hover/trash:opacity-0 group-focus-visible/trash:opacity-0"
-                />
-                <IconChevronRight
-                  aria-hidden="true"
-                  className={cn(
-                    "absolute inset-0 size-3.5 opacity-0 transition-[opacity,transform] group-hover/trash:opacity-100 group-focus-visible/trash:opacity-100 rtl:-scale-x-100",
-                    !collapsed && "rotate-90",
-                  )}
-                />
-              </span>
-            </span>
-            <span className="min-w-0 flex-1 truncate">
-              {t("sidebar.trash")}
-            </span>
-          </button>
-        </div>
-        {!collapsed && (
-          <div className="px-1 py-1">
-            {trashedPageItems.map((document) => {
-              const title = document.title || t("sidebar.untitled");
-              return (
-                <div
-                  key={document.documentId}
-                  className="group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                >
-                  <span className="min-w-0 flex-1 truncate">{title}</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={t("sidebar.restorePageNamed", { title })}
-                        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-50"
-                        disabled={restoreDocument.isPending}
-                        onClick={() =>
-                          void handleRestoreDocument(document.documentId)
-                        }
-                      >
-                        <IconRestore size={14} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t("sidebar.restorePage")}</TooltipContent>
-                  </Tooltip>
-                  <AlertDialog>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <AlertDialogTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={t(
-                              "sidebar.deletePageNamedPermanently",
-                              {
-                                title,
-                              },
-                            )}
-                            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-                            disabled={permanentlyDeleteDocument.isPending}
-                          >
-                            <IconTrashX size={14} />
-                          </button>
-                        </AlertDialogTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t("sidebar.deletePermanently")}
-                      </TooltipContent>
-                    </Tooltip>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          {t("sidebar.deletePagePermanentlyQuestion")}
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {t("sidebar.deletePagePermanentlyDescription", {
-                            title,
-                          })}
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>
-                          {t("comments.cancel")}
-                        </AlertDialogCancel>
-                        <AlertDialogAction
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                          onClick={() =>
-                            void handlePermanentDeleteDocument(
-                              document.documentId,
-                            )
-                          }
-                        >
-                          {t("sidebar.deletePermanently")}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              );
-            })}
-            {trashedPageItems.length === 0 && trashItems.length === 0 ? (
-              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                {t("sidebar.trashEmpty")}
-              </div>
-            ) : null}
-            {trashItems.map((database) => {
-              const title = database.title || t("editor.untitledDatabase");
-              return (
-                <div
-                  key={database.databaseId}
-                  className="group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                >
-                  <span className="min-w-0 flex-1 truncate">{title}</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={t("sidebar.restoreDatabaseNamed", {
-                          title,
-                        })}
-                        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-50"
-                        disabled={restoreContentDatabase.isPending}
-                        onClick={() =>
-                          void handleRestoreDatabase(database.databaseId)
-                        }
-                      >
-                        <IconRestore size={14} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("sidebar.restoreDatabase")}
-                    </TooltipContent>
-                  </Tooltip>
-                  {database.canPermanentlyDelete && (
-                    <AlertDialog>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <AlertDialogTrigger asChild>
-                            <button
-                              type="button"
-                              aria-label={t(
-                                "sidebar.deleteDatabaseNamedPermanently",
-                                { title },
-                              )}
-                              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-                              disabled={permanentlyDeleteDocument.isPending}
-                            >
-                              <IconTrashX size={14} />
-                            </button>
-                          </AlertDialogTrigger>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {t("sidebar.deletePermanently")}
-                        </TooltipContent>
-                      </Tooltip>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            {t("sidebar.deleteDatabasePermanentlyQuestion")}
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {t("sidebar.deleteDatabasePermanentlyDescription", {
-                              title,
-                            })}
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>
-                            {t("comments.cancel")}
-                          </AlertDialogCancel>
-                          <AlertDialogAction
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            onClick={() =>
-                              void handlePermanentDeleteDatabase(
-                                database.documentId,
-                              )
-                            }
-                          >
-                            {t("sidebar.deletePermanently")}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  };
-
+  const renderTrashSection = () => (
+    <Link
+      to="/trash"
+      className="mt-3 flex h-9 items-center gap-2 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+      aria-current={location.pathname === "/trash" ? "page" : undefined}
+    >
+      <IconTrash size={16} aria-hidden="true" />
+      {t("sidebar.trash")}
+    </Link>
+  );
   if (collapsed) {
     return (
       <div className="agent-layout-left-drawer flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-sidebar py-3 transition-[width] duration-200 ease-out">

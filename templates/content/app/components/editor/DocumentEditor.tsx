@@ -51,6 +51,7 @@ import {
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
 } from "@/components/sidebar/select-content-space";
+import { TrashRecoveryPreview } from "@/components/trash/TrashRecoveryPreview";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -366,7 +367,13 @@ export function pageEditorSessionKey({
   return `${documentId}:${databaseId ?? ""}:${databaseDocumentId ?? ""}`;
 }
 
-export function PageEditorSurface({
+export function PageEditorSurface(props: PageEditorSurfaceProps) {
+  return (
+    <PageEditorSurfaceContent key={pageEditorSessionKey(props)} {...props} />
+  );
+}
+
+function PageEditorSurfaceContent({
   documentId,
   databaseId,
   databaseDocumentId,
@@ -389,6 +396,7 @@ export function PageEditorSurface({
     isError,
     isFetchedAfterMount,
     isFetching,
+    authoritativeFetchCount,
   } = documentQuery;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -397,6 +405,22 @@ export function PageEditorSurface({
   >(null);
   const admittedDocumentIdRef = useRef<string | null>(null);
   const loadFailureRef = useRef<DocumentLoadFailureState | null>(null);
+  const unavailableErrorRef = useRef<{
+    error: unknown;
+    fetchCount: number;
+  } | null>(null);
+  if (isError && isDocumentLoadUnavailableError(error)) {
+    unavailableErrorRef.current = {
+      error,
+      fetchCount: authoritativeFetchCount,
+    };
+  } else if (
+    !isError &&
+    unavailableErrorRef.current &&
+    authoritativeFetchCount > unavailableErrorRef.current.fetchCount
+  ) {
+    unavailableErrorRef.current = null;
+  }
   const document =
     queriedDocument?.id === documentId ? queriedDocument : undefined;
   const loadFailure = updateDocumentLoadFailureState({
@@ -407,6 +431,7 @@ export function PageEditorSurface({
     errorUpdateCount,
     errorUpdatedAt,
     isError,
+    authoritativeFetchCount,
   });
   loadFailureRef.current = loadFailure;
   const loadState = documentEditorLoadState({
@@ -418,10 +443,10 @@ export function PageEditorSurface({
       : false,
     isFetchedAfterMount,
     isFetching,
-    isError,
+    isError: isError || unavailableErrorRef.current !== null,
     hasLoadFailure: loadFailure.failed,
     isManualRetrying: manualRetryDocumentId === documentId,
-    error,
+    error: unavailableErrorRef.current?.error ?? error,
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
 
@@ -438,6 +463,7 @@ export function PageEditorSurface({
       loadFailureRef.current = {
         documentId,
         baselineErrorUpdateCount: errorUpdateCount,
+        authoritativeFetchCount,
         failed: false,
       };
       await documentQuery.refetch();
@@ -449,6 +475,15 @@ export function PageEditorSurface({
   }
 
   if (loadState.view === "unavailable") {
+    if (isDocumentTrashedError(unavailableErrorRef.current?.error ?? error)) {
+      return (
+        <TrashRecoveryPreview
+          documentId={documentId}
+          databaseId={databaseId}
+          databaseDocumentId={databaseDocumentId}
+        />
+      );
+    }
     return (
       <DocumentUnavailable
         onOpenHome={host === "page" ? () => navigate("/home") : undefined}
@@ -559,6 +594,14 @@ export function documentEditorLoadState({
     admittedDocumentId === documentId ? admittedDocumentId : null;
 
   if (
+    isError &&
+    isDocumentLoadUnavailableError(error) &&
+    !isDocumentCreationPending
+  ) {
+    return { view: "unavailable" as const, admittedDocumentId: null };
+  }
+
+  if (
     hasDocument &&
     (isDocumentCreationPending || activeAdmittedDocumentId === documentId)
   ) {
@@ -592,6 +635,7 @@ type DocumentLoadFailureState = {
   documentId: string;
   baselineErrorUpdateCount: number;
   failed: boolean;
+  authoritativeFetchCount?: number;
 };
 
 export function updateDocumentLoadFailureState({
@@ -602,6 +646,7 @@ export function updateDocumentLoadFailureState({
   errorUpdateCount,
   errorUpdatedAt,
   isError,
+  authoritativeFetchCount = 0,
 }: {
   previous: DocumentLoadFailureState | null;
   documentId: string;
@@ -610,13 +655,23 @@ export function updateDocumentLoadFailureState({
   errorUpdateCount: number;
   errorUpdatedAt: number;
   isError: boolean;
+  authoritativeFetchCount?: number;
 }): DocumentLoadFailureState {
   if (previous?.documentId !== documentId) {
     return {
       documentId,
       baselineErrorUpdateCount: errorUpdateCount,
+      authoritativeFetchCount,
       failed:
         isError || (errorUpdateCount > 0 && errorUpdatedAt > dataUpdatedAt),
+    };
+  }
+  if (authoritativeFetchCount > (previous.authoritativeFetchCount ?? 0)) {
+    return {
+      documentId,
+      baselineErrorUpdateCount: errorUpdateCount,
+      authoritativeFetchCount,
+      failed: isError,
     };
   }
   if (admitted || previous.failed) return previous;
@@ -630,7 +685,17 @@ export function isDocumentLoadUnavailableError(error: unknown) {
     error && typeof error === "object"
       ? (error as { status?: unknown }).status
       : undefined;
-  return status === 403 || status === 404;
+  return status === 403 || status === 404 || isDocumentTrashedError(error);
+}
+
+export function isDocumentTrashedError(error: unknown) {
+  const errorCode =
+    error && typeof error === "object"
+      ? ((error as { errorCode?: unknown; data?: { errorCode?: unknown } })
+          .errorCode ??
+        (error as { data?: { errorCode?: unknown } }).data?.errorCode)
+      : undefined;
+  return errorCode === "DOCUMENT_TRASHED";
 }
 
 export function resolveAcknowledgedDocumentSnapshot<

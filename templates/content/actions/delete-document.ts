@@ -1,7 +1,11 @@
-import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import {
+  ActionContractError,
+  defineAction,
+  fail,
+} from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -14,6 +18,17 @@ import {
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
+import { lockDocumentsForLifecycle } from "./_document-lifecycle.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
+import { collectDocumentTrashScope } from "./_document-trash-scope.js";
+import {
+  assertTrashScopeToken,
+  collectTrashRecoveryScope,
+} from "./_trash-recovery-scope.js";
+import {
+  collectTrashDestinationAncestors,
+  resolveTrashRestoreDestination,
+} from "./_trash-restore-destination.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -317,7 +332,7 @@ export async function lockDatabasesForTrash(
   id: string,
   ownerEmail: string,
 ) {
-  const subtree = await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  const subtree = await collectDocumentTrashScope(db, id, ownerEmail);
   const memberships = await selectMembershipsForDocuments(
     db,
     subtree.documentIds,
@@ -340,9 +355,14 @@ export async function trashDocumentSubtree(
   ownerEmail: string,
   trashedAt = new Date().toISOString(),
   lockedDatabaseIds?: ReadonlySet<string>,
+  origin?: string,
 ): Promise<string[]> {
-  const { documentIds, ownedDatabaseIds } =
-    await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  lockedDatabaseIds ??= await lockDatabasesForTrash(db, id, ownerEmail);
+  const { documentIds, ownedDatabaseIds } = await collectDocumentTrashScope(
+    db,
+    id,
+    ownerEmail,
+  );
   if (lockedDatabaseIds) {
     const memberships = await selectMembershipsForDocuments(db, documentIds);
     const unlockedDatabaseId = [
@@ -354,6 +374,22 @@ export async function trashDocumentSubtree(
     if (unlockedDatabaseId) {
       throw new Error("Document subtree changed; retry deletion.");
     }
+  }
+  const scopeMemberships = await selectMembershipsForDocuments(db, documentIds);
+  await lockDatabaseMemberships(
+    db,
+    scopeMemberships.map((membership) => membership.id),
+  );
+  await lockDocumentsForLifecycle(db, documentIds);
+  const lockedScope = await collectDocumentTrashScope(db, id, ownerEmail);
+  if (
+    !hasSameIds(documentIds, lockedScope.documentIds) ||
+    !hasSameIds(ownedDatabaseIds, lockedScope.ownedDatabaseIds)
+  ) {
+    throw new ActionContractError(
+      "The page hierarchy changed. Retry moving it to Trash.",
+      { errorCode: "DOCUMENT_TRASH_SCOPE_CHANGED" },
+    );
   }
   await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
 
@@ -396,6 +432,7 @@ export async function trashDocumentSubtree(
     );
   }
 
+  await assertDocumentMutationAccess(db, activeDocumentIds, "admin");
   const activeMemberships = await selectMembershipsForDocuments(
     db,
     activeDocumentIds,
@@ -432,7 +469,14 @@ export async function trashDocumentSubtree(
   for (const batch of chunks(activeDocumentIds, DELETE_BATCH_SIZE)) {
     await db
       .update(schema.documents)
-      .set({ trashedAt, trashRootId: id, updatedAt: trashedAt })
+      .set({
+        trashedAt,
+        trashRootId: id,
+        updatedAt: trashedAt,
+        trashedBy: getRequestUserEmail() ?? null,
+        trashOrigin: origin ?? null,
+        trashParentId: sql`${schema.documents.parentId}`,
+      })
       .where(
         and(
           inArray(schema.documents.id, batch),
@@ -459,57 +503,117 @@ export async function restoreDocumentSubtree(
   db: ReturnType<typeof getDb>,
   rootId: string,
   ownerEmail: string,
+  options: { destinationParentId?: string | null; scopeToken?: string } = {},
 ): Promise<string[]> {
-  const collectRestoreScope = async () => {
-    const documentIds = (
-      await db
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.trashRootId, rootId),
-            eq(schema.documents.ownerEmail, ownerEmail),
-          ),
-        )
-    ).map((document) => document.id);
-    const memberships = await selectMembershipsForDocuments(db, documentIds);
-    const ownedDatabaseIds = (
-      await selectOwnedDatabaseIds(db, documentIds, ownerEmail)
-    ).map((database) => database.id);
-    return { documentIds, memberships, ownedDatabaseIds };
-  };
-
-  const initialScope = await collectRestoreScope();
-  if (initialScope.documentIds.length === 0) return [];
-  const lockedDatabaseIds = [
+  const [existing] = await db
+    .select({ trashedAt: schema.documents.trashedAt })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.id, rootId),
+        eq(schema.documents.ownerEmail, ownerEmail),
+      ),
+    )
+    .limit(1);
+  if (!existing?.trashedAt) return [];
+  const initial = await collectTrashRecoveryScope(db, rootId, "restore");
+  assertTrashScopeToken(initial.token, options.scopeToken);
+  const initialMemberships = await selectMembershipsForDocuments(
+    db,
+    initial.documentIds,
+  );
+  const databaseLocks = [
     ...new Set([
-      ...initialScope.ownedDatabaseIds,
-      ...initialScope.memberships.map((membership) => membership.databaseId),
+      ...initial.ownedDatabaseIds,
+      ...initialMemberships.map((item) => item.databaseId),
     ]),
   ].sort();
-  for (const databaseId of lockedDatabaseIds) {
+  for (const databaseId of databaseLocks)
     await lockContentDatabaseMutation(db, databaseId);
-  }
-
-  const restoreScope = await collectRestoreScope();
-  const lockedDatabaseIdSet = new Set(lockedDatabaseIds);
-  const unlockedDatabaseId = [
-    ...new Set([
-      ...restoreScope.ownedDatabaseIds,
-      ...restoreScope.memberships.map((membership) => membership.databaseId),
-    ]),
-  ].find((databaseId) => !lockedDatabaseIdSet.has(databaseId));
-  if (unlockedDatabaseId) {
-    throw new Error("Document restore scope changed; retry restoration.");
-  }
-  await lockDatabaseMemberships(
+  const membershipIds = await selectMembershipIdsForDatabases(
     db,
-    await selectMembershipIdsForDatabases(db, lockedDatabaseIds),
+    databaseLocks,
   );
-
-  const documentIds = restoreScope.documentIds;
-  if (documentIds.length === 0) return [];
+  await lockDatabaseMemberships(db, membershipIds);
+  const destinationId =
+    options.destinationParentId === undefined
+      ? initial.root.parentId
+      : options.destinationParentId;
+  const destinationAncestors = await collectTrashDestinationAncestors(
+    db,
+    destinationId,
+    initial.documentIds,
+  );
+  await lockDocumentsForLifecycle(db, [
+    ...initial.documentIds,
+    ...initial.hostDocumentIds,
+    ...destinationAncestors,
+  ]);
+  await assertDocumentMutationAccess(db, initial.adminDocumentIds, "admin");
+  await assertDocumentMutationAccess(db, initial.viewerDocumentIds, "viewer");
+  await assertDocumentMutationAccess(db, initial.hostDocumentIds, "editor");
+  const scope = await collectTrashRecoveryScope(db, rootId, "restore");
+  assertTrashScopeToken(scope.token, initial.token);
+  if (
+    !hasSameIds(
+      destinationAncestors,
+      await collectTrashDestinationAncestors(
+        db,
+        destinationId,
+        scope.documentIds,
+      ),
+    )
+  ) {
+    fail("The destination hierarchy changed. Review it again.", {
+      errorCode: "TRASH_SCOPE_CONFLICT",
+      statusCode: 409,
+    });
+  }
+  const memberships = await selectMembershipsForDocuments(
+    db,
+    scope.documentIds,
+  );
+  if (
+    memberships.some((item) => !databaseLocks.includes(item.databaseId)) ||
+    !hasSameIds(
+      membershipIds,
+      await selectMembershipIdsForDatabases(db, databaseLocks),
+    )
+  ) {
+    fail("The Trash selection changed. Review it again.", {
+      errorCode: "TRASH_SCOPE_CONFLICT",
+      statusCode: 409,
+    });
+  }
+  const parentId = await resolveTrashRestoreDestination(
+    db,
+    scope,
+    options.destinationParentId,
+  );
+  if (scope.requiresOriginalDestination && parentId !== scope.root.parentId) {
+    fail("Restoring this inline Database requires its original location.", {
+      errorCode: "TRASH_DESTINATION_ACCESS_DENIED",
+      statusCode: 403,
+    });
+  }
+  if (parentId)
+    await assertDocumentMutationAccess(
+      db,
+      [parentId],
+      options.destinationParentId === undefined ? "viewer" : "editor",
+    );
+  const documentIds = scope.documentIds;
   const now = new Date().toISOString();
+  if (parentId !== scope.root.parentId) {
+    await db
+      .update(schema.documents)
+      .set({ parentId })
+      .where(eq(schema.documents.id, rootId));
+    await db
+      .update(schema.contentDatabases)
+      .set({ ownerDocumentId: null, ownerBlockId: null })
+      .where(eq(schema.contentDatabases.documentId, rootId));
+  }
   for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
     await db
       .update(schema.documents)
@@ -518,7 +622,7 @@ export async function restoreDocumentSubtree(
         and(
           inArray(schema.documents.id, batch),
           eq(schema.documents.ownerEmail, ownerEmail),
-          eq(schema.documents.trashRootId, rootId),
+          eq(schema.documents.trashRootId, scope.root.trashRootId!),
         ),
       );
     await db
@@ -531,7 +635,6 @@ export async function restoreDocumentSubtree(
         ),
       );
   }
-
   const databaseIds = [
     ...new Set(
       (
@@ -845,38 +948,12 @@ export async function deleteTrashedDocumentSubtree(
   db: ReturnType<typeof getDb>,
   id: string,
   ownerEmail: string,
+  scopeToken?: string,
 ): Promise<string[]> {
   const collectScope = async () => {
-    const [root] = await db
-      .select({ id: schema.documents.id })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, id),
-          eq(schema.documents.ownerEmail, ownerEmail),
-          eq(schema.documents.trashRootId, id),
-          isNotNull(schema.documents.trashedAt),
-        ),
-      )
-      .limit(1);
-    if (!root) {
-      throw new Error(
-        "Document must be in Trash and be a Trash root before permanent deletion",
-      );
-    }
-
-    const documentIds = (
-      await db
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.ownerEmail, ownerEmail),
-            eq(schema.documents.trashRootId, id),
-            isNotNull(schema.documents.trashedAt),
-          ),
-        )
-    ).map((document) => document.id);
+    const scope = await collectTrashRecoveryScope(db, id);
+    assertTrashScopeToken(scope.token, scopeToken);
+    const documentIds = scope.documentIds;
     const ownedDatabaseIds = await selectOwnedDatabaseIds(
       db,
       documentIds,
@@ -897,27 +974,99 @@ export async function deleteTrashedDocumentSubtree(
         "Database contains an active row outside this Trash item",
       );
     }
-    return { documentIds, ownedDatabaseIds };
+    return { documentIds, ownedDatabaseIds, root: scope.root };
   };
 
+  const initial = await collectScope();
+  const collectSurvivors = async (selectedIds: string[]) => {
+    const selected = new Set(selectedIds);
+    const children = await db
+      .select({
+        id: schema.documents.id,
+        parentId: schema.documents.parentId,
+        ownerEmail: schema.documents.ownerEmail,
+        spaceId: schema.documents.spaceId,
+        orgId: schema.documents.orgId,
+        sourceMode: schema.documents.sourceMode,
+      })
+      .from(schema.documents)
+      .where(inArray(schema.documents.parentId, selectedIds));
+    return children
+      .filter((child) => !selected.has(child.id))
+      .sort((a, b) => a.id.localeCompare(b.id));
+  };
+  const initialSurvivors = await collectSurvivors(initial.documentIds);
   const { documentIds, ownedDatabaseIds } = await lockPermanentDeleteScope(
     db,
     collectScope,
   );
 
-  await db
-    .update(schema.documents)
-    .set({ parentId: null, updatedAt: new Date().toISOString() })
-    .where(
-      and(
-        eq(schema.documents.ownerEmail, ownerEmail),
-        inArray(schema.documents.parentId, documentIds),
-        or(
-          isNull(schema.documents.trashRootId),
-          ne(schema.documents.trashRootId, id),
-        ),
-      ),
-    );
+  await lockDocumentsForLifecycle(db, [
+    ...documentIds,
+    ...initialSurvivors.map((child) => child.id),
+  ]);
+  await assertDocumentMutationAccess(db, documentIds, "admin");
+  const finalScope = await collectScope();
+  if (
+    !hasSameIds(finalScope.documentIds, documentIds) ||
+    !hasSameIds(finalScope.ownedDatabaseIds, ownedDatabaseIds)
+  ) {
+    fail("The Trash selection changed. Review it again.", {
+      errorCode: "TRASH_SCOPE_CONFLICT",
+      statusCode: 409,
+    });
+  }
+  const survivors = await collectSurvivors(documentIds);
+  if (JSON.stringify(survivors) !== JSON.stringify(initialSurvivors)) {
+    fail("Pages outside the Trash selection changed. Review it again.", {
+      errorCode: "TRASH_SCOPE_CONFLICT",
+      statusCode: 409,
+    });
+  }
+  if (
+    survivors.some(
+      (child) =>
+        child.ownerEmail !== ownerEmail ||
+        child.spaceId !== finalScope.root.spaceId ||
+        child.orgId !== finalScope.root.orgId,
+    )
+  ) {
+    fail("A surviving child crosses an ownership or space boundary.", {
+      errorCode: "TRASH_SCOPE_CONFLICT",
+      statusCode: 409,
+    });
+  }
+  if (survivors.length > 0) {
+    const survivorIds = survivors.map((child) => child.id);
+    await assertDocumentMutationAccess(db, survivorIds, "editor");
+    await assertNotWorkspaceCatalogDocuments(db, survivorIds, "moved");
+    const survivorDatabases = await db
+      .select({
+        ownerDocumentId: schema.contentDatabases.ownerDocumentId,
+        ownerBlockId: schema.contentDatabases.ownerBlockId,
+      })
+      .from(schema.contentDatabases)
+      .where(inArray(schema.contentDatabases.documentId, survivorIds));
+    if (
+      survivors.some((child) => child.sourceMode === "local-files") ||
+      survivorDatabases.some(
+        (database) =>
+          database.ownerDocumentId !== null || database.ownerBlockId !== null,
+      )
+    ) {
+      fail(
+        "A source-backed or inline database child must be relocated before permanent deletion.",
+        {
+          errorCode: "TRASH_SURVIVOR_DESTINATION_CONFLICT",
+          statusCode: 409,
+        },
+      );
+    }
+    await db
+      .update(schema.documents)
+      .set({ parentId: null, updatedAt: new Date().toISOString() })
+      .where(inArray(schema.documents.id, survivorIds));
+  }
 
   return deleteCollectedDocuments(
     db,
@@ -927,9 +1076,50 @@ export async function deleteTrashedDocumentSubtree(
   );
 }
 
+export async function accessibleAffectedDatabaseIds(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+) {
+  if (documentIds.length === 0) return [];
+  const candidates = new Set<string>();
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    for (const membership of await selectMembershipsForDocuments(db, batch))
+      candidates.add(membership.databaseId);
+    for (const database of await db
+      .select({ id: schema.contentDatabases.id })
+      .from(schema.contentDatabases)
+      .where(inArray(schema.contentDatabases.documentId, batch)))
+      candidates.add(database.id);
+  }
+  const visibleIds: string[] = [];
+  for (const batch of chunks([...candidates], DELETE_BATCH_SIZE)) {
+    const rows = await db
+      .select({ id: schema.contentDatabases.id })
+      .from(schema.contentDatabases)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabases.documentId),
+      )
+      .where(
+        and(
+          inArray(schema.contentDatabases.id, batch),
+          accessFilter(
+            schema.documents,
+            schema.documentShares,
+            undefined,
+            "viewer",
+            { includePublic: true },
+          ),
+        ),
+      );
+    visibleIds.push(...rows.map((row) => row.id));
+  }
+  return visibleIds;
+}
+
 export default defineAction({
   description:
-    "Move a document and all its children to Trash. Use permanently-delete-document to destroy an item already in Trash.",
+    "Move a canonical page and its true child pages to Trash everywhere, preserving database memberships and references. Unpin with update-document isFavorite:false; remove memberships with remove-database-items. Use trash-documents for selected pages and permanently-delete-document only for irreversible removal from Trash.",
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
     databaseDocumentId: z
@@ -937,7 +1127,7 @@ export default defineAction({
       .optional()
       .describe("Database page the deletion was initiated from"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
@@ -953,34 +1143,10 @@ export default defineAction({
           ),
         );
       if (contextDatabase) {
-        await assertAccess("document", contextDatabase.documentId, "editor");
-        const [membership] = await db
-          .select({ id: schema.contentDatabaseItems.id })
-          .from(schema.contentDatabaseItems)
-          .where(
-            and(
-              eq(schema.contentDatabaseItems.databaseId, contextDatabase.id),
-              eq(schema.contentDatabaseItems.documentId, id),
-            ),
-          );
-        if (!membership) {
-          throw new Error("Document is not part of Favorites");
-        }
-        await db.transaction(async (tx) => {
-          await lockContentDatabaseMutation(
-            tx as unknown as ReturnType<typeof getDb>,
-            contextDatabase.id,
-          );
-          await touchContentDatabase(
-            tx as unknown as ReturnType<typeof getDb>,
-            contextDatabase.id,
-          );
-          await tx
-            .delete(schema.contentDatabaseItems)
-            .where(eq(schema.contentDatabaseItems.id, membership.id));
-        });
-        await writeAppState("refresh-signal", { ts: Date.now() });
-        return { success: true, deleted: 0, removed: 1 };
+        throw new ActionContractError(
+          "Use update-document with isFavorite:false to unpin, or omit databaseDocumentId to move the page to Trash.",
+          { errorCode: "DOCUMENT_DELETE_INTENT_REQUIRED" },
+        );
       }
     }
 
@@ -993,24 +1159,30 @@ export default defineAction({
     if (systemDatabase?.systemRole) {
       throw new Error("System Content database documents cannot be deleted");
     }
-    const deleted = await db.transaction(async (tx) => {
+    return db.transaction(async (tx) => {
       const transactionDb = tx as unknown as ReturnType<typeof getDb>;
       const lockedDatabaseIds = await lockDatabasesForTrash(
         transactionDb,
         id,
         existing.ownerEmail as string,
       );
-      return trashDocumentSubtree(
+      const deleted = await trashDocumentSubtree(
         transactionDb,
         id,
         existing.ownerEmail as string,
         undefined,
         lockedDatabaseIds,
+        ctx?.caller,
       );
+      return {
+        success: true,
+        deleted: deleted.length,
+        affectedDocumentIds: deleted,
+        affectedDatabaseIds: await accessibleAffectedDatabaseIds(
+          transactionDb,
+          deleted,
+        ),
+      };
     });
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    return { success: true, deleted: deleted.length };
   },
 });

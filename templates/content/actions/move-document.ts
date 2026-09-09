@@ -1,7 +1,8 @@
+import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess, type Visibility } from "@agent-native/core/sharing";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -9,6 +10,9 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import { lockLiveDocuments } from "./_document-lifecycle.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -157,6 +161,7 @@ async function resolveSiblingPositionsAfterMove({
       parentId
         ? and(
             eq(schema.documents.ownerEmail, ownerEmail),
+            isNull(schema.documents.trashedAt),
             eq(schema.documents.parentId, parentId),
           )
         : and(
@@ -267,6 +272,105 @@ export default defineAction({
 
     const runMoveTransaction = () =>
       db.transaction(async (tx) => {
+        const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+        if (blockDatabaseIdToDetach) {
+          await lockContentDatabaseMutation(
+            transactionDb,
+            blockDatabaseIdToDetach,
+          );
+        }
+        const [detachedDatabase] = blockDatabaseIdToDetach
+          ? await tx
+              .select({
+                ownerDocumentId: schema.contentDatabases.ownerDocumentId,
+              })
+              .from(schema.contentDatabases)
+              .where(eq(schema.contentDatabases.id, blockDatabaseIdToDetach))
+          : [];
+        const ownerDocumentId = detachedDatabase?.ownerDocumentId;
+        const lockedDocuments = await lockLiveDocuments(transactionDb, [
+          id,
+          ...(ownerDocumentId ? [ownerDocumentId] : []),
+          ...(targetParentId ? [targetParentId] : []),
+          ...(normalizedSiblingPositions?.map((document) => document.id) ?? []),
+        ]);
+        await assertDocumentMutationAccess(
+          transactionDb,
+          [
+            id,
+            ...(targetParentId ? [targetParentId] : []),
+            ...(ownerDocumentId ? [ownerDocumentId] : []),
+          ],
+          "editor",
+        );
+        const current = lockedDocuments.find((document) => document.id === id)!;
+        if (
+          current.ownerEmail !== ownerEmail ||
+          current.spaceId !== existing.spaceId ||
+          current.parentId !== existing.parentId ||
+          !sameRootSection(current, existing)
+        ) {
+          throw new Error("Document changed; retry moving it.");
+        }
+        if (targetParentId) {
+          const parent = lockedDocuments.find(
+            (document) => document.id === targetParentId,
+          )!;
+          if (
+            parent.ownerEmail !== ownerEmail ||
+            parent.spaceId !== current.spaceId ||
+            !sameRootSection(parent, current)
+          ) {
+            throw new Error("Parent document changed; retry moving it.");
+          }
+          await assertParentIsNotDescendant({
+            db: transactionDb,
+            ownerEmail,
+            id,
+            parentId: targetParentId,
+          });
+        }
+        if (args.position !== undefined) {
+          const currentSiblingPositions =
+            await resolveSiblingPositionsAfterMove({
+              db: transactionDb,
+              ownerEmail,
+              id,
+              parentId: targetParentId,
+              rootSection: current,
+              position: args.position,
+            });
+          const lockedIds = new Set(
+            lockedDocuments.map((document) => document.id),
+          );
+          if (
+            currentSiblingPositions.some(
+              (document) => !lockedIds.has(document.id),
+            )
+          ) {
+            throw new ActionContractError(
+              "The page hierarchy changed. Retry moving it.",
+              { errorCode: "DOCUMENT_HIERARCHY_CHANGED", statusCode: 409 },
+            );
+          }
+          normalizedSiblingPositions = currentSiblingPositions;
+          updates.position = currentSiblingPositions.find(
+            (document) => document.id === id,
+          )!.position;
+        } else if (args.parentId !== undefined) {
+          const [maxPos] = await tx
+            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+            .from(schema.documents)
+            .where(
+              and(
+                eq(schema.documents.ownerEmail, ownerEmail),
+                targetParentId
+                  ? eq(schema.documents.parentId, targetParentId)
+                  : and(rootSectionFilter(current), sql`parent_id IS NULL`),
+              ),
+            );
+          updates.position = nextAppendPosition(maxPos?.max);
+        }
         await tx
           .update(schema.documents)
           .set(updates)
@@ -339,22 +443,6 @@ export default defineAction({
       await withPositionLock(
         documentsPositionScope(ownerEmail, parentId),
         async () => {
-          const maxPos = await db
-            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-            .from(schema.documents)
-            .where(
-              parentId
-                ? and(
-                    eq(schema.documents.ownerEmail, ownerEmail),
-                    eq(schema.documents.parentId, parentId),
-                  )
-                : and(
-                    eq(schema.documents.ownerEmail, ownerEmail),
-                    rootSectionFilter(existing),
-                    sql`parent_id IS NULL`,
-                  ),
-            );
-          updates.position = nextAppendPosition(maxPos[0]?.max);
           await runMoveTransaction();
         },
       );

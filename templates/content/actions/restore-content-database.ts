@@ -1,6 +1,6 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -9,8 +9,87 @@ import {
   assertContentDatabaseLifecycleAccess,
   collectInlineDatabaseOwnerBlockIds,
 } from "./_content-database-lifecycle.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import { lockDocumentsForLifecycle } from "./_document-lifecycle.js";
 import { restoreDocumentSubtree } from "./delete-document.js";
 import pullDocumentAction from "./pull-document.js";
+
+export async function restoreLegacyContentDatabase(
+  databaseId: string,
+  expectedDocumentId: string,
+) {
+  const initial = await assertContentDatabaseLifecycleAccess(databaseId);
+  function changed(): never {
+    return fail("Trash item changed; refresh and review it again", {
+      errorCode: "trash_scope_changed",
+      statusCode: 409,
+    });
+  }
+  if (initial.database.documentId !== expectedDocumentId) changed();
+  return getDb().transaction(async (transaction) => {
+    const tx = transaction as unknown as ReturnType<typeof getDb>;
+    await lockContentDatabaseMutation(tx, databaseId);
+    const [database] = await tx
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId))
+      .limit(1);
+    if (!database || !database.deletedAt) changed();
+    for (const key of [
+      "documentId",
+      "ownerEmail",
+      "ownerDocumentId",
+      "ownerBlockId",
+      "spaceId",
+      "orgId",
+    ] as const) {
+      if (database[key] !== initial.database[key]) changed();
+    }
+    const locked = await lockDocumentsForLifecycle(tx, [
+      database.documentId,
+      ...(database.ownerDocumentId ? [database.ownerDocumentId] : []),
+    ]);
+    const backing = locked.find(
+      (document) => document.id === expectedDocumentId,
+    );
+    if (
+      !backing ||
+      backing.trashedAt ||
+      backing.trashRootId ||
+      backing.ownerEmail !== initial.backingDocument.ownerEmail ||
+      backing.parentId !== initial.backingDocument.parentId
+    )
+      changed();
+    await assertAccess("document", expectedDocumentId, "viewer");
+    if (
+      database.ownerDocumentId &&
+      backing.parentId === database.ownerDocumentId
+    ) {
+      await assertAccess("document", database.ownerDocumentId, "editor");
+    } else {
+      await assertAccess("document", expectedDocumentId, "admin");
+    }
+    const restored = await tx
+      .update(schema.contentDatabases)
+      .set({ deletedAt: null, updatedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(schema.contentDatabases.id, databaseId),
+          isNotNull(schema.contentDatabases.deletedAt),
+        ),
+      )
+      .returning({ id: schema.contentDatabases.id });
+    if (restored.length !== 1) changed();
+    return {
+      success: true,
+      databaseId,
+      documentId: expectedDocumentId,
+      deletedAt: null,
+      affectedDocumentIds: [expectedDocumentId],
+      affectedDatabaseIds: [databaseId],
+    };
+  });
+}
 
 async function shouldClearStaleInlineOwnership(args: {
   ownerDocumentId: string | null;
@@ -38,8 +117,16 @@ export default defineAction({
   description: "Restore a soft-deleted content database.",
   schema: z.object({
     databaseId: z.string().describe("Content database ID"),
+    expectedLegacyDocumentId: z
+      .string()
+      .optional()
+      .describe(
+        "Exact backing Page ID from legacyRestoreDatabaseId Trash metadata; restore only a legacy database whose Page has no trash markers.",
+      ),
   }),
-  run: async ({ databaseId }) => {
+  run: async ({ databaseId, expectedLegacyDocumentId }) => {
+    if (expectedLegacyDocumentId)
+      return restoreLegacyContentDatabase(databaseId, expectedLegacyDocumentId);
     const ownership = await assertContentDatabaseLifecycleAccess(databaseId);
     const db = getDb();
     const now = new Date().toISOString();

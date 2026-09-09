@@ -3,6 +3,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
+import { documentTrashedError } from "./_document-lifecycle.js";
 import {
   listPropertiesForDocument,
   resolvePropertyDatabaseForDocument,
@@ -26,6 +27,7 @@ export default defineAction({
   run: async ({ documentId, databaseId }) => {
     const access = await resolveAccess("document", documentId);
     if (!access) throw new Error(`Document "${documentId}" not found`);
+    if (access.resource.trashedAt) throw documentTrashedError();
     if (await isSoftDeletedDatabaseDocument(documentId)) {
       throw new Error(`Document "${documentId}" not found`);
     }
