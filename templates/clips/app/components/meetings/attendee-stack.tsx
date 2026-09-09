@@ -63,7 +63,7 @@ export function AttendeeStack({
                 alt={p.name || p.email}
                 fallback={attendeeInitials(p)}
                 fallbackClassName="font-medium"
-                className={`${sizeClass} ring-2 ring-background cursor-default`}
+                className={`${sizeClass} ring-1 ring-background cursor-default`}
               />
             </TooltipTrigger>
             <TooltipContent side="top" className="text-xs">
@@ -78,7 +78,7 @@ export function AttendeeStack({
         ))}
         {extra > 0 && (
           <span
-            className={`relative z-10 inline-flex items-center justify-center rounded-full bg-muted text-muted-foreground ring-2 ring-background font-medium tabular-nums ${sizeClass}`}
+            className={`relative z-10 inline-flex items-center justify-center rounded-full bg-muted text-muted-foreground ring-1 ring-background font-medium tabular-nums ${sizeClass}`}
           >
             +{extra}
           </span>

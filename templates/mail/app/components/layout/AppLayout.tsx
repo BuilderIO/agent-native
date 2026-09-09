@@ -1758,7 +1758,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {/* Account avatars — overlapping stack */}
           {googleStatus.isLoading && (
             <div className="flex items-center ms-1">
-              <Skeleton className="h-7 w-7 rounded-full ring-2 ring-card" />
+              <Skeleton className="h-7 w-7 rounded-full ring-1 ring-card" />
             </div>
           )}
           {googleStatusReady && hasAccounts && (
@@ -1784,7 +1784,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                             <div
                               key={account.email}
                               className={cn(
-                                "relative rounded-full ring-2 ring-card transition-opacity",
+                                "relative rounded-full ring-1 ring-card transition-opacity",
                                 !isActive && "opacity-30",
                               )}
                               style={{

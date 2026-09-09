@@ -144,7 +144,7 @@ export function RecordingViewsBadge({
                 <ViewerAvatar
                   key={viewer.id}
                   viewer={viewer}
-                  className="size-5 ring-2 ring-background"
+                  className="size-5 ring-1 ring-background"
                 />
               ))}
             </span>
