@@ -1,4 +1,3 @@
-import { defineAppRoles } from "@agent-native/core/org";
 import {
   registerPackageActions,
   type NitroPluginDef,
@@ -6,9 +5,8 @@ import {
 
 import { dispatchActions } from "../actions/index.js";
 import type { DispatchConfig } from "../config.js";
-import { dispatchAccessDescriptor } from "../shared/app-roles.js";
 
-defineAppRoles(dispatchAccessDescriptor);
+export { dispatchAccess } from "./lib/app-roles.js";
 
 /**
  * Register dispatch's package-contributed actions on import. The framework's
