@@ -2498,6 +2498,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     label: "context-xray",
     hint: BUILT_IN_APP_SKILLS["context-xray"].manifest.description,
   },
+  {
+    value: "turn-into-app",
+    label: "turn-into-app",
+    hint: BUILT_IN_APP_SKILLS["turn-into-app"].manifest.description,
+  },
 ];
 
 const DEFAULT_SKILL_PROMPT_TARGETS = [
