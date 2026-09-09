@@ -1091,7 +1091,7 @@ export const runContentMigrations = runMigrations(
       version: 89,
       name: "share-tables-notified-at",
       sql: `
-        ALTER TABLE document_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+        ALTER TABLE IF EXISTS document_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
   ],

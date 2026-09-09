@@ -488,10 +488,10 @@ export const runBrainMigrations = runMigrations(
       version: 26,
       name: "share-tables-notified-at",
       sql: `
-        ALTER TABLE brain_knowledge_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
-        ALTER TABLE brain_project_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
-        ALTER TABLE brain_proposal_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
-        ALTER TABLE brain_source_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+        ALTER TABLE IF EXISTS brain_knowledge_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS brain_project_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS brain_proposal_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS brain_source_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
   ],

@@ -85,7 +85,7 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
     version: 4,
     name: "chat-thread-shares-notified-at",
     sql: `
-      ALTER TABLE chat_thread_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      ALTER TABLE IF EXISTS chat_thread_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
     `,
   },
 ];

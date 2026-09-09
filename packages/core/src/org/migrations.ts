@@ -234,6 +234,6 @@ export const ORG_MIGRATIONS = [
   {
     version: 1023,
     name: "workspace-app-shares-notified-at",
-    sql: `ALTER TABLE workspace_app_shares ADD COLUMN IF NOT EXISTS notified_at TEXT`,
+    sql: `ALTER TABLE IF EXISTS workspace_app_shares ADD COLUMN IF NOT EXISTS notified_at TEXT`,
   },
 ];

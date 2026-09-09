@@ -335,8 +335,8 @@ WHERE change_group IS NOT NULL`,
       version: 28,
       name: "share-tables-notified-at",
       sql: `
-        ALTER TABLE deck_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
-        ALTER TABLE design_system_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+        ALTER TABLE IF EXISTS deck_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS design_system_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
   ],

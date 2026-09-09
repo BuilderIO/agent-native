@@ -399,9 +399,9 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
       version: 26,
       name: "share-tables-notified-at",
       sql: `
-        ALTER TABLE design_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
-        ALTER TABLE design_system_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
-        ALTER TABLE design_template_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+        ALTER TABLE IF EXISTS design_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS design_system_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS design_template_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
   ],

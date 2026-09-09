@@ -382,7 +382,7 @@ ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS preview_text TEXT`,
       version: 39,
       name: "share-tables-notified-at",
       sql: `
-        ALTER TABLE plan_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+        ALTER TABLE IF EXISTS plan_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
   ],

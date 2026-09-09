@@ -1222,11 +1222,11 @@ export const migrations = runMigrations(
       version: 71,
       name: "share-tables-notified-at",
       sql: `
-        ALTER TABLE recording_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
-        ALTER TABLE clips_meeting_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
-        ALTER TABLE clips_dictation_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
-        ALTER TABLE clips_vocabulary_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
-        ALTER TABLE calendar_account_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+        ALTER TABLE IF EXISTS recording_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS clips_meeting_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS clips_dictation_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS clips_vocabulary_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS calendar_account_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
   ],

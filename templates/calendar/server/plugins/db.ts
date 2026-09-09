@@ -214,7 +214,7 @@ CREATE INDEX IF NOT EXISTS idx_bookings_slug_start ON bookings (slug, "start");`
       version: 23,
       name: "share-tables-notified-at",
       sql: `
-        ALTER TABLE booking_link_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+        ALTER TABLE IF EXISTS booking_link_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
   ],
