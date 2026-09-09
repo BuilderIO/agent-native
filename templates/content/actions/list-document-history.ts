@@ -108,7 +108,13 @@ export default defineAction({
         latestCheckpointId: sql<string>`(select checkpoint.id from document_versions checkpoint
           where checkpoint.owner_email = ${ownerEmail}
             and checkpoint.document_id = ${args.documentId}
-            and coalesce(checkpoint.group_id, checkpoint.id) = ${page.id}
+            and (
+              checkpoint.group_id = history_page.group_id
+              or (
+                checkpoint.group_id is null
+                and checkpoint.id = history_page.group_id
+              )
+            )
           order by checkpoint.created_at desc,
             case when checkpoint.checkpoint_kind = 'after' then 0 else 1 end, checkpoint.id desc
           limit 1)`,

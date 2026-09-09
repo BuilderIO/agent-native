@@ -287,6 +287,56 @@ describe("grouped document history", () => {
     ]);
   });
 
+  it("selects the latest grouped checkpoint while preserving legacy rows", async () => {
+    const createdAt = new Date().toISOString();
+    await getDb()
+      .insert(schema.documentVersions)
+      .values([
+        {
+          id: "legacy-checkpoint",
+          ownerEmail: OWNER,
+          documentId: DOCUMENT_ID,
+          title: "Legacy",
+          content: "legacy",
+          createdAt,
+        },
+        {
+          id: "grouped-before",
+          ownerEmail: OWNER,
+          documentId: DOCUMENT_ID,
+          groupId: "grouped-history",
+          groupKind: "operation",
+          title: "Before",
+          content: "before",
+          checkpointKind: "before",
+          createdAt,
+        },
+        {
+          id: "grouped-after",
+          ownerEmail: OWNER,
+          documentId: DOCUMENT_ID,
+          groupId: "grouped-history",
+          groupKind: "operation",
+          title: "After",
+          content: "after",
+          checkpointKind: "after",
+          createdAt,
+        },
+      ]);
+
+    const history = await asOwner(() =>
+      listDocumentHistory.run({ documentId: DOCUMENT_ID, limit: 10 }),
+    );
+    const byId = new Map(history.groups.map((group) => [group.id, group]));
+
+    expect(byId.get("grouped-history")?.latestCheckpointId).toBe(
+      "grouped-after",
+    );
+    expect(byId.get("legacy-checkpoint")?.latestCheckpointId).toBe(
+      "legacy-checkpoint",
+    );
+  });
+
   it("advances updatedAt across same-millisecond saves so stale restore guards stay distinct", async () => {
     const fixedMs = Date.parse("2026-01-02T03:04:05.000Z");
     const fixedUpdatedAt = new Date(fixedMs).toISOString();
