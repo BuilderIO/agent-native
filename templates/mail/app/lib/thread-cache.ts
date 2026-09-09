@@ -48,6 +48,13 @@ function getVersion(threadId: string): number {
   return versions.get(threadId) ?? 0;
 }
 
+function clearOwnedInflight(
+  threadId: string,
+  request: Promise<EmailMessage[]>,
+) {
+  if (inflight.get(threadId) === request) inflight.delete(threadId);
+}
+
 function notify(threadId: string) {
   const set = subscribers.get(threadId);
   if (!set) return;
@@ -240,17 +247,17 @@ export function ensureThread(
       // If invalidateCachedThread ran while we were in flight, the version
       // bumped — discard the stale response rather than repopulating.
       if (getVersion(threadId) !== startedVersion) {
-        inflight.delete(threadId);
+        clearOwnedInflight(threadId, p);
         return messages;
       }
       cache.set(threadId, { messages, fetchedAt: Date.now() });
-      inflight.delete(threadId);
+      clearOwnedInflight(threadId, p);
       notify(threadId);
       scheduleFlush();
       return messages;
     })
     .catch((err) => {
-      inflight.delete(threadId);
+      clearOwnedInflight(threadId, p);
       throw err;
     });
   inflight.set(threadId, p);
@@ -265,12 +272,12 @@ function backgroundRefresh(threadId: string, accountEmail?: string) {
   const p = fetchThread(threadId, accountEmail)
     .then((messages) => {
       if (getVersion(threadId) !== startedVersion) {
-        inflight.delete(threadId);
+        clearOwnedInflight(threadId, p);
         return messages;
       }
       const prev = cache.get(threadId);
       cache.set(threadId, { messages, fetchedAt: Date.now() });
-      inflight.delete(threadId);
+      clearOwnedInflight(threadId, p);
       scheduleFlush();
       const prevJson = prev ? JSON.stringify(prev.messages) : "";
       const nextJson = JSON.stringify(messages);
@@ -278,7 +285,7 @@ function backgroundRefresh(threadId: string, accountEmail?: string) {
       return messages;
     })
     .catch(() => {
-      inflight.delete(threadId);
+      clearOwnedInflight(threadId, p);
       return [];
     });
   inflight.set(threadId, p);

@@ -746,14 +746,16 @@ export function useMarkRead() {
           emails.map((e) => (e.id === id ? { ...e, isRead } : e)),
         ),
       );
-      if (resolvedThreadId && previousThread) {
+      if (resolvedThreadId) {
         supersedeCachedThreadFetch(resolvedThreadId);
-        setCachedThread(
-          resolvedThreadId,
-          previousThread.map((message) =>
-            message.id === id ? { ...message, isRead } : message,
-          ),
-        );
+        if (previousThread) {
+          setCachedThread(
+            resolvedThreadId,
+            previousThread.map((message) =>
+              message.id === id ? { ...message, isRead } : message,
+            ),
+          );
+        }
       }
       return { previous, previousReadState, threadId: resolvedThreadId };
     },

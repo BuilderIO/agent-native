@@ -384,13 +384,22 @@ export function EmailThread({
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
   const keepUnreadThreadRef = useRef<string | undefined>(undefined);
+  const autoReadTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   useEffect(() => {
     keepUnreadThreadRef.current = undefined;
   }, [threadId]);
   const setCurrentEmailReadState = useCallback(
     (isRead: boolean) => {
       if (!email) return;
-      if (!isRead) keepUnreadThreadRef.current = threadId;
+      if (!isRead) {
+        keepUnreadThreadRef.current = threadId;
+        if (autoReadTimerRef.current !== undefined) {
+          clearTimeout(autoReadTimerRef.current);
+          autoReadTimerRef.current = undefined;
+        }
+      }
       markRead.mutate({
         id: email.id,
         isRead,
@@ -408,8 +417,17 @@ export function EmailThread({
   useEffect(() => {
     if (threadId && hasUnread && keepUnreadThreadRef.current !== threadId) {
       const id = threadId;
-      const handle = setTimeout(() => markThreadRead.mutate(id), 0);
-      return () => clearTimeout(handle);
+      const handle = setTimeout(() => {
+        autoReadTimerRef.current = undefined;
+        markThreadRead.mutate(id);
+      }, 0);
+      autoReadTimerRef.current = handle;
+      return () => {
+        clearTimeout(handle);
+        if (autoReadTimerRef.current === handle) {
+          autoReadTimerRef.current = undefined;
+        }
+      };
     }
     // Only trigger when threadId changes or messages load with unread
     // eslint-disable-next-line react-hooks/exhaustive-deps

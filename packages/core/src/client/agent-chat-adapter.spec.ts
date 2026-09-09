@@ -74,7 +74,7 @@ describe("approval history", () => {
   });
 
   it("prices preserved approval arguments at their serialized size", async () => {
-    const pendingBody = "p".repeat(50_000);
+    const pendingBody = "p".repeat(70_000);
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -128,6 +128,10 @@ describe("approval history", () => {
       toolName: "send-email",
       args: { body: pendingBody },
     });
+    const toolResults = request.structuredHistory.flatMap((message: any) =>
+      message.content.filter((part: any) => part.type === "tool-result"),
+    );
+    expect(toolResults[0].toolInput).toBeUndefined();
   });
 });
 

@@ -34,6 +34,13 @@ function emailsHookSource(): string {
   return readFileSync(new URL("./use-emails.ts", import.meta.url), "utf8");
 }
 
+function threadCacheSource(): string {
+  return readFileSync(
+    new URL("../lib/thread-cache.ts", import.meta.url),
+    "utf8",
+  );
+}
+
 describe("filterSuppressedThreads", () => {
   afterEach(() => {
     unsuppressThread("thread-archived");
@@ -159,6 +166,26 @@ describe("useMarkRead", () => {
       "message.id === id ? { ...message, isRead } : message",
     );
     expect(hook).toContain("message.id === id && message.isRead === isRead");
+  });
+
+  it("supersedes cold fetches before checking for cached messages", () => {
+    const source = emailsHookSource();
+    const hook = source.slice(
+      source.indexOf("export function useMarkRead()"),
+      source.indexOf("export function useMarkThreadRead()"),
+    );
+
+    expect(hook).toContain(
+      "if (resolvedThreadId) {\n        supersedeCachedThreadFetch(resolvedThreadId);\n        if (previousThread)",
+    );
+  });
+});
+
+describe("thread fetch ownership", () => {
+  it("only lets the current request clear its in-flight entry", () => {
+    expect(threadCacheSource()).toContain(
+      "if (inflight.get(threadId) === request) inflight.delete(threadId)",
+    );
   });
 });
 

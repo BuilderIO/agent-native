@@ -1007,7 +1007,9 @@ function contentToStructuredMessages(
           type: "tool-result",
           toolCallId,
           toolName: part.toolName,
-          toolInput: JSON.stringify(part.args ?? {}),
+          ...(preserveApprovalInput
+            ? {}
+            : { toolInput: JSON.stringify(part.args ?? {}) }),
           // A settled-interrupted tool has a result whose outcome is UNKNOWN.
           // It is neither a success nor a failure, so it carries the marker the
           // server's write-interruption breaker matches on instead of claiming
@@ -1026,7 +1028,9 @@ function contentToStructuredMessages(
           type: "tool-result",
           toolCallId,
           toolName: part.toolName,
-          toolInput: JSON.stringify(part.args ?? {}),
+          ...(preserveApprovalInput
+            ? {}
+            : { toolInput: JSON.stringify(part.args ?? {}) }),
           content: INTERRUPTED_TOOL_RESULT,
         });
       }
@@ -1190,7 +1194,12 @@ function limitPriorMessagesForRequest<
     const wordCost = messageTextForHistory(message).length;
     if (kept.length > 0 && words + wordCost > MAX_HISTORY_WORD_CHARS) continue;
     const payloadCost = estimateHistoryMessageCost(message) - wordCost;
-    const affordsPayload = payload + payloadCost <= MAX_HISTORY_TOTAL_CHARS;
+    const hasPendingApproval = message.content.some(
+      (part) =>
+        isToolCallContentPart(part) && shouldPreserveApprovalInput(part),
+    );
+    const affordsPayload =
+      hasPendingApproval || payload + payloadCost <= MAX_HISTORY_TOTAL_CHARS;
     const content = affordsPayload
       ? message.content
       : message.content.filter((part) => part.type === "text");
