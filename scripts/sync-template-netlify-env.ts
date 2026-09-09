@@ -124,7 +124,10 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "NITRO_PRESET",
   "SENDGRID_API_KEY",
+  "SENTRY_AUTH_TOKEN",
   "SENTRY_DSN",
+  "SENTRY_ORG",
+  "SENTRY_PROJECT",
   "SENTRY_SERVER_DSN",
   "SUPABASE_URL",
   "SUPABASE_ANON_KEY",
@@ -137,9 +140,15 @@ const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "SENDGRID_API_KEY",
+  "SENTRY_AUTH_TOKEN",
   "SENTRY_DSN",
   "SENTRY_SERVER_DSN",
 ]);
+// Sentry build-time upload credentials are one org/project shared by every
+// hosted site, unlike SENTRY_DSN which can vary per site. Pulling them from
+// the invoking shell (rather than each template's committed .env) means the
+// token is never written to disk in this repo.
+const FLEET_WIDE_ENV_KEYS = ["SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT"];
 const FORBIDDEN_HOSTED_TEMPLATE_ENV_EXACT = new Set([
   "ANTHROPIC_API_KEY",
   "AMPLITUDE_API_KEY",
@@ -209,6 +218,9 @@ Options:
                            GA_MEASUREMENT_ID and GTM_CONTAINER_ID default to the
                            hosted Agent-Native analytics configuration unless an
                            env source overrides them.
+                           SENTRY_AUTH_TOKEN, SENTRY_ORG, and SENTRY_PROJECT are
+                           read from this shell's environment (not any template
+                           .env) since they're the same for every hosted site.
   --help                  Show this help.
 
 Known templates:
@@ -368,6 +380,11 @@ function loadTemplateEnv(template: string, sources: string[]) {
   const values = new Map<string, string>(DEFAULT_HOSTED_TEMPLATE_ENV);
   const foundSources: string[] = [];
   const sourcesByKey = new Map<string, string[]>();
+
+  for (const key of FLEET_WIDE_ENV_KEYS) {
+    const value = process.env[key];
+    if (value) values.set(key, value);
+  }
 
   for (const source of sources) {
     const filePath = path.join(REPO_ROOT, "templates", template, source);
