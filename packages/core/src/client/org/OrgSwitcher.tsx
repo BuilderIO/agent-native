@@ -44,6 +44,7 @@ import { useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
+import { canManageOrg } from "../../org/permissions.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
 import { useT } from "../i18n.js";
 import { signOut } from "../sign-out.js";
@@ -222,6 +223,7 @@ function AppsSubmenu({
   isLoading,
   dispatchHref,
   dispatchAllAppsHref,
+  canAccessDispatch,
   currentAppId,
   onNavigate,
 }: {
@@ -229,16 +231,20 @@ function AppsSubmenu({
   isLoading: boolean;
   dispatchHref: string;
   dispatchAllAppsHref: string;
+  canAccessDispatch: boolean;
   currentAppId?: string;
   onNavigate: () => void;
 }) {
   const appsForMenu = currentAppId
     ? apps.filter((app) => app.id !== currentAppId)
     : apps;
-  const { links, overflowCount } = visibleOrgAppLinks(appsForMenu);
+  const accessibleAppsForMenu = canAccessDispatch
+    ? appsForMenu
+    : appsForMenu.filter((app) => !app.isDispatch);
+  const { links, overflowCount } = visibleOrgAppLinks(accessibleAppsForMenu);
   const visibleDispatchApp = links.find((app) => app.isDispatch);
   const dispatchApp =
-    currentAppId === "dispatch"
+    !canAccessDispatch || currentAppId === "dispatch"
       ? null
       : (visibleDispatchApp ??
         ({
@@ -252,10 +258,9 @@ function AppsSubmenu({
     .filter((app) => !app.isDispatch)
     .slice(0, dispatchApp ? undefined : ORG_SWITCHER_MAX_APP_LINKS);
   const shownCount = (dispatchApp ? 1 : 0) + visibleNonDispatch.length;
-  const remainingCount = Math.max(
-    overflowCount,
-    appsForMenu.length - shownCount,
-  );
+  const remainingCount = canAccessDispatch
+    ? Math.max(overflowCount, accessibleAppsForMenu.length - shownCount)
+    : 0;
 
   return (
     <PopoverPrimitive.Root>
@@ -267,7 +272,7 @@ function AppsSubmenu({
             {isLoading ? (
               <IconLoader2 className="h-3 w-3 animate-spin" />
             ) : (
-              appsForMenu.length
+              accessibleAppsForMenu.length
             )}
           </span>
           <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
@@ -413,6 +418,7 @@ export function OrgSwitcher({
 
   const canInvite =
     !!org.orgId && (org.role === "owner" || org.role === "admin");
+  const canAccessDispatch = !org.orgId || canManageOrg(org.role);
 
   const personalLabel = session?.name || personalLabelFromEmail(org.email);
   const inOrg = !!org.orgId;
@@ -712,6 +718,7 @@ export function OrgSwitcher({
                 isLoading={appLinks.isLoading}
                 dispatchHref={appLinks.dispatchHref}
                 dispatchAllAppsHref={appLinks.dispatchAllAppsHref}
+                canAccessDispatch={canAccessDispatch}
                 currentAppId={currentAppId}
                 onNavigate={() => setOpen(false)}
               />

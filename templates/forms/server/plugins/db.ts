@@ -168,6 +168,13 @@ ALTER TABLE responses ADD COLUMN IF NOT EXISTS promoted_at TEXT;
 ALTER TABLE responses ADD COLUMN IF NOT EXISTS promoted_by TEXT`,
       },
     },
+    {
+      version: 17,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS form_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
   ],
   { table: "forms_migrations" },
 );
