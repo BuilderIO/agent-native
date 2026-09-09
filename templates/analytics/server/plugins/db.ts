@@ -1449,6 +1449,17 @@ export const runAnalyticsMigrations = runMigrations(
       sql: `ALTER TABLE dashboard_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT;
 ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
     },
+    {
+      version: 150,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS analysis_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS dashboard_folder_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS dashboard_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS error_issue_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS session_recording_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
   ],
   { table: "analytics_migrations" },
 );
