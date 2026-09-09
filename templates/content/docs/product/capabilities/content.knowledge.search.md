@@ -68,6 +68,16 @@ private-parent suppression, hidden-result counts and type filters. This is
 bounded lexical search substrate, not proof of indexed retrieval across every
 Source, authoritative author filtering, or policy-governed global search.
 
+Local browser verification of the command picker covered 27 authorized matches
+across two result pages, equal-title parent context, keyboard opening, title/body
+and type/date filters, explicit request failure and retry. Pagination and retry
+return focus to the search input. A reversible composition with the companion
+sidebar controls change verified collapsed Search and the 390px mobile drawer:
+the picker and filters remain visible above the drawer, Escape returns to Search,
+and opening a result closes the drawer. This composed proof depends on that
+companion's entry wiring and shared CommandMenu layer fix; it does not certify
+screen-reader output or broader cross-context retrieval policy.
+
 ## Proof plan
 
 1. Index titles, bodies, rows, and Sources; test lexical queries, snippets, highlights, and pages.
