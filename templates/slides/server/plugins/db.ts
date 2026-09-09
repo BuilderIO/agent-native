@@ -331,6 +331,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS deck_versions_deck_owner_change_group_uidx
 ON deck_versions (deck_id, owner_email, change_group)
 WHERE change_group IS NOT NULL`,
     },
+    {
+      version: 28,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE deck_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE design_system_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
   ],
   { table: "slides_migrations" },
 );

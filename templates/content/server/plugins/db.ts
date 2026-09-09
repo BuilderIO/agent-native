@@ -1081,6 +1081,13 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS document_edit_receipts_owner_document_idx
         ON document_edit_receipts (owner_email, document_id)`,
     },
+    {
+      version: 88,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE document_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
   ],
   { table: "content_migrations" },
 );

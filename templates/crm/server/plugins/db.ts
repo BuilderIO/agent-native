@@ -26,7 +26,8 @@ function sharesTable(name: string): string {
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  notified_at TEXT
 )`;
 }
 
@@ -646,6 +647,32 @@ export const runCrmMigrations = runMigrations(
       version: 8,
       name: "crm-dashboard-revision-chat-context",
       sql: addColumn("crm_dashboard_revisions", "chat_context TEXT"),
+    },
+    {
+      version: 9,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE crm_attribute_option_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_call_evidence_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_connection_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_dashboard_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_enrichment_run_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_field_policy_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_interaction_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_list_entry_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_list_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_mutation_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_object_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_record_field_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_record_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_relationship_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_saved_view_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_signal_run_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_signal_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_signal_tracker_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_sync_run_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE crm_task_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
     },
   ],
   { table: "crm_migrations" },
