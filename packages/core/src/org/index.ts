@@ -44,7 +44,11 @@ export { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 export type { AutoJoinDomainResult } from "./auto-join-domain.js";
 export { setActiveOrgId } from "./active-org.js";
 export { invalidateMemberOrgCaches } from "./request-org-cache.js";
-export { isWorkspaceAppAccessAllowed } from "./workspace-app-access.js";
+export { isMissingOrganizationTableError } from "./membership.js";
+export {
+  isStandaloneDispatchRuntime,
+  isWorkspaceAppAccessAllowed,
+} from "./workspace-app-access.js";
 
 export {
   defineAppRoles,

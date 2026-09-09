@@ -1450,7 +1450,7 @@ async function filterWorkspaceAppsByAccess(
     }
     if (app.isDispatch) {
       if (
-        await isWorkspaceAppAccessAllowed(app.id, {
+        await isWorkspaceAppAccessAllowed("dispatch", {
           email: userEmail,
           orgId,
         })

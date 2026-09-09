@@ -2293,19 +2293,9 @@ describe("server/auth", () => {
       expect(actionResult).toEqual({ error: "Unauthorized" });
     });
 
-    it("protects standalone Dispatch APIs for organization members", async () => {
+    it("allows standalone Dispatch APIs for organization members", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
-      vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({
-          execute: vi.fn(async (statement: unknown) => {
-            const sql = String((statement as { sql?: unknown })?.sql ?? "");
-            return sql.includes("FROM org_members")
-              ? { rows: [{ role: "member" }] }
-              : { rows: [] };
-          }),
-        }),
-      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -2323,10 +2313,8 @@ describe("server/auth", () => {
         path: "/_agent-native/actions/list",
       });
 
-      await expect(guard(event)).resolves.toEqual({
-        error: "You do not have access to this workspace app.",
-      });
-      expect(event.res.status).toBe(403);
+      await expect(guard(event)).resolves.toBeUndefined();
+      expect(event.res.status).not.toBe(403);
     });
 
     it("does not apply Dispatch access to a renamed Dispatch scaffold", async () => {

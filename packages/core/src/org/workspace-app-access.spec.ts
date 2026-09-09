@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
+
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   includeUser: vi.fn(),
+  validateFederatedOrganizationMembershipForCurrentRequest: vi.fn(),
 }));
 
 vi.mock("../db/client.js", () => ({
@@ -14,14 +17,21 @@ vi.mock("../workspace-connections/groups.js", () => ({
     mocks.includeUser(...args),
 }));
 
+vi.mock("./federation.js", () => ({
+  validateFederatedOrganizationMembershipForCurrentRequest:
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest,
+}));
+
 import { isWorkspaceAppAccessAllowed } from "./workspace-app-access.js";
 
 describe("isWorkspaceAppAccessAllowed", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    resetAppConfigForTests();
     vi.unstubAllGlobals();
     mocks.execute.mockReset();
     mocks.includeUser.mockReset();
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockReset();
   });
 
   it("allows the recorded owner in the app organization", async () => {
@@ -43,22 +53,69 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(true);
   });
 
-  it.each(["owner", "admin"] as const)(
-    "allows organization %s members to access Dispatch",
-    async (role) => {
-      mocks.execute.mockResolvedValueOnce({ rows: [{ role }] });
-
-      await expect(
-        isWorkspaceAppAccessAllowed("dispatch", {
-          email: `${role}@example.com`,
-          orgId: "org-1",
-        }),
-      ).resolves.toBe(true);
-    },
-  );
-
-  it("denies organization members access to Dispatch", async () => {
+  it("allows active organization members to access Dispatch", async () => {
     mocks.execute.mockResolvedValueOnce({ rows: [{ role: "member" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("dispatch", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("denies Dispatch access when a linked member was removed upstream", async () => {
+    mocks.execute.mockResolvedValueOnce({
+      rows: [
+        {
+          role: "admin",
+          identityAuthority: "https://identity.example.test",
+          identityId: "org-1",
+        },
+      ],
+    });
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
+      { active: false, role: null },
+    );
+
+    await expect(
+      isWorkspaceAppAccessAllowed("dispatch", {
+        email: "admin@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(
+      mocks.validateFederatedOrganizationMembershipForCurrentRequest,
+    ).toHaveBeenCalledWith({
+      orgId: "org-1",
+      email: "admin@example.com",
+    });
+  });
+
+  it("keeps standalone Dispatch available when its org schema is absent", async () => {
+    vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
+    resetAppConfigForTests();
+    mocks.execute
+      .mockRejectedValueOnce(new Error('relation "org_members" does not exist'))
+      .mockRejectedValueOnce(
+        new Error('relation "org_members" does not exist'),
+      );
+
+    await expect(
+      isWorkspaceAppAccessAllowed("dispatch", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("fails closed for hosted Dispatch when its org schema is absent", async () => {
+    vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    resetAppConfigForTests();
+    mocks.execute.mockRejectedValueOnce(
+      new Error('relation "org_members" does not exist'),
+    );
 
     await expect(
       isWorkspaceAppAccessAllowed("dispatch", {

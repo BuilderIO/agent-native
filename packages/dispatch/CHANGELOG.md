@@ -1,5 +1,35 @@
 # @agent-native/dispatch
 
+## 0.36.0
+
+### Minor Changes
+
+- 774e549: Add scoped DAU and WAU trends and tabbed Dispatch metrics navigation.
+- 46391ca: Store the rendered HTML/text body of every transactional email send alongside the existing send-log record, and show it in the Dispatch send log detail dialog so an org admin can see exactly what was sent, not just the redacted provider request. Magic links, password-reset/verification links, JWT-shaped tokens, and OTP/verification codes are redacted from the body before it is persisted, since `email_log` is org-admin readable. The list query never returns bodies (fetched lazily per row via a new `get-email-log-body` action once a row is opened), and the sandboxed HTML preview now carries a restrictive CSP so a body can't load remote tracking images/styles.
+
+### Patch Changes
+
+- b6bd189: Suppress telemetry for `+autoz` QA identities across the shared tracking paths.
+- 840cb6c: Add recipient, sender, and template inclusion and exclusion filters to the transactional email send log action and Dispatch controls.
+- 554c771: Keep share dialogs readable while additive migrations are pending, and let
+  ordinary iframe pages load cross-origin subresources. Improve new-project setup
+  and Slack identity recovery guidance. Keep Cloudflare Workers builds below the
+  static-header rule limit, allow local Ollama endpoints on local non-production
+  servers, surface provider-setting errors, keep one PGlite client across dev
+  reload realms, permit the optional terminal build in fresh scaffolds, and
+  clarify standalone deployment.
+- 4822dad: Preserve Vite assets for colliding workspace app ids and reconcile deployed app registry records.
+- Release all public npm packages with a patch version bump.
+- 934301f: Give Dispatch app cards a subtle surface and remove hover feedback from their non-clickable containers.
+- 4822dad: Restore Dispatch access for all authenticated organization members.
+- e89b114: Keep Google and email authentication as the only visible sign-in choices while optionally bootstrapping a Dispatch session and local cross-app session after sign-in. The handoff uses a short-lived, one-time server-side handle and preserves existing local accounts and cookies.
+- 6b397ca: Create and persist a Builder project from the starter template when no project ID is configured.
+- Updated dependencies [e8b291e]
+- Updated dependencies [4915b82]
+- Updated dependencies
+- Updated dependencies [3bde94f]
+  - @agent-native/toolkit@0.19.6
+
 ## 0.35.0
 
 ### Minor Changes
@@ -887,17 +917,5 @@
 ### Minor Changes
 
 - 8f10ada: Move Dispatch management and operator tools into a dedicated Admin control plane.
-
-## 0.18.0
-
-### Minor Changes
-
-- d3f8794: Add a compact workspace app rail to Dispatch navigation for ready workspace apps.
-
-### Patch Changes
-
-- d3f8794: Restrict shared Vault values and mutations to workspace owners and admins while keeping safe key requests available to members.
-- Updated dependencies [d3f8794]
-  - @agent-native/toolkit@0.13.3
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

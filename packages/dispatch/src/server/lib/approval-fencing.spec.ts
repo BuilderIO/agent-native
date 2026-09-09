@@ -340,6 +340,45 @@ describe("dispatch approval request status fencing", () => {
     });
   });
 
+  it("does not let the same email approve a request from another organization", async () => {
+    const [{ runWithRequestContext }, { getDbExec }, dispatchStore] =
+      await Promise.all([
+        import("@agent-native/core/server"),
+        import("@agent-native/core/db"),
+        import("./dispatch-store.js"),
+      ]);
+    const exec = getDbExec();
+
+    const requestId = await runWithRequestContext(
+      { userEmail: ownerEmail, orgId },
+      async () => {
+        const created = await dispatchStore.createApprovalRequest({
+          changeType: "approval-policy.update",
+          targetType: "dispatch-settings",
+          targetId: "dispatch-approval-policy",
+          summary: "Keep this request in its organization",
+          payload: { enabled: true, approverEmails: [] },
+        });
+        return (created as any).id as string;
+      },
+    );
+
+    await runWithRequestContext(
+      { userEmail: ownerEmail, orgId: otherOrgId },
+      async () => {
+        await expect(dispatchStore.approveRequest(requestId)).rejects.toThrow(
+          "Approval request not found",
+        );
+      },
+    );
+
+    const rows = await exec.execute({
+      sql: "SELECT status FROM dispatch_approval_requests WHERE id = ?",
+      args: [requestId],
+    });
+    expect(rows.rows[0]).toMatchObject({ status: "pending" });
+  });
+
   it("does not let a caller from a different tenant reject another tenant's request", async () => {
     const [{ runWithRequestContext }, { getDbExec }, dispatchStore] =
       await Promise.all([
