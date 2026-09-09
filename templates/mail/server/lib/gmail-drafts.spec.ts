@@ -119,7 +119,7 @@ describe("saveGmailDraft", () => {
         displayName: null,
         tokens: {
           access_token: "owner-token",
-          scope: "https://www.googleapis.com/auth/calendar.readonly",
+          scope: "https://www.googleapis.com/auth/gmail.readonly",
         },
       },
       {

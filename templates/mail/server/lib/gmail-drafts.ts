@@ -28,7 +28,8 @@ function hasGmailScope(tokens: Record<string, unknown>): boolean {
       .some(
         (value) =>
           value === "https://mail.google.com/" ||
-          value.startsWith("https://www.googleapis.com/auth/gmail."),
+          value === "https://www.googleapis.com/auth/gmail.compose" ||
+          value === "https://www.googleapis.com/auth/gmail.modify",
       )
   );
 }

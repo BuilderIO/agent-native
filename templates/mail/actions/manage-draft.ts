@@ -241,6 +241,16 @@ export default defineAction({
           return [key, value];
         }),
       ) as Record<string, string>;
+      if (
+        draft.savedDraftId &&
+        args.accountEmail !== undefined &&
+        args.accountEmail !== draft.accountEmail
+      ) {
+        fail(`Cannot change the account for existing draft "${safeId}"`, {
+          errorCode: "draft_account_change",
+          statusCode: 400,
+        });
+      }
       for (const key of [
         "to",
         "cc",
