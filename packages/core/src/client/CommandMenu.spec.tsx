@@ -284,7 +284,7 @@ describe("CommandMenu docs group", () => {
     expect(dialog?.style.backgroundColor).toBe("");
     expect(overlay?.className).toContain("z-[270]");
     expect(overlay?.style.zIndex).toBe("");
-    expect(overlay?.className).toContain("bg-black/50");
+    expect(overlay?.style.backgroundColor).toBe("rgb(0 0 0 / 0.5)");
     expect(overlay?.style.backdropFilter).toBe("none");
     expect(overlay?.style.transition).toBe("none");
     expect(document.activeElement).toBe(input);

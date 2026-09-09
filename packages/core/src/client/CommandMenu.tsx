@@ -487,7 +487,7 @@ export function CommandMenu({
           aria-describedby={undefined}
           hideClose
           motion="instant"
-          overlayClassName="fixed inset-0 bg-black/50 backdrop-blur-none transition-none"
+          overlayClassName="fixed inset-0 backdrop-blur-none transition-none"
           overlayStyle={{
             backgroundColor: "rgb(0 0 0 / 0.5)",
             backdropFilter: "none",
