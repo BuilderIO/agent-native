@@ -15,6 +15,7 @@ import type { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 
 import type { Slide } from "@/context/DeckContext";
+import { sanitizeCssValue } from "@/lib/sanitize-slide-html";
 
 import type { DesignSystemData } from "../../../shared/api";
 import { SlideBubbleMenu } from "./SlideBubbleMenu";
@@ -206,6 +207,21 @@ export function SlideInlineEditor({
     slide.background,
     designSystem,
   );
+  const designSystemStyle = designSystem
+    ? ({
+        "--ds-bg": bgClass
+          ? "transparent"
+          : (bgStyle?.background ?? "transparent"),
+        "--ds-text":
+          sanitizeCssValue(designSystem.colors.text) ??
+          "hsl(var(--foreground))",
+        "--ds-text-muted":
+          sanitizeCssValue(designSystem.colors.textMuted) ??
+          "hsl(var(--muted-foreground))",
+        "--ds-heading-font": designSystem.typography.headingFont,
+        "--ds-body-font": designSystem.typography.bodyFont,
+      } as React.CSSProperties & Record<string, string>)
+    : {};
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Guard flag: prevents the seeding setContent from triggering onContentChange
   const isSettingContent = useRef(false);
@@ -462,7 +478,7 @@ export function SlideInlineEditor({
   return (
     <div
       className={`w-full aspect-video rounded-lg overflow-hidden relative shadow-2xl shadow-black/40 ring-2 ring-[#609FF8] ${bgClass}`}
-      style={bgStyle}
+      style={{ ...bgStyle, ...designSystemStyle }}
     >
       {/* Scale the editor canvas to 960x540 just like SlideRenderer */}
       <div
