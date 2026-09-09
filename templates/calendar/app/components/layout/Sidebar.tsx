@@ -480,6 +480,7 @@ function GoogleCalendarsSections({
       (mode === "single"
         ? (accountColors[calendar.accountEmail] ?? singleColor)
         : (calendar.color ?? CALENDAR_COLORS[6]));
+    const isDefault = !sourceColor && mode !== "multi";
     return (
       <div
         key={preferenceKey}
@@ -538,7 +539,7 @@ function GoogleCalendarsSections({
                   backgroundColor: calendar.color || CALENDAR_COLORS[6],
                 }}
               >
-                {!googleCalendarColors[preferenceKey] && (
+                {isDefault && (
                   <IconCheck className="absolute inset-0 m-auto size-3 text-primary-foreground drop-shadow" />
                 )}
               </button>
