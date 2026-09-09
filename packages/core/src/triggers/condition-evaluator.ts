@@ -55,6 +55,10 @@ function cacheKey(condition: string, payload: unknown): string {
 /**
  * Evaluate whether a natural-language condition matches an event payload.
  * Returns true if the condition is empty/undefined (unconditional trigger).
+ *
+ * Throws when the classifier is unevaluable (network/HTTP/exception). Callers
+ * must not treat that as a condition non-match, and failures are never cached
+ * as `false` — a transient outage must not suppress the trigger for the TTL.
  */
 export async function evaluateCondition(
   condition: string | undefined,
@@ -106,8 +110,9 @@ Condition: "${condition}"
 
 Does the event payload satisfy the condition above? Respond with ONLY "yes" or "no".`;
 
+  let res: Response;
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -120,27 +125,49 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
         messages: [{ role: "user", content: prompt }],
       }),
     });
-
-    if (!res.ok) {
-      console.error(
-        `[triggers] Condition eval failed: ${res.status} ${res.statusText}`,
-      );
-      return false;
-    }
-
-    const data = (await res.json()) as {
-      content: Array<{ type: string; text?: string }>;
-    };
-    const text =
-      data.content
-        ?.find((b) => b.type === "text")
-        ?.text?.trim()
-        .toLowerCase() ?? "";
-    return text.startsWith("yes");
   } catch (err) {
     console.error("[triggers] Condition eval error:", err);
-    return false;
+    throw new Error(
+      err instanceof Error
+        ? `Condition evaluation failed: ${err.message}`
+        : "Condition evaluation failed: network error",
+    );
   }
+
+  if (!res.ok) {
+    console.error(
+      `[triggers] Condition eval failed: ${res.status} ${res.statusText}`,
+    );
+    throw new Error(
+      `Condition evaluation failed: ${res.status} ${res.statusText}`,
+    );
+  }
+
+  let data: { content: Array<{ type: string; text?: string }> };
+  try {
+    data = (await res.json()) as {
+      content: Array<{ type: string; text?: string }>;
+    };
+  } catch (err) {
+    console.error("[triggers] Condition eval error:", err);
+    throw new Error(
+      err instanceof Error
+        ? `Condition evaluation failed: ${err.message}`
+        : "Condition evaluation failed: invalid response",
+    );
+  }
+
+  const text =
+    data.content
+      ?.find((b) => b.type === "text")
+      ?.text?.trim()
+      .toLowerCase() ?? "";
+  if (!text.startsWith("yes") && !text.startsWith("no")) {
+    throw new Error(
+      `Condition evaluation failed: unexpected classifier response "${text}"`,
+    );
+  }
+  return text.startsWith("yes");
 }
 
 /** Clear the condition cache (for testing). */

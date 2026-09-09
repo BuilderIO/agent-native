@@ -1114,6 +1114,11 @@ export const runContentMigrations = runMigrations(
         ALTER TABLE IF EXISTS document_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
+    {
+      version: 90,
+      name: "content-databases-document-idx",
+      sql: `CREATE INDEX IF NOT EXISTS content_databases_document_idx ON content_databases (document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

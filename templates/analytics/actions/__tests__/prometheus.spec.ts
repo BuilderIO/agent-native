@@ -34,9 +34,13 @@ vi.mock("../../server/lib/prometheus", () => ({
 
 vi.mock("../_provider-action-utils", () => ({
   requireActionCredentials: vi.fn(async () => ({ ok: true, ctx: {} })),
-  providerError: (e: unknown) => ({
-    error: e instanceof Error ? e.message : String(e),
-  }),
+  providerError: (e: unknown): never => {
+    throw Object.assign(new Error(e instanceof Error ? e.message : String(e)), {
+      name: "ActionContractError",
+      errorCode: "provider_error",
+      statusCode: 502,
+    });
+  },
 }));
 
 const { default: prometheus } = await import("../prometheus");
@@ -104,9 +108,13 @@ describe("prometheus action", () => {
 
   it("wraps thrown errors via providerError", async () => {
     queryInstant.mockRejectedValue(new Error("boom"));
-    const r = (await prometheus.run({ mode: "query", query: "up" })) as {
-      error: string;
-    };
-    expect(r.error).toBe("boom");
+    await expect(
+      prometheus.run({ mode: "query", query: "up" }),
+    ).rejects.toMatchObject({
+      message: "boom",
+      name: "ActionContractError",
+      errorCode: "provider_error",
+      statusCode: 502,
+    });
   });
 });
