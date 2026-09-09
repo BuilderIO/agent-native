@@ -2168,9 +2168,6 @@ export function createAgentKitProtocolAdapter(
 
   const transport: AgentKitProtocolAdapter = {
     capabilities,
-    async getCapabilities() {
-      return capabilities;
-    },
     async discoverCapabilities(input) {
       const requested = input.requested ?? [...DISCOVERABLE_CAPABILITIES];
       return {

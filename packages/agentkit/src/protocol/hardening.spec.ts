@@ -20,9 +20,120 @@ import {
   parseAgentThreadSnapshot,
   parseSubscribeToRunInput,
   requireAgentCapability,
+  resolveAgentCapabilityAffordance,
 } from "./index.js";
 
 const occurredAt = "2026-08-29T00:00:00.000Z";
+
+describe("capability affordances", () => {
+  const discovery = parseAgentCapabilitiesDiscovery({
+    protocol: negotiateAgentKitProtocolVersion(
+      createAgentKitProtocolVersionOffer(),
+    ),
+    discoveredAt: occurredAt,
+    capabilities: [
+      { id: "activities", state: "available" },
+      {
+        id: "feedback",
+        state: "degraded",
+        error: createCapabilityUnavailableError("feedback", {
+          message: "Feedback is queued and may take a minute to record.",
+          retryable: true,
+        }),
+      },
+      {
+        id: "uploads",
+        state: "unavailable",
+        error: createCapabilityUnavailableError("uploads", {
+          message: "Object storage is unreachable.",
+          retryable: true,
+        }),
+      },
+      {
+        id: "codeExecution",
+        state: "unsupported",
+        error: createCapabilityUnsupportedError("codeExecution"),
+      },
+    ],
+  });
+
+  it("renders available and degraded capabilities, surfacing the reason", () => {
+    expect(
+      resolveAgentCapabilityAffordance({ discovery }, "activities"),
+    ).toEqual({
+      id: "activities",
+      state: "available",
+      visible: true,
+      enabled: true,
+    });
+    expect(resolveAgentCapabilityAffordance({ discovery }, "feedback")).toEqual(
+      {
+        id: "feedback",
+        state: "degraded",
+        visible: true,
+        enabled: true,
+        reason: "Feedback is queued and may take a minute to record.",
+      },
+    );
+  });
+
+  it("shows an unavailable capability as present but not usable", () => {
+    expect(resolveAgentCapabilityAffordance({ discovery }, "uploads")).toEqual({
+      id: "uploads",
+      state: "unavailable",
+      visible: true,
+      enabled: false,
+      reason: "Object storage is unreachable.",
+    });
+  });
+
+  it("separates a capability the backend never reported from one it denied", () => {
+    const denied = resolveAgentCapabilityAffordance(
+      { discovery },
+      "codeExecution",
+    );
+    const unreported = resolveAgentCapabilityAffordance(
+      { discovery },
+      "threadForking",
+    );
+
+    expect(denied.state).toBe("unsupported");
+    expect(unreported.state).toBe("unknown");
+    // Both hide the control, but only one is a denial. Collapsing them is what
+    // makes an older backend look like it refused the capability.
+    expect(denied.visible).toBe(false);
+    expect(unreported.visible).toBe(false);
+  });
+
+  it("falls back to the boolean projection when discovery is absent", () => {
+    const capabilities = parseAgentCapabilities({
+      activities: true,
+      codeExecution: false,
+      reasoning: "none",
+    });
+
+    expect(
+      resolveAgentCapabilityAffordance({ capabilities }, "activities").state,
+    ).toBe("available");
+    expect(
+      resolveAgentCapabilityAffordance({ capabilities }, "codeExecution").state,
+    ).toBe("unsupported");
+    expect(
+      resolveAgentCapabilityAffordance({ capabilities }, "reasoning").state,
+    ).toBe("unsupported");
+    expect(
+      resolveAgentCapabilityAffordance({ capabilities }, "uploads").state,
+    ).toBe("unknown");
+  });
+
+  it("treats an empty source as unknown rather than unsupported", () => {
+    expect(resolveAgentCapabilityAffordance({}, "uploads")).toMatchObject({
+      state: "unknown",
+      visible: false,
+      enabled: false,
+    });
+  });
+});
 
 describe("AgentKit protocol hardening", () => {
   it("negotiates versions and exposes explicit capability status", () => {

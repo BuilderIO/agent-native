@@ -9,11 +9,13 @@ import type {
 } from "../protocol/index.js";
 import {
   AGENTKIT_PROTOCOL_VERSION,
+  createAgentKitProtocolVersionOffer,
   parseAgentCapabilities,
   parseAgentEvent,
   parseAgentEventSequence,
   parseAgentQueuedMessage,
   parseAgentThreadSnapshot,
+  projectAgentCapabilities,
 } from "../protocol/index.js";
 
 export class AgentKitConformanceError extends Error {
@@ -386,14 +388,23 @@ async function readCapabilities(
   const staticCapabilities = transport.capabilities
     ? parseAgentCapabilities(transport.capabilities)
     : undefined;
-  const capabilities = transport.getCapabilities
-    ? parseAgentCapabilities(await transport.getCapabilities())
+  const discovered = transport.discoverCapabilities
+    ? await transport.discoverCapabilities({
+        protocol: createAgentKitProtocolVersionOffer(),
+      })
+    : undefined;
+  const capabilities = discovered
+    ? parseAgentCapabilities(
+        discovered.legacy ?? projectAgentCapabilities(discovered),
+      )
     : (staticCapabilities ?? {});
-  if (staticCapabilities && transport.getCapabilities) {
-    assert(
-      JSON.stringify(staticCapabilities) === JSON.stringify(capabilities),
-      "Static and discovered capabilities must not contradict one another.",
-    );
+  if (staticCapabilities && discovered) {
+    for (const [id, value] of Object.entries(staticCapabilities)) {
+      assert(
+        capabilities[id as keyof AgentCapabilities] === value,
+        `Static and discovered capabilities must not contradict one another for ${JSON.stringify(id)}.`,
+      );
+    }
   }
   assert(
     capabilities.protocolVersion === undefined ||

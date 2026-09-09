@@ -4,7 +4,9 @@ import {
   createProtocolVersionUnsupportedError,
 } from "./errors.js";
 import type {
+  AgentCapabilities,
   AgentCapabilitiesDiscovery,
+  AgentCapabilityAffordance,
   AgentCapabilityDescriptor,
   AgentCapabilityId,
   AgentProtocolCompatibility,
@@ -107,6 +109,103 @@ export function requireAgentCapability(
     throw new AgentKitProtocolError(descriptor.error);
   }
   return descriptor;
+}
+
+/**
+ * Lossy on purpose: the boolean map has no way to say "degraded" or "down
+ * right now", so it reports both as available and omits what discovery did
+ * not mention. Anything that gates behavior must use
+ * `resolveAgentCapabilityAffordance` against the descriptors instead.
+ */
+export function projectAgentCapabilities(
+  discovery: AgentCapabilitiesDiscovery,
+): AgentCapabilities {
+  const projected: Record<string, unknown> = {
+    protocolVersion:
+      discovery.protocol.status === "compatible"
+        ? discovery.protocol.selectedVersion
+        : undefined,
+  };
+  for (const capability of discovery.capabilities) {
+    if (capability.id === "reasoning") continue;
+    if (capability.state === "available" || capability.state === "degraded") {
+      projected[capability.id] = true;
+    } else if (capability.state === "unsupported") {
+      projected[capability.id] = false;
+    }
+  }
+  return projected as AgentCapabilities;
+}
+
+/**
+ * The single place capability presentation is decided. Enforcement in the
+ * client already branches on all four descriptor states, so a caller that
+ * reads the boolean projection instead will show controls the client then
+ * rejects, and hide ones that work. Both directions are silent.
+ */
+export function resolveAgentCapabilityAffordance(
+  source: {
+    discovery?: AgentCapabilitiesDiscovery;
+    capabilities?: AgentCapabilities;
+  },
+  capability: AgentCapabilityId,
+): AgentCapabilityAffordance {
+  const descriptor = source.discovery
+    ? getAgentCapabilityStatus(source.discovery, capability)
+    : undefined;
+
+  if (descriptor) {
+    const reason = descriptor.error?.message ?? descriptor.description;
+    switch (descriptor.state) {
+      case "available":
+        return {
+          id: capability,
+          state: "available",
+          visible: true,
+          enabled: true,
+        };
+      case "degraded":
+        return {
+          id: capability,
+          state: "degraded",
+          visible: true,
+          enabled: true,
+          reason,
+        };
+      case "unavailable":
+        return {
+          id: capability,
+          state: "unavailable",
+          visible: true,
+          enabled: false,
+          reason,
+        };
+      case "unsupported":
+        return {
+          id: capability,
+          state: "unsupported",
+          visible: false,
+          enabled: false,
+          reason,
+        };
+    }
+  }
+
+  // Discovery that ran and omitted the capability is reporting unknown, not
+  // unsupported, so it must not be read as a denial.
+  if (source.discovery) {
+    return { id: capability, state: "unknown", visible: false, enabled: false };
+  }
+
+  const projected = source.capabilities?.[capability];
+  if (projected === undefined) {
+    return { id: capability, state: "unknown", visible: false, enabled: false };
+  }
+  const supported =
+    capability === "reasoning" ? projected !== "none" : projected === true;
+  return supported
+    ? { id: capability, state: "available", visible: true, enabled: true }
+    : { id: capability, state: "unsupported", visible: false, enabled: false };
 }
 
 /** Type-only assertion that keeps future protocol unions narrow. */

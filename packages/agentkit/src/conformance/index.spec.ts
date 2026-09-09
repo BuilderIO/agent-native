@@ -282,9 +282,6 @@ function createFixtureTransport(
 
   const transport: AgentTransport = {
     capabilities,
-    async getCapabilities() {
-      return capabilities;
-    },
     async startRun(input) {
       return { runId: makeRun(preparedScenario, input.threadId).id };
     },

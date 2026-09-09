@@ -6,7 +6,12 @@ import type {
   AgentQueuedMessage,
   AgentTransport,
 } from "../protocol/index.js";
-import { AgentKitProtocolError } from "../protocol/index.js";
+import {
+  AgentKitProtocolError,
+  createAgentKitProtocolVersionOffer,
+  createCapabilityUnsupportedError,
+  negotiateAgentKitProtocolVersion,
+} from "../protocol/index.js";
 import { AgentKitCapabilityError, AgentKitClient } from "./client.js";
 
 function protocolEvent(
@@ -847,9 +852,23 @@ describe("AgentKitClient", () => {
   it("discovers capabilities before the first run starts", async () => {
     const calls: string[] = [];
     const transport: AgentTransport = {
-      async getCapabilities() {
+      async discoverCapabilities() {
         calls.push("capabilities");
-        return { approvals: true, widgets: true, resumableRuns: false };
+        return {
+          protocol: negotiateAgentKitProtocolVersion(
+            createAgentKitProtocolVersionOffer(),
+          ),
+          capabilities: [
+            { id: "approvals" as const, state: "available" as const },
+            { id: "widgets" as const, state: "available" as const },
+            {
+              id: "resumableRuns" as const,
+              state: "unsupported" as const,
+              error: createCapabilityUnsupportedError("resumableRuns"),
+            },
+          ],
+          discoveredAt: "2026-08-29T00:00:00.000Z",
+        };
       },
       async startRun() {
         calls.push("start");
@@ -910,9 +929,15 @@ describe("AgentKitClient", () => {
     let observedSignal: AbortSignal | undefined;
     let observedCorrelationId: string | undefined;
     const transport: AgentTransport = {
-      async getCapabilities(context) {
+      async discoverCapabilities(_input, context) {
         preflightCorrelationId = context?.correlationId;
-        return {};
+        return {
+          protocol: negotiateAgentKitProtocolVersion(
+            createAgentKitProtocolVersionOffer(),
+          ),
+          capabilities: [],
+          discoveredAt: "2026-08-29T00:00:00.000Z",
+        };
       },
       async startRun(_input, context) {
         observedSignal = context?.signal;

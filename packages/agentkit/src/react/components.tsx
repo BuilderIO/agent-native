@@ -74,7 +74,7 @@ import {
   type RunId,
 } from "../protocol/index.js";
 import {
-  useAgentCapabilities,
+  useAgentCapability,
   useAgentConnection,
   useAgentKit,
   useAgentKitControl,
@@ -1715,7 +1715,8 @@ export function AgentMessageActions({
   threadId,
 }: AgentKitRenderProps<AgentMessage>) {
   const { labels, onThreadForked } = useAgentKit();
-  const capabilities = useAgentCapabilities();
+  const feedbackCapability = useAgentCapability("feedback");
+  const forkingCapability = useAgentCapability("threadForking");
   const control = useAgentKitControl(threadId);
   const text = message.parts
     .filter(
@@ -1779,7 +1780,7 @@ export function AgentMessageActions({
         pending={copyAction.pending}
         onPress={() => void copyAction.execute().catch(() => undefined)}
       />
-      {message.role === "assistant" && capabilities.feedback ? (
+      {message.role === "assistant" && feedbackCapability.visible ? (
         <>
           <IconButton
             label={labels.positiveFeedback}
@@ -1787,7 +1788,8 @@ export function AgentMessageActions({
             size="compact"
             aria-pressed={feedback === "positive"}
             pending={feedbackAction.pending && feedback === "positive"}
-            disabled={feedbackAction.pending}
+            disabled={feedbackAction.pending || !feedbackCapability.enabled}
+            title={feedbackCapability.reason}
             onPress={() => void updateFeedback("positive")}
           />
           <IconButton
@@ -1796,13 +1798,14 @@ export function AgentMessageActions({
             size="compact"
             aria-pressed={feedback === "negative"}
             pending={feedbackAction.pending && feedback === "negative"}
-            disabled={feedbackAction.pending}
+            disabled={feedbackAction.pending || !feedbackCapability.enabled}
+            title={feedbackCapability.reason}
             onPress={() => void updateFeedback("negative")}
           />
         </>
       ) : null}
       {message.role === "assistant" &&
-      capabilities.threadForking &&
+      forkingCapability.visible &&
       onThreadForked ? (
         <>
           <IconButton
@@ -1810,6 +1813,8 @@ export function AgentMessageActions({
             icon={<IconGitBranch aria-hidden="true" />}
             size="compact"
             pending={forkAction.pending}
+            disabled={!forkingCapability.enabled}
+            title={forkingCapability.reason}
             onPress={() => void forkAction.execute().catch(() => undefined)}
           />
         </>
@@ -2008,7 +2013,18 @@ export function AgentKitComposer({
     slots,
   } = useAgentKit();
   const threadId = requestedThreadId ?? contextThreadId;
-  const capabilities = useAgentCapabilities();
+  const queueCapability = useAgentCapability("messageQueue");
+  const suggestionsCapability = useAgentCapability("suggestions");
+  const uploadsCapability = useAgentCapability("uploads");
+  const modelSelectionCapability = useAgentCapability("modelSelection");
+  const canQueue = queueCapability.enabled;
+  const canUpload = uploadsCapability.enabled;
+  // The host opts in through showModelSelector, so a capability the backend
+  // never reported keeps the selector instead of silently removing a control
+  // the host asked for. Only an explicit denial or outage takes it away.
+  const canSelectModel =
+    modelSelectionCapability.state === "unknown" ||
+    modelSelectionCapability.enabled;
   const control = useAgentKitControl(threadId);
   const thread = useAgentThread(threadId);
   const command = useAgentKitMutation(
@@ -2031,7 +2047,7 @@ export function AgentKitComposer({
     [focusComposer, registerComposerFocus, threadId],
   );
   const submitText = (text: string) =>
-    active && queueWhileRunning && capabilities.messageQueue
+    active && queueWhileRunning && canQueue
       ? control.queue(text)
       : control.send(text);
   const steerQueued: AgentKitQueueRenderProps["onSteer"] = !active
@@ -2057,7 +2073,7 @@ export function AgentKitComposer({
   const Suggestions = slots.suggestions;
   return (
     <div className={`agentkit-composer-stack ${className ?? ""}`}>
-      {capabilities.messageQueue ? (
+      {queueCapability.visible ? (
         Queue ? (
           <Queue
             items={thread.queuedMessages}
@@ -2098,7 +2114,7 @@ export function AgentKitComposer({
           />
         )
       ) : null}
-      {capabilities.suggestions && thread.suggestions.length ? (
+      {suggestionsCapability.visible && thread.suggestions.length ? (
         Suggestions ? (
           <Suggestions
             suggestions={thread.suggestions}
@@ -2127,19 +2143,15 @@ export function AgentKitComposer({
         autoFocus={autoFocus}
         composerRef={composerRef}
         submitting={command.pending}
-        willQueue={active && queueWhileRunning && capabilities.messageQueue}
-        showModelSelector={
-          showModelSelector && capabilities.modelSelection !== false
-        }
-        attachmentsEnabled={Boolean(capabilities.uploads)}
+        willQueue={active && queueWhileRunning && canQueue}
+        showModelSelector={showModelSelector && canSelectModel}
+        attachmentsEnabled={canUpload}
         slashCommands={slashCommands}
         slashSkills={slashSkills}
         includeDefaultSlashCommands={includeDefaultSlashCommands ?? false}
         includeDefaultSlashSkills={includeDefaultSlashSkills ?? false}
         onSlashCommand={onSlashCommand}
-        plusMenuMode={
-          plusMenuMode ?? (capabilities.uploads ? "upload-only" : "hidden")
-        }
+        plusMenuMode={plusMenuMode ?? (canUpload ? "upload-only" : "hidden")}
         voiceEnabled={voiceEnabled}
         execMode={executionMode === "plan" ? "plan" : "build"}
         onExecModeChange={(nextMode) => {
@@ -2150,7 +2162,7 @@ export function AgentKitComposer({
         onSubmit={(text, files, references, options) => {
           const submission = command.execute(async () => {
             const attachments =
-              files.length && capabilities.uploads
+              files.length && canUpload
                 ? await control.uploadFiles(
                     files.map((file: PromptComposerFile) => ({
                       name: file.name,
@@ -2170,7 +2182,7 @@ export function AgentKitComposer({
                   : undefined,
             };
             const metadata = references.length ? { references } : undefined;
-            if (active && queueWhileRunning && capabilities.messageQueue) {
+            if (active && queueWhileRunning && canQueue) {
               await control.queueMessage({ text, attachments, metadata });
             } else {
               await control.sendMessage({
@@ -2251,8 +2263,7 @@ export function AgentKitChat({
   const connectionRequestEntries = Object.entries(
     thread.connectionRequests ?? {},
   );
-  const ErrorState =
-    slots.connectionError ?? slots.error ?? AgentConnectionErrorView;
+  const ErrorState = slots.connectionError ?? AgentConnectionErrorView;
   const RunFailure = slots.runFailure ?? AgentRunFailure;
   const Approval = slots.approval;
   const ConnectionRequest = slots.connectionRequest;

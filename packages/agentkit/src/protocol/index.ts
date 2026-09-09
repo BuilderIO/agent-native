@@ -709,6 +709,25 @@ export type AgentCapabilityDescriptor =
       error: AgentCapabilityUnsupportedError;
     });
 
+/**
+ * `unknown` has no descriptor state because it is the absence of one: the
+ * backend never reported the capability. Keeping it distinct from
+ * `unsupported` is what stops an older backend's silence from rendering as a
+ * deliberate denial.
+ */
+export type AgentCapabilityAffordanceState = AgentCapabilityState | "unknown";
+
+export interface AgentCapabilityAffordance {
+  id: AgentCapabilityId;
+  state: AgentCapabilityAffordanceState;
+  /** Render the control. False when the capability is denied or unreported. */
+  visible: boolean;
+  /** Permit interaction. False while the capability is temporarily down. */
+  enabled: boolean;
+  /** Operator explanation, present for degraded and unavailable capabilities. */
+  reason?: string;
+}
+
 export interface AgentProtocolVersionOffer {
   protocol: AgentKitProtocolName;
   /** Positive, unique protocol versions understood by the caller. */
@@ -1143,8 +1162,6 @@ export interface AgentTransport extends AgentTransportThreadOperations {
    */
   dispose?(): void | Promise<void>;
   capabilities?: AgentCapabilities;
-  /** @deprecated Prefer `discoverCapabilities` for explicit status semantics. */
-  getCapabilities?(context?: AgentRequestContext): Promise<AgentCapabilities>;
   discoverCapabilities?(
     input: DiscoverCapabilitiesInput,
     context?: AgentRequestContext,

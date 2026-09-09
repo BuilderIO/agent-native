@@ -14,14 +14,15 @@ import {
   AgentProtocolValidationError,
   AgentKitProtocolError,
   createCapabilityUnsupportedError,
+  createAgentKitProtocolVersionOffer,
   createAgentProtocolEnvelope,
   createOperationUnsupportedError,
   createRequestAbortedError,
   isAgentKitProtocolError,
   negotiateAgentKitProtocolVersion,
   parseAgentActionResult,
-  parseAgentCapabilities,
   parseAgentCapabilitiesDiscovery,
+  projectAgentCapabilities,
   parseCancelRunInput,
   parseCompleteUploadInput,
   parseCreateThreadInput,
@@ -426,9 +427,6 @@ export function createAgentKitHttpTransport(
         context,
       );
     },
-    getCapabilities(context) {
-      return request("/capabilities", parseAgentCapabilities, {}, context);
-    },
     createThread(input, context) {
       return request(
         "/threads",
@@ -794,9 +792,7 @@ async function discoverCapabilities(
   const protocol = negotiateAgentKitProtocolVersion(input.protocol, {
     correlationId,
   });
-  const legacy = transport.getCapabilities
-    ? await transport.getCapabilities(context)
-    : (transport.capabilities ?? {});
+  const legacy = transport.capabilities ?? {};
   return {
     protocol,
     capabilities: capabilityDescriptors(legacy),
@@ -1019,11 +1015,22 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
         : url.pathname;
       const transport = await getTransport();
       if (request.method === "GET" && path === "/capabilities") {
-        const getCapabilities = transport.getCapabilities;
+        // Serve the boolean map from discovery so a transport that only
+        // implements discoverCapabilities does not report every capability as
+        // unknown here.
         return respond(
-          getCapabilities
-            ? await invoke((context) => getCapabilities(context))
-            : (transport.capabilities ?? {}),
+          await invoke(async (context) => {
+            if (!transport.discoverCapabilities) {
+              return transport.capabilities ?? {};
+            }
+            const discovery = await discoverCapabilities(
+              transport,
+              { protocol: createAgentKitProtocolVersionOffer() },
+              correlationId,
+              context,
+            );
+            return discovery.legacy ?? projectAgentCapabilities(discovery);
+          }),
         );
       }
       if (request.method === "POST" && path === "/capabilities/discover") {

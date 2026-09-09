@@ -53,8 +53,6 @@ export interface AgentThreadState {
   queuedMessages: AgentQueuedMessage[];
   runs: Record<RunId, AgentRunState>;
   activeRunIds: RunId[];
-  /** @deprecated Prefer `activeRunIds`; retained for compatibility. */
-  activeRunId?: RunId;
   events: AgentEvent[];
   agents: Record<string, AgentParticipant>;
   agentInteractions: AgentInteraction[];
@@ -195,13 +193,11 @@ function updateActiveRuns(
   thread: AgentThreadState,
   runId: RunId,
   active: boolean,
-): Pick<AgentThreadState, "activeRunId" | "activeRunIds"> {
-  const activeRunIds = active
-    ? Array.from(new Set([...thread.activeRunIds, runId]))
-    : thread.activeRunIds.filter((id) => id !== runId);
+): Pick<AgentThreadState, "activeRunIds"> {
   return {
-    activeRunIds,
-    activeRunId: active ? runId : activeRunIds.at(-1),
+    activeRunIds: active
+      ? Array.from(new Set([...thread.activeRunIds, runId]))
+      : thread.activeRunIds.filter((id) => id !== runId),
   };
 }
 

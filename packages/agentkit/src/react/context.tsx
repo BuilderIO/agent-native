@@ -23,6 +23,8 @@ import type {
   AgentConnectionRequest,
   AgentConnectionResponse,
   AgentCapabilities,
+  AgentCapabilityAffordance,
+  AgentCapabilityId,
   AgentError,
   AgentInteraction,
   AgentMessage,
@@ -39,6 +41,7 @@ import type {
   RunId,
   ThreadId,
 } from "../protocol/index.js";
+import { resolveAgentCapabilityAffordance } from "../protocol/index.js";
 
 export interface AgentKitRenderProps<T> {
   value: T;
@@ -143,8 +146,6 @@ export interface AgentKitSlots {
     AgentKitRenderProps<AgentConnectionRequest> & { runId: string }
   >;
   runFailure?: ComponentType<AgentRunFailureRenderProps>;
-  /** @deprecated Prefer `connectionError`. */
-  error?: ComponentType<AgentConnectionErrorRenderProps>;
   connectionError?: ComponentType<AgentConnectionErrorRenderProps>;
   emptyState?: ComponentType<{ threadId: ThreadId }>;
   composer?: ComponentType<{ threadId: ThreadId }>;
@@ -612,8 +613,33 @@ export function useAgentKitMutation<TArgs extends unknown[], TResult>(
   };
 }
 
+/**
+ * The boolean projection cannot express degraded or temporarily unavailable
+ * capabilities, and it renders an unreported capability identically to a
+ * denied one. Gate affordances on `useAgentCapability` instead.
+ */
 export function useAgentCapabilities(): AgentCapabilities {
   return useAgentKitSelector((snapshot) => snapshot.capabilities);
+}
+
+export function useAgentCapability(
+  capability: AgentCapabilityId,
+): AgentCapabilityAffordance {
+  return useAgentKitSelector(
+    (snapshot) =>
+      resolveAgentCapabilityAffordance(
+        {
+          discovery: snapshot.capabilityDiscovery,
+          capabilities: snapshot.capabilities,
+        },
+        capability,
+      ),
+    (previous, next) =>
+      previous.state === next.state &&
+      previous.visible === next.visible &&
+      previous.enabled === next.enabled &&
+      previous.reason === next.reason,
+  );
 }
 
 export function useAgentConnection() {
@@ -699,8 +725,6 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       load: () => controller.loadThread(threadId),
       resubscribe: (runId: string) =>
         controller.resubscribeRun(threadId, runId),
-      /** @deprecated Use `resubscribe`; this does not retry agent work. */
-      resume: (runId: string) => controller.resubscribeRun(threadId, runId),
       queue: (text: string) => controller.queueMessage({ threadId, text }),
       queueMessage: (
         input: Omit<

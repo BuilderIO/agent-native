@@ -3,7 +3,6 @@ import type {
   AgentActionResult,
   AgentApprovalResponse,
   AgentConnectionResponse,
-  AgentCapabilitiesDiscovery,
   AgentCapabilityDescriptor,
   AgentCapabilityId,
   AgentCapabilities,
@@ -36,6 +35,7 @@ import {
   createRequestAbortedError,
   createAgentKitProtocolVersionOffer,
   parseAgentEvent,
+  projectAgentCapabilities,
 } from "../protocol/index.js";
 import {
   createAgentThreadState,
@@ -141,8 +141,6 @@ export interface AgentKitController {
   ): Promise<AgentRunHandle>;
   /** Reattaches to an existing run stream; it never retries agent work. */
   resubscribeRun(threadId: ThreadId, runId: RunId): Promise<void>;
-  /** @deprecated Use `resubscribeRun`; this operation does not retry a run. */
-  resumeRun(threadId: ThreadId, runId: RunId): Promise<void>;
   cancelRun(
     threadId: ThreadId,
     runId: RunId,
@@ -428,11 +426,9 @@ export class AgentKitClient implements AgentKitController {
     this.snapshot = {
       connection: "idle",
       capabilities: options.transport.capabilities ?? {},
-      capabilitiesStatus:
-        options.transport.discoverCapabilities ||
-        options.transport.getCapabilities
-          ? "unknown"
-          : "ready",
+      capabilitiesStatus: options.transport.discoverCapabilities
+        ? "unknown"
+        : "ready",
       threads: {},
       revision: 0,
     };
@@ -834,11 +830,6 @@ export class AgentKitClient implements AgentKitController {
     const consumer = this.consume(threadId, runId);
     this.consumers.set(key, consumer);
     return consumer;
-  }
-
-  /** @deprecated Use `resubscribeRun`; this operation does not retry a run. */
-  public resumeRun(threadId: ThreadId, runId: RunId): Promise<void> {
-    return this.resubscribeRun(threadId, runId);
   }
 
   public async resolveApproval(
@@ -1525,7 +1516,7 @@ export class AgentKitClient implements AgentKitController {
           );
         }
         const capabilities =
-          discovery.legacy ?? this.projectCapabilities(discovery);
+          discovery.legacy ?? projectAgentCapabilities(discovery);
         this.patch({
           capabilities,
           capabilityDiscovery: discovery,
@@ -1533,12 +1524,7 @@ export class AgentKitClient implements AgentKitController {
         });
         return capabilities;
       }
-      const getCapabilities = this.transport.getCapabilities;
-      const capabilities = getCapabilities
-        ? await this.invokeRequest(loadContext, (requestContext) =>
-            getCapabilities(requestContext),
-          )
-        : (this.transport.capabilities ?? {});
+      const capabilities = this.transport.capabilities ?? {};
       this.patch({ capabilities, capabilitiesStatus: "ready" });
       return capabilities;
     })().catch((error) => {
@@ -1620,7 +1606,6 @@ export class AgentKitClient implements AgentKitController {
       queuedMessages: snapshot.queuedMessages ?? hydrated.queuedMessages,
       runs: mergedRuns,
       activeRunIds: currentActiveRunIds,
-      activeRunId: currentActiveRunIds.at(-1),
       tools: {
         ...hydrated.tools,
         ...Object.fromEntries(
@@ -1670,26 +1655,6 @@ export class AgentKitClient implements AgentKitController {
       artifacts: snapshot.artifacts ?? hydrated.artifacts,
       suggestions: snapshot.suggestions ?? hydrated.suggestions,
     };
-  }
-
-  private projectCapabilities(
-    discovery: AgentCapabilitiesDiscovery,
-  ): AgentCapabilities {
-    const projected: Record<string, unknown> = {
-      protocolVersion:
-        discovery.protocol.status === "compatible"
-          ? discovery.protocol.selectedVersion
-          : undefined,
-    };
-    for (const capability of discovery.capabilities) {
-      if (capability.id === "reasoning") continue;
-      if (capability.state === "available" || capability.state === "degraded") {
-        projected[capability.id] = true;
-      } else if (capability.state === "unsupported") {
-        projected[capability.id] = false;
-      }
-    }
-    return projected as AgentCapabilities;
   }
 
   private async requireCapability(
@@ -1766,7 +1731,6 @@ export class AgentKitClient implements AgentKitController {
             ),
       runs,
       activeRunIds,
-      activeRunId: activeRunIds.at(-1),
       events:
         current.events === baseline.events
           ? loaded.events
@@ -2105,7 +2069,6 @@ export class AgentKitClient implements AgentKitController {
         },
       },
       activeRunIds,
-      activeRunId: activeRunIds.at(-1),
     });
   }
 
@@ -2120,7 +2083,6 @@ export class AgentKitClient implements AgentKitController {
         [runId]: { ...run, status: "running" },
       },
       activeRunIds,
-      activeRunId: runId,
     });
   }
 

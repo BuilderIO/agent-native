@@ -285,7 +285,7 @@ describe("AgentKitChat", () => {
       "includeDefaultSlashSkills={includeDefaultSlashSkills ?? false}",
     );
     expect(source).toContain(
-      'plusMenuMode ?? (capabilities.uploads ? "upload-only" : "hidden")',
+      'plusMenuMode ?? (canUpload ? "upload-only" : "hidden")',
     );
     expect(source).toContain("autoFocus={autoFocus}");
     expect(source).toContain("composerRef={composerRef}");
@@ -297,10 +297,10 @@ describe("AgentKitChat", () => {
     expect(source).toContain("control.steerQueued(item.id)");
     expect(source).toContain("control.removeQueued(item.id)");
     expect(source).toContain(
-      "willQueue={active && queueWhileRunning && capabilities.messageQueue}",
+      "willQueue={active && queueWhileRunning && canQueue}",
     );
     expect(source).toContain(
-      "showModelSelector && capabilities.modelSelection !== false",
+      "showModelSelector={showModelSelector && canSelectModel}",
     );
     expect(source).toContain("command.execute");
     expect(source.indexOf('className="agentkit-suggestions"')).toBeLessThan(

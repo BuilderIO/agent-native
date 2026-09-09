@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentEvent, AgentTransport } from "../protocol/index.js";
 import {
   AgentKitProtocolError,
+  createAgentKitProtocolVersionOffer,
   createAgentProtocolEnvelope,
 } from "../protocol/index.js";
 import {
@@ -220,11 +221,22 @@ describe("AgentKit HTTP adapter", () => {
       fetch: (input, init) => handler(new Request(input, init)),
     });
 
-    await expect(transport.getCapabilities?.()).resolves.toEqual({
+    const discovery = await transport.discoverCapabilities?.({
+      protocol: createAgentKitProtocolVersionOffer(),
+    });
+
+    expect(discovery?.legacy).toEqual({
       approvals: true,
       messageQueue: true,
       resumableRuns: false,
     });
+    expect(discovery?.capabilities).toEqual(
+      expect.arrayContaining([
+        { id: "approvals", state: "available" },
+        { id: "messageQueue", state: "available" },
+        expect.objectContaining({ id: "resumableRuns", state: "unsupported" }),
+      ]),
+    );
   });
 
   it("reports unsupported operations as typed failures instead of empty success", async () => {
