@@ -3,7 +3,8 @@ import { dirname, resolve } from "node:path";
 
 import { closeDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq, inArray } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const fixtureDirectory = resolve(
@@ -66,7 +67,15 @@ async function page(
 
 async function read(id: string) {
   return (
-    await db.select().from(schema.documents).where(eq(schema.documents.id, id))
+    await db
+      .select()
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, id),
+          inArray(schema.documents.ownerEmail, [OWNER, OTHER]),
+        ),
+      )
   )[0];
 }
 
@@ -102,6 +111,105 @@ async function planFor(id: string, operation: "restore" | "purge" = "restore") {
 }
 
 describe("selected Trash recovery persistence", () => {
+  it("restores into a shared destination without requiring access to its same-owner ancestor", async () => {
+    await page("shared-ancestor", {
+      ownerEmail: OTHER,
+      trashedAt: null,
+      trashRootId: null,
+    });
+    await page("shared-destination", {
+      ownerEmail: OTHER,
+      parentId: "shared-ancestor",
+      trashedAt: null,
+      trashRootId: null,
+    });
+    await page("shared-restore-root", { ownerEmail: OTHER });
+    await db.insert(schema.documentShares).values([
+      {
+        id: "shared-restore-admin",
+        resourceId: "shared-restore-root",
+        principalType: "user",
+        principalId: OWNER,
+        role: "admin",
+        createdBy: OTHER,
+      },
+      {
+        id: "shared-destination-editor",
+        resourceId: "shared-destination",
+        principalType: "user",
+        principalId: OWNER,
+        role: "editor",
+        createdBy: OTHER,
+      },
+    ]);
+    await expect(
+      asOwner(() => assertAccess("document", "shared-ancestor", "viewer")),
+    ).rejects.toThrow();
+    const ancestorBefore = await read("shared-ancestor");
+    const scope = await planFor("shared-restore-root");
+    await asOwner(() =>
+      restore.run({
+        id: "shared-restore-root",
+        destinationParentId: "shared-destination",
+        scopeToken: scope.scopeToken,
+      }),
+    );
+    expect(await read("shared-restore-root")).toMatchObject({
+      trashedAt: null,
+      parentId: "shared-destination",
+      ownerEmail: OTHER,
+    });
+    expect(await read("shared-ancestor")).toEqual(ancestorBefore);
+  });
+
+  it.each([
+    ["owner", { ownerEmail: OTHER }],
+    ["organization", { orgId: "other-ancestor-org" }],
+    ["space", { spaceId: "other-ancestor-space" }],
+  ] as const)(
+    "rejects a destination with a different %s ancestor without mutation",
+    async (kind, mismatch) => {
+      const ids = await tree(`ancestor-${kind}`);
+      const ancestorId = `ancestor-${kind}-outside`;
+      await page(ancestorId, {
+        ...mismatch,
+        trashedAt: null,
+        trashRootId: null,
+      });
+      await db
+        .update(schema.documents)
+        .set({ parentId: ancestorId })
+        .where(
+          and(
+            eq(schema.documents.id, ids.destination),
+            eq(schema.documents.ownerEmail, OWNER),
+          ),
+        );
+      const selectedIds = [
+        ids.child,
+        ids.grandchild,
+        ids.destination,
+        ancestorId,
+      ];
+      const before = await Promise.all(selectedIds.map(read));
+      const scope = await planFor(ids.child);
+      await expect(
+        asOwner(() =>
+          restore.run({
+            id: ids.child,
+            destinationParentId: ids.destination,
+            scopeToken: scope.scopeToken,
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "TRASH_DESTINATION_CONFLICT",
+        message:
+          "The destination hierarchy is unavailable. Choose another location.",
+      });
+      expect(await Promise.all(selectedIds.map(read))).toEqual(before);
+    },
+  );
+
   it("rejects purge confirmation when a new outside survivor appears after planning", async () => {
     await page("new-survivor-parent");
     const scope = await planFor("new-survivor-parent", "purge");

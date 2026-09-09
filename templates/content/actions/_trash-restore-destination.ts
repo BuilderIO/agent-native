@@ -9,6 +9,10 @@ export async function collectTrashDestinationAncestors(
   db: ReturnType<typeof getDb>,
   parentId: string | null,
   selectedIds: string[],
+  ownership: Pick<
+    typeof schema.documents.$inferSelect,
+    "ownerEmail" | "orgId" | "spaceId"
+  >,
 ) {
   const visited = new Set<string>();
   let current = parentId;
@@ -26,7 +30,18 @@ export async function collectTrashDestinationAncestors(
     const [parent] = await db
       .select({ parentId: schema.documents.parentId })
       .from(schema.documents)
-      .where(eq(schema.documents.id, current))
+      .where(
+        and(
+          eq(schema.documents.id, current),
+          eq(schema.documents.ownerEmail, ownership.ownerEmail),
+          ownership.orgId === null
+            ? isNull(schema.documents.orgId)
+            : eq(schema.documents.orgId, ownership.orgId),
+          ownership.spaceId === null
+            ? isNull(schema.documents.spaceId)
+            : eq(schema.documents.spaceId, ownership.spaceId),
+        ),
+      )
       .limit(1);
     if (!parent) {
       fail(

@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -535,14 +535,16 @@ export async function restoreDocumentSubtree(
     databaseLocks,
   );
   await lockDatabaseMemberships(db, membershipIds);
-  const destinationId =
-    options.destinationParentId === undefined
-      ? initial.root.parentId
-      : options.destinationParentId;
+  const destinationId = await resolveTrashRestoreDestination(
+    db,
+    initial,
+    options.destinationParentId,
+  );
   const destinationAncestors = await collectTrashDestinationAncestors(
     db,
     destinationId,
     initial.documentIds,
+    initial.root,
   );
   await lockDocumentsForLifecycle(db, [
     ...initial.documentIds,
@@ -561,6 +563,7 @@ export async function restoreDocumentSubtree(
         db,
         destinationId,
         scope.documentIds,
+        scope.root,
       ),
     )
   ) {
