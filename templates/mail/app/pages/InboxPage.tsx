@@ -32,6 +32,7 @@ import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
+  resolveDefaultMailHref,
   pinnedTriageLabels,
   augmentSelfSentLabels,
   filterInboxTabEmails,
@@ -327,7 +328,11 @@ export function InboxPage() {
   const compose = useComposeState();
   const navState = useNavigationState();
   const [, setLastArchivedId] = useState<string | null>(null);
-  const { data: settings, isLoading: settingsLoading } = useSettings();
+  const {
+    data: settings,
+    isLoading: settingsLoading,
+    isError: settingsError,
+  } = useSettings();
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
@@ -407,25 +412,37 @@ export function InboxPage() {
   useEffect(() => {
     if (
       settingsLoading ||
+      settingsError ||
+      !settings ||
       view !== "inbox" ||
       routeThreadId ||
       activeLabel ||
       activeInboxTab ||
+      activeFilterId ||
       searchQuery ||
-      combineInbox ||
-      userPinnedLabels !== undefined ||
-      !isGoogleConnected
+      combineInbox
     )
       return;
-    void navigate("/inbox?label=important", { replace: true });
+    const defaultHref = resolveDefaultMailHref({
+      combineInbox,
+      pinnedLabels: userPinnedLabels,
+      savedFilters: settings?.savedFilters,
+      isGoogleConnected,
+    });
+    if (defaultHref !== "/inbox") {
+      void navigate(defaultHref, { replace: true });
+    }
   }, [
+    activeFilterId,
     activeInboxTab,
-    combineInbox,
     activeLabel,
+    combineInbox,
     isGoogleConnected,
     navigate,
     routeThreadId,
     searchQuery,
+    settings,
+    settingsError,
     settingsLoading,
     userPinnedLabels,
     view,

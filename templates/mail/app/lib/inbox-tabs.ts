@@ -1,7 +1,11 @@
-import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
+import {
+  isInboxScopedAppLabel,
+  mailLabelsInclude,
+  mailLabelsIncludeAny,
+} from "@shared/gmail-labels";
 import { emailMessageMatchesSearch } from "@shared/search";
 import { isSelfAddressedThread } from "@shared/self-notes";
-import type { EmailMessage } from "@shared/types";
+import type { EmailMessage, SavedMailFilter } from "@shared/types";
 
 /**
  * Single source of truth for partitioning the loaded inbox into the top-bar
@@ -45,6 +49,46 @@ export function resolvePinnedLabels(
     return isGoogleConnected ? ["important"] : [];
   }
   return [...userPinnedLabels];
+}
+
+// labels are filed/archived independently of the inbox — routing them
+// through /inbox forces `in:inbox` server-side and hides every message the
+// user has archived out of the inbox while keeping the label, which reads as
+// "label is empty" even though it has mail. Route those through /all so the
+// label search is unscoped.
+export function labelTabHref(labelId: string): string {
+  const view = isInboxScopedAppLabel(labelId) ? "inbox" : "all";
+  return `/${view}?label=${encodeURIComponent(labelId)}`;
+}
+
+/**
+ * Resolves the default destination href when opening the mail app. Selects
+ * the first top label by default (e.g. Important), or the first user label /
+ * saved filter, falling back to /inbox when combined inbox is enabled or all
+ * triage tabs are unpinned.
+ */
+export function resolveDefaultMailHref(opts: {
+  combineInbox?: boolean;
+  pinnedLabels?: readonly string[];
+  isGoogleConnected?: boolean;
+  savedFilters?: readonly Pick<SavedMailFilter, "id">[];
+}): string {
+  if (opts.combineInbox) return "/inbox";
+  const resolved = resolvePinnedLabels(
+    opts.pinnedLabels,
+    opts.isGoogleConnected ?? true,
+  );
+  if (resolved.length > 0) {
+    const firstId = resolved[0];
+    if ((COLLAPSIBLE_VIEW_IDS as readonly string[]).includes(firstId)) {
+      return `/${firstId}`;
+    }
+    return labelTabHref(firstId);
+  }
+  if (opts.savedFilters && opts.savedFilters.length > 0) {
+    return `/inbox?filter=${encodeURIComponent(opts.savedFilters[0].id)}`;
+  }
+  return "/inbox";
 }
 
 /** Pinned labels that act as inbox triage tabs (drop system views). */
