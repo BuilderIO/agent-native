@@ -46,6 +46,18 @@ When no system is linked, generated slides may use these conventions:
 | Bold terms | `<strong style="font-weight: 800; color: #fff;">Term</strong>` + description in rgba(255,255,255,0.55) |
 | Accent color | `#00E5FF` (cyan) for section labels, emphasis, highlights |
 
+## Design token variables
+
+Inside `.fmd-slide`, `--slidePadding`, `--elementGap`, `--h1`/`--h2`/`--h3`,
+`--headingFont`/`--bodyFont`, `--headingWeight`/`--bodyWeight`,
+`--primary`/`--secondary`/`--accent`, `--background`/`--surface`,
+`--text`/`--textMuted`, `--radius`, and `--accentWidth` resolve to the linked
+design system, as do their `--ds-*` aliases. Any other `var(--name)` resolves
+to nothing, and an unresolved custom property is not a fall-through to the
+stylesheet: the declaration still wins and computes to the property's initial
+value, so `padding: var(--pad)` silently becomes `padding: 0`. See the
+`create-deck` skill for the full table.
+
 ## Fit and Density
 
 Fit the main content to the native content area, not merely to the outer
@@ -56,6 +68,13 @@ column. If the source is denser, split it across slides. Never use zoom,
 `transform: scale()`, clipping, or scroll overflow to hide a fit issue; body
 text must remain at least 16px. Explicitly reduced slide padding is allowed when
 the content still needs the space.
+
+Underfilling is a fit problem too. Content that occupies well under two thirds
+of the canvas height, with the remainder collected into one empty band, reads
+as a broken slide. When an edit removes content, rebalance the slide - center
+it, grow the type scale, or distribute the body with `flex: 1` plus
+`justify-content: space-between` - rather than leaving the gap where the
+removed content used to be.
 
 ## Updating a Slide
 

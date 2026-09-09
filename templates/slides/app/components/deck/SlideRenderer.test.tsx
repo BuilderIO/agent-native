@@ -375,6 +375,15 @@ describe("SlideInner autofit", () => {
     );
     expect(canvas?.style.getPropertyValue("--ds-text")).toBe("#f5f5f5");
     expect(canvas?.querySelector(".fmd-slide--title")).toBeTruthy();
+    // Slide HTML reads the spacing and type-scale tokens too. While the canvas
+    // stopped short of the full set, an authored `padding: var(--slidePadding)`
+    // computed to 0 and headings fell back to body size.
+    expect(canvas?.style.getPropertyValue("--ds-slide-padding")).toBe("80px");
+    expect(canvas?.style.getPropertyValue("--ds-element-gap")).toBe("24px");
+    expect(canvas?.style.getPropertyValue("--ds-h2")).toBe("30px");
+    expect(canvas?.style.getPropertyValue("--ds-heading-weight")).toBe("700");
+    expect(canvas?.style.getPropertyValue("--ds-surface")).toBe("#121212");
+    expect(canvas?.style.getPropertyValue("--ds-secondary")).toBe("#222222");
   });
 
   it("reports vertical overflow for markdown slides too", async () => {

@@ -11,11 +11,16 @@ import {
   safeGeneratedFilename,
   tenantExportDir,
 } from "../server/lib/tenant-files.js";
+import type { DesignSystemData } from "../shared/api.js";
 import {
   type AspectRatio,
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+import {
+  slideDesignSystemCssRootBlock,
+  slideTokenAliasDeclarations,
+} from "../shared/slide-design-tokens.js";
 
 /**
  * Minimal server-side HTML sanitizer for exported slide content.
@@ -41,8 +46,11 @@ function buildStandaloneHtml(
   title: string,
   slides: Array<{ id: string; content: string; notes?: string }>,
   aspectRatio?: AspectRatio,
+  designSystem?: DesignSystemData | null,
 ): string {
   const dims = getAspectRatioDims(aspectRatio);
+  const designSystemRoot = slideDesignSystemCssRootBlock(designSystem);
+  const tokenAliases = slideTokenAliasDeclarations();
   const slideHtmlSections = slides
     .map(
       (slide, i) =>
@@ -61,6 +69,8 @@ function buildStandaloneHtml(
   <link href="https://fonts.bunny.net/css?family=poppins:400,600,700,800,900&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+${designSystemRoot}
 
     html, body {
       width: 100%; height: 100%;
@@ -102,7 +112,13 @@ function buildStandaloneHtml(
       height: 100%;
     }
 
+    /* Authored slide HTML is written against the design system's own token
+       names. An undefined custom property is invalid at computed-value time,
+       so without these bindings an exported deck silently loses its padding,
+       its element gaps, and its heading sizes. Mirrors the .fmd-slide block
+       in app/global.css. */
     .fmd-slide {
+${tokenAliases}
       width: 100%;
       height: 100%;
       box-sizing: border-box;
@@ -258,6 +274,44 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
+type DeckDesignSystemRead =
+  | { status: "none" }
+  | { status: "unreadable"; reason: string }
+  | { status: "ready"; designSystem: DesignSystemData };
+
+/**
+ * The deck's linked design system, read through the same access check the UI
+ * uses.
+ *
+ * "This deck has no design system" and "this deck's design system could not be
+ * read" produce the same export, so they must not produce the same value: an
+ * unreadable system is a data fault the caller logs, not a deck that was never
+ * branded.
+ */
+async function readDeckDesignSystem(
+  designSystemId: unknown,
+): Promise<DeckDesignSystemRead> {
+  if (typeof designSystemId !== "string" || !designSystemId) {
+    return { status: "none" };
+  }
+  const access = await resolveAccess("design-system", designSystemId);
+  if (!access) {
+    return { status: "unreadable", reason: "not accessible to this user" };
+  }
+  const data = access.resource.data;
+  if (typeof data !== "string") {
+    return { status: "unreadable", reason: "row has no token data" };
+  }
+  try {
+    return { status: "ready", designSystem: JSON.parse(data) };
+  } catch (error) {
+    return {
+      status: "unreadable",
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export default defineAction({
   description:
     "Export a deck as a standalone HTML file with built-in keyboard navigation. Returns a download URL for the generated file.",
@@ -296,7 +350,22 @@ export default defineAction({
       });
     }
 
-    const html = buildStandaloneHtml(row.title, slides, aspectRatio);
+    const designSystemRead = await readDeckDesignSystem(
+      deckData.designSystemId,
+    );
+    if (designSystemRead.status === "unreadable") {
+      console.warn(
+        `export-html: deck ${deckId} references design system ${String(deckData.designSystemId)} but it is unreadable (${designSystemRead.reason}); exporting with stylesheet defaults.`,
+      );
+    }
+    const html = buildStandaloneHtml(
+      row.title,
+      slides,
+      aspectRatio,
+      designSystemRead.status === "ready"
+        ? designSystemRead.designSystem
+        : null,
+    );
     const filename = safeGeneratedFilename(row.title, ".html");
 
     // Disk write is only useful when the same process can later serve the

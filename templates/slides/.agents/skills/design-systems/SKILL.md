@@ -132,6 +132,12 @@ default values with design system tokens:
 - `#000000` background -> `colors.background`
 - `rgba(255,255,255,0.55)` -> `colors.textMuted`
 
+Tokens are also available to slide HTML as CSS variables inside `.fmd-slide`
+(`--slidePadding`, `--h2`, `--primary`, and the rest, plus their `--ds-*`
+aliases). Only the names listed in `create-deck` resolve; any other
+`var(--name)` computes to the property's initial value, which turns
+`padding: var(--pad)` into `padding: 0` with no error anywhere.
+
 The hardcoded values in the `create-deck` and `slide-editing` examples are
 fallbacks, not overrides. If a token is absent, use the nearest semantic token
 or a neutral fallback and record the gap; do not invent a new brand color or

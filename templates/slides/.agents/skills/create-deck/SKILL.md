@@ -163,10 +163,33 @@ Every slide's `content` must use this exact outer div:
 ```
 
 The literal values in the examples below are fallback values for a deck with no
-linked system. When a system is linked, use its hydrated values or the renderer
-variables (`--ds-accent`, `--ds-bg`, `--ds-text`, `--ds-text-muted`,
-`--ds-heading-font`, `--ds-body-font`, `--ds-radius`) instead of copying
-Poppins, cyan, white, black, or a stock radius into new markup.
+linked system. When a system is linked, use its hydrated values or the design
+token variables below instead of copying Poppins, cyan, white, black, or a
+stock radius into new markup.
+
+## Design token variables
+
+Inside `.fmd-slide` these resolve to the linked design system, or to the
+fallback shown when no system is linked. Every other `var(--name)` resolves to
+nothing, and an unresolved custom property is not a fall-through: the
+declaration still wins and computes to the property's initial value, so
+`padding: var(--pad)` silently becomes `padding: 0`. Use a name from this list
+or write a literal value.
+
+| Variable | Design system field | Fallback |
+| --- | --- | --- |
+| `--slidePadding` | `spacing.slidePadding` | `64px 80px` |
+| `--elementGap` | `spacing.elementGap` | `24px` |
+| `--h1` / `--h2` / `--h3` | `typography.headingSizes` | `64px` / `40px` / `28px` |
+| `--headingFont` / `--bodyFont` | `typography.headingFont` / `bodyFont` | Poppins |
+| `--headingWeight` / `--bodyWeight` | `typography.headingWeight` / `bodyWeight` | `700` / `400` |
+| `--primary` / `--secondary` / `--accent` | `colors.*` | brand blue / green / cyan |
+| `--background` / `--surface` | `colors.background` / `colors.surface` | near-black |
+| `--text` / `--textMuted` | `colors.text` / `colors.textMuted` | white / 55% white |
+| `--radius` / `--accentWidth` | `borders.*` | `12px` / `4px` |
+
+The canonical `--ds-*` names (`--ds-bg`, `--ds-text`, `--ds-heading-font`, and
+the rest) are aliases of the same values and are equally safe.
 
 ## Fit budget
 
@@ -181,6 +204,26 @@ may reduce the slide's explicit padding, and that padding must remain intact
 when the saved HTML is rendered.
 
 Background is pure black (`bg-[#000000]`) — set by the renderer, not the slide HTML.
+
+## Fill the canvas
+
+Underfilling is as visible as overflowing, and it is the more common failure:
+a heading pinned to the top of an otherwise empty 960x540 canvas reads as a
+broken slide, not a minimal one. Choose the vertical distribution deliberately
+for every slide rather than defaulting to `justify-content: flex-start` and
+letting the remainder pile up at the bottom.
+
+- Content should occupy roughly two thirds of the canvas height. If it fills
+  much less, the slide needs a larger type scale, more air between elements,
+  a supporting visual, or merged content from the next slide — not a bigger
+  empty band.
+- One heading plus one short body block: center the whole slide
+  (`justify-content: center`) instead of anchoring the heading to the top.
+- Heading plus a list or grid: give the body `flex: 1` and let it
+  `justify-content: space-between` or `space-evenly`, so the spacing grows
+  with the canvas instead of collecting in one gap.
+- Keep left and right margins equal unless the layout is intentionally
+  asymmetric, and never let text run to the canvas edge.
 
 When no reference deck or hydrated design system is available, use a restrained,
 content-first visual language. Do not invent colorful cards, boxes, or

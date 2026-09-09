@@ -23,6 +23,7 @@ import {
 } from "@/lib/sanitize-slide-html";
 
 import type { DesignSystemData } from "../../../shared/api";
+import { slideDesignSystemCssVariables } from "../../../shared/slide-design-tokens";
 import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
 import { MermaidRenderer } from "./MermaidRenderer";
 
@@ -969,18 +970,9 @@ export function SlideInner({
   const bgClass = isGradientClass ? bg : "";
   const isCentered = slide.layout === "title";
 
-  const dsStyle = designSystem
-    ? ({
-        "--ds-accent": designSystem.colors.accent,
-        "--ds-bg": designSystem.colors.background,
-        "--ds-text": designSystem.colors.text,
-        "--ds-text-muted": designSystem.colors.textMuted,
-        "--ds-heading-font": designSystem.typography.headingFont,
-        "--ds-body-font": designSystem.typography.bodyFont,
-        "--ds-primary": designSystem.colors.primary,
-        "--ds-radius": designSystem.borders.radius,
-      } as React.CSSProperties)
-    : {};
+  const dsStyle = slideDesignSystemCssVariables(
+    designSystem,
+  ) as React.CSSProperties;
 
   const overflowByTargetRef = useRef(new Map<string, SlideOverflowInfo>());
   const reportTargetOverflow = useCallback(

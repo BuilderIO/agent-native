@@ -433,6 +433,45 @@ button[title="Open agent sidebar"] {
 
 /* Full-bleed wrapper for blank-layout slides */
 .fmd-slide {
+  /* A design-system read hands the agent `spacing.slidePadding` and
+     `typography.headingSizes.h2`, so authored slide HTML writes
+     `padding: var(--slidePadding)` and `font-size: var(--h2)`. An undefined
+     custom property is invalid at computed-value time: the inline declaration
+     still beats every rule below and computes to the property's initial
+     value, so those slides rendered with `padding: 0`, no element gaps, and —
+     through the `font-size: inherit` reset above — headings at body size.
+     That is the unpadded, one-band-of-an-empty-canvas layout users report as
+     wasted whitespace, and no edit to the slide can repair it because the
+     names live here, not in the slide. `--background` and friends are worse
+     than absent: `:root` holds shadcn's raw `H S% L%` channels, which are not
+     valid color values on their own. Bind the vocabulary, scoped to authored
+     slide content. Fallbacks mirror SLIDE_DESIGN_TOKEN_FALLBACKS in
+     shared/slide-design-tokens.ts. */
+  --primary: var(--ds-primary, #609ff8);
+  --secondary: var(--ds-secondary, #4ade80);
+  --accent: var(--ds-accent, #00e5ff);
+  --background: var(--ds-bg, #0b0b0d);
+  --bg: var(--ds-bg, #0b0b0d);
+  --surface: var(--ds-surface, #0a0a0a);
+  --card: var(--ds-surface, #0a0a0a);
+  --muted: var(--ds-surface, #0a0a0a);
+  --text: var(--ds-text, #ffffff);
+  --foreground: var(--ds-text, #ffffff);
+  --textMuted: var(--ds-text-muted, rgba(255, 255, 255, 0.55));
+  --muted-foreground: var(--ds-text-muted, rgba(255, 255, 255, 0.55));
+  --border: var(--ds-text-muted, rgba(255, 255, 255, 0.55));
+  --headingFont: var(--ds-heading-font, "Poppins", sans-serif);
+  --bodyFont: var(--ds-body-font, "Poppins", sans-serif);
+  --headingWeight: var(--ds-heading-weight, 700);
+  --bodyWeight: var(--ds-body-weight, 400);
+  --h1: var(--ds-h1, 64px);
+  --h2: var(--ds-h2, 40px);
+  --h3: var(--ds-h3, 28px);
+  --slidePadding: var(--ds-slide-padding, 64px 80px);
+  --elementGap: var(--ds-element-gap, 24px);
+  --radius: var(--ds-radius, 12px);
+  --accentWidth: var(--ds-accent-width, 4px);
+
   position: relative;
   width: 100%;
   height: 100%;
