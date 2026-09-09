@@ -1,11 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { ensureDreamJob } from "../server/lib/dreams-store.js";
 
 export default defineAction({
   description:
     "Create or update the personal recurring Dispatch dream job resource at jobs/dispatch-dream.md.",
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     schedule: z
       .string()

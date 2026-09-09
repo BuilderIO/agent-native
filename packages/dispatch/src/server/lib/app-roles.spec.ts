@@ -4,11 +4,15 @@ const mocks = vi.hoisted(() => ({
   assertAny: vi.fn(),
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
+  isStandaloneDispatchRuntime: vi.fn(),
   validateFederatedOrganizationMembershipForCurrentRequest: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/org", () => ({
   defineAppRoles: () => ({ assertAny: mocks.assertAny }),
+  isMissingOrganizationTableError: (error: unknown) =>
+    /(?:organizations|org_members).*does not exist/i.test(String(error)),
+  isStandaloneDispatchRuntime: mocks.isStandaloneDispatchRuntime,
   validateFederatedOrganizationMembershipForCurrentRequest:
     mocks.validateFederatedOrganizationMembershipForCurrentRequest,
 }));
@@ -37,6 +41,7 @@ describe("authorizeDispatchAdmin", () => {
     mocks.assertAny.mockResolvedValue("admin");
     mocks.getRequestOrgId.mockReturnValue(undefined);
     mocks.getRequestUserEmail.mockReturnValue(undefined);
+    mocks.isStandaloneDispatchRuntime.mockReturnValue(false);
   });
 
   it("denies an organization member without the Dispatch admin role", async () => {
@@ -76,6 +81,16 @@ describe("authorizeDispatchAdmin", () => {
     await expect(authorizeDispatchAdmin({}, context)).rejects.toThrow(
       "active organization membership",
     );
+    expect(mocks.assertAny).not.toHaveBeenCalled();
+  });
+
+  it("allows standalone administration when the org schema is absent", async () => {
+    mocks.isStandaloneDispatchRuntime.mockReturnValue(true);
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockRejectedValue(
+      new Error('relation "org_members" does not exist'),
+    );
+
+    await expect(authorizeDispatchAdmin({}, context)).resolves.toBeUndefined();
     expect(mocks.assertAny).not.toHaveBeenCalled();
   });
 

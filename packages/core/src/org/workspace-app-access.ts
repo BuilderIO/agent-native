@@ -1,7 +1,10 @@
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, type DbExec } from "../db/client.js";
-import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
+import {
+  isHostedWorkspaceRuntime,
+  resolveVercelDeploymentProtectionHeaders,
+} from "../server/credential-provider.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 import { getOrgA2ASecret, getOrgDomain } from "./context.js";
 import { isMissingOrganizationTableError } from "./membership.js";
@@ -22,6 +25,18 @@ interface WorkspaceOrgMember {
 
 function normalizedEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+export function isStandaloneDispatchRuntime(): boolean {
+  const app = getAppConfig().app;
+  const isDispatch = [
+    app.id,
+    app.legacyId,
+    app.template,
+    app.slug,
+    app.packageName,
+  ].some((value) => value?.trim().toLowerCase() === "dispatch");
+  return isDispatch && !isHostedWorkspaceRuntime();
 }
 
 function configuredWorkspaceDirectory(): string | null {
@@ -155,6 +170,7 @@ async function loadWorkspaceOrgMember(
     });
   } catch (error) {
     if (!isMissingOrganizationTableError(error)) throw error;
+    if (!isStandaloneDispatchRuntime()) throw error;
     memberResult = await db.execute({
       sql: `SELECT role FROM org_members
             WHERE org_id = ? AND LOWER(email) = ?
@@ -206,7 +222,12 @@ async function isDispatchWorkspaceAppAccessAllowed(
       member && (await isActiveWorkspaceOrgMember(member, orgId, email)),
     );
   } catch (error) {
-    if (isMissingOrganizationTableError(error)) return true;
+    if (
+      isMissingOrganizationTableError(error) &&
+      isStandaloneDispatchRuntime()
+    ) {
+      return true;
+    }
     console.error("[workspace-app-access] Dispatch access check failed", error);
     return false;
   }

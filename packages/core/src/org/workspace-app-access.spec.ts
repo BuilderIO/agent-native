@@ -89,6 +89,37 @@ describe("isWorkspaceAppAccessAllowed", () => {
     });
   });
 
+  it("keeps standalone Dispatch available when its org schema is absent", async () => {
+    vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
+    mocks.execute
+      .mockRejectedValueOnce(new Error('relation "org_members" does not exist'))
+      .mockRejectedValueOnce(
+        new Error('relation "org_members" does not exist'),
+      );
+
+    await expect(
+      isWorkspaceAppAccessAllowed("dispatch", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("fails closed for hosted Dispatch when its org schema is absent", async () => {
+    vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    mocks.execute.mockRejectedValueOnce(
+      new Error('relation "org_members" does not exist'),
+    );
+
+    await expect(
+      isWorkspaceAppAccessAllowed("dispatch", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("allows organization members for org-visible apps", async () => {
     mocks.execute
       .mockResolvedValueOnce({

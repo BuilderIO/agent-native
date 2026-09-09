@@ -447,7 +447,10 @@ function scopeFor<T extends { ownerEmail: any; orgId: any }>(
   if (!ctx.orgId) {
     return and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId));
   }
-  return or(eq(table.ownerEmail, ctx.ownerEmail), eq(table.orgId, ctx.orgId));
+  return or(
+    and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId)),
+    eq(table.orgId, ctx.orgId),
+  );
 }
 
 function safeJson(value: unknown): string {

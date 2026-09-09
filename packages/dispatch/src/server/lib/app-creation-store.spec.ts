@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => {
       settings.set(key, value);
     }),
     getOrgSetting: vi.fn(async () => null),
+    isWorkspaceAppAccessAllowed: vi.fn(async () => true),
     resolveAccess: vi.fn(async () => ({
       role: "viewer",
       resource: {},
@@ -101,6 +102,16 @@ vi.mock("@agent-native/core/settings", () => ({
   getOrgSetting: (...args: any[]) => mocks.getOrgSetting(...args),
 }));
 
+vi.mock("@agent-native/core/org", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/org")>();
+  return {
+    ...actual,
+    isWorkspaceAppAccessAllowed: (...args: any[]) =>
+      mocks.isWorkspaceAppAccessAllowed(...args),
+  };
+});
+
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/sharing")>();
@@ -144,6 +155,8 @@ afterEach(() => {
   mocks.settings.clear();
   mocks.getOrgSetting.mockReset();
   mocks.getOrgSetting.mockResolvedValue(null);
+  mocks.isWorkspaceAppAccessAllowed.mockReset();
+  mocks.isWorkspaceAppAccessAllowed.mockResolvedValue(true);
   mocks.mutateSetting.mockReset();
   mocks.mutateSetting.mockImplementation(
     async (key: string, updater: (current: any) => any) => {
@@ -566,6 +579,22 @@ describe("listWorkspaceApps", () => {
     );
 
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("does not expose Dispatch after federated membership is revoked", async () => {
+    stubManifest();
+    mocks.isWorkspaceAppAccessAllowed.mockResolvedValueOnce(false);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "member@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
+    expect(mocks.isWorkspaceAppAccessAllowed).toHaveBeenCalledWith("dispatch", {
+      email: "member@example.test",
+      orgId: "org-123",
+    });
   });
 
   it("does not expose the workspace app registry without an authenticated user", async () => {

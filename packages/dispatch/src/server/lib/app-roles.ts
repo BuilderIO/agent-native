@@ -1,6 +1,8 @@
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
   defineAppRoles,
+  isMissingOrganizationTableError,
+  isStandaloneDispatchRuntime,
   type AppRoles,
   validateFederatedOrganizationMembershipForCurrentRequest,
 } from "@agent-native/core/org";
@@ -35,11 +37,23 @@ export async function authorizeDispatchAdmin(
     );
   }
   if (!orgId?.trim()) return;
-  const membership =
-    await validateFederatedOrganizationMembershipForCurrentRequest({
-      orgId,
-      email,
-    });
+  let membership;
+  try {
+    membership = await validateFederatedOrganizationMembershipForCurrentRequest(
+      {
+        orgId,
+        email,
+      },
+    );
+  } catch (error) {
+    if (
+      isMissingOrganizationTableError(error) &&
+      isStandaloneDispatchRuntime()
+    ) {
+      return;
+    }
+    throw error;
+  }
   if (!membership.active) {
     throw new ForbiddenError(
       "Dispatch administration requires active organization membership.",
