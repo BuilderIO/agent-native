@@ -585,3 +585,48 @@
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
+
+/* Collaboration carets & cursors (rendered by @tiptap/extension-collaboration-caret) */
+.collaboration-carets__caret,
+.collaboration-cursor__caret,
+.ProseMirror-yjs-cursor {
+  position: relative;
+  display: inline;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 2px solid currentColor;
+  word-break: normal;
+  pointer-events: none;
+  line-height: 1;
+}
+
+.collaboration-carets__label,
+.collaboration-cursor__label {
+  position: absolute;
+  top: -1.4em;
+  left: -1px;
+  display: inline-block;
+  max-width: min(180px, 50vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  color: #fff;
+  padding: 1px 4px 2px;
+  border-radius: 3px 3px 3px 0;
+  user-select: none;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.collaboration-carets__selection,
+.collaboration-cursor__selection,
+.ProseMirror-yjs-selection {
+  background-color: currentColor !important;
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  opacity: 0.16;
+}

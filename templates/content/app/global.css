@@ -2466,7 +2466,9 @@ audio.media-block__content {
 }
 
 /* ===== Collaboration cursors ===== */
-.notion-editor .collaboration-cursor__selection {
+.notion-editor .collaboration-carets__selection,
+.notion-editor .collaboration-cursor__selection,
+.notion-editor .ProseMirror-yjs-selection {
   background-color: currentColor !important;
   border-radius: 2px;
   box-decoration-break: clone;
@@ -2474,7 +2476,9 @@ audio.media-block__content {
   opacity: 0.16;
 }
 
-.notion-editor .collaboration-cursor__caret {
+.notion-editor .collaboration-carets__caret,
+.notion-editor .collaboration-cursor__caret,
+.notion-editor .ProseMirror-yjs-cursor {
   border-left: 2px solid;
   border-color: currentColor;
   display: inline;
@@ -2485,6 +2489,8 @@ audio.media-block__content {
   pointer-events: none;
   line-height: 1;
 }
+
+.notion-editor .collaboration-carets__label,
 .notion-editor .collaboration-cursor__label {
   position: absolute;
   top: -1.4em;
@@ -2502,4 +2508,5 @@ audio.media-block__content {
   border-radius: 3px 3px 3px 0;
   user-select: none;
   pointer-events: none;
+  z-index: 20;
 }

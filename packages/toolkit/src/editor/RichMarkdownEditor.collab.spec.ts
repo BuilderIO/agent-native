@@ -76,4 +76,19 @@ describe("createRichMarkdownExtensions collaboration wiring", () => {
       ydoc.destroy();
     }
   });
+
+  it("styles Tiptap collaboration carets and labels in editor.css", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const css = readFileSync(
+      resolve(import.meta.dirname, "../editor.css"),
+      "utf8",
+    );
+    expect(css).toMatch(
+      /\.collaboration-carets__caret[\s\S]*?position:\s*relative;[\s\S]*?display:\s*inline;/,
+    );
+    expect(css).toMatch(
+      /\.collaboration-carets__label[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*-1\.4em;/,
+    );
+  });
 });
