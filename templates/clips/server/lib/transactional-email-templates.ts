@@ -39,6 +39,10 @@ export type ClipsTransactionalEmailInput =
   | (TransactionalEmailBase & {
       kind: "unviewed-reminder";
       recordingId: string;
+      /** Set when the clip is a meeting recording, which has no video to play. */
+      meetingId?: string | null;
+      /** Public meeting pages render signed-out; private ones need the app. */
+      meetingIsPublic?: boolean;
       title?: string | null;
       senderEmail?: string | null;
       senderName?: string | null;
@@ -184,6 +188,28 @@ function clipUrl(
   options: ClipsTransactionalEmailRenderOptions,
 ): string {
   return appUrlForPath(`/r/${encodeURIComponent(recordingId)}`, options);
+}
+
+/**
+ * The best page this recipient can open. `/r/` is the signed-in app route, and
+ * a meeting recording has no video for the clip player to resolve; the public
+ * meeting page in turn renders signed-out only when the meeting is public.
+ */
+function recipientUrl(
+  recordingId: string,
+  meetingId: string | null | undefined,
+  meetingIsPublic: boolean | undefined,
+  options: ClipsTransactionalEmailRenderOptions,
+): string {
+  if (meetingId) {
+    return appUrlForPath(
+      meetingIsPublic
+        ? `/share/meeting/${encodeURIComponent(meetingId)}`
+        : `/meetings/${encodeURIComponent(meetingId)}`,
+      options,
+    );
+  }
+  return appUrlForPath(`/share/${encodeURIComponent(recordingId)}`, options);
 }
 
 function clipCommentsUrl(
@@ -451,28 +477,47 @@ export function renderClipsTransactionalEmail(
       const sender =
         singleLine(input.senderName) ||
         normalizeEmailDisplayName(input.senderEmail, "Someone");
-      const subject = `Still need to watch “${title}”?`;
-      const url = clipUrl(input.recordingId, options);
+      // A meeting recording has no video, and its page shows written notes
+      // rather than the transcript unless the owner opted the transcript in.
+      const copy = input.meetingId
+        ? {
+            subject: `Still need to read the notes from “${title}”?`,
+            heading: `${sender} shared meeting notes with you`,
+            waiting: `Notes from ${emailStrong(title!)} are waiting whenever you have a moment.`,
+            ctaLabel: "Read the Notes",
+            footerNoun: "these notes",
+          }
+        : {
+            subject: `Still need to watch “${title}”?`,
+            heading: `${sender} shared a Clip with you`,
+            waiting: `${emailStrong(title!)} is waiting whenever you have a moment.`,
+            ctaLabel: "Watch the Clip Manually",
+            footerNoun: "this Clip",
+          };
+      const url = recipientUrl(
+        input.recordingId,
+        input.meetingId,
+        input.meetingIsPublic,
+        options,
+      );
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
         brandLogoUrl: resolveBrandLogoUrl(input.brandLogoUrl, options),
-        preheader: subject,
-        heading: `${sender} shared a Clip with you`,
-        paragraphs: [
-          `${emailStrong(title!)} is waiting whenever you have a moment.`,
-        ],
+        preheader: copy.subject,
+        heading: copy.heading,
+        paragraphs: [copy.waiting],
         linkBlock: {
           intro:
             "Don't have a moment to spare? Share the below link with your own AI agent and ask it for a summary:",
           url,
         },
         cta: {
-          label: "Watch the Clip Manually",
+          label: copy.ctaLabel,
           url,
         },
-        footer: `You received this reminder because ${sender} shared this Clip with you two days ago.`,
+        footer: `You received this reminder because ${sender} shared ${copy.footerNoun} with you two days ago.`,
       });
-      return { subject, ...rendered };
+      return { subject: copy.subject, ...rendered };
     }
 
     case "first-agent-view": {

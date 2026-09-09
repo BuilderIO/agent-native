@@ -27,6 +27,7 @@ interface CommentComposerProps {
   onBlur?: () => void;
   members: MentionMember[];
   placeholder?: string;
+  ariaLabel?: string;
   autoFocus?: boolean;
   disabled?: boolean;
   rows?: number;
@@ -52,6 +53,7 @@ export const CommentComposer = forwardRef<
     onBlur,
     members,
     placeholder,
+    ariaLabel,
     autoFocus,
     disabled = false,
     rows = 2,
@@ -70,7 +72,9 @@ export const CommentComposer = forwardRef<
   };
 
   useEffect(() => {
-    if (autoFocus) setTimeout(() => innerRef.current?.focus(), 50);
+    if (!autoFocus) return;
+    const timer = setTimeout(() => innerRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
   }, [autoFocus]);
 
   const filtered =
@@ -141,6 +145,7 @@ export const CommentComposer = forwardRef<
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
         setQuery(null);
         return;
       }
@@ -150,8 +155,10 @@ export const CommentComposer = forwardRef<
       onSubmit();
       return;
     }
-    if (e.key === "Escape") {
-      onEscape?.();
+    if (e.key === "Escape" && onEscape) {
+      e.preventDefault();
+      e.stopPropagation();
+      onEscape();
     }
   };
 
@@ -159,6 +166,7 @@ export const CommentComposer = forwardRef<
     <div className="relative">
       <textarea
         ref={setRefs}
+        aria-label={ariaLabel}
         value={value}
         disabled={disabled}
         rows={rows}

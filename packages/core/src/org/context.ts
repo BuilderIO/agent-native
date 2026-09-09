@@ -4,6 +4,10 @@ import { warnAgent } from "../agent/action-warnings.js";
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { getSession } from "../server/auth.js";
+import {
+  getRequestContext,
+  hasExplicitPersonalOrgScope,
+} from "../server/request-context.js";
 import { getSetting } from "../settings/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import { FIRST_RUN_ONBOARDING_ELIGIBLE_KEY } from "../shared/first-run-onboarding.js";
@@ -15,6 +19,7 @@ import {
   invalidateMemberOrgCaches,
   requestMemberOrgIds,
 } from "./request-org-cache.js";
+import { implicitServiceOrgRole } from "./service-identity.js";
 import type { OrgContext, OrgRole } from "./types.js";
 
 const EMPTY_CONTEXT: OrgContext = {
@@ -271,11 +276,36 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   const session = await getSession(event);
   const email = session?.email;
   if (!email) return EMPTY_CONTEXT;
+  if (hasExplicitPersonalOrgScope(event)) {
+    return { email, orgId: null, orgName: null, role: null };
+  }
   const sessionOrgId =
     typeof session.orgId === "string" && session.orgId.trim()
       ? session.orgId.trim()
       : null;
   const sessionOrgRole = normalizeOrgRole(session.orgRole);
+
+  // Org service tokens use a synthetic email and are intentionally absent
+  // from org_members. Before the action route establishes its ALS context,
+  // sessionOrgId is the verified org_id claim; once it exists, require the
+  // request-scoped org to agree before granting the implicit member role.
+  const requestContext = getRequestContext();
+  const serviceRole = implicitServiceOrgRole({
+    email,
+    orgId: sessionOrgId,
+    requestOrgId:
+      requestContext?.orgScope === "personal"
+        ? null
+        : (requestContext?.orgId ?? sessionOrgId),
+  });
+  if (serviceRole && sessionOrgId) {
+    return {
+      email,
+      orgId: sessionOrgId,
+      orgName: null,
+      role: serviceRole,
+    };
+  }
 
   const exec = getDbExec();
 
@@ -576,6 +606,7 @@ async function loadMembershipsUncached(
 export async function resolveOrgIdForEmail(
   email: string,
 ): Promise<string | null> {
+  if (getRequestContext()?.orgScope === "personal") return null;
   const idsPromise = requestMemberOrgIds(email, async () => {
     const rows = await queryOrgMembers({
       sql: `SELECT org_id FROM org_members
@@ -615,6 +646,7 @@ export async function resolveOrgIdForEmailViaEvent(
   event: H3Event,
   email: string,
 ): Promise<string | null> {
+  if (getRequestContext()?.orgScope === "personal") return null;
   // Overlapped, not queued: each is a separate round trip and this pair runs
   // on the session-backfill path of every authenticated request.
   const settingPromise = loadActiveOrgSettingForEvent(event, email);

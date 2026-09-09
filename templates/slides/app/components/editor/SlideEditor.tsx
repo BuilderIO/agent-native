@@ -194,8 +194,10 @@ import {
   findSmartBlock,
   isInlineTextElement,
   isRichTextBlock,
+  isSmartGroup,
   isSlideTextEditingTarget,
   shouldStampBuilderId,
+  shouldTraverseSlideLayerChildren,
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
@@ -323,7 +325,7 @@ function stampBuilderIds(container: HTMLElement) {
       return;
     }
     ensureBuilderId(element);
-    if (isRichTextBlock(element)) {
+    if (isRichTextBlock(element) && !isSmartGroup(element)) {
       for (const descendant of Array.from(
         element.querySelectorAll<HTMLElement>("[data-slide-text-block]"),
       )) {
@@ -437,11 +439,12 @@ function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
       return null;
     }
     // Rich text is one layer: its blocks are structure, not rows of their own.
-    const children = isRichTextBlock(element)
-      ? []
-      : sortSlideLayerElements(Array.from(element.children) as HTMLElement[])
+    // Smart groups are layout containers, so their text leaves stay visible.
+    const children = shouldTraverseSlideLayerChildren(element)
+      ? sortSlideLayerElements(Array.from(element.children) as HTMLElement[])
           .map((child, childIndex) => visit(child as HTMLElement, childIndex))
-          .filter((child): child is SlidesLayerNode => child !== null);
+          .filter((child): child is SlidesLayerNode => child !== null)
+      : [];
     return {
       id: ensureBuilderId(element),
       label: layerLabel(element, index),

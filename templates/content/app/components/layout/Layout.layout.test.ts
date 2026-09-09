@@ -61,4 +61,16 @@ describe("app layout", () => {
 
     expect(source).toContain("useCreatePage({ awaitPersist: false })");
   });
+
+  it("includes the current document revision in chat history restores", () => {
+    const source = readLayoutSource();
+
+    expect(source).toContain("prepareRegisteredDocumentHistoryRestore");
+    expect(source).toContain("applyRegisteredDocumentHistoryRestore");
+    expect(source).toContain("expectedUpdatedAt:");
+    expect(source).toContain("onRestored: async (restored)");
+    expect(source).toContain(
+      'toast.error(t("editor.historyRestoreAppliedRefreshFailed"))',
+    );
+  });
 });

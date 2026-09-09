@@ -3873,7 +3873,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const handleNativeReaderScroll = () => {
     documentStateRef.current = readNativeDocumentState();
     setNativeSelectionComment(null);
-    scheduleNativeMarkerUpdate();
+    if (commentMarkersVisible || pendingAnnotation || activeAnnotation) {
+      // Ordinary reading must not invalidate the document tree on every wheel frame.
+      scheduleNativeMarkerUpdate();
+    }
   };
 
   const readNativeSelectionComment =

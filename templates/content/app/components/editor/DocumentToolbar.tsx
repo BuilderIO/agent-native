@@ -8,7 +8,7 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import { ShareTrigger } from "@agent-native/toolkit/sharing";
-import type { DocumentSourceInfo } from "@shared/api";
+import type { Document, DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
@@ -108,7 +108,10 @@ import {
   DatabaseExportDialog,
   type DatabaseExportContext,
 } from "./database/DatabaseExportDialog";
-import { VersionHistoryPanel } from "./VersionHistoryPanel";
+import {
+  VersionHistoryPanel,
+  type HistoryRestoreApplyResult,
+} from "./VersionHistoryPanel";
 
 type ExportFormat = "pdf" | "markdown" | "html";
 
@@ -497,11 +500,18 @@ function ToolbarBreadcrumbMenu({
 }
 
 interface DocumentToolbarProps {
+  compact?: boolean;
   documentId: string;
   documentTitle?: string;
   documentContent?: string;
   breadcrumbItems?: ToolbarBreadcrumbItem[];
   documentUpdatedAt?: string | null;
+  prepareHistoryRestore?: () => Promise<string>;
+  historyRestoreReady?: boolean;
+  onHistoryRestored?: (
+    restored: Document,
+  ) => HistoryRestoreApplyResult | Promise<HistoryRestoreApplyResult>;
+  restoreUnavailableReason?: string;
   activeUsers?: CollabUser[];
   agentPresent?: boolean;
   agentActive?: boolean;
@@ -527,11 +537,16 @@ interface DocumentToolbarProps {
 }
 
 export function DocumentToolbar({
+  compact = false,
   documentId,
   documentTitle,
   documentContent,
   breadcrumbItems = [],
   documentUpdatedAt,
+  prepareHistoryRestore,
+  historyRestoreReady = true,
+  onHistoryRestored,
+  restoreUnavailableReason,
   activeUsers,
   agentPresent,
   agentActive,
@@ -928,26 +943,27 @@ export function DocumentToolbar({
     <>
       <div className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4">
         {sidebarTrigger}
-        <ToolbarBreadcrumb
-          items={
-            breadcrumbItems.length
-              ? breadcrumbItems
-              : [{ id: documentId, title: documentTitle || "Untitled" }]
-          }
-          currentDocumentId={documentId}
-          ariaLabel={t("editor.toolbar.pageBreadcrumb")}
-          untitledLabel={t("sidebar.untitled")}
-          onOpen={(id) => {
-            if (onOpenBreadcrumbItem) {
-              onOpenBreadcrumbItem(id);
-              return;
+        {!compact ? (
+          <ToolbarBreadcrumb
+            items={
+              breadcrumbItems.length
+                ? breadcrumbItems
+                : [{ id: documentId, title: documentTitle || "Untitled" }]
             }
-            void navigate(`/page/${id}`, { flushSync: true });
-          }}
-        />
-
+            currentDocumentId={documentId}
+            ariaLabel={t("editor.toolbar.pageBreadcrumb")}
+            untitledLabel={t("sidebar.untitled")}
+            onOpen={(id) => {
+              if (onOpenBreadcrumbItem) {
+                onOpenBreadcrumbItem(id);
+                return;
+              }
+              void navigate(`/page/${id}`, { flushSync: true });
+            }}
+          />
+        ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
-          {editedLabel ? (
+          {editedLabel && !compact ? (
             <span className="hidden shrink-0 px-2 text-sm text-muted-foreground lg:inline">
               {editedLabel}
             </span>
@@ -1027,7 +1043,11 @@ export function DocumentToolbar({
                 open={historyOpen}
                 onOpenChange={setHistoryOpen}
                 canRestore={canEdit}
+                restoreReady={historyRestoreReady}
                 activeUsers={activeUsers}
+                prepareRestore={prepareHistoryRestore}
+                onRestored={onHistoryRestored}
+                restoreUnavailableReason={restoreUnavailableReason}
               />
             </>
           )}
@@ -1075,7 +1095,11 @@ export function DocumentToolbar({
                 {t("editor.toolbar.morePageActions")}
               </TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="end" className="w-60">
+            <DropdownMenuContent
+              align="end"
+              className="w-60"
+              data-database-preview-portal={compact ? "" : undefined}
+            >
               <DropdownMenuGroup>
                 <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
                   <IconArrowBackUp className="me-2 h-4 w-4" />

@@ -72,7 +72,8 @@ export const DATA_PROGRAM_SHARES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS data_p
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT now()
+  created_at TEXT NOT NULL DEFAULT now(),
+  notified_at TEXT
 )`;
 
 export const DATA_PROGRAMS_APP_OWNER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS data_programs_app_owner_idx ON data_programs (app_id, owner_email)`;

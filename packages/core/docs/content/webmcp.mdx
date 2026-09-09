@@ -45,9 +45,14 @@ provide a usable native WebMCP surface. This keeps `document.modelContext`
 available for a host browser JavaScript evaluator. The polyfill is page-local.
 It does not grant access to the page or create a network MCP connection.
 
-An action is eligible when `agentTool` is not `false` and `needsApproval` is
-not declared. The latter is a fail-closed boundary: the server action approval
-contract belongs to the agent loop and cannot be delegated to a browser hint.
+An action is eligible when `agentTool` is not `false`. Declaring
+`needsApproval` does not remove an action from WebMCP — the in-app agent loop
+is the only surface that can run its actual human approval flow, so a WebMCP
+call still can't grant that approval. Instead, the server re-evaluates the
+predicate against each call's real arguments: a call that doesn't trip it runs
+normally, and one that does is refused with an error telling the caller to ask
+the user to confirm in chat instead of executing it silently.
+
 Authenticated `sessionBypass` surfaces, such as MCP embed routes, also register
 backend action tools. Public paths and signed-out pages do not. Browsers
 without `document.modelContext` simply keep the normal app behavior.

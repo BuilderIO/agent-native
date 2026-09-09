@@ -42,6 +42,245 @@ describe("Design final response guard", () => {
     expect(
       looksLikeDesignMutationRequest("can you create another version of this"),
     ).toBe(true);
+    expect(looksLikeDesignMutationRequest("create a LinkedIn visual")).toBe(
+      true,
+    );
+    expect(
+      looksLikeDesignMutationRequest("create a hero visual regression test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("add a button visual regression test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a card visual snapshot"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "give me tips to create a LinkedIn visual",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual regression test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual snapshot test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual-regression test"),
+    ).toBe(false);
+    expect(looksLikeDesignMutationRequest("add a visual test")).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "add a visual regression test for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "add a visual regression test for the hero and footer",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero, footer and nav",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create visual snapshots for this design"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual snapshot of the hero"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a dark-mode visual regression test",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, then update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero layout and after that update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, then run it",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test — for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "update the color palette, then run a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "fix the hero layout after creating visual snapshots",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "fix the hero layout for visual regression tests",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a card",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a visual snapshot test",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a hero visual regression test and a card visual snapshot",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a hero and footer visual regression test",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and buttons",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("add visual snapshots and cards"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero layout and a card",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a new card",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and some cards",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a primary button",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero after we update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, add buttons",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test; create cards",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero or update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero or a card",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "update the color palette — create a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test before improving the hero layout",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test after improving the hero layout",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero — then update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression and snapshot tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "add visual regression and snapshot tests for the hero",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual snapshot and regression tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression or snapshot tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression and snapshot tests for the hero, then update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "update the color palette followed by run a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, — for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "give me a tutorial to create a LinkedIn visual",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("teach me to create a LinkedIn visual"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "teach me to improve this visual, then fix the hero layout",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "fix the visual regression in the hero layout",
+      ),
+    ).toBe(true);
     expect(looksLikeDesignMutationRequest("how do I create a design?")).toBe(
       false,
     );

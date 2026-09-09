@@ -20,9 +20,12 @@ import {
 } from "react";
 import { Link, useInRouterContext, useLocation } from "react-router";
 
-import { appBasePath, appPath } from "../../client/api-path.js";
+import { appMountPath, appMountedPath } from "../../client/api-path.js";
 import type { ExperimentDefinition } from "../../experiments/registry.js";
-import { buildSettingsRoute } from "../../navigation/index.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
 import { ExperimentsSettings } from "../experiments/ExperimentsSettings.js";
 import { cn } from "../utils.js";
 
@@ -235,12 +238,13 @@ function activeTabFromLocation(
 function appLocalPathname(pathname?: string): string {
   if (typeof window === "undefined" && !pathname) return "/";
   const currentPathname = pathname ?? window.location.pathname;
-  const basePath = appBasePath();
+  const mountPath = appMountPath(STANDARD_APP_ROUTES.settings);
   if (
-    basePath &&
-    (currentPathname === basePath || currentPathname.startsWith(`${basePath}/`))
+    mountPath &&
+    (currentPathname === mountPath ||
+      currentPathname.startsWith(`${mountPath}/`))
   ) {
-    return currentPathname.slice(basePath.length) || "/";
+    return currentPathname.slice(mountPath.length) || "/";
   }
   return currentPathname;
 }
@@ -265,7 +269,7 @@ function updateRouteForTab(tabId: string, section?: string) {
   window.history.pushState(
     null,
     "",
-    `${appPath(route)}${window.location.search}`,
+    `${appMountedPath(route, STANDARD_APP_ROUTES.settings)}${window.location.search}`,
   );
   window.dispatchEvent(new Event("popstate"));
 }
