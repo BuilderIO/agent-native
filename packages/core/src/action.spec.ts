@@ -794,7 +794,7 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     expect(message.length).toBeLessThan(1000);
   });
 
-  it("validateActionArgs lets a matching schema's run() skip re-validation", async () => {
+  it("validateActionArgs lets a matching schema's run() skip re-validation when passed the same ctx", async () => {
     let received: unknown;
     const schema = z.object({ tag: z.preprocess((v) => `${v}!`, z.string()) });
     const action = defineAction({
@@ -806,11 +806,39 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
       },
     });
 
-    const validated = await validateActionArgs(schema, { tag: "a" });
-    await action.run(validated);
+    // The marker is keyed by `ctx` (see `preValidatedForContext`), not by
+    // `args` — so the exact same context object must be passed to both calls.
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(
+      schema,
+      { tag: "a" },
+      undefined,
+      ctx,
+    );
+    await action.run(validated, ctx);
     // A second pass through the non-idempotent preprocess would have produced
     // "a!!"; the marker means run() executes with the exact value validated.
     expect(received).toEqual({ tag: "a!" });
+  });
+
+  it("re-validates normally when run() is called without the marking ctx", async () => {
+    let received: unknown;
+    const schema = z.object({ tag: z.preprocess((v) => `${v}!`, z.string()) });
+    const action = defineAction({
+      description: "tag",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    // Validated with no ctx, so nothing is marked and run() validates as usual
+    // — a primitive-valued schema result (which a WeakMap/WeakSet can't key
+    // on directly) still goes through the normal path safely.
+    const validated = await validateActionArgs(schema, { tag: "a" });
+    await action.run(validated);
+    expect(received).toEqual({ tag: "a!!" });
   });
 
   it("does not let a value validated for one action's schema skip a different action's validation", async () => {
@@ -833,6 +861,29 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
       /Invalid action parameters/,
     );
     expect(ranB).toBe(false);
+  });
+
+  it("skips re-validation for a schema that validates down to a primitive", async () => {
+    // A WeakMap/WeakSet can't key on a primitive value at all — this is why
+    // the marker is keyed by `ctx` instead of by the validated value.
+    let received: unknown;
+    const schema = z.preprocess((v) => `${v}!`, z.string());
+    const action = defineAction({
+      description: "primitive schema",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(schema, "a", undefined, ctx);
+    expect(validated).toBe("a!");
+    await action.run(validated, ctx);
+    // A second pass would have produced "a!!"; skipping it keeps this the
+    // exact value a `needsApproval` predicate would have decided against.
+    expect(received).toBe("a!");
   });
 });
 

@@ -1925,19 +1925,22 @@ export function describeToolParameterSignature(
 }
 
 /**
- * Records which schema already validated a value returned by
- * `validateActionArgs`, so `wrapWithValidation` can pass it straight to
- * `run()` instead of parsing it again. Identity-based (not a context flag) so
- * it can't be spoofed by a caller-supplied object, and keyed by the specific
- * schema — not just object identity — so a value validated for one action can
- * never skip a *different* action's validation if the same object reference
- * were ever handed to both. It exists because a second pass through a
- * non-idempotent schema (a `.preprocess`/`.transform` that isn't stable under
- * re-parsing) could hand `run()` a different value than the one a
- * `needsApproval` predicate decided against — re-validating would silently
- * reopen that gap.
+ * Records a value already validated against a schema, keyed by the
+ * `ActionRunContext` object about to be passed to `run()` — not by the
+ * validated value itself. A Standard Schema may legitimately validate down to
+ * a primitive (a `WeakMap`/`WeakSet` can't key on those, and two equal
+ * primitives from unrelated calls would collide anyway), while `ctx` is
+ * always a fresh object built once per call. Scoped by schema too, so a value
+ * validated for one action's schema can never skip a *different* action's
+ * validation. It exists because a second pass through a non-idempotent schema
+ * (a `.preprocess`/`.transform` that isn't stable under re-parsing) could hand
+ * `run()` a different value than the one a `needsApproval` predicate decided
+ * against — re-validating would silently reopen that gap.
  */
-const preValidatedActionArgs = new WeakMap<object, StandardSchemaV1>();
+const preValidatedForContext = new WeakMap<
+  object,
+  { schema: StandardSchemaV1; value: unknown }
+>();
 
 /**
  * Validate + coerce raw args against a Standard Schema, returning the same
@@ -1946,14 +1949,16 @@ const preValidatedActionArgs = new WeakMap<object, StandardSchemaV1>();
  * normalized value the action will actually execute with (defaults applied,
  * "false" coerced to `false`, …) rather than the raw wire shape a predicate
  * evaluated on unparsed JSON would misread. Throws the same "Invalid action
- * parameters" error `run()` would on invalid input. Passing the returned value
- * straight into that same action's `run()` skips its internal re-validation
- * (see `preValidatedActionArgs`) instead of parsing it a second time.
+ * parameters" error `run()` would on invalid input. Pass the exact
+ * `ActionRunContext` object that will be handed to that same action's
+ * `run()` as `ctx` and it skips its internal re-validation (see
+ * `preValidatedForContext`) instead of parsing the value a second time.
  */
 export async function validateActionArgs(
   schema: StandardSchemaV1,
   args: unknown,
   toolParameters?: ActionTool["parameters"],
+  ctx?: object,
 ): Promise<any> {
   args = coerceGatewayStringifiedArgs(args, toolParameters);
   const result = await schema["~standard"].validate(args);
@@ -2011,9 +2016,7 @@ export async function validateActionArgs(
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
-  if (value && typeof value === "object") {
-    preValidatedActionArgs.set(value, schema);
-  }
+  if (ctx) preValidatedForContext.set(ctx, { schema, value });
   return value;
 }
 
@@ -2028,11 +2031,11 @@ function wrapWithValidation(
   toolParameters?: ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
-    if (
-      args &&
-      typeof args === "object" &&
-      preValidatedActionArgs.get(args) === schema
-    ) {
+    const cached =
+      ctx && typeof ctx === "object"
+        ? preValidatedForContext.get(ctx)
+        : undefined;
+    if (cached && cached.schema === schema && cached.value === args) {
       return run(args, ctx);
     }
     return run(await validateActionArgs(schema, args, toolParameters), ctx);

@@ -18,6 +18,7 @@ import {
   isAgentActionStopError,
   validateActionArgs,
 } from "../action.js";
+import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
@@ -779,6 +780,26 @@ function mountActionRoutesInternal(
                   : isFrontendActionRequest(event)
                     ? "frontend"
                     : "http");
+              // Built once and reused for both the needsApproval check below
+              // and entry.run() at the bottom: validateActionArgs marks this
+              // exact object as "already validated for this schema" (see
+              // `preValidatedForContext` in action.ts), which only works if
+              // run() receives the SAME context object that was marked.
+              const runContext: ActionRunContext = {
+                userEmail,
+                orgId: orgId ?? null,
+                appId: options?.appId,
+                caller,
+                requestHeaders: event.headers,
+                actionName: name,
+                ...(resolvedCaller?.delegationJti
+                  ? {
+                      networkProtocol: "a2a" as const,
+                      networkId: resolvedCaller.delegationJti,
+                      networkPeer: resolvedCaller.delegationIssuer,
+                    }
+                  : {}),
+              };
               // WebMCP/HTTP-MCP tool calls skip the agent loop entirely, so
               // `needsApproval` is never evaluated for them upstream — the
               // action stays registered (see `mountWebMcpActionRoutes`) but
@@ -794,13 +815,13 @@ function mountActionRoutesInternal(
                 // "false" → `false`) only exists after schema validation, so
                 // a predicate reading raw `params` can approve a call it
                 // would have gated had it seen what `run()` sees. When a
-                // schema is declared, validate once here and reuse that exact
-                // value for `run()` below — `wrapWithValidation` recognizes it
-                // and skips re-parsing, so a non-idempotent transform can't
-                // hand `run()` a different value than the one just approved.
-                // An invalid call throws `validateActionArgs`'s own "Invalid
-                // action parameters" error, which the catch block below
-                // already renders as a 400.
+                // schema is declared, validate once here against `runContext`
+                // (see above) so `run()` below skips re-parsing — a
+                // non-idempotent transform can't hand `run()` a different
+                // value than the one just approved, even one that validates
+                // down to a primitive. An invalid call throws
+                // `validateActionArgs`'s own "Invalid action parameters"
+                // error, which the catch block below already renders as 400.
                 if (
                   entry.schema &&
                   typeof entry.schema === "object" &&
@@ -810,6 +831,7 @@ function mountActionRoutesInternal(
                     entry.schema as StandardSchemaV1,
                     params,
                     entry.tool.parameters,
+                    runContext,
                   );
                 }
                 let mustApprove = false;
@@ -835,21 +857,7 @@ function mountActionRoutesInternal(
                   );
                 }
               }
-              const result = await entry.run(params, {
-                userEmail,
-                orgId: orgId ?? null,
-                appId: options?.appId,
-                caller,
-                requestHeaders: event.headers,
-                actionName: name,
-                ...(resolvedCaller?.delegationJti
-                  ? {
-                      networkProtocol: "a2a",
-                      networkId: resolvedCaller.delegationJti,
-                      networkPeer: resolvedCaller.delegationIssuer,
-                    }
-                  : {}),
-              });
+              const result = await entry.run(params, runContext);
 
               // Auto-refresh the UI after a successful mutating action. GET
               // actions and actions explicitly flagged readOnly are skipped.
