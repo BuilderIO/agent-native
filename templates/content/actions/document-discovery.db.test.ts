@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { closeDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -79,11 +80,142 @@ beforeAll(async () => {
   }
 }, 60_000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("bounded document discovery", () => {
+  it("filters title and modified date before pagination and returns authorized parent context", async () => {
+    const first = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "Bounded document",
+        searchFields: "title",
+        spaceId: SPACE_ID,
+        modifiedAfter: "2020-01-01T00:00:00.000Z",
+        modifiedBefore: "2100-01-01T00:00:00.000Z",
+        documentType: "page",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    const later = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "Bounded document",
+        searchFields: "title",
+        spaceId: SPACE_ID,
+        modifiedAfter: "2020-01-01T00:00:00.000Z",
+        modifiedBefore: "2100-01-01T00:00:00.000Z",
+        documentType: "page",
+        limit: 8,
+        offset: first.pagination.nextOffset!,
+      }),
+    );
+    expect(first.pagination.totalItems).toBe(203);
+    expect(later.documents).toHaveLength(8);
+    expect(
+      later.documents.some((doc) =>
+        first.documents.some((prior) => prior.id === doc.id),
+      ),
+    ).toBe(false);
+    expect(first.documents[0]).toMatchObject({
+      parentTitle: "Discovery parent",
+      documentType: "page",
+    });
+    const bodyOnly = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "needle payload",
+        searchFields: "title",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(bodyOnly.pagination.totalItems).toBe(0);
+    const future = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "Bounded document",
+        modifiedAfter: "2100-01-01T00:00:00.000Z",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(future.pagination.totalItems).toBe(0);
+  });
+
+  it("does not disclose a private parent through an independently visible child", async () => {
+    await getDb().insert(schema.documents).values({
+      id: "search-shared-child",
+      parentId: PARENT_ID,
+      ownerEmail: OUTSIDER,
+      title: "Independent child match",
+      content: "child excerpt",
+      visibility: "private",
+    });
+    const result = await asUser(OUTSIDER, () =>
+      searchDocuments.run({
+        query: "Independent child match",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(result.documents).toHaveLength(1);
+    expect(result.documents[0]).toMatchObject({
+      parentId: null,
+      parentTitle: null,
+      snippet: "child excerpt",
+    });
+    expect(JSON.stringify(result)).not.toContain("Discovery parent");
+    expect(JSON.stringify(result)).not.toContain(PARENT_ID);
+  });
+
+  it("counts and paginates hidden and database matches in the Action", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "search-hidden",
+          ownerEmail: OWNER,
+          title: "Kind needle hidden",
+          hideFromSearch: 1,
+        },
+        {
+          id: "search-kind-page",
+          ownerEmail: OWNER,
+          title: "Kind needle page",
+        },
+        {
+          id: "search-kind-db",
+          ownerEmail: OWNER,
+          title: "Kind needle database",
+        },
+      ]);
+    await getDb()
+      .insert(schema.contentDatabases)
+      .values({
+        id: "search-kind-database",
+        documentId: "search-kind-db",
+        ownerEmail: OWNER,
+        title: "Kind needle database",
+      });
+    const all = await asUser(OWNER, () =>
+      searchDocuments.run({ query: "Kind needle", limit: 8, offset: 0 }),
+    );
+    expect(all.pagination.totalItems).toBe(2);
+    const database = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "Kind needle",
+        documentType: "database",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(database.pagination.totalItems).toBe(1);
+    expect(database.documents[0]).toMatchObject({
+      id: "search-kind-db",
+      documentType: "database",
+    });
+  });
+
   it("returns explicit continuation metadata through a terminal list page", async () => {
     const first = await asUser(OWNER, () =>
       listDocuments.run({ parentId: PARENT_ID, limit: 100, offset: 0 }),

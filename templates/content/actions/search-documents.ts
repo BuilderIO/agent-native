@@ -3,7 +3,19 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { asc, desc, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -66,6 +78,18 @@ export default defineAction({
         .enum(["page", "database"])
         .optional()
         .describe("Only ordinary pages or database pages"),
+      searchFields: z
+        .enum(["all", "title"])
+        .optional()
+        .describe("Match title only, or title, description and body (default)"),
+      modifiedAfter: z.iso
+        .datetime()
+        .optional()
+        .describe("Modified at or after this UTC timestamp"),
+      modifiedBefore: z.iso
+        .datetime()
+        .optional()
+        .describe("Modified before this UTC timestamp"),
       limit: z.coerce
         .number()
         .int()
@@ -109,9 +133,25 @@ export default defineAction({
       parentId: args.parentId,
       spaceId: args.spaceId,
       documentType: args.documentType,
-      additional: pattern
-        ? sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`
-        : undefined,
+      additional: and(
+        args.query
+          ? or(
+              eq(schema.documents.hideFromSearch, 0),
+              isNull(schema.documents.hideFromSearch),
+            )
+          : undefined,
+        pattern
+          ? args.searchFields === "title"
+            ? sql`${schema.documents.title} LIKE ${pattern} ESCAPE '\\'`
+            : sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`
+          : undefined,
+        args.modifiedAfter
+          ? gte(schema.documents.updatedAt, args.modifiedAfter)
+          : undefined,
+        args.modifiedBefore
+          ? lt(schema.documents.updatedAt, args.modifiedBefore)
+          : undefined,
+      ),
     });
     const [countRow] = await db
       .select({ count: sql<number>`count(*)` })
@@ -138,6 +178,19 @@ export default defineAction({
         contentLength: sql<number>`length(${schema.documents.content})`,
         hideFromSearch: schema.documents.hideFromSearch,
         updatedAt: schema.documents.updatedAt,
+        sourceKind: schema.documents.sourceKind,
+        sourceUpdatedAt: schema.documents.sourceUpdatedAt,
+        documentType: sql<"page" | "database">`case when ${exists(
+          db
+            .select({ id: schema.contentDatabases.id })
+            .from(schema.contentDatabases)
+            .where(
+              and(
+                eq(schema.contentDatabases.documentId, schema.documents.id),
+                isNull(schema.contentDatabases.deletedAt),
+              ),
+            ),
+        )} then 'database' else 'page' end`,
       })
       .from(schema.documents)
       .where(where)
@@ -145,10 +198,34 @@ export default defineAction({
       .limit(args.limit)
       .offset(args.offset);
 
+    const parentIds = [
+      ...new Set(docs.flatMap((doc) => (doc.parentId ? [doc.parentId] : []))),
+    ];
+    const parents = parentIds.length
+      ? await db
+          .select({ id: schema.documents.id, title: schema.documents.title })
+          .from(schema.documents)
+          .where(
+            documentDiscoveryWhere({
+              userEmail,
+              authorizedOrgIds,
+              additional: inArray(schema.documents.id, parentIds),
+            }),
+          )
+      : [];
+    const parentById = new Map(parents.map((parent) => [parent.id, parent]));
+
     return {
       documents: docs.map((doc) => ({
         id: doc.id,
-        parentId: doc.parentId,
+        parentId:
+          doc.parentId && parentById.has(doc.parentId) ? doc.parentId : null,
+        parentTitle: doc.parentId
+          ? (parentById.get(doc.parentId)?.title ?? null)
+          : null,
+        documentType: doc.documentType,
+        sourceKind: doc.sourceKind,
+        sourceUpdatedAt: doc.sourceUpdatedAt,
         title: doc.title,
         description: doc.description,
         icon: doc.icon,
