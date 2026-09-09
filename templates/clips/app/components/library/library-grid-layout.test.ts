@@ -9,6 +9,7 @@ function readSource(name: string): string {
 describe("selected library actions layout", () => {
   it("uses one consistent breadcrumb header and a single-priority sidebar", () => {
     const gridSource = readSource("./library-grid.tsx");
+    const emptyStateSource = readSource("./empty-state.tsx");
     const layoutSource = readSource("./library-layout.tsx");
     const folderTreeSource = readSource("./folder-tree.tsx");
     const organizationStateSource = readSource(
@@ -35,6 +36,8 @@ describe("selected library actions layout", () => {
     );
 
     expect(gridSource).toContain("<PageBreadcrumb");
+    expect(emptyStateSource).toContain("<Empty");
+    expect(emptyStateSource).not.toContain("border border-dashed");
     expect(gridSource).not.toContain('<h1 className="text-base');
     expect(layoutSource).not.toContain("navigation.newRecording");
     expect(layoutSource).not.toContain("navigation.newFolder");
@@ -75,6 +78,8 @@ describe("selected library actions layout", () => {
     expect(spaceRouteSource).toContain(
       '{ label: t("navigation.spaces"), to: "/spaces" }',
     );
+    expect(spaceRouteSource).not.toContain("<aside");
+    expect(spaceRouteSource).not.toContain("<FolderTree");
     expect(spaceFolderRouteSource).toContain("to: `/spaces/${spaceId}`");
     expect(recordingRouteSource).toContain(
       "<PageBreadcrumb items={recordingBreadcrumbItems}",
