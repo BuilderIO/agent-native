@@ -16,6 +16,7 @@ import type * as Y from "yjs";
 
 import type { Slide } from "@/context/DeckContext";
 
+import type { DesignSystemData } from "../../../shared/api";
 import { SlideBubbleMenu } from "./SlideBubbleMenu";
 import {
   SlashCommandExtension,
@@ -30,6 +31,7 @@ import {
 
 interface SlideInlineEditorProps {
   slide: Slide;
+  designSystem?: DesignSystemData;
   onContentChange: (html: string) => void;
   onExitEdit: () => void;
   /**
@@ -190,6 +192,7 @@ export function shouldApplySlideContentSync({
 
 export function SlideInlineEditor({
   slide,
+  designSystem,
   onContentChange,
   onExitEdit,
   contentUpdatedAt,
@@ -468,7 +471,11 @@ export function SlideInlineEditor({
           transform: "scale(var(--slide-scale, 0.25))",
         }}
       >
-        <SlideEditorCanvas editor={editor} slide={slide} />
+        <SlideEditorCanvas
+          editor={editor}
+          slide={slide}
+          designSystem={designSystem}
+        />
       </div>
       {/* ScaleHelper mirrors SlideRenderer's ScaleHelper */}
       <ScaleHelper targetWidth={960} />
@@ -499,9 +506,11 @@ export function SlideInlineEditor({
 function SlideEditorCanvas({
   editor,
   slide,
+  designSystem,
 }: {
   editor: ReturnType<typeof useEditor>;
   slide: Slide;
+  designSystem?: DesignSystemData;
 }) {
   const layoutPadding: Record<string, string> = {
     title: "px-[80px] py-[64px]", // i18n-ignore Tailwind class list
@@ -519,7 +528,9 @@ function SlideEditorCanvas({
   return (
     <div
       className={`w-[960px] h-[540px] relative flex flex-col justify-center ${padding}`}
-      style={{ fontFamily: "var(--ds-body-font, Inter, sans-serif)" }}
+      style={{
+        fontFamily: designSystem?.typography.bodyFont ?? "Inter, sans-serif",
+      }}
     >
       <EditorContent
         editor={editor}

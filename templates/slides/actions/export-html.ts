@@ -2,6 +2,10 @@ import fs from "fs";
 import path from "path";
 
 import { defineAction, fail } from "@agent-native/core/action";
+import {
+  hydrateBuilderDesignSystemReference,
+  parseBuilderDesignSystemProxyReference,
+} from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -21,6 +25,7 @@ import {
 import {
   backgroundCssValue,
   DEFAULT_SLIDE_BACKGROUND,
+  resolveSlideBackground,
 } from "../shared/slide-background.js";
 
 /**
@@ -50,12 +55,42 @@ function safeCssToken(value: unknown, fallback: string): string {
   return sanitized.replace(/[{}<>;]/g, "").slice(0, 240) || fallback;
 }
 
-function standaloneDesignSystemVars(designSystem?: DesignSystemData): string {
+function googleFontHref(font: unknown): string | undefined {
+  if (typeof font !== "string") return undefined;
+  const family = font.split(",", 1)[0]?.replace(/["']/g, "").trim();
+  const supported = [
+    "DM Sans",
+    "Inter",
+    "Manrope",
+    "Montserrat",
+    "Open Sans",
+    "Poppins",
+    "Plus Jakarta Sans",
+    "Roboto",
+    "Space Grotesk",
+    "Work Sans",
+  ];
+  if (
+    !family ||
+    !supported.some(
+      (candidate) => candidate.toLowerCase() === family.toLowerCase(),
+    )
+  ) {
+    return undefined;
+  }
+  return `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family).replace(/%20/g, "+")}:wght@400;700&display=swap`;
+}
+
+function standaloneDesignSystemVars(
+  designSystem: DesignSystemData | undefined,
+  slideBackground: string,
+  builderTokenValues?: Record<string, string>,
+): string {
   const colors = designSystem?.colors;
   const typography = designSystem?.typography;
   const borders = designSystem?.borders;
   return [
-    `--ds-bg: ${safeCssToken(colors?.background, DEFAULT_SLIDE_BACKGROUND)}`,
+    `--ds-bg: ${safeCssToken(slideBackground, DEFAULT_SLIDE_BACKGROUND)}`,
     // guard:allow-raw-color - standalone export fallback palette
     `--ds-text: ${safeCssToken(colors?.text, "#1F2933")}`,
     // guard:allow-raw-color - standalone export fallback palette
@@ -71,6 +106,12 @@ function standaloneDesignSystemVars(designSystem?: DesignSystemData): string {
     `--ds-heading-font: ${safeCssToken(typography?.headingFont, "Inter, sans-serif")}`,
     `--ds-body-font: ${safeCssToken(typography?.bodyFont, "Inter, sans-serif")}`,
     `--ds-radius: ${safeCssToken(borders?.radius, "14px")}`,
+    ...Object.entries(builderTokenValues ?? {})
+      .filter(
+        ([name, value]) =>
+          /^--[a-zA-Z][\w-]*$/.test(name) && typeof value === "string",
+      )
+      .map(([name, value]) => `${name}: ${safeCssToken(value, "initial")}`),
   ].join("; ");
 }
 
@@ -84,14 +125,18 @@ function buildStandaloneHtml(
   }>,
   aspectRatio?: AspectRatio,
   designSystem?: DesignSystemData,
+  builderTokenValues?: Record<string, string>,
 ): string {
   const dims = getAspectRatioDims(aspectRatio);
-  const designSystemVars = standaloneDesignSystemVars(designSystem);
   const slideHtmlSections = slides
-    .map(
-      (slide, i) =>
-        `<section class="slide" data-index="${i}" style="display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(backgroundCssValue(slide.background), DEFAULT_SLIDE_BACKGROUND)}; ${designSystemVars}">${sanitizeSlideContent(slide.content)}</section>`,
-    )
+    .map((slide, i) => {
+      const slideBackground = resolveSlideBackground(
+        slide.background,
+        designSystem,
+      );
+      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(backgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
+      return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideContent(slide.content)}</section>`;
+    })
     .join("\n");
 
   return `<!DOCTYPE html>
@@ -100,6 +145,16 @@ function buildStandaloneHtml(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)}</title>
+  ${[
+    googleFontHref(designSystem?.typography.headingFont),
+    googleFontHref(designSystem?.typography.bodyFont),
+  ]
+    .filter(
+      (href, index, all): href is string =>
+        Boolean(href) && all.indexOf(href) === index,
+    )
+    .map((href) => `<link rel="stylesheet" href="${escapeHtml(href)}">`)
+    .join("\n  ")}
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -156,6 +211,8 @@ function buildStandaloneHtml(
       background: var(--ds-bg);
       font-family: var(--ds-body-font);
     }
+
+    .fmd-slide[data-imported-pptx="true"], .fmd-slide[data-imported-pdf="true"] { padding: 0; }
 
     .fmd-slide h1, .fmd-slide h2, .fmd-slide h3 {
       color: var(--ds-text);
@@ -324,6 +381,20 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function parseStoredDesignSystem(
+  rawData: string,
+): DesignSystemData | undefined {
+  try {
+    const parsed = JSON.parse(rawData);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as DesignSystemData)
+      : undefined;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return undefined;
+  }
+}
+
 export default defineAction({
   description:
     "Export a deck as a standalone HTML file with built-in keyboard navigation. Returns a download URL for the generated file.",
@@ -364,6 +435,7 @@ export default defineAction({
 
     const designSystemId = row.designSystemId ?? deckData.designSystemId;
     let designSystem: DesignSystemData | undefined;
+    let builderTokenValues: Record<string, string> | undefined;
     if (typeof designSystemId === "string" && designSystemId.trim()) {
       const designSystemAccess = await resolveAccess(
         "design-system",
@@ -371,9 +443,20 @@ export default defineAction({
       );
       const rawData = designSystemAccess?.resource?.data;
       if (typeof rawData === "string") {
-        const parsed = JSON.parse(rawData);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          designSystem = parsed as DesignSystemData;
+        designSystem = parseStoredDesignSystem(rawData);
+        const builderReference =
+          parseBuilderDesignSystemProxyReference(rawData);
+        if (builderReference) {
+          try {
+            builderTokenValues = (
+              await hydrateBuilderDesignSystemReference(builderReference)
+            ).tokenValues;
+          } catch (error) {
+            console.warn(
+              "Builder design-system export hydration failed",
+              error,
+            );
+          }
         }
       }
     }
@@ -383,6 +466,7 @@ export default defineAction({
       slides,
       aspectRatio,
       designSystem,
+      builderTokenValues,
     );
     const filename = safeGeneratedFilename(row.title, ".html");
 

@@ -447,6 +447,12 @@ button[title="Open agent sidebar"] {
   overflow: hidden;
 }
 
+/* Imported source slides use absolute source-canvas coordinates. */
+.fmd-slide[data-imported-pptx="true"],
+.fmd-slide[data-imported-pdf="true"] {
+  padding: 0;
+}
+
 /* Semantic slide markup is persisted by the agent. Keep the classes useful
    when a later edit omits inline styles, while leaving explicit inline values
    authoritative through the normal CSS cascade. */
