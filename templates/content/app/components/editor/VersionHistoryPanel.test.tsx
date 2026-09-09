@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
 
+import type {
+  DocumentHistoryCheckpointPage,
+  DocumentHistoryPage,
+} from "@shared/document-history";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +17,8 @@ const { mocks } = vi.hoisted(() => ({
     onRestored: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
+    historyPages: new Map(),
+    checkpointPages: new Map(),
     historyPage: {
       data: {
         groups: [
@@ -31,7 +37,7 @@ const { mocks } = vi.hoisted(() => ({
         ],
         nextCursor: null,
         hasMore: false,
-      },
+      } as DocumentHistoryPage,
       error: null,
       isFetching: false,
       isLoading: false,
@@ -52,7 +58,7 @@ const { mocks } = vi.hoisted(() => ({
         ],
         nextCursor: null,
         hasMore: false,
-      },
+      } as DocumentHistoryCheckpointPage,
       error: null,
       isFetching: false,
       isLoading: false,
@@ -83,6 +89,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "editor.versionRestored": "Version restored.",
       "editor.historyGroupHuman": "Editing session",
       "editor.historyCheckpointAfter": "After",
+      "editor.historyLoadMore": "Load more",
+      "editor.historyLoadingMore": "Loading more",
     })[key] ?? key,
 }));
 
@@ -101,8 +109,15 @@ vi.mock("./VisualEditor", () => ({
 }));
 
 vi.mock("@/hooks/use-document-versions", () => ({
-  useDocumentHistoryPage: () => mocks.historyPage,
-  useDocumentHistoryCheckpoints: () => mocks.checkpoints,
+  useDocumentHistoryPage: (_documentId: string | null, cursor: string | null) =>
+    (cursor ? mocks.historyPages.get(cursor) : undefined) ?? mocks.historyPage,
+  useDocumentHistoryCheckpoints: (
+    _documentId: string | null,
+    _groupId: string | null,
+    cursor: string | null,
+  ) =>
+    (cursor ? mocks.checkpointPages.get(cursor) : undefined) ??
+    mocks.checkpoints,
   useDocumentHistoryCheckpoint: (
     _documentId: string,
     versionId: string | null,
@@ -184,6 +199,8 @@ describe("VersionHistoryPanel restore flow", () => {
     mocks.onRestored.mockResolvedValue({ status: "applied" });
     mocks.toastSuccess.mockClear();
     mocks.toastError.mockClear();
+    mocks.historyPages.clear();
+    mocks.checkpointPages.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -225,6 +242,93 @@ describe("VersionHistoryPanel restore flow", () => {
     expect(
       document.querySelector("[data-testid=history-preview]")?.textContent,
     ).toBe("Earlier content");
+  });
+
+  it("refreshes the first checkpoint page after loading older checkpoints", async () => {
+    await clickButton("Back to history");
+    mocks.checkpoints.data = {
+      checkpoints: [
+        {
+          id: "version-1",
+          documentId: "document-1",
+          groupId: "group-1",
+          title: "Draft",
+          checkpointKind: "after",
+          createdAt: "2026-09-08T10:05:00.000Z",
+        },
+      ],
+      nextCursor: "older-checkpoints",
+      hasMore: true,
+    };
+    mocks.checkpointPages.set("older-checkpoints", {
+      data: {
+        checkpoints: [
+          {
+            id: "version-0",
+            documentId: "document-1",
+            groupId: "group-1",
+            title: "Older",
+            checkpointKind: "after",
+            createdAt: "2026-09-08T10:00:00.000Z",
+          },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      },
+      error: null,
+      isFetching: false,
+      isLoading: false,
+      isPlaceholderData: false,
+      refetch: vi.fn(),
+    });
+    await act(async () => {
+      root.render(<ControlledPanel />);
+      await Promise.resolve();
+    });
+    await clickButton("Load more");
+    expect(document.body.textContent).toContain("OlderAfter");
+
+    mocks.checkpoints.data = {
+      checkpoints: [
+        {
+          id: "version-2",
+          documentId: "document-1",
+          groupId: "group-1",
+          title: "Newest",
+          checkpointKind: "after",
+          createdAt: "2026-09-08T10:10:00.000Z",
+        },
+        {
+          id: "version-1",
+          documentId: "document-1",
+          groupId: "group-1",
+          title: "Draft",
+          checkpointKind: "after",
+          createdAt: "2026-09-08T10:05:00.000Z",
+        },
+      ],
+      nextCursor: "refreshed-older-checkpoints",
+      hasMore: true,
+    };
+    await act(async () => {
+      root.render(<ControlledPanel />);
+      await Promise.resolve();
+    });
+
+    const checkpointLabels = Array.from(document.querySelectorAll("button"))
+      .map((button) => button.textContent?.trim())
+      .filter((label) => label?.endsWith("After"));
+    expect(checkpointLabels).toEqual([
+      "NewestAfter",
+      "DraftAfter",
+      "OlderAfter",
+    ]);
+
+    await clickButton("OlderAfter");
+    await clickButton("Restore this version");
+    await clickButton("Cancel");
+    await clickButton("Back to history");
+    expect(document.body.textContent).toContain("OlderAfter");
   });
 
   it("Escape dismisses only confirmation and returns focus to Restore", async () => {

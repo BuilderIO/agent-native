@@ -10,7 +10,11 @@ import type {
 } from "@shared/document-history";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { documentQueryFilter, patchDocumentCaches } from "./use-documents";
+import {
+  documentQueryFilter,
+  patchDocumentCaches,
+  patchContentSpaceNameCaches,
+} from "./use-documents";
 
 const HISTORY_PAGE_SIZE = 30;
 
@@ -30,6 +34,8 @@ export function useDocumentHistoryPage(
     {
       enabled: !!documentId,
       placeholderData: (previous) => previous,
+      staleTime: 0,
+      refetchOnMount: "always",
     },
   );
 }
@@ -52,6 +58,8 @@ export function useDocumentHistoryCheckpoints(
     {
       enabled: !!documentId && !!groupId,
       placeholderData: (previous) => previous,
+      staleTime: 0,
+      refetchOnMount: "always",
     },
   );
 }
@@ -82,6 +90,11 @@ export function useRestoreDocumentVersion(documentId: string) {
         bodyRevision: restored.bodyRevision,
         contentHash: restored.contentHash,
       });
+      const renamedContentSpace = patchContentSpaceNameCaches(
+        queryClient,
+        documentId,
+        restored.title,
+      );
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-document-history"],
       });
@@ -92,6 +105,23 @@ export function useRestoreDocumentVersion(documentId: string) {
         queryKey: ["action", "get-document-history-checkpoint"],
       });
       void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "query-content-database-items"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-content-databases"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-content-databases"],
+      });
+      if (renamedContentSpace) {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-content-spaces"],
+        });
+      }
     },
   });
 }

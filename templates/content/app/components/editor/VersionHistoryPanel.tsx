@@ -77,6 +77,19 @@ interface PendingRestore {
   expectedUpdatedAt: string;
 }
 
+function mergeRefreshedFirstPage<T extends { id: string }>(
+  refreshed: T[],
+  loaded: T[],
+): T[] {
+  const refreshedIds = new Set(refreshed.map((item) => item.id));
+  return [...refreshed, ...loaded.filter((item) => !refreshedIds.has(item.id))];
+}
+
+function appendPage<T extends { id: string }>(loaded: T[], page: T[]): T[] {
+  const loadedIds = new Set(loaded.map((item) => item.id));
+  return [...loaded, ...page.filter((item) => !loadedIds.has(item.id))];
+}
+
 export function VersionHistoryPanel({
   documentId,
   open,
@@ -120,7 +133,14 @@ export function VersionHistoryPanel({
   const [isPreparingRestore, setIsPreparingRestore] = useState(false);
   const [restoreApplyFailed, setRestoreApplyFailed] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
-  const historyPage = useDocumentHistoryPage(open ? documentId : null, cursor);
+  const firstHistoryPage = useDocumentHistoryPage(
+    open ? documentId : null,
+    null,
+  );
+  const historyPage = useDocumentHistoryPage(
+    open && cursor ? documentId : null,
+    cursor,
+  );
   const checkpointDetail = useDocumentHistoryCheckpoint(
     open ? documentId : null,
     selectedCheckpoint?.id ?? null,
@@ -143,16 +163,23 @@ export function VersionHistoryPanel({
   }, [selectedCheckpoint?.id, open]);
 
   useEffect(() => {
-    if (!open || historyPage.isPlaceholderData || !historyPage.data) return;
+    if (!open || firstHistoryPage.isPlaceholderData || !firstHistoryPage.data)
+      return;
     setGroups((current) => {
-      if (!cursor) return historyPage.data.groups;
-      const known = new Set(current.map((group) => group.id));
-      return [
-        ...current,
-        ...historyPage.data.groups.filter((group) => !known.has(group.id)),
-      ];
+      return mergeRefreshedFirstPage(firstHistoryPage.data.groups, current);
     });
+  }, [firstHistoryPage.data, firstHistoryPage.isPlaceholderData, open]);
+
+  useEffect(() => {
+    if (!open || !cursor || historyPage.isPlaceholderData || !historyPage.data)
+      return;
+    setGroups((current) => appendPage(current, historyPage.data.groups));
   }, [cursor, historyPage.data, historyPage.isPlaceholderData, open]);
+
+  const currentHistoryPage = cursor ? historyPage : firstHistoryPage;
+  const historyError = firstHistoryPage.error ?? historyPage.error;
+  const historyIsFetching =
+    firstHistoryPage.isFetching || (!!cursor && historyPage.isFetching);
 
   const historyStateKey = `content-history:${documentId}`;
   const expandedGroupIdList = useMemo(
@@ -379,16 +406,19 @@ export function VersionHistoryPanel({
                 </div>
               ) : null}
             </div>
-          ) : (
-            <ScrollArea className="h-[calc(100%-60px)]">
-              {historyPage.isPlaceholderData ||
-              (historyPage.isFetching && groups.length > 0) ? (
+          ) : null}
+          <div
+            className={selectedCheckpoint ? "hidden" : "h-[calc(100%-60px)]"}
+          >
+            <ScrollArea className="h-full">
+              {firstHistoryPage.isPlaceholderData ||
+              (historyIsFetching && groups.length > 0) ? (
                 <div className="flex items-center gap-1.5 border-b border-border px-4 py-2 text-xs text-muted-foreground">
                   <IconLoader2 className="size-3 animate-spin" />
                   {t("editor.historyRefreshing")}
                 </div>
               ) : null}
-              {historyPage.error && groups.length > 0 ? (
+              {historyError && groups.length > 0 ? (
                 <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs text-muted-foreground">
                   <IconAlertCircle className="size-3.5 shrink-0 text-destructive" />
                   <span className="min-w-0 flex-1">
@@ -399,21 +429,25 @@ export function VersionHistoryPanel({
                     variant="ghost"
                     size="sm"
                     className="h-7 px-2"
-                    onClick={() => void historyPage.refetch()}
+                    onClick={() =>
+                      void (firstHistoryPage.error
+                        ? firstHistoryPage.refetch()
+                        : historyPage.refetch())
+                    }
                   >
                     <IconRefresh className="size-3.5" />
                     {t("editor.historyRetry")}
                   </Button>
                 </div>
               ) : null}
-              {historyPage.isLoading && groups.length === 0 ? (
+              {firstHistoryPage.isLoading && groups.length === 0 ? (
                 <HistoryListSkeleton />
-              ) : historyPage.error && groups.length === 0 ? (
+              ) : firstHistoryPage.error && groups.length === 0 ? (
                 <HistoryError
                   message={t("editor.historyLoadError")}
-                  retry={() => void historyPage.refetch()}
+                  retry={() => void firstHistoryPage.refetch()}
                 />
-              ) : groups.length === 0 && !historyPage.isFetching ? (
+              ) : groups.length === 0 && !firstHistoryPage.isFetching ? (
                 <div className="px-4 py-12 text-center text-xs text-muted-foreground">
                   {t("editor.versionNoHistoryYet")}
                 </div>
@@ -437,21 +471,21 @@ export function VersionHistoryPanel({
                       formatDate={formatters.formatDate}
                     />
                   ))}
-                  {historyPage.data?.hasMore ? (
+                  {currentHistoryPage.data?.hasMore ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       className="mt-1 w-full"
-                      disabled={historyPage.isFetching}
+                      disabled={currentHistoryPage.isFetching}
                       onClick={() =>
-                        setCursor(historyPage.data?.nextCursor ?? null)
+                        setCursor(currentHistoryPage.data?.nextCursor ?? null)
                       }
                     >
-                      {historyPage.isFetching ? (
+                      {currentHistoryPage.isFetching ? (
                         <IconLoader2 className="size-3.5 animate-spin" />
                       ) : null}
-                      {historyPage.isFetching
+                      {currentHistoryPage.isFetching
                         ? t("editor.historyLoadingMore")
                         : t("editor.historyLoadMore")}
                     </Button>
@@ -459,7 +493,7 @@ export function VersionHistoryPanel({
                 </div>
               )}
             </ScrollArea>
-          )}
+          </div>
           <Dialog
             open={pendingRestore !== null}
             onOpenChange={(nextOpen) => {
@@ -541,24 +575,32 @@ function HistoryGroupRow({
   const [loadedCheckpoints, setLoadedCheckpoints] = useState<
     DocumentHistoryCheckpoint[]
   >([]);
-  const checkpoints = useDocumentHistoryCheckpoints(
+  const firstCheckpoints = useDocumentHistoryCheckpoints(
     open ? documentId : null,
     open ? group.id : null,
+    null,
+  );
+  const checkpoints = useDocumentHistoryCheckpoints(
+    open && cursor ? documentId : null,
+    open && cursor ? group.id : null,
     cursor,
   );
   useEffect(() => {
-    if (!open || checkpoints.isPlaceholderData || !checkpoints.data) return;
-    setLoadedCheckpoints((current) => {
-      if (!cursor) return checkpoints.data.checkpoints;
-      const known = new Set(current.map((checkpoint) => checkpoint.id));
-      return [
-        ...current,
-        ...checkpoints.data.checkpoints.filter(
-          (checkpoint) => !known.has(checkpoint.id),
-        ),
-      ];
-    });
+    if (!open || firstCheckpoints.isPlaceholderData || !firstCheckpoints.data)
+      return;
+    setLoadedCheckpoints((current) =>
+      mergeRefreshedFirstPage(firstCheckpoints.data.checkpoints, current),
+    );
+  }, [firstCheckpoints.data, firstCheckpoints.isPlaceholderData, open]);
+  useEffect(() => {
+    if (!open || !cursor || checkpoints.isPlaceholderData || !checkpoints.data)
+      return;
+    setLoadedCheckpoints((current) =>
+      appendPage(current, checkpoints.data.checkpoints),
+    );
   }, [checkpoints.data, checkpoints.isPlaceholderData, cursor, open]);
+  const currentCheckpointPage = cursor ? checkpoints : firstCheckpoints;
+  const checkpointError = firstCheckpoints.error ?? checkpoints.error;
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
       <CollapsibleTrigger asChild>
@@ -583,20 +625,20 @@ function HistoryGroupRow({
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent className="ms-5 border-s border-border ps-2">
-        {checkpoints.isLoading && loadedCheckpoints.length === 0 ? (
+        {firstCheckpoints.isLoading && loadedCheckpoints.length === 0 ? (
           <div className="grid gap-2 px-2 py-2">
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-4/5" />
           </div>
-        ) : checkpoints.error && loadedCheckpoints.length === 0 ? (
+        ) : firstCheckpoints.error && loadedCheckpoints.length === 0 ? (
           <HistoryError
             compact
             message={t("editor.historyCheckpointLoadError")}
-            retry={() => void checkpoints.refetch()}
+            retry={() => void firstCheckpoints.refetch()}
           />
         ) : (
           <>
-            {checkpoints.error ? (
+            {checkpointError ? (
               <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
                 <IconAlertCircle className="size-3.5 text-destructive" />
                 <span className="min-w-0 flex-1">
@@ -607,7 +649,11 @@ function HistoryGroupRow({
                   variant="ghost"
                   size="sm"
                   className="h-7 px-2"
-                  onClick={() => void checkpoints.refetch()}
+                  onClick={() =>
+                    void (firstCheckpoints.error
+                      ? firstCheckpoints.refetch()
+                      : checkpoints.refetch())
+                  }
                 >
                   {t("editor.historyRetry")}
                 </Button>
@@ -632,19 +678,21 @@ function HistoryGroupRow({
                 </span>
               </button>
             ))}
-            {checkpoints.data?.hasMore ? (
+            {currentCheckpointPage.data?.hasMore ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 className="w-full"
-                disabled={checkpoints.isFetching}
-                onClick={() => setCursor(checkpoints.data?.nextCursor ?? null)}
+                disabled={currentCheckpointPage.isFetching}
+                onClick={() =>
+                  setCursor(currentCheckpointPage.data?.nextCursor ?? null)
+                }
               >
-                {checkpoints.isFetching ? (
+                {currentCheckpointPage.isFetching ? (
                   <IconLoader2 className="size-3.5 animate-spin" />
                 ) : null}
-                {checkpoints.isFetching
+                {currentCheckpointPage.isFetching
                   ? t("editor.historyLoadingMore")
                   : t("editor.historyLoadMore")}
               </Button>

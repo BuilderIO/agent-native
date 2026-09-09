@@ -13,7 +13,6 @@ import {
   metadataUpdatesWithPendingTitle,
   positionAnchoredCommentCard,
   refreshUnchangedContentSaveWatermark,
-  resolveAcknowledgedDocumentSnapshot,
   shouldAwaitAuthoritativeDocument,
   titleMatchConfirmsSave,
   updateAdditionalBlockContents,
@@ -25,57 +24,6 @@ import {
 } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
-  it("keeps the whole acknowledged document monotonic across stale query replays", () => {
-    const snapshot = (title: string, content: string, updatedAt: string) => ({
-      id: "page-a",
-      title,
-      content,
-      updatedAt,
-    });
-    const restoredA = snapshot(
-      "Restored A title",
-      "Restored A body",
-      "2026-09-08T14:00:02.000Z",
-    );
-    const oldB = snapshot(
-      "Old B title",
-      "Old B body",
-      "2026-09-08T14:00:01.000Z",
-    );
-    const newerC = snapshot(
-      "Newer C title",
-      "Newer C body",
-      "2026-09-08T14:00:03.000Z",
-    );
-
-    let resolved = resolveAcknowledgedDocumentSnapshot({
-      currentDocumentId: "page-a",
-      incoming: oldB,
-      acknowledged: restoredA,
-    });
-    expect(resolved.document).toBe(restoredA);
-
-    resolved = resolveAcknowledgedDocumentSnapshot({
-      currentDocumentId: "page-a",
-      incoming: newerC,
-      acknowledged: resolved.acknowledged,
-    });
-    expect(resolved.document).toBe(newerC);
-
-    resolved = resolveAcknowledgedDocumentSnapshot({
-      currentDocumentId: "page-a",
-      incoming: oldB,
-      acknowledged: resolved.acknowledged,
-    });
-    expect(resolved.document).toBe(newerC);
-    expect(resolved.document).toEqual({
-      id: "page-a",
-      title: "Newer C title",
-      content: "Newer C body",
-      updatedAt: "2026-09-08T14:00:03.000Z",
-    });
-  });
-
   it("ignores delayed additional-field cleanup from the previous document", () => {
     const current = { sharedProperty: "document B live value" };
     expect(

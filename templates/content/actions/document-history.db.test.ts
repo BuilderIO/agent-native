@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -15,6 +15,7 @@ import {
 } from "vitest";
 
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import { serializeRegistryBlockToMdx } from "../shared/nfm-registry.js";
 
 const writeAppStateMock = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
@@ -85,6 +86,21 @@ async function currentDocument() {
     .from(schema.documents)
     .where(eq(schema.documents.id, DOCUMENT_ID));
   return document;
+}
+
+function inlineDatabaseBlock(args: {
+  blockId: string;
+  databaseId: string;
+  databaseDocumentId: string;
+}) {
+  return serializeRegistryBlockToMdx("inline-database", {
+    id: args.blockId,
+    data: {
+      databaseId: args.databaseId,
+      databaseDocumentId: args.databaseDocumentId,
+      ownerBlockId: args.blockId,
+    },
+  });
 }
 
 describe("grouped document history", () => {
@@ -398,6 +414,154 @@ describe("grouped document history", () => {
     );
   });
 
+  it("propagates a restored database title through the shared title boundary", async () => {
+    const current = await currentDocument();
+    const databaseId = "history-title-database";
+    await getDb().insert(schema.contentDatabases).values({
+      id: databaseId,
+      ownerEmail: OWNER,
+      documentId: DOCUMENT_ID,
+      title: current.title,
+      createdAt: current.createdAt,
+      updatedAt: current.updatedAt,
+    });
+    await getDb().insert(schema.documentVersions).values({
+      id: "database-title-checkpoint",
+      ownerEmail: OWNER,
+      documentId: DOCUMENT_ID,
+      title: "Restored database title",
+      content: current.content,
+      createdAt: new Date().toISOString(),
+    });
+
+    try {
+      const restored = await asOwner(() =>
+        restoreDocumentVersion.run(
+          {
+            documentId: DOCUMENT_ID,
+            versionId: "database-title-checkpoint",
+            expectedUpdatedAt: current.updatedAt,
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+      const [database] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+
+      expect(restored.title).toBe("Restored database title");
+      expect((await currentDocument()).title).toBe("Restored database title");
+      expect(database.title).toBe("Restored database title");
+      expect(database.updatedAt).toBe(restored.updatedAt);
+    } finally {
+      await getDb()
+        .delete(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+    }
+  });
+
+  it("soft-deletes only active owned inline databases removed by restore", async () => {
+    const current = await currentDocument();
+    const blockId = "restore-owned-inline-block";
+    const databaseId = "restore-owned-inline-database";
+    const databaseDocumentId = "restore-owned-inline-document";
+    const foreignDatabaseId = "restore-foreign-inline-database";
+    const foreignDocumentId = "restore-foreign-inline-document";
+    const now = new Date().toISOString();
+    const inlineBlock = inlineDatabaseBlock({
+      blockId,
+      databaseId,
+      databaseDocumentId,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ content: inlineBlock })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: databaseDocumentId,
+          ownerEmail: OWNER,
+          parentId: DOCUMENT_ID,
+          title: "Owned inline database",
+          content: "",
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: foreignDocumentId,
+          ownerEmail: "foreign-owner@example.com",
+          parentId: DOCUMENT_ID,
+          title: "Foreign inline database",
+          content: "",
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    await getDb()
+      .insert(schema.contentDatabases)
+      .values([
+        {
+          id: databaseId,
+          ownerEmail: OWNER,
+          documentId: databaseDocumentId,
+          ownerDocumentId: DOCUMENT_ID,
+          ownerBlockId: blockId,
+          title: "Owned inline database",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: foreignDatabaseId,
+          ownerEmail: "foreign-owner@example.com",
+          documentId: foreignDocumentId,
+          ownerDocumentId: DOCUMENT_ID,
+          ownerBlockId: "foreign-block",
+          title: "Foreign inline database",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    await getDb().insert(schema.documentVersions).values({
+      id: "remove-inline-database-checkpoint",
+      ownerEmail: OWNER,
+      documentId: DOCUMENT_ID,
+      title: current.title,
+      content: "The inline database was removed.",
+      createdAt: now,
+    });
+
+    const restored = await asOwner(() =>
+      restoreDocumentVersion.run(
+        {
+          documentId: DOCUMENT_ID,
+          versionId: "remove-inline-database-checkpoint",
+          expectedUpdatedAt: current.updatedAt,
+        },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    const databases = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(
+        inArray(schema.contentDatabases.id, [databaseId, foreignDatabaseId]),
+      );
+
+    expect(restored.softDeletedDatabaseIds).toEqual([databaseId]);
+    expect(
+      databases.find((database) => database.id === databaseId)?.deletedAt,
+    ).toEqual(expect.any(String));
+    expect(
+      databases.find((database) => database.id === foreignDatabaseId)
+        ?.deletedAt,
+    ).toBeNull();
+  });
+
   it("does not expose checkpoints through another document or to an unauthorized caller", async () => {
     const now = new Date().toISOString();
     await getDb().insert(schema.documents).values({
@@ -477,6 +641,7 @@ describe("grouped document history", () => {
       updateDocument.run(
         {
           id: DOCUMENT_ID,
+          title: "Restore target title",
           content: "restore target",
           baseUpdatedAt: current.updatedAt,
           historySessionId: "target",
@@ -494,11 +659,20 @@ describe("grouped document history", () => {
         ),
       );
     current = await currentDocument();
+    const rollbackBlockId = "rollback-inline-block";
+    const rollbackDatabaseId = "rollback-inline-database";
+    const rollbackDatabaseDocumentId = "rollback-inline-document";
+    const rollbackContent = inlineDatabaseBlock({
+      blockId: rollbackBlockId,
+      databaseId: rollbackDatabaseId,
+      databaseDocumentId: rollbackDatabaseDocumentId,
+    });
     await asOwner(() =>
       updateDocument.run(
         {
           id: DOCUMENT_ID,
-          content: "must survive failed restore",
+          title: "Current database title",
+          content: rollbackContent,
           baseUpdatedAt: current.updatedAt,
           historySessionId: "current",
         },
@@ -506,6 +680,38 @@ describe("grouped document history", () => {
       ),
     );
     current = await currentDocument();
+    await getDb().insert(schema.documents).values({
+      id: rollbackDatabaseDocumentId,
+      ownerEmail: OWNER,
+      parentId: DOCUMENT_ID,
+      title: "Inline database",
+      content: "",
+      visibility: "private",
+      createdAt: current.updatedAt,
+      updatedAt: current.updatedAt,
+    });
+    await getDb()
+      .insert(schema.contentDatabases)
+      .values([
+        {
+          id: "rollback-title-database",
+          ownerEmail: OWNER,
+          documentId: DOCUMENT_ID,
+          title: "Current database title",
+          createdAt: current.updatedAt,
+          updatedAt: current.updatedAt,
+        },
+        {
+          id: rollbackDatabaseId,
+          ownerEmail: OWNER,
+          documentId: rollbackDatabaseDocumentId,
+          ownerDocumentId: DOCUMENT_ID,
+          ownerBlockId: rollbackBlockId,
+          title: "Inline database",
+          createdAt: current.updatedAt,
+          updatedAt: current.updatedAt,
+        },
+      ]);
     const beforeCount = (await getDb().select().from(schema.documentVersions))
       .length;
     const { getDbExec } = await import("@agent-native/core/db");
@@ -539,9 +745,28 @@ describe("grouped document history", () => {
         ),
       ).rejects.toThrow();
       expect(await currentDocument()).toMatchObject({
-        content: "must survive failed restore",
+        title: "Current database title",
+        content: rollbackContent,
         updatedAt: current.updatedAt,
       });
+      const rollbackDatabases = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(
+          inArray(schema.contentDatabases.id, [
+            "rollback-title-database",
+            rollbackDatabaseId,
+          ]),
+        );
+      expect(
+        rollbackDatabases.find(
+          (database) => database.id === "rollback-title-database",
+        )?.title,
+      ).toBe("Current database title");
+      expect(
+        rollbackDatabases.find((database) => database.id === rollbackDatabaseId)
+          ?.deletedAt,
+      ).toBeNull();
       expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
         beforeCount,
       );
@@ -644,5 +869,66 @@ describe("grouped document history", () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  it("normalizes a restored Files title across its space and catalog references", async () => {
+    const { provisionContentSpaces, systemIdsForContentSpace } =
+      await import("./_content-spaces.js");
+    const provisioned = await asOwner(() =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+    const filesDocumentId = systemIdsForContentSpace(
+      provisioned.personalSpaceId,
+      "files",
+    ).documentId;
+    const [filesDocument] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, filesDocumentId));
+    await getDb().insert(schema.documentVersions).values({
+      id: "files-title-checkpoint",
+      ownerEmail: OWNER,
+      documentId: filesDocumentId,
+      title: "   ",
+      content: filesDocument.content,
+      createdAt: new Date().toISOString(),
+    });
+
+    const restored = await asOwner(() =>
+      restoreDocumentVersion.run(
+        {
+          documentId: filesDocumentId,
+          versionId: "files-title-checkpoint",
+          expectedUpdatedAt: filesDocument.updatedAt,
+        },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    const [space] = await getDb()
+      .select()
+      .from(schema.contentSpaces)
+      .where(eq(schema.contentSpaces.id, provisioned.personalSpaceId));
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.documentId, filesDocumentId));
+    const [catalogReference] = await getDb()
+      .select({ document: schema.documents })
+      .from(schema.contentSpaceCatalogItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentSpaceCatalogItems.documentId),
+      )
+      .where(
+        eq(
+          schema.contentSpaceCatalogItems.spaceId,
+          provisioned.personalSpaceId,
+        ),
+      );
+
+    expect(restored.title).toBe("Untitled");
+    expect(space.name).toBe("Untitled");
+    expect(database.title).toBe("Untitled");
+    expect(catalogReference.document.title).toBe("Untitled");
   });
 });

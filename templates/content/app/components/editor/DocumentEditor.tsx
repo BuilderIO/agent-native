@@ -136,6 +136,21 @@ import type {
 
 const TAB_ID = generateTabId();
 
+export function applyHistoryToDocumentBody(
+  hasDatabase: boolean,
+  controller: VisualEditorHistoryController | null,
+  restored: Pick<Document, "content" | "updatedAt" | "revision">,
+) {
+  if (hasDatabase) return true;
+  return (
+    controller?.replaceWithAuthoritativeContent({
+      content: restored.content,
+      contentUpdatedAt: restored.updatedAt,
+      contentRevision: restored.revision ?? null,
+    }) ?? false
+  );
+}
+
 interface DocumentEditorProps {
   documentId: string;
   databaseId?: string | null;
@@ -1739,12 +1754,11 @@ function DocumentEditorBody({
       saveTimeoutRef.current = null;
     }
     pendingDocumentSaveRef.current = null;
-    const editorApplied =
-      editorHistoryControllerRef.current?.replaceWithAuthoritativeContent({
-        content: restored.content,
-        contentUpdatedAt: restored.updatedAt,
-        contentRevision: restored.revision ?? null,
-      }) ?? false;
+    const editorApplied = applyHistoryToDocumentBody(
+      Boolean(currentDocumentRef.current.database),
+      editorHistoryControllerRef.current,
+      restored,
+    );
     localTitleRef.current = restored.title;
     localContentRef.current = restored.content;
     documentUpdatedAtRef.current = restored.updatedAt ?? null;

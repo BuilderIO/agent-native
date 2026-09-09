@@ -8,6 +8,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
   parseDocumentFavorite,
@@ -17,6 +18,7 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import { reconcileInlineDatabasesForDocumentWithDb } from "./_content-database-lifecycle.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -76,6 +78,7 @@ export default defineAction({
     if (isLinkedLocalSource(documentId, source))
       linkedLocalRestoreUnsupported();
     const db = getDb();
+    let softDeletedDatabaseIds: string[] = [];
     const updated = await db.transaction(async (rawTx) => {
       const tx = rawTx as any;
       await tx
@@ -173,6 +176,14 @@ export default defineAction({
           },
         );
       }
+      if (current.title !== version.title) {
+        await propagateDocumentTitle({
+          db: tx as unknown as ReturnType<typeof getDb>,
+          documentId,
+          title: version.title,
+          updatedAt: now,
+        });
+      }
       for (const field of primaryBlocksFields) {
         await persistBlocksFieldIdentity({
           db: tx as unknown as ReturnType<typeof getDb>,
@@ -184,16 +195,37 @@ export default defineAction({
           now,
         });
       }
+      if (current.content !== version.content) {
+        softDeletedDatabaseIds =
+          await reconcileInlineDatabasesForDocumentWithDb({
+            db: tx as unknown as ReturnType<typeof getDb>,
+            documentId,
+            content: version.content,
+            ownerEmail,
+            now,
+          });
+      }
+      const [restored] = await tx
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId))
+        .limit(1);
+      if (!restored) {
+        throw new ActionContractError("Document not found after restore.", {
+          errorCode: "DOCUMENT_NOT_FOUND",
+          statusCode: 404,
+        });
+      }
       await recordDocumentHistoryTransition({
         db: tx as unknown as ReturnType<typeof getDb>,
         ownerEmail,
         documentId,
         before: { title: current.title, content: current.content },
-        after: { title: version.title, content: version.content },
+        after: { title: restored.title, content: restored.content },
         cause: { ctx, operation: "restore-document-version" },
         now,
       });
-      return applied[0]!;
+      return restored;
     });
 
     try {
@@ -220,6 +252,7 @@ export default defineAction({
       revision: documentRevisionToken(updated.bodyRevision, updated.content),
       bodyRevision: updated.bodyRevision,
       contentHash: documentContentHash(updated.content),
+      softDeletedDatabaseIds,
     };
   },
 });

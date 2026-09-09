@@ -164,6 +164,7 @@ async function createDatabase(args: {
   backingParentId?: string | null;
   deletedAt?: string | null;
   ownerEmail?: string;
+  systemRole?: string | null;
 }) {
   const db = getDb();
   const now = new Date().toISOString();
@@ -181,6 +182,7 @@ async function createDatabase(args: {
     ownerDocumentId: args.hostDocumentId ?? null,
     ownerBlockId: args.ownerBlockId ?? null,
     title: "Database",
+    systemRole: args.systemRole ?? null,
     deletedAt: args.deletedAt ?? null,
     createdAt: now,
     updatedAt: now,
@@ -1375,6 +1377,94 @@ describe("content database soft-delete actions and reads", () => {
     expect(listedIds.has(hostDocumentId)).toBe(true);
     expect(listedIds.has(databaseDocumentId)).toBe(false);
     expect(listedIds.has(rowDocumentId)).toBe(false);
+  });
+
+  it("hides soft-deleted database documents and rows from Files until restore", async () => {
+    const files = await createDatabase({ systemRole: "files" });
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const ownerBlockId = nextId("inline_database");
+    const deletedDatabase = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+    });
+    const rowDocumentId = await createDocument({
+      parentId: deletedDatabase.databaseDocumentId,
+      title: "Deleted database row",
+    });
+    const retainedDocumentId = await createDocument({ title: "Retained file" });
+    const now = new Date().toISOString();
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({
+        content: inlineDatabaseBlock({
+          blockId: ownerBlockId,
+          databaseId: deletedDatabase.databaseId,
+          databaseDocumentId: deletedDatabase.databaseDocumentId,
+        }),
+      })
+      .where(eq(schema.documents.id, hostDocumentId));
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: nextId("item"),
+        ownerEmail: OWNER,
+        databaseId: deletedDatabase.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      ...[
+        deletedDatabase.databaseDocumentId,
+        rowDocumentId,
+        retainedDocumentId,
+      ].map((documentId, position) => ({
+        id: nextId("item"),
+        ownerEmail: OWNER,
+        databaseId: files.databaseId,
+        documentId,
+        position,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    ]);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: hostDocumentId,
+        content: "The database block was removed.",
+      }),
+    );
+
+    const hidden = await runWithRequestContext({ userEmail: OWNER }, () =>
+      queryContentDatabaseItemsAction.run({ databaseId: files.databaseId }),
+    );
+    expect(hidden.items.map((item) => item.document.id)).toEqual([
+      retainedDocumentId,
+    ]);
+    expect(hidden.pagination).toMatchObject({
+      totalItems: 1,
+      returnedItems: 1,
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreContentDatabaseAction.run({
+        databaseId: deletedDatabase.databaseId,
+      }),
+    );
+
+    const restored = await runWithRequestContext({ userEmail: OWNER }, () =>
+      queryContentDatabaseItemsAction.run({ databaseId: files.databaseId }),
+    );
+    expect(restored.items.map((item) => item.document.id)).toEqual([
+      deletedDatabase.databaseDocumentId,
+      rowDocumentId,
+      retainedDocumentId,
+    ]);
+    expect(restored.pagination).toMatchObject({
+      totalItems: 3,
+      returnedItems: 3,
+    });
   });
 
   it("returns only the ordered, filtered database page and preserves read access", async () => {

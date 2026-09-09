@@ -71,6 +71,8 @@ Page history groups title/body recovery checkpoints by an explicit human editor 
 
 This Page recovery surface is narrower than the capability above: it does not supply cross-object Event queries, typed diffs, selective field recovery, or named Page Versions. Independent acceptance of those contracts remains required before changing the capability state.
 
+Page recovery replays serialized title/body content, including references. Inline databases omitted by the restored body follow ordinary save removal semantics; restoring an older reference does not recover a separately deleted database object or its data.
+
 Linked local files keep their file as the source of truth. Their checkpoints remain readable, but this SQL restore action rejects replacement until a revision-guarded source write and history reconciliation protocol is available; changing only the SQL mirror must never be reported as restoring the file.
 
 ## Proof plan

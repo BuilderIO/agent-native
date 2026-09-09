@@ -11,11 +11,12 @@ import {
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
   parseDocumentFavorite,
@@ -530,8 +531,12 @@ export default defineAction({
     // caller last reconciled. Guard the write with a compare-and-swap in that
     // case so a concurrent update (e.g. the Notion auto-pull applying a newer
     // remote edit) between the caller's snapshot and this save landing isn't
-    // silently overwritten. Title/icon/favorite-only saves are unaffected —
-    // only a save that's actually changing content is CAS-guarded.
+    // silently overwritten. A recovery may carry unchanged content alongside
+    // a stale title, so supplying content still guards the whole write.
+    // Title/icon/favorite-only requests without content remain unaffected.
+    const useContentCas =
+      args.content !== undefined && args.baseUpdatedAt !== undefined;
+
     if (anyChange) {
       let contentCasConflict = false;
       let committedContentChanged = false;
@@ -568,8 +573,6 @@ export default defineAction({
           lockedContentChanged ||
           lockedDescriptionChanged ||
           lockedIconChanged;
-        const useContentCas =
-          lockedContentChanged && args.baseUpdatedAt !== undefined;
         const updatedAt = nextDocumentUpdatedAt(historyBefore.updatedAt);
         const updates: Record<string, unknown> = { updatedAt };
         if (lockedTitleChanged) updates.title = args.title;
@@ -635,55 +638,12 @@ export default defineAction({
         }
 
         if (lockedTitleChanged && args.title !== undefined) {
-          const [database] = await tx
-            .select({
-              id: schema.contentDatabases.id,
-              spaceId: schema.contentDatabases.spaceId,
-              systemRole: schema.contentDatabases.systemRole,
-            })
-            .from(schema.contentDatabases)
-            .where(eq(schema.contentDatabases.documentId, id));
-          if (database) {
-            const title =
-              database.systemRole === "files"
-                ? args.title.trim() || "Untitled"
-                : args.title;
-            await tx
-              .update(schema.contentDatabases)
-              .set({ title, updatedAt })
-              .where(eq(schema.contentDatabases.id, database.id));
-            if (database.systemRole === "files" && database.spaceId) {
-              await tx
-                .update(schema.documents)
-                .set({ title, updatedAt })
-                .where(eq(schema.documents.id, id));
-              await tx
-                .update(schema.contentSpaces)
-                .set({ name: title, updatedAt })
-                .where(eq(schema.contentSpaces.id, database.spaceId));
-              const catalogReferences = await tx
-                .select({
-                  documentId: schema.contentSpaceCatalogItems.documentId,
-                })
-                .from(schema.contentSpaceCatalogItems)
-                .where(
-                  eq(schema.contentSpaceCatalogItems.spaceId, database.spaceId),
-                );
-              if (catalogReferences.length > 0) {
-                await tx
-                  .update(schema.documents)
-                  .set({ title, updatedAt })
-                  .where(
-                    inArray(
-                      schema.documents.id,
-                      catalogReferences.map(
-                        (reference) => reference.documentId,
-                      ),
-                    ),
-                  );
-              }
-            }
-          }
+          await propagateDocumentTitle({
+            db: tx as unknown as ReturnType<typeof getDb>,
+            documentId: id,
+            title: args.title,
+            updatedAt,
+          });
         }
         if (lockedTitleChanged || lockedContentChanged) {
           const [after] = await tx
