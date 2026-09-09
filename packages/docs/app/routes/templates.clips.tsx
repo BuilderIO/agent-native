@@ -177,7 +177,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
       <div className="w-full text-start">
         <div
           ref={sliderRef}
-          className="flex snap-x snap-mandatory overflow-x-auto border border-[var(--docs-border)] bg-[var(--bg-secondary)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex snap-x snap-mandatory overflow-x-auto border border-[var(--docs-border)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {CLIP_PREVIEWS.map((clip, index) => (
             <a
@@ -185,7 +185,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
               href={clip.href}
               target="_blank"
               rel="noopener noreferrer"
-              className={`group flex basis-[82%] shrink-0 snap-start flex-col bg-[var(--bg-secondary)] text-[var(--fg)] no-underline transition hover:no-underline sm:basis-[46%] lg:basis-[33.3333%] ${
+              className={`group flex basis-[82%] shrink-0 snap-start flex-col text-[var(--fg)] no-underline transition hover:no-underline sm:basis-[46%] lg:basis-[33.3333%] ${
                 index > 0 ? "border-s border-[var(--docs-border)]" : ""
               }`}
               onClick={() =>
