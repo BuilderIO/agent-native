@@ -43,29 +43,14 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(true);
   });
 
-  it.each(["owner", "admin"] as const)(
-    "allows organization %s members to access Dispatch",
-    async (role) => {
-      mocks.execute.mockResolvedValueOnce({ rows: [{ role }] });
-
-      await expect(
-        isWorkspaceAppAccessAllowed("dispatch", {
-          email: `${role}@example.com`,
-          orgId: "org-1",
-        }),
-      ).resolves.toBe(true);
-    },
-  );
-
-  it("denies organization members access to Dispatch", async () => {
-    mocks.execute.mockResolvedValueOnce({ rows: [{ role: "member" }] });
-
+  it("allows authenticated users to access Dispatch without an org-role lookup", async () => {
     await expect(
       isWorkspaceAppAccessAllowed("dispatch", {
         email: "member@example.com",
         orgId: "org-1",
       }),
-    ).resolves.toBe(false);
+    ).resolves.toBe(true);
+    expect(mocks.execute).not.toHaveBeenCalled();
   });
 
   it("allows organization members for org-visible apps", async () => {

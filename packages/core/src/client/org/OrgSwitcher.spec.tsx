@@ -599,7 +599,7 @@ describe("OrgSwitcher", () => {
     ).not.toBeNull();
   });
 
-  it.each(["owner", "admin"] as const)(
+  it.each(["owner", "admin", "member"] as const)(
     "shows Dispatch to organization %s members",
     (role) => {
       mocks.appLinks.mockReturnValue({
@@ -658,7 +658,7 @@ describe("OrgSwitcher", () => {
     },
   );
 
-  it("hides Dispatch and its all-apps link from organization members", () => {
+  it("shows Dispatch and its all-apps link to organization members", () => {
     mocks.appLinks.mockReturnValue({
       apps: [
         {
@@ -718,10 +718,10 @@ describe("OrgSwitcher", () => {
       document.body.querySelector<HTMLAnchorElement>(
         'a[href="/dispatch/overview"]',
       ),
-    ).toBeNull();
+    ).not.toBeNull();
     expect(
       document.body.querySelector<HTMLAnchorElement>('a[href="/analytics"]'),
     ).not.toBeNull();
-    expect(document.body.textContent).not.toContain("more in Dispatch");
+    expect(document.body.textContent).toContain("more in Dispatch");
   });
 });

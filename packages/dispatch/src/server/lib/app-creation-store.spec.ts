@@ -101,20 +101,6 @@ vi.mock("@agent-native/core/settings", () => ({
   getOrgSetting: (...args: any[]) => mocks.getOrgSetting(...args),
 }));
 
-vi.mock("@agent-native/core/org", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@agent-native/core/org")>();
-  return {
-    ...actual,
-    isWorkspaceAppAccessAllowed: vi.fn(
-      async (_appId: string, context: { orgId?: string | null } = {}) =>
-        !context.orgId ||
-        mocks.state.orgRole === "owner" ||
-        mocks.state.orgRole === "admin",
-    ),
-  };
-});
-
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/sharing")>();
@@ -295,22 +281,6 @@ describe("listWorkspaceApps", () => {
       ...overrides,
     };
   }
-
-  it.each(["owner", "admin", "member"] as const)(
-    "applies the organization role gate to Dispatch registry links for %s",
-    async (role) => {
-      stubNoPendingContext();
-      stubManifest();
-      mocks.state.orgRole = role;
-
-      const apps = await runWithRequestContext(
-        { userEmail: `${role}@example.test`, orgId: "org-123" },
-        () => listWorkspaceApps({ includeAgentCards: false }),
-      );
-
-      expect(apps.some((app) => app.id === "dispatch")).toBe(role !== "member");
-    },
-  );
 
   it("prefers the live workspace gateway manifest when available", async () => {
     const fetchMock = vi.fn(async () => {

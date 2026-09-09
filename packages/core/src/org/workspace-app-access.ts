@@ -191,27 +191,6 @@ async function isActiveWorkspaceOrgMember(
   return membership.active;
 }
 
-async function isDispatchWorkspaceAppAccessAllowed(
-  context: WorkspaceAppAccessContext,
-  email: string,
-): Promise<boolean> {
-  const orgId = context.orgId?.trim() || null;
-  // Dispatch remains available in personal/no-org mode. Organization-scoped
-  // Dispatch is a private control plane for owners and admins.
-  if (!orgId) return true;
-
-  try {
-    const member = await loadWorkspaceOrgMember(getDbExec(), orgId, email);
-    if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
-      return false;
-    }
-    return member.role === "owner" || member.role === "admin";
-  } catch (error) {
-    console.error("[workspace-app-access] Dispatch access check failed", error);
-    return false;
-  }
-}
-
 /**
  * Enforce the workspace-app ACL before a hosted app's authenticated API
  * surface is reached. The app shell remains cacheable and anonymous; this
@@ -223,11 +202,12 @@ export async function isWorkspaceAppAccessAllowed(
 ): Promise<boolean> {
   const normalizedAppId = appId.trim();
   const email = normalizedEmail(context.email);
-  if (!normalizedAppId || !email) {
+  if (
+    !normalizedAppId ||
+    normalizedAppId.toLowerCase() === "dispatch" ||
+    !email
+  ) {
     return true;
-  }
-  if (normalizedAppId.toLowerCase() === "dispatch") {
-    return isDispatchWorkspaceAppAccessAllowed(context, email);
   }
 
   const hostedAccess = await hostedWorkspaceAppAccess(

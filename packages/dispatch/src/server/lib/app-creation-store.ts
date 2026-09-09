@@ -5,11 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { signA2AToken } from "@agent-native/core/a2a";
 import { getDbExec } from "@agent-native/core/db";
-import {
-  getOrgA2ASecret,
-  getOrgDomain,
-  isWorkspaceAppAccessAllowed,
-} from "@agent-native/core/org";
+import { getOrgA2ASecret, getOrgDomain } from "@agent-native/core/org";
 import {
   createBuilderProject,
   getBuilderBranchProjectId,
@@ -1449,14 +1445,7 @@ async function filterWorkspaceAppsByAccess(
       continue;
     }
     if (app.isDispatch) {
-      if (
-        await isWorkspaceAppAccessAllowed(app.id, {
-          email: userEmail,
-          orgId,
-        })
-      ) {
-        visibleIds.add(app.id);
-      }
+      visibleIds.add(app.id);
       continue;
     }
     candidates.push(app);
