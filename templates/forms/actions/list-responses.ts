@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq, desc, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -26,7 +26,7 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const formId = args.formId ?? args.form;
-    if (!formId) throw new Error("formId is required");
+    if (!formId) fail("formId is required", { errorCode: "form_id_required" });
 
     const { resource: form } = await assertAccess("form", formId, "editor");
 

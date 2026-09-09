@@ -1,17 +1,25 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
-import type { ReactNode } from "react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
+import { useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Slide } from "@/context/DeckContext";
 
 const sortableKeyDown = vi.hoisted(() => vi.fn());
+const scrollIntoView = vi.fn();
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  getBrowserTabId: () => "test-tab",
   useAvatarUrl: () => null,
 }));
 
@@ -59,14 +67,56 @@ vi.stubGlobal(
   vi.fn(() => Promise.resolve({})),
 );
 
+Element.prototype.scrollIntoView = scrollIntoView;
+
 import EditorSidebar, { getSlideSelection } from "./EditorSidebar";
 
 afterEach(() => {
   cleanup();
   sortableKeyDown.mockClear();
+  scrollIntoView.mockClear();
 });
 
 describe("EditorSidebar thumbnail scroll cue", () => {
+  it("scrolls an opened slide thumbnail into view", () => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-3", content: "<div />", notes: "", layout: "content" },
+    ];
+    const { container, rerender } = render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+
+    scrollIntoView.mockClear();
+    rerender(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-3"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    expect(scrollIntoView.mock.contexts[0]).toBe(
+      container.querySelector('[data-slide-thumbnail-id="slide-3"]'),
+    );
+  });
+
   it("only marks the thumbnail pane as scrolled after it leaves the top", () => {
     const slide: Slide = {
       id: "slide-1",
@@ -328,6 +378,51 @@ describe("slide thumbnail deletion", () => {
 
     expect(onDeleteSlide).toHaveBeenCalledOnce();
     expect(onDeleteSlide).toHaveBeenCalledWith(["slide-1", "slide-2"]);
+  });
+
+  it("refocuses the next thumbnail after deleting the focused slide", async () => {
+    const onDeleteSlide = vi.fn();
+
+    function Harness() {
+      const [visibleSlides, setVisibleSlides] = useState(slides);
+      const [activeSlideId, setActiveSlideId] = useState("slide-1");
+      return (
+        <EditorSidebar
+          slides={visibleSlides}
+          activeSlideId={activeSlideId}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          selectedSlideIds={[activeSlideId]}
+          onSelectSlide={setActiveSlideId}
+          onDeleteSlide={(slideIds) => {
+            onDeleteSlide(slideIds);
+            const nextSlides = visibleSlides.filter(
+              (slide) => !slideIds.includes(slide.id),
+            );
+            setVisibleSlides(nextSlides);
+            setActiveSlideId(nextSlides[0]?.id ?? "");
+          }}
+          describeSlideId={null}
+          onCloseDescribe={() => {}}
+          addSlideAgentSubmit={() => {}}
+        />
+      );
+    }
+
+    const { container } = render(<Harness />);
+    const firstThumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-1"]',
+    );
+    firstThumbnail?.focus();
+
+    fireEvent.keyDown(firstThumbnail ?? document, { key: "Delete" });
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector('[data-slide-thumbnail-id="slide-2"]'),
+      );
+    });
+    expect(onDeleteSlide).toHaveBeenCalledWith(["slide-1"]);
   });
 
   it("does not delete a read-only thumbnail", () => {

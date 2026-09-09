@@ -156,6 +156,16 @@ if (process.argv.includes("--self-test")) {
 
 const PATTERNS = [
   {
+    // Added 2026-09-02 after the Design E2E suite surfaced 63 failures that had
+    // rotted for weeks: the suite ran post-merge only, so no fix ever had to
+    // prove itself against a test that failed first.
+    key: "no-failing-test-first",
+    label: "Had to ask for a failing test before the fix",
+    fixedBy:
+      "guard:e2e-quarantine + templates/design/.agents/skills/design-editor-architecture (2026-09-02)",
+    re: /\b(write|add).{0,24}(failing|red) test|test.{0,16}fail(s|ed)? first|where'?s the (failing )?test|no test for (this|that) (fix|bug)|prove it fails\b/i,
+  },
+  {
     // Added 2026-08-27 after the PR queue exposed routine main merges and
     // generic ship commits as a measurable source of CI churn.
     key: "shipping-churn",
@@ -315,6 +325,14 @@ const PATTERNS = [
     label: "Agent acted on other agents' threads or work uninvited",
     fixedBy: ".agents/skills/reporting-progress (2026-08-12)",
     re: /\b(other (chats?|threads?|agents?)|pause (their|other)|don'?t (tell|message) (other|the other)|didn'?t ask you to (touch|message))\b/i,
+  },
+  {
+    key: "agent-tool-misuse",
+    label:
+      "Had to tell an agent which tool to call, or to author content itself instead of delegating to ask_app / the in-app agent",
+    fixedBy:
+      "external-agents skill + initialToolNames→MCP instructions (2026-09-05)",
+    re: /\b(?:use|call) (?:the )?(?:right |correct |named )?tool\b|\bwrong tool\b|\bdon['’]t (?:use|call) ask_app\b|\b(?:write|author) (?:it|the (?:content|copy|text|deck|slide|design)) yourself\b|\bdon['’]t delegate (?:this|that|authoring)\b|\bstop waiting (?:on|for) the (?:in-app agent|app['’]s agent)\b/i,
   },
   // Measured for the first time on 2026-08-12, after three prose rewrites of the
   // same rule (c497c859fa, 061896a301, 44ac2c4acf) shipped with no key at all.

@@ -164,7 +164,7 @@ Cada app de ejemplo incluye:
 
 - **Un agente en funcionamiento**: conectado a la app, capaz de realizar actions sobre sus datos y consciente de lo que está viendo. Consulte [Messaging the agent](/docs/messaging).
 - **Auth**: inicio de sesión, sesiones, organizaciones y aislamiento multiinquilino.
-- **Una base de datos**: esquema, consultas y migraciones, listos para usar. Traiga su propia base de datos SQL (Postgres, SQLite, Turso, D1); el framework se adapta.
+- **Una base de datos**: esquema, consultas y migraciones listas para usar. Usa PGlite local durante el desarrollo y PostgreSQL alojado en los entornos desplegados.
 - **Una UI en tiempo real**: la pantalla permanece sincronizada con el agente. Por ejemplo, redactar un correo en el chat actualiza la bandeja de entrada de inmediato.
 - **Listo para implementar**: impleméntelo en Netlify, Vercel, Cloudflare, AWS o cualquier host que ejecute Node.
 - **Ganchos de marca**: cambie el nombre, los colores, el logotipo y el texto.
@@ -312,6 +312,6 @@ La CLI pregunta primero **¿Cómo quieres empezar?** Elige **Chat** para un espa
 
 Complete `.env` (`ANTHROPIC_API_KEY` y `DATABASE_URL`), luego ejecute `pnpm install` y `pnpm dev`. No hay que implementar el inicio de sesión ni rutas de marcador de posición.
 
-Destinos de implementación: cualquier host compatible con Nitro (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) y cualquier base de datos SQL compatible con Drizzle (SQLite, Postgres, Turso, D1, Supabase, Neon). Para los espacios de trabajo, `npx @agent-native/core@latest deploy` crea todas las aplicaciones a la vez y las envía detrás de un único origen. Ver [Deployment](/docs/deployment).
+Destinos de implementación: cualquier host compatible con Nitro y una base de datos PostgreSQL alojada. Para los espacios de trabajo, `npx @agent-native/core@latest deploy` crea todas las aplicaciones a la vez y las envía detrás de un único origen. Ver [Deployment](/docs/deployment).
 
 Para crear y publicar su propia plantilla de app, consulte [Creating Templates](/docs/creating-templates).

@@ -18,12 +18,18 @@ import React, {
   useState,
 } from "react";
 
+import { buildSettingsRoute } from "../../navigation/index.js";
 import type {
   OnboardingAppProfile,
   OnboardingCapability,
 } from "../../onboarding/types.js";
 import { docsUrl } from "../../shared/docs-url.js";
 import { appPath } from "../api-path.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import {
   Tooltip,
   TooltipContent,
@@ -35,6 +41,7 @@ import {
   buildMcpOAuthStartUrl,
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
+  isMcpIntegrationUrl,
   navigateToMcpOAuthStart,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
@@ -127,6 +134,7 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
+  const builderMoreServicesTitleId = React.useId();
   const previewMode = useOnboardingPreviewMode();
   const {
     firstRun,
@@ -192,8 +200,10 @@ export function FirstRunOnboarding({
           trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
         }
         completionAttemptRef.current = null;
+        return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
+        return false;
       }
     },
     [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
@@ -216,17 +226,13 @@ export function FirstRunOnboarding({
     profile,
     screen,
   ]);
-  const connectedUrls = useMemo(() => {
-    if (previewMode) return new Set<string>();
+  const connectedServers = useMemo(() => {
+    if (previewMode) return [];
     const servers = [
       ...(mcpServersQuery.data?.user ?? []),
       ...(mcpServersQuery.data?.org ?? []),
     ];
-    return new Set(
-      servers
-        .filter((server) => server.status.state === "connected")
-        .map((server) => compareUrl(server.url)),
-    );
+    return servers.filter((server) => server.status.state === "connected");
   }, [mcpServersQuery.data, previewMode]);
   const hasOrg = Boolean(mcpServersQuery.data?.orgId);
   const canCreateOrgMcp = Boolean(
@@ -329,13 +335,16 @@ export function FirstRunOnboarding({
     });
   };
 
-  const handleOpenSettings = () => {
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:open-settings", {
-        detail: { section: "integrations" },
-      }),
+  const handleOpenSettings = async () => {
+    const completed = await finishOnboarding("manual");
+    if (!completed) return;
+    if (typeof window === "undefined") return;
+    window.history.pushState(
+      null,
+      "",
+      `${appPath(buildSettingsRoute("agent:llm"))}${window.location.search}`,
     );
-    void finishOnboarding("manual");
+    window.dispatchEvent(new Event("popstate"));
   };
 
   const handleFinish = (completeStep = true) => {
@@ -381,7 +390,9 @@ export function FirstRunOnboarding({
     setConnectError(null);
 
     if (
-      connectedUrls.has(compareUrl(integration.url)) ||
+      connectedServers.some((server) =>
+        isMcpIntegrationUrl(integration, server.url),
+      ) ||
       connectingIntegrationId === integration.id
     ) {
       return;
@@ -390,6 +401,11 @@ export function FirstRunOnboarding({
     if (!mcpServersQuery.isSuccess) return;
 
     if (hasOrg) {
+      setIntegrationDialogId(integration.id);
+      return;
+    }
+
+    if (!integration.url.trim()) {
       setIntegrationDialogId(integration.id);
       return;
     }
@@ -579,32 +595,41 @@ export function FirstRunOnboarding({
                     : t("agentChat.onboarding.builderCredits")}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
-                  {builderCapabilities.map((capability, index) => (
-                    <React.Fragment key={capability.id}>
-                      {index > 0 && (
-                        <span
-                          aria-hidden="true"
-                          className="text-muted-foreground"
-                        >
-                          ·
-                        </span>
-                      )}
-                      <span className="inline-flex items-center gap-0.5">
-                        <span>{capability.label}</span>
-                        {capability.id === "design-system-intelligence" && (
-                          <CapabilityInfoButton
-                            capability={capability}
-                            ariaLabel={`About ${capability.label}`}
-                          />
+                  {builderCapabilities.map((capability, index) => {
+                    const copy = getCapabilityCopy(t, capability);
+                    return (
+                      <React.Fragment key={capability.id}>
+                        {index > 0 && (
+                          <span
+                            aria-hidden="true"
+                            className="text-muted-foreground"
+                          >
+                            ·
+                          </span>
                         )}
-                      </span>
-                    </React.Fragment>
-                  ))}
+                        <span className="inline-flex items-center gap-0.5">
+                          <span>{copy.label}</span>
+                          {capability.id === "design-system-intelligence" && (
+                            <CapabilityInfoButton
+                              why={copy.why}
+                              ariaLabel={t(
+                                "agentChat.onboarding.capability.about",
+                                {
+                                  defaultValue: "About {{label}}",
+                                  label: copy.label,
+                                },
+                              )}
+                            />
+                          )}
+                        </span>
+                      </React.Fragment>
+                    );
+                  })}
                   <span aria-hidden="true" className="text-muted-foreground">
                     ·
                   </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+                  <Popover>
+                    <PopoverTrigger asChild>
                       <button
                         type="button"
                         className="text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -612,16 +637,27 @@ export function FirstRunOnboarding({
                       >
                         +{BUILDER_MORE_SERVICES.length} more
                       </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-sm text-xs">
-                      <p className="font-medium">
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="top"
+                      align="start"
+                      sideOffset={6}
+                      aria-labelledby={builderMoreServicesTitleId}
+                      className="w-[min(24rem,calc(100vw-2rem))] text-xs"
+                    >
+                      <p
+                        id={builderMoreServicesTitleId}
+                        className="font-medium"
+                      >
                         Also included with Builder.io free credits
                       </p>
-                      <p className="mt-1 leading-5">
-                        {BUILDER_MORE_SERVICES.join(" · ")}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
+                      <ul className="mt-2 list-disc space-y-1 ps-4 leading-5">
+                        {BUILDER_MORE_SERVICES.map((service) => (
+                          <li key={service}>{service}</li>
+                        ))}
+                      </ul>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
               <BuilderConnectPopover
@@ -629,6 +665,7 @@ export function FirstRunOnboarding({
                 onConnect={(provisionAccount) =>
                   handleBuilder(provisionAccount)
                 }
+                defaultProvisionAccount
                 contentTestId="first-run-builder-consent"
                 primaryTestId="first-run-builder-create-and-activate"
                 secondaryTestId="first-run-builder-existing-account"
@@ -646,6 +683,15 @@ export function FirstRunOnboarding({
                   <IconArrowRight size={15} />
                 </button>
               </BuilderConnectPopover>
+              {connectFlow.error && !connectFlow.statusResolved && (
+                <p
+                  role="status"
+                  data-testid="first-run-builder-status-error"
+                  className="mt-2 text-center text-xs text-destructive"
+                >
+                  {connectFlow.error}
+                </p>
+              )}
             </section>
 
             <div
@@ -730,7 +776,7 @@ export function FirstRunOnboarding({
           </div>
           <div className="rounded-xl bg-muted/35 p-4">
             <CapabilityList capabilities={profile.capabilities} />
-            <div className="mt-5 flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-between">
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 pt-4">
               <button
                 type="button"
                 className={secondaryButtonClass}
@@ -738,24 +784,30 @@ export function FirstRunOnboarding({
               >
                 Back
               </button>
-              <button
-                type="button"
-                className={primaryButtonClass}
-                onClick={handleOpenSettings}
-              >
-                Open key settings
-                <IconArrowRight size={15} />
-              </button>
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                onClick={() => {
-                  trackFirstRunStepCompleted("manual");
-                  setScreen(skipIntegrations ? "role" : "tools");
-                }}
-              >
-                {skipIntegrations ? "Continue" : "Continue to tools"}
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  data-testid="first-run-skip-keys"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => {
+                    trackFirstRunStepCompleted("manual");
+                    showTools();
+                  }}
+                >
+                  {t("agentChat.onboarding.skipForNow")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="first-run-open-key-settings"
+                  className={primaryButtonClass}
+                  onClick={() => void handleOpenSettings()}
+                >
+                  {t("agentChat.onboarding.openAiKeySettings", {
+                    defaultValue: "Open AI key settings",
+                  })}
+                  <IconArrowRight size={15} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -853,8 +905,8 @@ export function FirstRunOnboarding({
 
             <IntegrationGrid
               items={mcpIntegrations.map((integration) => {
-                const connected = connectedUrls.has(
-                  compareUrl(integration.url),
+                const connected = connectedServers.some((server) =>
+                  isMcpIntegrationUrl(integration, server.url),
                 );
                 return {
                   id: integration.id,
@@ -1227,6 +1279,36 @@ function OnboardingSkeleton() {
   );
 }
 
+type CapabilityTranslator = (
+  key: string,
+  options?: Record<string, unknown>,
+) => string;
+
+type CapabilityCopy = Pick<OnboardingCapability, "required" | "suggested"> & {
+  label: string;
+  keySummary: string;
+  why: string;
+};
+
+function getCapabilityCopy(
+  t: CapabilityTranslator,
+  capability: OnboardingCapability,
+): CapabilityCopy {
+  return {
+    required: capability.required,
+    suggested: capability.suggested,
+    label: capability.labelKey
+      ? t(capability.labelKey, { defaultValue: capability.label })
+      : capability.label,
+    keySummary: capability.keySummaryKey
+      ? t(capability.keySummaryKey, { defaultValue: capability.keySummary })
+      : capability.keySummary,
+    why: capability.whyKey
+      ? t(capability.whyKey, { defaultValue: capability.why })
+      : capability.why,
+  };
+}
+
 function CapabilityList({
   capabilities,
   compact = false,
@@ -1236,14 +1318,17 @@ function CapabilityList({
   compact?: boolean;
   className?: string;
 }) {
+  const t = useT();
   const visibleCapabilities = useMemo(() => {
-    if (!compact) return capabilities;
-    const suggested = capabilities.filter((capability) => capability.suggested);
-    const leading = capabilities.filter((capability) => !capability.suggested);
-    return [
-      ...leading.slice(0, Math.max(0, 4 - suggested.length)),
-      ...suggested,
-    ].slice(0, 4);
+    const required = capabilities.filter((capability) => capability.required);
+    const suggested = capabilities.filter(
+      (capability) => !capability.required && capability.suggested,
+    );
+    const optional = capabilities.filter(
+      (capability) => !capability.required && !capability.suggested,
+    );
+    const ordered = [...required, ...suggested, ...optional];
+    return compact ? ordered.slice(0, 4) : ordered;
   }, [capabilities, compact]);
 
   return (
@@ -1257,7 +1342,7 @@ function CapabilityList({
         {visibleCapabilities.map((capability) => (
           <CapabilityRow
             key={capability.id}
-            capability={capability}
+            copy={getCapabilityCopy(t, capability)}
             compact={compact}
           />
         ))}
@@ -1267,12 +1352,14 @@ function CapabilityList({
 }
 
 function CapabilityRow({
-  capability,
+  copy,
   compact,
 }: {
-  capability: OnboardingCapability;
+  copy: CapabilityCopy;
   compact: boolean;
 }) {
+  const t = useT();
+
   return (
     <div
       className={cn(
@@ -1285,40 +1372,39 @@ function CapabilityRow({
           <span
             className={cn("font-medium", compact ? "text-[11px]" : "text-sm")}
           >
-            {capability.label}
+            {copy.label}
           </span>
           <CapabilityInfoButton
-            capability={capability}
-            ariaLabel={`Why ${capability.label} is needed`}
+            why={copy.why}
+            ariaLabel={t("agentChat.onboarding.capability.why", {
+              defaultValue: "Why {{label}} is needed",
+              label: copy.label,
+            })}
           />
         </div>
-        <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-          {capability.keySummary}
+        <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+          {copy.keySummary}
         </p>
       </div>
       <span
         className={cn(
           "shrink-0 text-[10px] uppercase tracking-[0.08em]",
-          capability.required || capability.suggested
+          copy.required || copy.suggested
             ? "text-primary"
             : "text-muted-foreground",
         )}
       >
-        {capability.required
-          ? "Required"
-          : capability.suggested
-            ? "Suggested"
-            : "Optional"}
+        {copy.required ? "Required" : copy.suggested ? "Suggested" : "Optional"}
       </span>
     </div>
   );
 }
 
 function CapabilityInfoButton({
-  capability,
+  why,
   ariaLabel,
 }: {
-  capability: OnboardingCapability;
+  why: string;
   ariaLabel: string;
 }) {
   return (
@@ -1335,14 +1421,18 @@ function CapabilityInfoButton({
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs text-xs">
-        {capability.why}
+        {why}
       </TooltipContent>
     </Tooltip>
   );
 }
 
+// `aria-disabled` (not `disabled`) is what BuilderConnectPopover sets while the
+// Builder status is still in flight, so the `disabled:` styles never engage and
+// a pending CTA is pixel-identical to a live one — which is why this class of
+// dead button survives screenshot review.
 const primaryButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-60";
 
 /** Inline failure signal for a failed completeFirstRun() call — keeps the
  *  user on their current screen with a way forward, instead of swapping to
@@ -1371,13 +1461,3 @@ function FirstRunCompletionError({
 
 const secondaryButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
-
-function compareUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
-}

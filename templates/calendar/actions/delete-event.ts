@@ -10,6 +10,7 @@ import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   cliBoolean,
   normalizeWritableGoogleEventId,
+  rawCliBoolean,
   requireActionUserEmail,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
@@ -49,6 +50,14 @@ export default defineAction({
       ),
   }),
   toolCallable: false,
+  // Deleting the event is recoverable — Google keeps it in the calendar's trash
+  // — but the cancellation Google mails the guests, and the companion note this
+  // action sends alongside it, are not. So the gate is on the outward-facing
+  // send, not on the delete: a quiet "cancel my 3pm" still runs unattended.
+  // removeOnly forces sendUpdates to none, so it never reaches a guest.
+  needsApproval: ({ sendUpdates, notificationMessage, removeOnly }) =>
+    !rawCliBoolean(removeOnly) &&
+    (sendUpdates === "all" || !!notificationMessage?.trim()),
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (!(await googleCalendar.isConnected(ownerEmail))) {

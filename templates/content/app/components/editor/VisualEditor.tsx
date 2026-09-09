@@ -4,6 +4,10 @@ import {
   useRecentEdits,
   type AttributedRecentEdit,
 } from "@agent-native/core/client/collab";
+import {
+  getBrowserTabId,
+  setClientAppState,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
@@ -12,6 +16,7 @@ import {
   useCollabReconcile,
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -61,6 +66,7 @@ import type { CommentThread } from "@/hooks/use-comments";
 
 import { BubbleToolbar } from "./BubbleToolbar";
 import { resolveAnchor, type CommentTextAnchor } from "./comment-anchors";
+import { buildContentSelectionPayload } from "./content-selection";
 import { AudioNode } from "./extensions/AudioNode";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
@@ -722,6 +728,30 @@ const NormalizeTableHeaders = Extension.create({
   },
 });
 
+// Selection context for the agent, mirroring Design's `design-selection` and
+// Slides' `slides-selection`: a tab-scoped key plus a non-tab-scoped fallback
+// of the same name, so `view-screen` can read the requesting tab's selection
+// (or fall back to the only tab that has one).
+const SELECTION_APP_STATE_KEY = "content-selection";
+const SELECTION_SYNC_DEBOUNCE_MS = 300;
+
+function writeContentSelectionState(value: unknown) {
+  // The same tab id the navigation writer and agent chat use
+  // (use-navigation-state.ts), so the tab-scoped key matches the one
+  // `readAppStateForCurrentTab` resolves for this tab.
+  const tabId = getBrowserTabId();
+  const keys = [
+    appStateKeyForBrowserTab(SELECTION_APP_STATE_KEY, tabId),
+    SELECTION_APP_STATE_KEY,
+  ];
+  for (const key of keys) {
+    setClientAppState(key, value, {
+      keepalive: true,
+      requestSource: tabId,
+    }).catch(() => {});
+  }
+}
+
 interface VisualEditorProps {
   documentId?: string;
   content: string;
@@ -731,6 +761,15 @@ interface VisualEditorProps {
    * lagging poll — only newer content is reconciled into the live editor.
    */
   contentUpdatedAt?: string | null;
+  /** Opaque body revision used for base-aware external-edit reconciliation. */
+  contentRevision?: string | null;
+  onBaseAwareReconcile?: (result: {
+    status: "merged" | "conflict" | "failed";
+    content: string;
+    serverContent: string;
+    baseRevision: string;
+    serverRevision: string;
+  }) => void;
   onChange: (markdown: string) => void;
   onSaveContent?: (markdown: string) => boolean | Promise<boolean>;
   /** Yjs document for collaborative editing. */
@@ -763,6 +802,7 @@ interface VisualEditorProps {
   pendingHighlight?: { from: number; to: number } | null;
   /** Called when the user clicks an inline highlight in the document. */
   onActivateThread?: (threadId: string) => void;
+  showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
   notionPageLinks?: NotionPageLink[];
   onOpenNotionPageLink?: (documentId: string) => void;
@@ -777,6 +817,9 @@ interface VisualEditorProps {
     controller: VisualEditorHistoryController | null,
   ) => void;
   onHistoryStateChange?: (state: VisualEditorHistoryState) => void;
+  onPersistenceControllerChange?: (
+    controller: VisualEditorPersistenceController | null,
+  ) => void;
 }
 
 export interface VisualEditorHistoryState {
@@ -787,6 +830,20 @@ export interface VisualEditorHistoryState {
 export interface VisualEditorHistoryController {
   undo: () => boolean;
   redo: () => boolean;
+}
+
+export interface VisualEditorPersistenceController {
+  flushLatest: () => Promise<boolean>;
+}
+
+export function shouldFlushVisualEditorDraft({
+  editable,
+  hasUserEditIntent,
+}: {
+  editable: boolean;
+  hasUserEditIntent: boolean;
+}) {
+  return editable && hasUserEditIntent;
 }
 
 export type { NotionPageLink };
@@ -2074,6 +2131,8 @@ export function VisualEditor({
   documentId,
   content,
   contentUpdatedAt,
+  contentRevision,
+  onBaseAwareReconcile,
   onChange,
   onSaveContent,
   ydoc,
@@ -2089,12 +2148,14 @@ export function VisualEditor({
   activeThreadId,
   pendingHighlight,
   onActivateThread,
+  showCommentIndicators = true,
   onJoinTitle,
   notionPageLinks = [],
   onOpenNotionPageLink,
   notionPageId,
   onHistoryControllerChange,
   onHistoryStateChange,
+  onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
@@ -2244,8 +2305,10 @@ export function VisualEditor({
   // only fires once the editor exists, by which point the ref holds the guards.
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
   const lastUserEditIntentAtRef = useRef(0);
+  const hasUserEditIntentRef = useRef(false);
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
+    hasUserEditIntentRef.current = true;
   }, []);
   const persistEditorContent = useCallback(
     (
@@ -2254,13 +2317,14 @@ export function VisualEditor({
         markdown?: string;
         immediate?: boolean;
         userInitiated?: boolean;
+        strict?: boolean;
       },
     ) => {
       const guards = guardsRef.current;
       if (!guards) return false;
       try {
         const serialized = serializeEditorDraftForPersistence(editorToPersist);
-        if (serialized === null) return true;
+        if (serialized === null) return options?.strict !== true;
         const normalized = options?.markdown ?? serialized;
         if (localFileMode && normalized === content) return true;
         // TipTap/Yjs can emit a local-looking empty-paragraph transaction while
@@ -2316,6 +2380,9 @@ export function VisualEditor({
   };
 
   const historyEditorRef = useRef<CoreEditor | null>(null);
+  const selectionSyncTimerRef = useRef<
+    ReturnType<typeof setTimeout> | undefined
+  >(undefined);
   const editor = useEditor({
     extensions,
     // With Collaboration (ydoc) active, content is owned by the Y.XmlFragment —
@@ -2462,6 +2529,23 @@ export function VisualEditor({
         canRedo: editor.can().redo(),
       });
     },
+    // Selection context for the agent — see `content-selection.ts`. Debounced
+    // so rapid selection changes (dragging, arrow-key movement) don't spam
+    // application-state writes; cleared on unmount/document change below.
+    // Deliberately NOT cleared on blur: the user blurs this editor the moment
+    // they switch to the external agent's window to ask about "the selected
+    // text", and the browser keeps the highlight while the window is behind.
+    onSelectionUpdate: ({ editor }) => {
+      if (!documentId) return;
+      clearTimeout(selectionSyncTimerRef.current);
+      selectionSyncTimerRef.current = setTimeout(() => {
+        if (editor.isDestroyed) return;
+        const { from, to } = editor.state.selection;
+        writeContentSelectionState(
+          buildContentSelectionPayload(editor.state.doc, documentId, from, to),
+        );
+      }, SELECTION_SYNC_DEBOUNCE_MS);
+    },
     onUpdate: ({ editor, transaction }) => {
       const guards = guardsRef.current;
       // `shouldIgnoreUpdate` covers: not editable, mid-programmatic setContent,
@@ -2496,6 +2580,7 @@ export function VisualEditor({
           Date.now() - lastUserEditIntentAtRef.current < 2000,
         transactionUiEvent: transaction.getMeta("uiEvent"),
       });
+      if (userInitiated) hasUserEditIntentRef.current = true;
       if (
         !shouldPersistCollaborativeEditorUpdate({
           collab: !!ydoc,
@@ -2516,6 +2601,33 @@ export function VisualEditor({
 
   useEffect(() => {
     if (!editor) {
+      onPersistenceControllerChange?.(null);
+      return;
+    }
+    onPersistenceControllerChange?.({
+      flushLatest: async () => {
+        if (
+          !shouldFlushVisualEditorDraft({
+            editable,
+            hasUserEditIntent: hasUserEditIntentRef.current,
+          })
+        ) {
+          return true;
+        }
+        return await Promise.resolve(
+          persistEditorContent(editor, {
+            immediate: true,
+            userInitiated: true,
+            strict: true,
+          }),
+        );
+      },
+    });
+    return () => onPersistenceControllerChange?.(null);
+  }, [editable, editor, onPersistenceControllerChange, persistEditorContent]);
+
+  useEffect(() => {
+    if (!editor) {
       onHistoryControllerChange?.(null);
       return;
     }
@@ -2529,6 +2641,17 @@ export function VisualEditor({
     });
     return () => onHistoryControllerChange?.(null);
   }, [editor, onHistoryControllerChange, onHistoryStateChange]);
+
+  // Clear the agent's selection context when this document closes — on
+  // unmount, and on document change (the editor is reused across route
+  // navigation rather than remounted, so a documentId change alone would
+  // otherwise leave the previous document's selection stale).
+  useEffect(() => {
+    return () => {
+      clearTimeout(selectionSyncTimerRef.current);
+      writeContentSelectionState(null);
+    };
+  }, [documentId]);
 
   const handleImageFileInputChange = useCallback(
     async (event: Event) => {
@@ -2630,6 +2753,8 @@ export function VisualEditor({
     awareness: localAwareness,
     value: content,
     contentUpdatedAt,
+    contentRevision,
+    onBaseAwareReconcile,
     editable,
     isEditorFocused: isVisualEditorFocused,
     getMarkdown: (e) => docToNfm(e.getJSON() as any),
@@ -2796,6 +2921,14 @@ export function VisualEditor({
         ? new Map<string, CommentHighlightSpec>()
         : new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
       const specs: CommentHighlightSpec[] = [];
+      if (!showCommentIndicators) {
+        setCommentHighlights(view, {
+          specs,
+          pending: pendingHighlight ?? null,
+          activeId: activeThreadId ?? null,
+        });
+        return;
+      }
       for (const thread of threadsRef.current ?? []) {
         if (thread.resolved) continue;
         const existing = mapped.get(thread.threadId);
@@ -2823,7 +2956,7 @@ export function VisualEditor({
         activeId: activeThreadId ?? null,
       });
     },
-    [activeThreadId, editor, pendingHighlight],
+    [activeThreadId, editor, pendingHighlight, showCommentIndicators],
   );
 
   const applyRef = useRef(applyHighlights);
@@ -2874,30 +3007,19 @@ export function VisualEditor({
   // Active card / pending selection just update the existing highlights.
   useEffect(() => {
     scheduleApply(false);
-  }, [editor, scheduleApply, activeThreadId, pendingKey]);
+  }, [
+    activeThreadId,
+    editor,
+    pendingKey,
+    scheduleApply,
+    showCommentIndicators,
+  ]);
 
   // Re-resolve from scratch when the loaded content changes wholesale (an agent
   // edit / Notion pull replaces the document body).
   useEffect(() => {
     scheduleApply(true);
   }, [editor, scheduleApply, content, contentUpdatedAt]);
-
-  // Clicking an inline highlight focuses its thread in the sidebar.
-  useEffect(() => {
-    if (!editor || editor.isDestroyed || !onActivateThread) return;
-    const dom = editor.view.dom;
-    const handleClick = (event: Event) => {
-      const target = event.target as HTMLElement | null;
-      const el = target?.closest?.(
-        "[data-comment-thread]",
-      ) as HTMLElement | null;
-      if (!el) return;
-      const id = el.getAttribute("data-comment-thread");
-      if (id) setTimeout(() => onActivateThread(id), 0);
-    };
-    dom.addEventListener("click", handleClick);
-    return () => dom.removeEventListener("click", handleClick);
-  }, [editor, onActivateThread]);
 
   if (!editor) {
     return (

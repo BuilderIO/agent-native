@@ -241,6 +241,7 @@ export const contentDatabaseListDocumentSelection = {
   position: schema.documents.position,
   isFavorite: schema.documents.isFavorite,
   hideFromSearch: schema.documents.hideFromSearch,
+  bodyRevision: schema.documents.bodyRevision,
   sourceMode: schema.documents.sourceMode,
   sourceKind: schema.documents.sourceKind,
   sourcePath: schema.documents.sourcePath,

@@ -1,4 +1,7 @@
-import { resolveOgFontFiles } from "@agent-native/core/server";
+import {
+  AGENT_NATIVE_OG_BACKGROUND_DATA_URL,
+  resolveOgFontFiles,
+} from "@agent-native/core/server";
 import type { RenderedImage, ResvgRenderOptions } from "@resvg/resvg-js";
 
 export interface FormOgImageInput {
@@ -13,8 +16,6 @@ interface FormOgRenderOptions {
 
 const WIDTH = 1200;
 const HEIGHT = 630;
-// guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
-const BG = "#0A0A0A";
 const SURFACE = "#0a0a0a";
 const BORDER = "#1f1f1f";
 // guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
@@ -194,7 +195,7 @@ export function renderFormOgImageSvg(input: FormOgImageInput = {}): string {
       <circle cx="${BADGE_CX}" cy="${BADGE_CY}" r="78" fill="white"/>
     </mask>
   </defs>
-  <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>
+  <image x="0" y="0" width="${WIDTH}" height="${HEIGHT}" href="${AGENT_NATIVE_OG_BACKGROUND_DATA_URL}" preserveAspectRatio="xMidYMid slice"/>
   <g transform="translate(80 86)">
     <g transform="translate(0 14) scale(0.62)">
       ${LOGO_MARK}

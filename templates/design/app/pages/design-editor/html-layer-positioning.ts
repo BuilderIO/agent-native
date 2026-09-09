@@ -181,6 +181,51 @@ export function setFlowPositioningOverrideForNodeInHtml(
   }
 }
 
+function parseInlinePx(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isDocumentRootAnchorSelector(selector?: string): boolean {
+  if (!selector) return false;
+  const normalized = selector.trim().toLowerCase().replace(/\s+/g, " ");
+  return (
+    normalized === "body" ||
+    normalized === "html" ||
+    normalized === "html > body"
+  );
+}
+
+/** Offset to persist for an absolute-container drop.
+ * Inside drops use sourceRect − anchorRect (anchor is the new containing
+ * block). Before/after anchors and document-root inside anchors are not
+ * that block — use the bridge's already-rebased inline left/top. */
+export function rawAbsoluteContainerOffsetFromDrop(args: {
+  dropMode?: "flow-insert" | "absolute-container";
+  placement: "before" | "after" | "inside";
+  sourceRect?: { x: number; y: number };
+  anchorRect?: { x: number; y: number };
+  inlineStyles?: Record<string, string>;
+  anchorSelector?: string;
+}): { x: number; y: number } | null {
+  if (args.dropMode !== "absolute-container") return null;
+  if (
+    args.placement === "before" ||
+    args.placement === "after" ||
+    isDocumentRootAnchorSelector(args.anchorSelector)
+  ) {
+    const x = parseInlinePx(args.inlineStyles?.left);
+    const y = parseInlinePx(args.inlineStyles?.top);
+    if (x !== null && y !== null) return { x, y };
+  }
+  if (!args.sourceRect || !args.anchorRect) return null;
+  return {
+    x: args.sourceRect.x - args.anchorRect.x,
+    y: args.sourceRect.y - args.anchorRect.y,
+  };
+}
+
 export function setAbsolutePositioningForNodeInHtml(
   content: string,
   nodeAttrId: string,

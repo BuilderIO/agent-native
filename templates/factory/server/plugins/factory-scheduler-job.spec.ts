@@ -5,11 +5,14 @@ const listAutomationDefinitionsMock = vi.hoisted(() => vi.fn());
 const resourceDeleteByPathMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
+const resourceListContentMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/event-bus", () => ({
   subscribe: vi.fn(),
+  registerEvent: vi.fn(),
+  emit: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/notifications", () => ({
@@ -25,6 +28,7 @@ vi.mock("@agent-native/core/resources", () => ({
   resourceDeleteByPath: resourceDeleteByPathMock,
   resourceGetByPath: resourceGetByPathMock,
   resourceList: resourceListMock,
+  resourceListContentByOwnersAndPrefixes: resourceListContentMock,
   resourcePut: resourcePutMock,
   resourcePutIfCurrent: resourcePutIfCurrentMock,
   WORKSPACE_OWNER: "workspace",
@@ -61,6 +65,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   listAutomationDefinitionsMock.mockResolvedValue([]);
   resourceListMock.mockResolvedValue([]);
+  resourceListContentMock.mockResolvedValue([]);
   resourceDeleteByPathMock.mockResolvedValue(true);
   deleteAutomationRunsMock.mockResolvedValue(undefined);
 });
@@ -105,32 +110,18 @@ describe("removeFactoryAutomationResources", () => {
       "jobs/factories/support-triage/legacy-without-trigger.md";
     const discoveredPath =
       "jobs/factories/support-triage/factory-slack-custom.md";
-    const outsidePath = "jobs/factory-slack-feedback.md";
     resourceListMock
       .mockResolvedValueOnce([{ path: prefixPath }])
       .mockResolvedValueOnce([]);
-    const discovered = [
-      {
-        name: "factories/support-triage/factory-slack-custom",
-        meta: { domain: "factory", enabled: true },
-        resource: {
+    resourceListContentMock
+      .mockResolvedValueOnce([
+        {
           id: "custom",
+          owner: "__organization__:org-1",
           path: discoveredPath,
-          content: "---\ndomain: factory\nfactoryId: support-triage\n---\n",
+          content: "---\nenabled: true\n---\nObserve Slack.\n",
         },
-      },
-      {
-        name: "factory-slack-feedback",
-        meta: { domain: "factory", enabled: true },
-        resource: {
-          id: "legacy",
-          path: outsidePath,
-          content: "---\ndomain: factory\nfactoryId: support-triage\n---\n",
-        },
-      },
-    ];
-    listAutomationDefinitionsMock
-      .mockResolvedValueOnce(discovered)
+      ])
       .mockResolvedValueOnce([]);
 
     await removeFactoryAutomationResources(
@@ -150,10 +141,6 @@ describe("removeFactoryAutomationResources", () => {
     expect(resourceDeleteByPathMock).toHaveBeenCalledWith(
       "__organization__:org-1",
       discoveredPath,
-    );
-    expect(resourceDeleteByPathMock).toHaveBeenCalledWith(
-      "__organization__:org-1",
-      outsidePath,
     );
     expect(deleteAutomationRunsMock).not.toHaveBeenCalled();
   });

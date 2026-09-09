@@ -138,14 +138,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "supabase",
           },
           {
-            id: "database-turso",
-            labelKey: "databaseTurso",
-            slug: "turso",
+            id: "database-aws-rds",
+            labelKey: "databaseAwsRds",
+            slug: "aws-rds",
           },
           {
-            id: "database-d1",
-            labelKey: "databaseD1",
-            slug: "cloudflare-d1",
+            id: "database-cloud-sql",
+            labelKey: "databaseCloudSql",
+            slug: "cloud-sql",
+          },
+          {
+            id: "database-azure-postgres",
+            labelKey: "databaseAzurePostgres",
+            slug: "azure-postgresql",
           },
           {
             id: "database-postgres",

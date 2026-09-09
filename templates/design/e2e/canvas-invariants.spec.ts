@@ -1,5 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
+
 /**
  * Invariants a direct-manipulation canvas must hold: the inspector, the
  * document and the rendered pixels all describe the same element. Each test
@@ -211,6 +213,22 @@ async function inspectorField(page: Page, label: string): Promise<string> {
   return (await input.inputValue()).trim();
 }
 
+/**
+ * Click a layer row and wait for the inspector to actually reflect it.
+ *
+ * `inspectorField` reads once with no retry, so the blind settle this replaces
+ * was load-bearing: X/Y only render for a live selection, so absent -> present
+ * is the real transition to wait on.
+ */
+async function selectLayerRow(page: Page, name: string): Promise<void> {
+  const row = layerRow(page, name);
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.click();
+  await expect
+    .poll(() => inspectorField(page, "X"), { timeout: 15_000 })
+    .not.toBe("<absent>");
+}
+
 async function setInspectorField(
   page: Page,
   label: string,
@@ -222,7 +240,6 @@ async function setInspectorField(
     .locator("xpath=following::input[1]");
   await input.fill(value);
   await input.press("Enter");
-  await page.waitForTimeout(1800);
 }
 
 function num(value: string): number {
@@ -309,12 +326,17 @@ async function drawWith(page: Page, tool: string, rect: Rect): Promise<void> {
   await page.waitForTimeout(1600);
 }
 
+/**
+ * Every caller asserts this list is EMPTY, so swallowing a read failure into
+ * `[]` made "no toast" and "could not read the toasts" the same answer — the
+ * assertion could not fail. A zero-match locator already returns `[]` without
+ * throwing, so the catch only ever hid real errors.
+ */
 async function toasts(page: Page): Promise<string[]> {
-  return page
+  const all = await page
     .locator("[data-sonner-toast], [role='alert']")
-    .allTextContents()
-    .then((t) => t.map((s) => s.trim()).filter(Boolean))
-    .catch(() => []);
+    .allTextContents();
+  return all.map((s) => s.trim()).filter(Boolean);
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
@@ -323,7 +345,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ??
     process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
+    e2eBaseURL();
   pageErrors = [];
   page.on("pageerror", (e) =>
     pageErrors.push(`${e.name}: ${e.message}`.slice(0, 160)),
@@ -334,8 +356,7 @@ test.describe("inspector reports the truth", () => {
   test("X/Y match the element's real position, not 0,0", async ({ page }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Intro").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Intro");
 
     const authored = styleOf(await indexHtml(page, id), "intro");
     const wantX = styleNum(authored, "left");
@@ -354,8 +375,7 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Intro").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Intro");
 
     const rendered = await renderedRect(page, "intro");
     const w = num(await inspectorField(page, "W"));
@@ -373,10 +393,7 @@ test.describe("inspector reports the truth", () => {
   test("W/H match the rendered size within a pixel", async ({ page }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    const row = layerRow(page, "Plain Box");
-    await expect(row).toBeVisible({ timeout: 15_000 });
-    await row.click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Plain Box");
 
     const rendered = await renderedRect(page, "plain-box");
     const width = num(await inspectorField(page, "W"));
@@ -390,8 +407,7 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Intro").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Intro");
 
     const rendered = await renderedRect(page, "intro");
     const w = num(await inspectorField(page, "W"));
@@ -406,8 +422,7 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, FLOW_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Intro").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Intro");
 
     const rendered = await renderedRect(page, "flow-intro");
     const wrap = await renderedRect(page, "page-wrap");
@@ -424,8 +439,7 @@ test.describe("inspector reports the truth", () => {
   test("an in-flow element reports a non-zero size", async ({ page }) => {
     const id = await newDesign(page, FLOW_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Intro").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Intro");
 
     const rendered = await renderedRect(page, "flow-intro");
     const w = num(await inspectorField(page, "W"));
@@ -442,8 +456,7 @@ test.describe("inspector reports the truth", () => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
 
-    await layerRow(page, "Plain Box").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Plain Box");
     const viaTree = [
       await inspectorField(page, "X"),
       await inspectorField(page, "Y"),
@@ -470,8 +483,7 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Title").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Title");
 
     const rendered = await renderedRect(page, "intro-title");
     const w = num(await inspectorField(page, "W"));
@@ -487,13 +499,14 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Plain Box").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Plain Box");
 
     await setInspectorField(page, "X", "300");
-    expect(
-      styleNum(styleOf(await indexHtml(page, id), "plain-box"), "left"),
-    ).toBe(300);
+    await expect
+      .poll(async () =>
+        styleNum(styleOf(await indexHtml(page, id), "plain-box"), "left"),
+      )
+      .toBe(300);
   });
 
   test("setting Y moves the element by exactly that amount", async ({
@@ -501,13 +514,14 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Plain Box").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Plain Box");
 
     await setInspectorField(page, "Y", "400");
-    expect(
-      styleNum(styleOf(await indexHtml(page, id), "plain-box"), "top"),
-    ).toBe(400);
+    await expect
+      .poll(async () =>
+        styleNum(styleOf(await indexHtml(page, id), "plain-box"), "top"),
+      )
+      .toBe(400);
   });
 
   test("re-entering the value already shown does not move the element", async ({
@@ -515,8 +529,7 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Plain Box").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Plain Box");
 
     const shown = await inspectorField(page, "X");
     const before = styleNum(
@@ -524,6 +537,9 @@ test.describe("inspector reports the truth", () => {
       "left",
     );
     await setInspectorField(page, "X", String(num(shown)));
+    // Negative assertion: a poll would pass on its first tick before any write
+    // could have landed, so this one has to wait out the commit window.
+    await page.waitForTimeout(1800); // e2e-harness-ignore negative assertion needs a real settle
     const after = styleNum(
       styleOf(await indexHtml(page, id), "plain-box"),
       "left",
@@ -539,12 +555,23 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Plain Box").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Plain Box");
 
     const before = styleOf(await indexHtml(page, id), "plain-box");
     await setInspectorField(page, "W", "500");
+    await expect
+      .poll(async () =>
+        styleNum(styleOf(await indexHtml(page, id), "plain-box"), "width"),
+      )
+      .toBe(500);
     const after = styleOf(await indexHtml(page, id), "plain-box");
+    // The width has to land, or "the position did not change" is true for the
+    // trivial reason that nothing was committed.
+    expect(
+      styleNum(after, "width"),
+      `the width edit must commit before position stability means anything ` +
+        `(was ${styleNum(before, "width")})`,
+    ).toBe(500);
     expect([styleNum(after, "left"), styleNum(after, "top")]).toEqual([
       styleNum(before, "left"),
       styleNum(before, "top"),
@@ -772,8 +799,7 @@ test.describe("drawing fidelity", () => {
     // A line-height-driven flow child is where subpixel layout shows up: its
     // rendered position is genuinely fractional, and the field still has to
     // read as a coordinate a designer could have typed.
-    await layerRow(page, "Title").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Title");
 
     const shown = [
       await inspectorField(page, "X"),
@@ -801,8 +827,7 @@ test.describe("drawing fidelity", () => {
     });
 
     await openEditor(page, id);
-    await layerRow(page, "Plain Box").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Plain Box");
 
     // Drag by an amount that is deliberately NOT a multiple of 8, so landing on
     // one can only come from the grid.
@@ -913,6 +938,17 @@ test.describe("drawing fidelity", () => {
         await indexHtml(page, id2),
       )?.[1] ?? "";
 
+    // Anchor to the size that was actually asked for. Comparing the two runs
+    // only to each other passes when BOTH are equally wrong — with no
+    // rectangle committed, both regexes miss and NaN equals NaN.
+    expect(
+      [styleNum(first, "width"), styleNum(first, "height")],
+      `drew ${want.width}x${want.height} at 100% but committed ` +
+        `${styleNum(first, "width")}x${styleNum(first, "height")}`,
+    ).toEqual([
+      expect.closeTo(want.width, -1),
+      expect.closeTo(want.height, -1),
+    ]);
     expect(
       [styleNum(second, "width"), styleNum(second, "height")],
       `zoomed out then drew the same rect: ${styleNum(first, "width")}x${styleNum(first, "height")} ` +
@@ -1262,16 +1298,19 @@ test.describe("layers panel", () => {
     await row.hover();
     await row.getByRole("button", { name: "Hide layer" }).first().click();
     await page.waitForTimeout(2000);
-    const visible = await node(page, "plain-box")
-      .evaluate((el) => {
-        const cs = getComputedStyle(el);
-        return (
-          cs.display !== "none" &&
-          cs.visibility !== "hidden" &&
-          Number(cs.opacity) > 0
-        );
-      })
-      .catch(() => false);
+    // `false` is exactly what this test asserts, so coercing a failed read to
+    // it made a deleted or unreachable node pass as "hidden". Hiding sets
+    // display:none, so the node must still be in the document — require that,
+    // then let a genuine read error surface instead of answering "hidden".
+    await expect(node(page, "plain-box")).toHaveCount(1);
+    const visible = await node(page, "plain-box").evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return (
+        cs.display !== "none" &&
+        cs.visibility !== "hidden" &&
+        Number(cs.opacity) > 0
+      );
+    });
     expect(visible, "layer marked hidden still paints in the preview").toBe(
       false,
     );

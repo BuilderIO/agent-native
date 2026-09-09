@@ -1,4 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 import {
@@ -38,7 +40,7 @@ const templateSchema = z.enum([
 
 export default defineAction({
   description:
-    "Create one Factory automation for Slack, GitHub, or Sentry. Hosted jobs need a workspace connection granted to Factory or a vault token, plus a Slack channel id, GitHub repository, or Sentry org and project. Pass author ids (Slack U/W member ids or GitHub numeric user ids), not names. Include mode requires at least one id. Limits are enforced by poll and list-triage-items, not by prompt text.",
+    "Create one Slack, GitHub, or Sentry job on an existing Factory. Use this when the user asks to create an automation. Do not save a graph or rename the factory. Ask for a Slack channel id, GitHub repository, or Sentry slugs if missing. Opens the Automations tab. Reply with the job name and source, not pipeline stages. Hosted jobs need a workspace connection or vault token. Pass author ids (Slack U/W or GitHub numeric ids), not names. Limits are action-enforced.",
   schema: z.object({
     factoryId: factoryIdSchema,
     displayName: z.string().trim().min(1).max(120),
@@ -72,6 +74,19 @@ export default defineAction({
     enabled: z.boolean().default(false),
   }),
   http: { method: "POST" },
+  link: ({ result }) => ({
+    url: buildDeepLink({
+      app: "factory",
+      view: "factory",
+      params: {
+        factoryId: result.factoryId,
+        tab: "automations",
+        automationId: result.id,
+      },
+      to: `/factory?factoryId=${encodeURIComponent(result.factoryId)}&tab=automations&automationId=${encodeURIComponent(result.id)}`,
+    }),
+    label: `Open ${result.displayName} in Factory`,
+  }),
   run: async (input, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
@@ -165,6 +180,17 @@ export default defineAction({
         enabled: input.enabled,
       },
     );
+    if (
+      context?.caller === "tool" ||
+      context?.caller === "mcp" ||
+      context?.caller === "a2a"
+    ) {
+      await writeAppStateForCurrentTab("navigate", {
+        view: "factory",
+        path: `/factory?factoryId=${encodeURIComponent(input.factoryId)}&tab=automations&automationId=${encodeURIComponent(created.id)}`,
+        _writeId: `${Date.now()}-create-factory-automation`,
+      });
+    }
     return {
       ok: true,
       factoryId: input.factoryId,

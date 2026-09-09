@@ -10,13 +10,16 @@ registrar herramientas para que un agente autorizado las descubra y ejecute.
 Consulta la [guía de WebMCP en inglés](/docs/webmcp) para conocer el registro,
 el consumo, las sesiones del navegador y los límites de seguridad.
 Las páginas autenticadas registran automáticamente las acciones de backend aptas
-desde el registro de acciones existente. Se excluyen las acciones que requieren
-aprobación y se vuelve a validar la lista activa antes de ejecutarlas.
+desde el registro de acciones existente. Las acciones que requieren aprobación no
+se excluyen; una llamada que activa esa condición se rechaza, indicando a quien
+la invoca que pida la confirmación del usuario en el chat.
 Las superficies autenticadas con `sessionBypass`, como las rutas de inserción MCP,
 también registran herramientas de acciones de backend. Las páginas públicas y sin
 sesión no las registran.
 
 El núcleo de Agent-Native inicializa `@mcp-b/webmcp-polyfill` cuando el navegador no ofrece una superficie WebMCP nativa utilizable. El polyfill es local a la página y no crea una conexión MCP de red.
+
+Las páginas autenticadas también exponen `window.__agentNativeWebMcp` a los agentes del navegador, con `ready()`, `tools()`, `describe()`, `call()` y `result(id)`. `call()` gestiona el contrato de entrada del host activo, los descriptores en vivo, los reintentos y las llamadas que superan la duración de un evaluador breve; consulta la guía en inglés para más detalles.
 
 ## Descubrimiento HTTP y alternativa con fetch
 

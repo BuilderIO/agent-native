@@ -1,5 +1,7 @@
 import { isEmailConfigured } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { getUserSetting } from "@agent-native/core/settings";
+import { isAutozQaEmail } from "@agent-native/core/shared";
 import { getUserProfile } from "@agent-native/core/user-profile/server";
 import {
   and,
@@ -17,6 +19,14 @@ import {
   sql,
 } from "drizzle-orm";
 
+import {
+  CLIPS_USER_PREFS_KEY,
+  type ClipsUserPrefs,
+} from "../../shared/clips-ai-prefs.js";
+import {
+  isClipsNotificationEnabled,
+  type ClipsNotificationCategory,
+} from "../../shared/clips-notification-prefs.js";
 import { getDb, schema } from "../db/index.js";
 import {
   computeMonthlyRecap,
@@ -230,12 +240,40 @@ function normalizedEmail(value: string | null | undefined): string | null {
   return parsed.success ? parsed.data : null;
 }
 
+function notificationCategoryForJob(
+  type: TransactionalEmailJob["type"],
+): ClipsNotificationCategory | null {
+  if (
+    type === "first-view" ||
+    type === "first-agent-view" ||
+    type === "unviewed-reminder"
+  ) {
+    return "views";
+  }
+  if (type === "monthly-recap") return "recaps";
+  return null;
+}
+
+async function isTransactionalEmailEnabled(
+  recipient: string,
+  type: TransactionalEmailJob["type"],
+): Promise<boolean> {
+  const category = notificationCategoryForJob(type);
+  if (!category) return true;
+  const prefs = (await getUserSetting(
+    recipient,
+    CLIPS_USER_PREFS_KEY,
+  )) as ClipsUserPrefs | null;
+  return isClipsNotificationEnabled(prefs, category);
+}
+
 export function isSuppressedTransactionalRecipient(
   value: string | null | undefined,
 ): boolean {
   const email = normalizedEmail(value);
   // guard:allow-localhost-fallback — Suppress the retired dev identity; never use it as an owner.
   if (!email || email === "local@localhost") return true;
+  if (isAutozQaEmail(email)) return true;
   const at = email.lastIndexOf("@");
   const local = email.slice(0, at);
   const domain = email.slice(at + 1);
@@ -918,6 +956,7 @@ async function makeSendInput(
 ): Promise<ClipsTransactionalEmailInput | null> {
   const recipient = normalizedEmail(job.recipient);
   if (!recipient || isSuppressedTransactionalRecipient(recipient)) return null;
+  if (!(await isTransactionalEmailEnabled(recipient, job.type))) return null;
 
   if (job.type === "monthly-recap") {
     // Ranked again at send time instead of trusting the queued clip: a month

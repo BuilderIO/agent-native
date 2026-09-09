@@ -84,6 +84,7 @@ import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import {
+  buildAllDayEventDraft,
   buildWorkingLocationDraft,
   resolveDraftWorkingLocation,
 } from "@/lib/calendar-drafts";
@@ -461,23 +462,18 @@ export default function CalendarView() {
     if (!googleCalendars.enabled || !googleCalendars.data) return undefined;
     return googleCalendars.data
       .filter((source) => {
-        if (
-          hiddenCalendars.accounts.includes(source.accountEmail) ||
-          source.accessRole === "freeBusyReader"
-        ) {
+        if (source.accessRole === "freeBusyReader") {
           return false;
         }
-        if (source.primary) return true;
         return (
-          viewPrefs.googleCalendarVisibility[source.sourceKey] ??
-          source.selected
+          viewPrefs.googleCalendarVisibility[source.canonicalKey] ??
+          (source.primary || source.selected)
         );
       })
       .map((source) => source.sourceKey);
   }, [
     googleCalendars.data,
     googleCalendars.enabled,
-    hiddenCalendars.accounts,
     viewPrefs.googleCalendarVisibility,
   ]);
   const createEvent = useCreateEvent();
@@ -713,13 +709,13 @@ export default function CalendarView() {
         // Hide events from hidden people overlays
         if (e.overlayEmail && hiddenCalendars.people.includes(e.overlayEmail))
           return false;
-        // Hide events from hidden Google accounts
         if (
-          e.accountEmail &&
-          !e.overlayEmail &&
-          hiddenCalendars.accounts.includes(e.accountEmail)
-        )
+          e.source === "google" &&
+          e.canonicalKey &&
+          viewPrefs.googleCalendarVisibility[e.canonicalKey] === false
+        ) {
           return false;
+        }
         // Hide events from hidden external calendars
         if (e.source === "ical") {
           const hiddenMatch = hiddenCalendars.external.some((calId) =>
@@ -729,7 +725,14 @@ export default function CalendarView() {
         }
         return true;
       });
-  }, [rawEvents, draftEvent, overlayPeople, hiddenCalendars, quickEditTempIds]);
+  }, [
+    rawEvents,
+    draftEvent,
+    overlayPeople,
+    hiddenCalendars,
+    quickEditTempIds,
+    viewPrefs.googleCalendarVisibility,
+  ]);
 
   // Filter events for day view — use overlap check so multi-day continuation
   // events (started on a prior day) still appear on the selected day.
@@ -1397,7 +1400,7 @@ export default function CalendarView() {
       clickedDate: Date,
       startTime: string,
       endTime: string,
-      options?: { explicitDuration?: boolean },
+      options?: { allDay?: boolean; explicitDuration?: boolean },
     ) => {
       let activeSettings = settings;
       if (!activeSettings) {
@@ -1415,10 +1418,29 @@ export default function CalendarView() {
         activeSettings.defaultEventDuration ?? 30,
       );
       const timezone = activeSettings.timezone;
-      setCreateDefaultStart(startTime);
+      const dateStr = dateToCalendarDateKey(clickedDate);
+      const now = new Date().toISOString();
+      const draftId = `slot-${Date.now()}`;
       setCreateDialogOpen(false);
 
-      const dateStr = dateToCalendarDateKey(clickedDate);
+      if (options?.allDay) {
+        setCreateDefaultStart(undefined);
+        setCreateDefaultEnd(undefined);
+        const draft = buildAllDayEventDraft({
+          id: draftId,
+          date: clickedDate,
+          accountEmail: defaultAccountEmail,
+          now,
+        });
+
+        persistCalendarDraft(draft);
+        setEventDraft(draft);
+        setQuickEditEventId(calendarDraftEventId(draftId));
+        return;
+      }
+
+      setCreateDefaultStart(startTime);
+
       // A drag-to-create gesture already computed the exact dragged range;
       // a plain click falls back to the user's configured default duration.
       const end = options?.explicitDuration
@@ -1427,8 +1449,6 @@ export default function CalendarView() {
       setCreateDefaultEnd(end.time);
       const startISO = dateTimeInTimezoneToIso(dateStr, startTime, timezone);
       const endISO = dateTimeInTimezoneToIso(end.date, end.time, timezone);
-      const now = new Date().toISOString();
-      const draftId = `slot-${Date.now()}`;
       const draft: CalendarEventDraft = {
         id: draftId,
         title: "",

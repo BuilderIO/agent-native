@@ -6,12 +6,25 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  mergeCanvasFramePlacements,
+  nextFreeCanvasRowY,
+  parseCanvasFrameGeometryById,
+} from "../shared/canvas-frames.js";
 import {
   assertDesignHtmlCreateIntegrity,
   describeDesignHtmlIntegrityIssue,
 } from "../shared/html-integrity.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+
+// Matches the desktop default the in-app generation directives use
+// (generation-prompt-directives.ts) so a screen created directly via this
+// action looks the same as one the in-app agent generated.
+const CREATED_SCREEN_WIDTH = 1440;
+const CREATED_SCREEN_HEIGHT = 1024;
+const CREATED_SCREEN_GAP = 96;
 
 export default defineAction({
   description:
@@ -101,13 +114,50 @@ export default defineAction({
       (resolvedFileType === "html" || resolvedFileType === "jsx") &&
       content.trim().length > 0;
 
+    // A renderable screen with no canvas placement fell back to the overview
+    // board's blank-frame default (a small 320x640 card meant for a screen
+    // the user will sketch and resize by hand), which reads as broken for a
+    // complete screen an agent just authored. Give it a real desktop
+    // placement immediately, the same way generate-design and
+    // present-design-variants place screens they create.
+    if (renderable) {
+      await mutateDesignData({
+        designId,
+        mutate: (current) => {
+          const existingFrames = parseCanvasFrameGeometryById(
+            current.canvasFrames,
+          );
+          if (existingFrames[id]) return current;
+          const merged = mergeCanvasFramePlacements({
+            existing: current.canvasFrames,
+            placements: [
+              {
+                fileId: id,
+                filename,
+                x: 0,
+                y: nextFreeCanvasRowY(current.canvasFrames, CREATED_SCREEN_GAP),
+                width: CREATED_SCREEN_WIDTH,
+                height: CREATED_SCREEN_HEIGHT,
+              },
+            ],
+            resolveFileId: (placement) => placement.fileId,
+          });
+          return { ...current, canvasFrames: merged.canvasFrames };
+        },
+        isApplied: (current) =>
+          Boolean(parseCanvasFrameGeometryById(current.canvasFrames)[id]),
+      });
+    }
+
     return {
       id,
       designId,
       filename,
       fileType: resolvedFileType,
       renderable,
-      urlPath: renderable ? `/design/${designId}` : null,
+      urlPath: renderable
+        ? `/design/${encodeURIComponent(designId)}?view=overview&screen=${encodeURIComponent(id)}`
+        : null,
       ...(advisory.length > 0
         ? { warnings: advisory.map(describeDesignHtmlIntegrityIssue) }
         : {}),

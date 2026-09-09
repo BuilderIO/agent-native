@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checkGoogleManagedCredential,
   checkGoogleSignInCredential,
+  probeGoogleRedirectUri,
   resetGoogleCredentialCheckCache,
 } from "./google-credential-check.js";
 import {
@@ -266,5 +267,147 @@ describe("checkGoogleSignInCredential", () => {
     expect(first.status).toBe("unknown");
     expect(second.status).toBe("valid");
     expect(recovered).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes redirect URI status when a redirectUri is requested", async () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "client-a";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "secret-a";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        if (String(url).includes("oauth2.googleapis.com")) {
+          return new Response(JSON.stringify({ error: "invalid_grant" }), {
+            status: 400,
+          });
+        }
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: "https://accounts.google.com/v3/signin/identifier",
+          },
+        });
+      }),
+    );
+
+    const result = await checkGoogleSignInCredential({
+      redirectUri: "https://app.example.com/_agent-native/google/callback",
+    });
+
+    expect(result.status).toBe("valid");
+    expect(result.redirectUriStatus).toBe("registered");
+    expect(result.redirectUri).toBe(
+      "https://app.example.com/_agent-native/google/callback",
+    );
+  });
+
+  it("does not probe a redirect URI when none is requested", async () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "client-a";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "secret-a";
+    const fetchMock = googleAnswers("invalid_grant");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await checkGoogleSignInCredential();
+
+    expect(result.redirectUriStatus).toBe("unknown");
+    expect(result.redirectUri).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("probeGoogleRedirectUri", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("classifies a registered redirect URI from the identifier redirect", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(null, {
+            status: 302,
+            headers: {
+              location:
+                "https://accounts.google.com/v3/signin/identifier?client_id=client-a",
+            },
+          }),
+      ),
+    );
+
+    const result = await probeGoogleRedirectUri(
+      "client-a",
+      "https://app.example.com/_agent-native/google/callback",
+    );
+
+    expect(result.status).toBe("registered");
+  });
+
+  it("classifies a mismatched redirect URI and decodes the authError detail", async () => {
+    // "redirect_uri_mismatch" base64url-encoded, matching the shape of
+    // Google's opaque (protobuf, not JSON) authError param closely enough
+    // for the decoded text to remain readable.
+    const authError = Buffer.from("redirect_uri_mismatch", "utf-8").toString(
+      "base64url",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(null, {
+            status: 302,
+            headers: {
+              location: `https://accounts.google.com/signin/oauth/error?authError=${authError}`,
+            },
+          }),
+      ),
+    );
+
+    const result = await probeGoogleRedirectUri(
+      "client-a",
+      "https://app.example.com/_agent-native/wrong/callback",
+    );
+
+    expect(result.status).toBe("mismatched");
+    expect(result.detail).toBe("redirect_uri_mismatch");
+  });
+
+  it("never coerces a network failure or timeout into registered", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new DOMException("The operation was aborted.", "TimeoutError");
+      }),
+    );
+
+    const result = await probeGoogleRedirectUri(
+      "client-a",
+      "https://app.example.com/_agent-native/google/callback",
+    );
+
+    expect(result.status).toBe("unknown");
+    expect(result.status).not.toBe("registered");
+    expect(result.detail).toContain("aborted");
+  });
+
+  it("does not coerce an unrecognised redirect into registered", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(null, {
+            status: 302,
+            headers: {
+              location: "https://accounts.google.com/some/other/page",
+            },
+          }),
+      ),
+    );
+
+    const result = await probeGoogleRedirectUri(
+      "client-a",
+      "https://app.example.com/_agent-native/google/callback",
+    );
+
+    expect(result.status).toBe("unknown");
   });
 });

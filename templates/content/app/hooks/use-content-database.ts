@@ -188,15 +188,37 @@ export function contentDatabaseQueryFilter(documentId: string) {
   };
 }
 
-export function contentDatabaseConstrainedQueryFilter(documentId: string) {
+export function contentDatabaseConstrainedQueryFilter(documentId?: string) {
   return {
-    queryKey: ["action", "get-content-database"],
+    queryKey: ["action"],
     predicate: (query: Query) => {
-      if (!isContentDatabaseQueryForDocument(query.queryKey, documentId)) {
+      const params = query.queryKey[2] as
+        | { documentId?: unknown; tableQuery?: unknown }
+        | undefined;
+      if (documentId !== undefined && params?.documentId !== documentId) {
         return false;
       }
-      const params = query.queryKey[2] as { tableQuery?: unknown };
-      return params.tableQuery !== undefined;
+      return (
+        query.queryKey[1] === "query-content-database-items" ||
+        (query.queryKey[1] === "get-content-database" &&
+          params?.tableQuery !== undefined)
+      );
+    },
+  };
+}
+
+export function contentDatabaseItemsContainingDocumentFilter(
+  documentId: string,
+) {
+  return {
+    queryKey: contentDatabaseItemsPageQueryKey,
+    predicate: (query: Query) => {
+      const data = query.state.data as
+        | ContentDatabaseItemsPageResponse
+        | undefined;
+      return (
+        data?.items.some((item) => item.document.id === documentId) === true
+      );
     },
   };
 }
@@ -292,19 +314,23 @@ export function applyOptimisticBuilderWriteMode(
   };
 }
 
-export function applyDocumentPropertyValueToDatabaseResponse(
-  current: ContentDatabaseResponse | undefined,
+export function applyDocumentPropertyValueToDatabaseResponse<
+  T extends ContentDatabaseResponse | ContentDatabaseItemsPageResponse,
+>(
+  current: T | undefined,
   patch: {
     documentId: string;
     propertyId: string;
     value: ContentDatabaseResponse["properties"][number]["value"];
   },
-): ContentDatabaseResponse | undefined {
+): T | undefined {
   if (!current) return current;
-  const databaseProperty = current.properties.find(
-    (property) => property.definition.id === patch.propertyId,
-  );
-  if (!databaseProperty) return current;
+  const databaseProperty =
+    "properties" in current
+      ? current.properties.find(
+          (property) => property.definition.id === patch.propertyId,
+        )
+      : undefined;
 
   let changed = false;
   const items = current.items.map((item) => {
@@ -323,6 +349,8 @@ export function applyDocumentPropertyValueToDatabaseResponse(
       return { ...item, properties };
     }
 
+    if (!databaseProperty) return item;
+
     changed = true;
     return {
       ...item,
@@ -335,7 +363,7 @@ export function applyDocumentPropertyValueToDatabaseResponse(
     };
   });
 
-  return changed ? { ...current, items } : current;
+  return changed ? ({ ...current, items } as T) : current;
 }
 
 export function applyDocumentPropertiesToDatabaseResponse(
@@ -724,11 +752,15 @@ export function useContentDatabaseById(
   );
 }
 
-export function useCreateContentDatabase(documentId: string | null) {
+export function useCreateContentDatabase(
+  documentId: string | null,
+  options?: { skipListDocumentsInvalidation?: boolean },
+) {
   const queryClient = useQueryClient();
   return useActionMutation<ContentDatabaseResponse, CreateDatabaseRequest>(
     "create-content-database",
     {
+      skipActionQueryInvalidation: true,
       onSuccess: (data) => {
         if (documentId) {
           void queryClient.invalidateQueries(documentQueryFilter(documentId));
@@ -739,9 +771,11 @@ export function useCreateContentDatabase(documentId: string | null) {
         void queryClient.invalidateQueries(
           documentQueryFilter(data.database.documentId),
         );
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
+        if (!options?.skipListDocumentsInvalidation) {
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
+          });
+        }
       },
     },
   );
@@ -866,6 +900,9 @@ export function useAddDatabaseItem(documentId: string) {
       void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
+      void queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(documentId),
+      );
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
@@ -1021,12 +1058,27 @@ export function useMoveDatabaseItem(documentId: string) {
 
 export function useUpdateContentDatabaseView(documentId: string) {
   const queryClient = useQueryClient();
+  const mutationSequences =
+    contentDatabaseViewMutationSequencesFor(queryClient);
   return useActionMutation<
     ContentDatabaseResponse,
     UpdateContentDatabaseViewRequest
   >("update-content-database-view", {
     skipActionQueryInvalidation: true,
-    onSuccess: (data) => {
+    scope: { id: `content-database-view:${documentId}` },
+    onMutate: async () => {
+      const sequence = (mutationSequences.get(documentId) ?? 0) + 1;
+      mutationSequences.set(documentId, sequence);
+      await queryClient.cancelQueries(contentDatabaseQueryFilter(documentId));
+      return { sequence };
+    },
+    onSuccess: (data, _variables, context) => {
+      if (
+        (context as { sequence?: number } | undefined)?.sequence !==
+        mutationSequences.get(documentId)
+      ) {
+        return;
+      }
       queryClient.setQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(documentId),
         (current) =>
@@ -1038,7 +1090,32 @@ export function useUpdateContentDatabaseView(documentId: string) {
             : current,
       );
     },
+    onSettled: (_data, _error, _variables, context) => {
+      if (
+        (context as { sequence?: number } | undefined)?.sequence !==
+        mutationSequences.get(documentId)
+      ) {
+        return;
+      }
+      void queryClient.invalidateQueries(
+        contentDatabaseQueryFilter(documentId),
+      );
+    },
   });
+}
+
+const contentDatabaseViewMutationSequences = new WeakMap<
+  object,
+  Map<string, number>
+>();
+
+function contentDatabaseViewMutationSequencesFor(queryClient: object) {
+  let sequences = contentDatabaseViewMutationSequences.get(queryClient);
+  if (!sequences) {
+    sequences = new Map();
+    contentDatabaseViewMutationSequences.set(queryClient, sequences);
+  }
+  return sequences;
 }
 
 export function useContentDatabasePersonalView(databaseId: string | null) {

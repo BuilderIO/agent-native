@@ -66,12 +66,14 @@ function normalizeDesignQuestions(
 
 export default defineAction({
   description:
-    "Show a Claude Design-style question form in the Design editor before " +
-    "generating a new design. Use this as the first step for non-trivial new " +
-    "design prompts: create/open the design shell, call show-design-questions " +
-    "with tailored questions, then stop and wait for the user's answers before " +
-    "calling generate-design or present-design-variants.",
+    "Show a Claude Design-style question form in the Design editor. This is " +
+    "the in-app Design agent's intake step for non-trivial new prompts — the " +
+    "user's answers return through the in-app chat, not this call's result.",
   endsTurn: true,
+  // The answers return through the in-app chat (the app polls for the
+  // submitted form and resumes generation there), so an external MCP caller
+  // can never receive them.
+  mcpTool: false,
   schema: z.object({
     designId: z.string().describe("Design project ID to show questions for"),
     title: z

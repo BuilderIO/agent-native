@@ -1,5 +1,37 @@
 # @agent-native/scheduling
 
+## 0.1.59
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [58d9dc3]
+  - @agent-native/toolkit@0.19.5
+
+## 0.1.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- cc2a915: Standardize framework persistence on PostgreSQL. Local development uses PGlite,
+  hosted deployments use PostgreSQL, and the database client, schema, migrations,
+  templates, docs, and tooling now target PostgreSQL directly.
+- Updated dependencies [e29fee8]
+- Updated dependencies [cef8c06]
+- Updated dependencies
+- Updated dependencies [73c36ce]
+  - @agent-native/toolkit@0.19.4
+
+## 0.1.57
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [760d108]
+  - @agent-native/toolkit@0.19.3
+
 ## 0.1.56
 
 ### Patch Changes
@@ -439,7 +471,7 @@
 
 ### Patch Changes
 
-- 79a0eb9: Align local Drizzle peer resolution with the framework's libsql driver version.
+- 79a0eb9: Align local Drizzle peer resolution with the framework's Postgres driver version.
 
 ## 0.1.4
 

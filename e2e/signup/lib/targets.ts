@@ -18,6 +18,11 @@ const DEFAULT_APPS = "all";
 const EMAIL_SIGNUP_UNSUPPORTED_APPS = new Set(["factory", "macros"]);
 
 function supportsEmailSignup(app: string): boolean {
+  // `e2e: false` in the fleet file means "not an app this suite drives" — fw is
+  // the docs site and serves no sign-in page at all. The beta lane already
+  // honours the flag; the signup lane filtering only on app id is why fw showed
+  // up as a nightly "completes email signup" failure.
+  if (siteById(app).e2e === false) return false;
   return !isGoogleOnly(app) && !EMAIL_SIGNUP_UNSUPPORTED_APPS.has(app);
 }
 

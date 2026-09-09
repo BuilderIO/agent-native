@@ -363,6 +363,12 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       "const editableContent = renderBreakpointContent?.(",
     );
     expect(canvasSource).toContain("editableContent ? (");
+    expect(source).toContain(
+      "handleIframeContextMenu({ ...payload, breakpointWidthPx })",
+    );
+    expect(source).toContain(
+      "commentPinsHidden={commentsHidden || !screenIsActive}",
+    );
   });
 
   it("keeps the current responsive scope visible and offers a bounded-only option", () => {

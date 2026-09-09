@@ -51,6 +51,14 @@ export {
   type FeatureFlagRules,
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
+export {
+  ExperimentsSettings,
+  useExperiment,
+  useExperimentState,
+  useExperiments,
+  type ExperimentValues,
+  type ExperimentsSettingsProps,
+} from "./experiments/index.js";
 export { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 export {
   SettingsPanel,
@@ -91,6 +99,7 @@ export {
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
 export {
   trackEvent,
+  trackLifecycleEvent,
   trackAgentChatLifecycle,
   trackSessionStatus,
   configureTracking,

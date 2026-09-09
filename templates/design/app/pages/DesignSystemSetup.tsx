@@ -134,7 +134,7 @@ export default function DesignSystemSetup() {
 
   const { data: designsData } = useActionQuery<{
     designs: Array<{ id: string; title: string; designSystemId?: string }>;
-  }>("list-designs");
+  }>("list-designs", { includeAll: true });
 
   const { data: designSystemsData } = useActionQuery<{
     designSystems: Array<{ id: string; title: string }>;

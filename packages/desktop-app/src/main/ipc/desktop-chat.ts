@@ -29,6 +29,7 @@ import {
 
 import * as AppStore from "../app-store";
 import { readCookieHeaderForUrl } from "../cookie-header";
+import type { CaptureActiveDesktopBrowserScreenshot } from "../desktop-browser-screenshot";
 import {
   DesktopSurfaceMcpBridge,
   type DesktopSurfaceMcpRegistration,
@@ -59,6 +60,7 @@ const RESTRICTED_RESPONSE_HEADERS = new Set([
 ]);
 const RELAY_FAILURE_MESSAGE =
   "Desktop app chat relay failed. Update or restart the desktop app, then try again.";
+const DESKTOP_APP_MCP_AUTH_TIMEOUT_MS = 10_000;
 
 interface RelayState {
   port: number;
@@ -74,6 +76,9 @@ let relayPromise: Promise<RelayState> | null = null;
 let desktopTerminalPromise: ReturnType<typeof createDesktopTerminal> | null =
   null;
 let ipcRegistered = false;
+let captureActiveBrowserScreenshot:
+  | CaptureActiveDesktopBrowserScreenshot
+  | undefined;
 
 function tomlString(value: string): string {
   return JSON.stringify(value);
@@ -565,6 +570,7 @@ export async function getDesktopAppMcpAuthorization(
     },
     body: JSON.stringify({ label: "Desktop terminal", ttlDays: 1 }),
     redirect: "manual",
+    signal: AbortSignal.timeout(DESKTOP_APP_MCP_AUTH_TIMEOUT_MS),
   });
   const text = (await response.text()).trim();
   let payload: unknown = null;
@@ -824,6 +830,7 @@ function contextFromTerminalQuery(
 async function createDesktopTerminalSession(
   command: string,
   rawContext: DesktopTerminalContext | null,
+  captureScreenshot?: CaptureActiveDesktopBrowserScreenshot,
 ) {
   const context = normalizeDesktopTerminalContext(rawContext);
   const appConfig = context
@@ -855,6 +862,7 @@ async function createDesktopTerminalSession(
       win.webContents.send(IPC.DESKTOP_CHAT_OPEN_APP, request);
     },
     getActiveAppContext: () => appContext,
+    captureActiveBrowserScreenshot: captureScreenshot,
   });
   let appMcpRelay: DesktopTerminalMcpRelay | undefined;
   let claudeConfigPath: string | undefined;
@@ -880,25 +888,33 @@ async function createDesktopTerminalSession(
     const appMcpServers: Record<string, DesktopTerminalMcpServer> = {};
     if (appConfig) {
       const baseUrl = resolveAppBaseUrl(appConfig);
-      if (!baseUrl) {
-        throw new Error(`The ${appConfig.name} app has no reachable URL.`);
+      if (baseUrl) {
+        try {
+          const authHeaders = await getDesktopAppMcpAuthorization(
+            appConfig,
+            baseUrl,
+          );
+          appMcpRelay = new DesktopTerminalMcpRelay(
+            desktopAppMcpUrl(baseUrl),
+            authHeaders,
+          );
+          const appMcpRegistration = await appMcpRelay.start();
+          appMcpServers[desktopTerminalMcpServerId(appConfig.id)] = {
+            type: "http",
+            url: appMcpRegistration.url,
+            headers: {
+              Authorization: `Bearer ${appMcpRegistration.bearerToken}`,
+            },
+          };
+        } catch (error) {
+          // App MCP is an optional capability. A signed-out or unavailable
+          // guest must not prevent the local desktop terminal from starting.
+          console.warn("[desktop-terminal] app tools unavailable", {
+            appId: appConfig.id,
+            reason: error instanceof Error ? error.message : "unknown error",
+          });
+        }
       }
-      const authHeaders = await getDesktopAppMcpAuthorization(
-        appConfig,
-        baseUrl,
-      );
-      appMcpRelay = new DesktopTerminalMcpRelay(
-        desktopAppMcpUrl(baseUrl),
-        authHeaders,
-      );
-      const appMcpRegistration = await appMcpRelay.start();
-      appMcpServers[desktopTerminalMcpServerId(appConfig.id)] = {
-        type: "http",
-        url: appMcpRegistration.url,
-        headers: {
-          Authorization: `Bearer ${appMcpRegistration.bearerToken}`,
-        },
-      };
     }
     const surfaceMcpServer: DesktopTerminalMcpServer = {
       type: "http",
@@ -962,7 +978,9 @@ async function createDesktopTerminalSession(
   }
 }
 
-async function createDesktopTerminal() {
+async function createDesktopTerminal(
+  captureScreenshot?: CaptureActiveDesktopBrowserScreenshot,
+) {
   const token = randomUUID().replaceAll("-", "");
   const terminal = await createPtyWebSocketServer({
     appDir: resolveDesktopTerminalCwd(),
@@ -981,7 +999,7 @@ async function createDesktopTerminal() {
     getSessionSetup: (
       command: string,
       context: DesktopTerminalContext | null,
-    ) => createDesktopTerminalSession(command, context),
+    ) => createDesktopTerminalSession(command, context, captureScreenshot),
     logPrefix: "[desktop-terminal]",
   } as Parameters<typeof createPtyWebSocketServer>[0]);
   app.once("before-quit", () => terminal.close());
@@ -989,7 +1007,9 @@ async function createDesktopTerminal() {
 }
 
 function ensureDesktopTerminal() {
-  desktopTerminalPromise ??= createDesktopTerminal().catch((error) => {
+  desktopTerminalPromise ??= createDesktopTerminal(
+    captureActiveBrowserScreenshot,
+  ).catch((error) => {
     desktopTerminalPromise = null;
     throw error;
   });
@@ -1327,8 +1347,13 @@ function ensureRelay(): Promise<RelayState> {
   return relayPromise;
 }
 
-export function registerDesktopChatIpc(): void {
+export function registerDesktopChatIpc(
+  options: {
+    captureActiveBrowserScreenshot?: CaptureActiveDesktopBrowserScreenshot;
+  } = {},
+): void {
   if (ipcRegistered) return;
+  captureActiveBrowserScreenshot = options.captureActiveBrowserScreenshot;
   ipcRegistered = true;
   ipcMain.handle(
     IPC.DESKTOP_CHAT_GET_API_URL,

@@ -1,37 +1,36 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 
-// Real in-memory sqlite behind getDbExec so run-code's background param and
+// Real in-memory PGlite behind getDbExec so run-code's background param and
 // executionId polling exercise the genuine enqueue → claim → execute →
 // finalize path (including a REAL sandbox child process for the end-to-end
 // case). Self-dispatch is mocked; the runtime is treated as long-lived Node so
 // drives run in-process.
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let serverless = false;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
   isServerlessRuntime: () => serverless,
   isLocalDatabase: () => true,
@@ -75,8 +74,8 @@ function makeActions(): Record<string, ActionEntry> {
   };
 }
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
+beforeEach(async () => {
+  pglite = await createTestPglite();
   serverless = false;
   resetSandboxExecutionsStoreForTests();
   resetSandboxBackgroundForTests();
@@ -86,10 +85,11 @@ beforeEach(() => {
   vi.stubEnv("AGENT_USER_EMAIL", "");
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllEnvs();
   resetSandboxAdapterForTests();
   resetSandboxBackgroundForTests();
+  await pglite.close();
 });
 
 describe("run-code background param", () => {

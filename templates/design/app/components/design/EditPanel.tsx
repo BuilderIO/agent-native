@@ -263,6 +263,9 @@ interface EditPanelProps {
    */
   /** Design-level canvas background — the surround, not a screen's document. */
   canvasBackground?: string | null;
+  /** What the canvas is actually painted with when nothing is stored, so the
+   *  swatch reads as a colour rather than as an absent value. */
+  canvasBackgroundFallback?: string | null;
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
   onScreenGeometryChange?: (
     screenId: string,
@@ -295,6 +298,7 @@ interface EditPanelProps {
   readOnly?: boolean;
   activeTab?: InspectorTab;
   onActiveTabChange?: (tab: InspectorTab) => void;
+  tweaksEnabled?: boolean;
   tweaks?: TweakDefinition[];
   tweakValues?: Record<string, string | number | boolean>;
   onTweakChange?: (id: string, value: string | number | boolean) => void;
@@ -457,6 +461,12 @@ interface EditPanelProps {
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
+  /**
+   * True when `onAlignSelection` would refuse this selection — a lone
+   * top-level frame, or fewer than two selected screens in overview. The row
+   * stays rendered and goes disabled, so the buttons never look live.
+   */
+  alignSelectionDisabled?: boolean;
   // -------------------------------------------------------------------------
   // Element interaction states (hover / focus / focus-visible / active /
   // disabled) — see shared/interaction-states.ts for the persisted format
@@ -1279,6 +1289,7 @@ function InspectorTabsHeader({
   commentsCount = 0,
   inspectorGridDebug = false,
   onInspectorGridDebugChange,
+  tweaksEnabled,
 }: {
   activeTab: InspectorTab;
   readOnly: boolean;
@@ -1287,6 +1298,7 @@ function InspectorTabsHeader({
   commentsCount?: number;
   inspectorGridDebug?: boolean;
   onInspectorGridDebugChange?: (visible: boolean) => void;
+  tweaksEnabled: boolean;
 }) {
   const t = useT();
 
@@ -1330,7 +1342,7 @@ function InspectorTabsHeader({
                   </span>
                 ) : null}
               </TabsTrigger>
-              {!readOnly ? (
+              {!readOnly && tweaksEnabled ? (
                 <TabsTrigger
                   value="tweaks"
                   aria-label={t("designEditor.tweaks")}
@@ -1423,6 +1435,7 @@ function PageProperties({
   onStyleChange,
   onStylesChange,
   canvasBackground,
+  canvasBackgroundFallback,
   onCanvasBackgroundChange,
 }: {
   scope: "canvas" | "document";
@@ -1430,6 +1443,7 @@ function PageProperties({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   canvasBackground?: string | null;
+  canvasBackgroundFallback?: string | null;
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
 }) {
   const t = useT();
@@ -1456,7 +1470,7 @@ function PageProperties({
         <PanelSection title={t("editPanel.sections.canvas")}>
           <ColorInput
             label={t("editPanel.labels.background")}
-            value={canvasBackground ?? ""}
+            value={canvasBackground ?? canvasBackgroundFallback ?? ""}
             // meta carries phase: "preview" while dragging vs "commit" on
             // release. Dropping it persists every tick and the picker jumps.
             onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
@@ -1769,6 +1783,7 @@ export const EditPanel = memo(function EditPanel({
   selectedScreenLayoutGrid,
   onLayoutGridChange,
   canvasBackground,
+  canvasBackgroundFallback,
   onCanvasBackgroundChange,
   onScreenGeometryChange,
   pageStyles = {},
@@ -1784,6 +1799,7 @@ export const EditPanel = memo(function EditPanel({
   readOnly = false,
   activeTab = "design",
   onActiveTabChange,
+  tweaksEnabled = true,
   tweaks = [],
   tweakValues = {},
   onTweakChange,
@@ -1814,6 +1830,7 @@ export const EditPanel = memo(function EditPanel({
   activeTool,
   onCreateScreenFromPreset,
   onAlignSelection,
+  alignSelectionDisabled = false,
   onDisableAutoLayout,
   onApplyLayoutFlow,
   onInteractionStateChange,
@@ -1941,8 +1958,11 @@ export const EditPanel = memo(function EditPanel({
     (element) => isContainerElement(element),
   );
   const handleActiveTabChange = useCallback(
-    (tab: InspectorTab) => onActiveTabChange?.(tab),
-    [onActiveTabChange],
+    (tab: InspectorTab) => {
+      if (tab === "tweaks" && !tweaksEnabled) return;
+      onActiveTabChange?.(tab);
+    },
+    [onActiveTabChange, tweaksEnabled],
   );
   const handleTweakChange = useCallback(
     (tweakId: string, value: string | number | boolean) => {
@@ -2151,7 +2171,9 @@ export const EditPanel = memo(function EditPanel({
   const resolvedActiveTab: InspectorTab =
     readOnly && (activeTab === "design" || activeTab === "tweaks")
       ? "code"
-      : activeTab;
+      : !tweaksEnabled && activeTab === "tweaks"
+        ? "design"
+        : activeTab;
 
   // Frame presets belong to the Design inspector. Keep Comments and Tweaks
   // visible when the Frame tool remains armed while another tab is active.
@@ -2178,6 +2200,7 @@ export const EditPanel = memo(function EditPanel({
           commentsCount={reviewCommentsCount}
           inspectorGridDebug={inspectorGridDebug}
           onInspectorGridDebugChange={onInspectorGridDebugChange}
+          tweaksEnabled={tweaksEnabled}
         />
 
         {showFramePresets ? (
@@ -2349,6 +2372,7 @@ export const EditPanel = memo(function EditPanel({
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   canvasBackground={canvasBackground}
+                  canvasBackgroundFallback={canvasBackgroundFallback}
                   onCanvasBackgroundChange={onCanvasBackgroundChange}
                 />
               ) : null}
@@ -2371,6 +2395,7 @@ export const EditPanel = memo(function EditPanel({
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
                     onAlignSelection={onAlignSelection}
+                    alignSelectionDisabled={alignSelectionDisabled}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />

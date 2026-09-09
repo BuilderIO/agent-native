@@ -250,6 +250,7 @@ import { contentFilesWebviewDenialReason } from "./content-files-webview-access.
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
 import { readCookieHeaderForUrl } from "./cookie-header.js";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
+import { captureDesktopBrowserScreenshot } from "./desktop-browser-screenshot";
 import {
   DESKTOP_IDENTITY_PARTITION,
   DesktopIdentityBroker,
@@ -694,6 +695,50 @@ function getCookieNameForApp(id: string | null | undefined): string {
   return slug ? `an_session_${slug}` : "an_session";
 }
 
+function resolveCookieNameForOrigin(
+  baseCookieName: string,
+  origin: string,
+): string {
+  if (baseCookieName === "an_session") return baseCookieName;
+  const appSlug = baseCookieName
+    .replace(/^an_session_/, "")
+    .replace(/^beta_/, "");
+  const isBetaOrigin = new URL(origin).hostname.split(".")[0] === "beta";
+  return getCookieNameForApp(isBetaOrigin ? `beta-${appSlug}` : appSlug);
+}
+
+function getBetterAuthPrefixForCookieName(cookieName: string): string {
+  const appSlug = cookieName.replace(/^an_session_/, "");
+  return appSlug ? `an_${appSlug}` : "an";
+}
+
+function resolveAlternateCookieNameMap(
+  baseCookieName: string,
+  primaryOrigin: string,
+  alternateOrigin: string,
+): Record<string, string> {
+  if (baseCookieName === "an_session") return {};
+  const primaryCookieName = resolveCookieNameForOrigin(
+    baseCookieName,
+    primaryOrigin,
+  );
+  const alternateCookieName = resolveCookieNameForOrigin(
+    baseCookieName,
+    alternateOrigin,
+  );
+  const primaryBetterAuthPrefix =
+    getBetterAuthPrefixForCookieName(primaryCookieName);
+  const alternateBetterAuthPrefix =
+    getBetterAuthPrefixForCookieName(alternateCookieName);
+  return {
+    [primaryCookieName]: alternateCookieName,
+    [`${primaryBetterAuthPrefix}.session_token`]: `${alternateBetterAuthPrefix}.session_token`,
+    [`__Secure-${primaryBetterAuthPrefix}.session_token`]: `__Secure-${alternateBetterAuthPrefix}.session_token`,
+    [`${primaryBetterAuthPrefix}.session_data`]: `${alternateBetterAuthPrefix}.session_data`,
+    [`__Secure-${primaryBetterAuthPrefix}.session_data`]: `__Secure-${alternateBetterAuthPrefix}.session_data`,
+  };
+}
+
 function desktopTemplateGatewayOverridesDevUrls(): boolean {
   const value =
     process.env["AGENT_NATIVE_USE_TEMPLATE_GATEWAY"] ||
@@ -893,9 +938,9 @@ function resolveDesktopIdentityApp(
   }
   if (!isDesktopIdentityOriginEligible(origin)) return null;
 
-  const primaryCookieName = getCookieNameForApp(appId);
-  const appSlug = primaryCookieName.replace(/^an_session_/, "");
-  const betterAuthPrefix = appSlug ? `an_${appSlug}` : "an";
+  const baseCookieName = getCookieNameForApp(appId);
+  const primaryCookieName = resolveCookieNameForOrigin(baseCookieName, origin);
+  const betterAuthPrefix = getBetterAuthPrefixForCookieName(primaryCookieName);
   const betterAuthCookieNames = [
     `${betterAuthPrefix}.session_token`,
     `__Secure-${betterAuthPrefix}.session_token`,
@@ -909,15 +954,26 @@ function resolveDesktopIdentityApp(
     ...(workspaceSso ? ["an_session_workspace", "an_embed_session"] : []),
     ...betterAuthCookieNames,
   ];
+  const alternateOrigins = resolveEnvironmentLaneOrigins(origin);
+  const alternateCookieNameMap = Object.fromEntries(
+    alternateOrigins.map((alternateOrigin) => [
+      alternateOrigin,
+      resolveAlternateCookieNameMap(baseCookieName, origin, alternateOrigin),
+    ]),
+  );
   return {
     id: appId,
     origin,
-    alternateOrigins: resolveEnvironmentLaneOrigins(origin),
+    alternateOrigins,
+    alternateCookieNameMap,
     session: session.fromPartition(`persist:app-${appId}`),
     cookieNames,
     cookieNamesToClear: [
       ...new Set([
         ...cookieNames,
+        ...Object.values(alternateCookieNameMap).flatMap((mapping) =>
+          Object.values(mapping),
+        ),
         "an.session_token",
         "__Secure-an.session_token",
         "an.session_data",
@@ -2144,7 +2200,7 @@ ipcMain.on(
   },
 );
 
-function getActiveWebviewContents() {
+function getActiveWebviewContents(options: { trackedOnly?: boolean } = {}) {
   const allContents = webContents.getAllWebContents();
   const liveWebviewContents = (contents?: Electron.WebContents | null) => {
     if (!contents) return undefined;
@@ -2158,12 +2214,15 @@ function getActiveWebviewContents() {
   const webviewContents = allContents.filter((wc) => liveWebviewContents(wc));
 
   const activeTarget =
-    activeWebviewContentsId &&
-    liveWebviewContents(webContents.fromId(activeWebviewContentsId));
+    activeWebviewContentsId !== undefined
+      ? liveWebviewContents(webContents.fromId(activeWebviewContentsId))
+      : undefined;
 
-  if (activeWebviewContentsId && !activeTarget) {
+  if (activeWebviewContentsId !== undefined && !activeTarget) {
     activeWebviewContentsId = undefined;
   }
+
+  if (options.trackedOnly) return activeTarget;
 
   // Fall back to the currently focused guest, then to the active app by URL.
   return (
@@ -2179,6 +2238,17 @@ function getActiveWebviewContents() {
         }
       })) ||
     webviewContents[0]
+  );
+}
+
+async function captureActiveDesktopBrowserScreenshot() {
+  const contents = getActiveWebviewContents({ trackedOnly: true });
+  if (!contents) {
+    throw new Error("No active inline browser surface is available.");
+  }
+  return captureDesktopBrowserScreenshot(
+    contents,
+    () => activeWebviewContentsId === contents.id,
   );
 }
 
@@ -5714,6 +5784,7 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     permissionStatus: () => getComputerPermissionStatus(systemPreferences),
     screenObserver,
     browserBridge,
+    captureActiveBrowserScreenshot: captureActiveDesktopBrowserScreenshot,
     browserNativeHostInstalled: () =>
       Boolean(
         browserNativeHostManifestPath &&
@@ -12911,7 +12982,9 @@ registerAppsIpc({
   },
 });
 
-registerDesktopChatIpc();
+registerDesktopChatIpc({
+  captureActiveBrowserScreenshot: captureActiveDesktopBrowserScreenshot,
+});
 
 registerChatFirstMcpIpc({
   resolveMcpHost: resolveDesktopMcpHost,

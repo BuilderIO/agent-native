@@ -66,7 +66,11 @@ import {
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
-import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
+import {
+  isCanonicalIdentitySsoClientRequest,
+  isCanonicalIdentitySsoClientConfigured,
+  isIdentitySsoAvailableForRequest,
+} from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 function hasGoogleOAuth(): boolean {
@@ -1118,7 +1122,6 @@ export interface OnboardingHtmlOptions {
     screenshotWidth?: number;
     screenshotHeight?: number;
     learnMoreUrl?: string;
-    learnMorePlacement?: "top-right" | "bottom-right";
     /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
@@ -1127,6 +1130,10 @@ export interface OnboardingHtmlOptions {
    * default auth guard serves before a template-specific auth plugin.
    */
   requestHost?: string;
+  /** @deprecated Browser SSO was removed. The fields are retained for patch compatibility. */
+  identitySsoRequestHost?: string;
+  /** @deprecated Browser SSO was removed. The field is retained for patch compatibility. */
+  identitySsoRequestProtocol?: string;
   requestPath?: string;
   requestOrigin?: string;
   /**
@@ -1162,6 +1169,7 @@ function initialAuthView(
     if (requestedView === "login" || requestedView === "signup") {
       return requestedView;
     }
+    if (url.searchParams.get("c")) return "login";
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     if (pathname.endsWith("/login")) return "login";
     if (pathname.endsWith("/signup")) return "signup";
@@ -1262,28 +1270,34 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     opts.signupLegalNotice === false
       ? undefined
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
-  const identitySsoEnabled = Boolean(identitySsoLoginButtonHtml());
-  const embeddedAuthCss = identitySsoEnabled
-    ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
-    : "";
-  const identitySsoMagicLinkSelector = identitySsoEnabled
-    ? "  .card.magic-link-complete #identity-sso-btn,\n"
-    : "";
-
+  const identitySsoRequestHost =
+    opts.identitySsoRequestHost ?? opts.requestHost;
+  const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
+  const identitySsoEnabled = isIdentitySsoAvailableForRequest({
+    requestHost: identitySsoRequestHost,
+    requestProtocol: identitySsoRequestProtocol,
+  });
+  const identitySsoAuto =
+    identitySsoEnabled &&
+    (isCanonicalIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      identitySsoRequestProtocol,
+    ) ||
+      (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
   const marketingStyles = hasMarketing
     ? `
-  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; }
-  #starfield {
+  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
+  [data-agent-native-starfield] {
     position: fixed;
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.35;
+    opacity: 0.15;
     pointer-events: none;
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    #starfield { opacity: 0.18; }
+    [data-agent-native-starfield] { opacity: 0.15; }
   }
   .split {
     position: relative;
@@ -1314,14 +1328,16 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     max-width: 100%;
     max-height: calc(100vh - 3rem);
     aspect-ratio: 914 / 818;
+    border-radius: 0.75rem;
     overflow: hidden;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.38); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   }
   .auth-marketing-screenshot {
     display: block;
     width: 100%;
     height: 100%;
     max-height: calc(100vh - 3rem);
-    object-fit: contain;
+    object-fit: cover;
   }
   .marketing-panel {
     flex: 1;
@@ -1422,6 +1438,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     padding: 2rem;
   }
   .form-panel .card { max-width: 400px; }
+  /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  .auth-marketing-home .card { box-shadow: 0 18px 50px rgba(0,0,0,0.62); }
   @media (max-width: 900px) {
     .auth-marketing-shell-with-top-right {
       display: flex;
@@ -1446,6 +1464,134 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .app-desc { margin-bottom: 1rem; }
     .feature-list { gap: 0.5rem; }
     .form-panel { flex: none; padding: 1.5rem 1rem; }
+  }
+  @media (prefers-color-scheme: light) {
+    body.has-marketing {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      color: CanvasText;
+      color-scheme: light;
+    }
+    .auth-marketing-home {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      color: CanvasText;
+    }
+    .auth-marketing-home .auth-marketing-learn-more,
+    .auth-marketing-home .auth-marketing-learn-more:hover,
+    body.has-marketing .locale-trigger {
+      color: CanvasText;
+    }
+    .auth-marketing-home .auth-marketing-learn-more-link {
+      color: LinkText;
+    }
+    .auth-marketing-home .card {
+      background: Canvas;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+      color: CanvasText;
+      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card h1 { color: CanvasText; }
+    .auth-marketing-home .card .subtitle,
+    .auth-marketing-home .card label { color: GrayText; }
+    .auth-marketing-home .card input {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card input::placeholder { color: GrayText; }
+    .auth-marketing-home .card .tabs {
+      background: color-mix(in srgb, CanvasText 7%, transparent);
+    }
+    .auth-marketing-home .card .tab { color: GrayText; }
+    .auth-marketing-home .card .tab.active {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+      color: CanvasText;
+      box-shadow: 0 1px 2px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card button[type="submit"],
+    .auth-marketing-home .card .btn-primary {
+      background: CanvasText;
+      color: Canvas;
+    }
+    .auth-marketing-home .card button[type="submit"]:hover,
+    .auth-marketing-home .card .btn-primary:hover {
+      background: color-mix(in srgb, CanvasText 82%, Canvas);
+    }
+    .auth-marketing-home .card .btn-google {
+      background: Canvas;
+      color: CanvasText;
+      border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .btn-google:hover {
+      background: color-mix(in srgb, CanvasText 6%, Canvas);
+    }
+    .auth-marketing-home .card .btn-secondary {
+      color: GrayText;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .btn-secondary:hover,
+    .auth-marketing-home .card .link-button:hover {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 24%, transparent);
+    }
+    .auth-marketing-home .card .divider { color: GrayText; }
+    .auth-marketing-home .card .divider::before,
+    .auth-marketing-home .card .divider::after {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+    }
+    .auth-marketing-home .card .legal-note,
+    .auth-marketing-home .card .legal-note a,
+    .auth-marketing-home .card .local-dev-full-options {
+      color: GrayText;
+    }
+    .auth-marketing-home .card .signup-local-mode-note {
+      color: GrayText;
+      background: color-mix(in srgb, CanvasText 4%, transparent);
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .signup-local-mode-note code { color: CanvasText; }
+    .auth-marketing-home .card .progress-step { color: GrayText; }
+    .auth-marketing-home .card .progress-step::before {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+    }
+    .auth-marketing-home .card .progress-step span {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+      color: GrayText;
+    }
+    .auth-marketing-home .card .progress-step.complete,
+    .auth-marketing-home .card .progress-step.current { color: CanvasText; }
+    .auth-marketing-home .card .progress-step.complete span {
+      background: color-mix(in srgb, LinkText 16%, transparent);
+      border-color: color-mix(in srgb, LinkText 55%, transparent);
+      color: LinkText;
+    }
+    .auth-marketing-home .card .progress-step.current span {
+      background: CanvasText;
+      border-color: CanvasText;
+      color: Canvas;
+      box-shadow: 0 0 0 4px color-mix(in srgb, CanvasText 8%, transparent);
+    }
+    .auth-marketing-home .card .verification-panel {
+      background: color-mix(in srgb, CanvasText 4%, transparent);
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .verification-kicker { color: LinkText; }
+    .auth-marketing-home .card .verification-copy,
+    .auth-marketing-home .card .verification-copy strong { color: CanvasText; }
+    .auth-marketing-home .card .verification-note,
+    .auth-marketing-home .card .link-button { color: GrayText; }
+    body.has-marketing .locale-menu {
+      background: Canvas;
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    body.has-marketing .locale-menu-item { color: GrayText; }
+    body.has-marketing .locale-menu-item:hover,
+    body.has-marketing .locale-menu-item:focus,
+    body.has-marketing .locale-menu-item[aria-checked="true"] {
+      background: color-mix(in srgb, CanvasText 7%, transparent);
+      color: CanvasText;
+    }
   }
 `
     : "";
@@ -1491,7 +1637,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
               : undefined,
             screenshotWidth: marketing.screenshotWidth,
             screenshotHeight: marketing.screenshotHeight,
-            learnMorePlacement: marketing.learnMorePlacement,
             learnMoreUrl:
               marketing.learnMoreUrl ??
               (marketingSlug
@@ -1509,6 +1654,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       hash: "local-development-sign-in",
     }),
     identitySsoEnabled,
+    identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -2045,7 +2191,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .card.magic-link-complete .subtitle,
   .card.magic-link-complete #google-signin,
-${identitySsoMagicLinkSelector}
   .card.magic-link-complete #auth-divider,
   .card.magic-link-complete #auth-tabs,
   .card.magic-link-complete #upgrade-note,
@@ -2115,7 +2260,6 @@ ${marketingStyles}
   /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
-${embeddedAuthCss}
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }
@@ -2132,16 +2276,11 @@ ${embeddedAuthCss}
     align-items: center;
     position: absolute;
     padding: 0;
-    top: max(1rem, env(safe-area-inset-top));
-    inset-inline-end: calc(max(1rem, env(safe-area-inset-right)) + 2.5rem);
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    inset-inline-end: max(1rem, env(safe-area-inset-right));
     z-index: 2;
   }
   .auth-marketing-learn-more { font-size: 0.8rem; }
-  .auth-marketing-home.has-bottom-right-learn-more .auth-marketing-top-right {
-    top: auto;
-    bottom: max(1rem, env(safe-area-inset-bottom));
-    inset-inline-end: max(1rem, env(safe-area-inset-right));
-  }
   .auth-marketing-home .auth-marketing-layout {
     min-height: 100vh;
     display: flex;
@@ -2154,48 +2293,51 @@ ${embeddedAuthCss}
     max-width: none;
     padding: 0;
     justify-content: center;
-  }
-  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap,
-  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    max-height: calc(100vh - 5rem);
+    align-items: flex-start;
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
     width: 100%;
-    max-width: 927px;
-    margin-inline: auto;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    filter: blur(5px);
-    opacity: 0.8;
-  }
-  .auth-marketing-home.has-product-screenshot .form-panel .card {
-    position: relative;
-    z-index: 1;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    filter: none;
+    opacity: 0.15;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
-    flex: 0 0 28rem;
-    min-width: 28rem;
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
     max-width: none;
+    padding: 1rem;
+    overflow-y: auto;
   }
-  @media (min-width: 901px) and (max-width: 1500px) {
-    .auth-marketing-home.has-product-screenshot .form-panel .card {
-      left: -140px;
-    }
+  .auth-marketing-home.has-product-screenshot .form-panel > .card {
+    margin-block: auto;
   }
   .auth-marketing-home .form-panel { min-width: 0; }
-  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
+  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; transform: translateY(-5vh); }
   @media (max-width: 900px) {
     body.has-marketing {
       align-items: flex-start;
       justify-content: flex-start;
     }
     .auth-marketing-home .auth-marketing-top-right {
-      top: max(1rem, env(safe-area-inset-top));
-      bottom: auto;
-      inset-inline-start: max(1rem, env(safe-area-inset-left));
-      inset-inline-end: auto;
-    }
-    .auth-marketing-home.has-bottom-right-learn-more .auth-marketing-top-right {
       top: auto;
       bottom: max(1rem, env(safe-area-inset-bottom));
       inset-inline-start: 50%;
@@ -2205,13 +2347,9 @@ ${embeddedAuthCss}
     .auth-marketing-home .auth-marketing-layout { min-height: auto; }
     .auth-marketing-home .auth-marketing-shell { display: block; }
     .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
-    .auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }
     .auth-marketing-home.has-product-screenshot .form-panel {
       min-width: 0;
-      padding: 3.75rem 0.8125rem 1.5rem;
-    }
-    .auth-marketing-home.has-product-screenshot .form-panel .card {
-      left: auto;
+      padding: 1rem;
     }
   }
 `;

@@ -381,7 +381,7 @@ function WorkspaceAppOpenActions({
       href={href}
       showNewTabOption
       onOpen={() => {
-        if (!openDirectly || navigateToWorkspaceApp(href)) return;
+        if (openDirectly && navigateToWorkspaceApp(href)) return;
         void navigate(appRoute);
       }}
       menuItems={

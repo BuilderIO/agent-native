@@ -41,7 +41,11 @@ export type {
 // importing the server module.
 export type { AppRolesDescriptor } from "../../org/app-roles.js";
 
-export { OrgSwitcher, type OrgSwitcherProps } from "./OrgSwitcher.js";
+export {
+  OrgSwitcher,
+  type OrgSwitcherProps,
+  type OrgSwitcherUtilityLink,
+} from "./OrgSwitcher.js";
 export {
   InvitationBanner,
   type InvitationBannerProps,

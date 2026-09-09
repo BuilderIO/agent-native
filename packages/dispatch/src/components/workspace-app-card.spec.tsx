@@ -236,6 +236,7 @@ describe("WorkspaceAppCard", () => {
       await act(async () => {
         root.render(
           <MemoryRouter>
+            <LocationProbe />
             <TooltipProvider>
               <WorkspaceAppCard
                 app={{
@@ -257,6 +258,9 @@ describe("WorkspaceAppCard", () => {
           ?.click(),
       );
       expect(topWindow.location.href).toBe("");
+      expect(container.querySelector("[data-location-path]")?.textContent).toBe(
+        "/apps/feedback-leaderboard",
+      );
     } finally {
       Object.defineProperty(window, "top", {
         configurable: true,

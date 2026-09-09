@@ -3,7 +3,45 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-05
+
+### Improved
+
+- Calendar booking pages show the docs hero wave background
+
+## 2026-09-04
+
+### Improved
+
+- Generated booking-link OG images now use the shared branded background.
+
+### Fixed
+
+- Calendar controls now add the right source, shared events use their calendar colors, and color changes appear immediately.
+- Calendar sidebar remains toggleable while agent chat is open.
+- Read-only calendar events keep their date and time controls disabled
+
+## 2026-09-03
+
+### Improved
+
+- Calendar makes all-day event creation discoverable from the visible all-day row
+- Shared Google calendars now appear automatically with instant visibility controls and local display colors.
+- Calendar now supports reliable batch event updates and booking cancellations.
+- The agent now asks for your approval before it deletes events in bulk, emails your guests about a cancellation or change, or moves an event to another calendar.
+
+## 2026-09-02
+
+### Improved
+
+- Creating an event with guests now uses Save while still sending invitations
+- Updated the booking-link OG preview image with the new monochrome logo and dark background.
+
 ## 2026-09-01
+
+### Added
+
+- Calendars shared with your connected Google accounts can now appear alongside your primary calendars.
 
 ### Improved
 

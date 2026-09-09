@@ -47,6 +47,10 @@ export interface Document {
   contextPath?: ContentContextPathEntry[];
   createdAt: string;
   updatedAt: string;
+  /** Opaque token for optimistic document-body reconciliation. */
+  revision?: string;
+  bodyRevision?: number;
+  contentHash?: string;
   contentFidelity?: NfmFidelityReport;
 }
 
@@ -363,10 +367,13 @@ export interface ContentDatabaseView {
   endDatePropertyId?: string | null;
   hiddenPropertyIds?: string[];
   propertyOrderIds?: string[];
+  tableColumnOrderIds?: string[];
   collapsedGroupIds?: string[];
   hideEmptyGroups?: boolean;
   calculations?: Record<string, ContentDatabaseColumnCalculation>;
   wrapCells?: boolean;
+  columnWrapOverrides?: Record<string, boolean>;
+  frozenThroughColumnId?: string | null;
   rowDensity?: ContentDatabaseRowDensity;
   openPagesIn?: ContentDatabaseOpenPagesIn;
   formQuestions?: ContentDatabaseFormQuestion[];
@@ -973,6 +980,7 @@ export interface ContentDatabaseSourceFieldPropertyResponse {
 
 export interface CreateDatabaseRequest {
   documentId?: string;
+  newDocumentId?: string;
   spaceId?: string;
   parentId?: string | null;
   title?: string;
@@ -1041,6 +1049,24 @@ export interface DatabaseItemsBatchRequest {
   documentId?: string;
   itemIds?: string[];
   documentIds?: string[];
+}
+
+export interface UpdateDatabaseItemsRequest extends DatabaseItemsBatchRequest {
+  propertyId: string;
+  value: DocumentPropertyValue;
+}
+
+export interface UpdateDatabaseItemsResponse {
+  databaseId: string;
+  propertyId: string;
+  updated: number;
+  failed: number;
+  results: Array<{
+    itemId: string;
+    documentId: string;
+    success: boolean;
+    error?: string;
+  }>;
 }
 
 export interface MoveDatabaseItemRequest {

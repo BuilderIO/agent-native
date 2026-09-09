@@ -1,25 +1,30 @@
 import { createHash } from "node:crypto";
 
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
-  getDialect,
   getDbExec,
   getRuntimeDatabaseUrl,
   getRuntimeDatabaseSource,
   isLocalDatabase,
   type DbExec,
-  type Dialect,
 } from "./client.js";
 
 export interface DatabaseRuntimeFingerprint {
   configured: boolean;
   source: string;
-  dialect: Dialect;
   urlHash?: string;
+  /**
+   * Pooler-agnostic identity of the physical database: `postgres:database:endpoint`,
+   * where `endpoint` is the Neon endpoint id when present (shared by a pooled
+   * and unpooled URL to the same database) or else a short hash of the host.
+   * No credentials — for comparing "is this the same database", not for
+   * telling two databases on the same host apart by name alone.
+   */
+  fingerprint?: string;
   protocol?: string;
   host?: string;
   database?: string;
   appName?: string;
-  authTokenConfigured: boolean;
   netlifyDatabaseUrlConfigured: boolean;
   neon?: {
     endpointId?: string;
@@ -47,7 +52,6 @@ export interface RequiredSchemaTable {
 export interface DatabaseSchemaHealthResult {
   ok: boolean;
   checked: boolean;
-  dialect: Dialect;
   missingTables: string[];
   missingColumns: Array<{ table: string; column: string }>;
   error?: string;
@@ -126,17 +130,44 @@ function envValue(key: string): string | undefined {
   return value || undefined;
 }
 
-function appEnvPrefix(): string | undefined {
-  return envValue("APP_NAME")?.toUpperCase().replace(/-/g, "_");
+/**
+ * Better Auth's own core tables (see better-auth-instance.ts's pgAuthSchema) -
+ * only the columns request-serving code actually reads,
+ * not every column Better Auth defines. `jwks` is the one most likely to be
+ * missing in practice: it is created lazily on first key generation rather
+ * than by the framework's own migrations, so a deploy can look schema-ok on
+ * every other table while `/auth/ba/jwks` 500s.
+ */
+export const BETTER_AUTH_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
+  { table: "user", columns: ["id", "email", "name", "email_verified"] },
+  { table: "session", columns: ["id", "user_id", "token", "expires_at"] },
+  {
+    table: "account",
+    columns: ["id", "user_id", "provider_id", "account_id"],
+  },
+  {
+    table: "verification",
+    columns: ["id", "identifier", "value", "expires_at"],
+  },
+  { table: "jwks", columns: ["id", "public_key", "private_key"] },
+];
+
+/** Same AUTH_DISABLED resolution as getRuntimeConfigReport() in shared/runtime-config.ts. */
+function isAuthDisabled(): boolean {
+  return isTruthyRuntimeValue(envValue("AUTH_DISABLED"));
 }
 
-function databaseAuthTokenConfigured(): boolean {
-  const appName = appEnvPrefix();
-  return Boolean(
-    (appName && envValue(`${appName}_DATABASE_AUTH_TOKEN`)) ||
-    envValue("DATABASE_AUTH_TOKEN") ||
-    envValue("NETLIFY_DATABASE_AUTH_TOKEN"),
-  );
+/**
+ * The schema this process should have. Better Auth's tables are appended only
+ * when auth is enabled — an `AUTH_DISABLED` deployment never creates them, so
+ * requiring them there would report a permanent false "missing table".
+ */
+export function getRequiredSchema(
+  authEnabled: boolean = !isAuthDisabled(),
+): RequiredSchemaTable[] {
+  return authEnabled
+    ? [...DEFAULT_REQUIRED_SCHEMA, ...BETTER_AUTH_REQUIRED_SCHEMA]
+    : DEFAULT_REQUIRED_SCHEMA;
 }
 
 function shortHash(value: string): string | undefined {
@@ -149,11 +180,8 @@ function parseDatabaseUrl(url: string): Partial<DatabaseRuntimeFingerprint> {
   if (url.startsWith("pglite:")) {
     return { protocol: "pglite", database: url.slice("pglite:".length) };
   }
-  if (url.startsWith("file:")) {
-    return { protocol: "file", database: url.slice("file:".length) };
-  }
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
-    return { protocol: "sqlite", database: url };
+    return {};
   }
 
   try {
@@ -186,10 +214,16 @@ export function getDatabaseRuntimeFingerprint(): DatabaseRuntimeFingerprint {
   return {
     configured: Boolean(url),
     source: getRuntimeDatabaseSource(),
-    dialect: getDialect(),
     urlHash: shortHash(url),
+    fingerprint: url
+      ? `postgres:${parsed.database ?? ""}:${
+          parsed.neon?.endpointId ??
+          (parsed.host
+            ? createHash("sha256").update(parsed.host).digest("hex").slice(0, 8)
+            : "")
+        }`
+      : undefined,
     appName: envValue("APP_NAME"),
-    authTokenConfigured: databaseAuthTokenConfigured(),
     netlifyDatabaseUrlConfigured: Boolean(
       envValue("NETLIFY_DATABASE_URL") ||
       envValue("NETLIFY_DATABASE_URL_UNPOOLED"),
@@ -251,28 +285,12 @@ async function postgresTableColumns(
   return new Set(result.rows.map((row) => String(row.column_name)));
 }
 
-async function sqliteTableColumns(
+async function tableColumns(
   exec: DbExec,
   table: string,
 ): Promise<Set<string> | null> {
   assertSafeIdentifier(table);
-  const exists = await exec.execute({
-    sql: `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`,
-    args: [table],
-  });
-  if (!exists.rows.length) return null;
-  const result = await exec.execute(`PRAGMA table_info(${table})`);
-  return new Set(result.rows.map((row) => String(row.name)));
-}
-
-async function tableColumns(
-  exec: DbExec,
-  dialect: Dialect,
-  table: string,
-): Promise<Set<string> | null> {
-  return dialect === "postgres"
-    ? postgresTableColumns(exec, table)
-    : sqliteTableColumns(exec, table);
+  return postgresTableColumns(exec, table);
 }
 
 /**
@@ -285,7 +303,7 @@ async function tableColumns(
  * applied by migrations, so a clean answer cannot silently go bad — but the
  * window is still kept to seconds, short enough that anything a deploy changes
  * shows up on the next page load rather than being pinned. Callers that
- * override `exec`, `dialect`, or `required` bypass it entirely.
+ * override `exec` or `required` bypass it entirely.
  */
 const SCHEMA_HEALTH_MEMO_MS = 5_000;
 let schemaHealthMemo: {
@@ -296,11 +314,10 @@ let schemaHealthMemo: {
 export async function runDatabaseSchemaHealthCheck(
   options: {
     exec?: DbExec;
-    dialect?: Dialect;
     required?: RequiredSchemaTable[];
   } = {},
 ): Promise<DatabaseSchemaHealthResult> {
-  const memoizable = !options.exec && !options.dialect && !options.required;
+  const memoizable = !options.exec && !options.required;
   if (
     memoizable &&
     schemaHealthMemo &&
@@ -309,18 +326,15 @@ export async function runDatabaseSchemaHealthCheck(
     return schemaHealthMemo.result;
   }
 
-  const dialect = options.dialect ?? getDialect();
   const exec = options.exec ?? getDbExec();
-  const required = options.required ?? DEFAULT_REQUIRED_SCHEMA;
+  const required = options.required ?? getRequiredSchema();
   const missingTables: string[] = [];
   const missingColumns: Array<{ table: string; column: string }> = [];
 
   try {
     // Independent probes: serially they cost one network round trip each.
     const found = await Promise.all(
-      required.map((requirement) =>
-        tableColumns(exec, dialect, requirement.table),
-      ),
+      required.map((requirement) => tableColumns(exec, requirement.table)),
     );
     required.forEach((requirement, index) => {
       const columns = found[index];
@@ -338,7 +352,6 @@ export async function runDatabaseSchemaHealthCheck(
     return {
       ok: false,
       checked: false,
-      dialect,
       missingTables,
       missingColumns,
       error: err instanceof Error ? err.message : String(err),
@@ -348,7 +361,6 @@ export async function runDatabaseSchemaHealthCheck(
   const result: DatabaseSchemaHealthResult = {
     ok: missingTables.length === 0 && missingColumns.length === 0,
     checked: true,
-    dialect,
     missingTables,
     missingColumns,
   };
@@ -372,7 +384,6 @@ export function formatRuntimeDebugFingerprint(
     fingerprint.siteName ? `site_name: ${fingerprint.siteName}` : "",
     `db_configured: ${db.configured}`,
     `db_source: ${db.source}`,
-    `db_dialect: ${db.dialect}`,
     db.protocol ? `db_protocol: ${db.protocol}` : "",
     db.host ? `db_host: ${db.host}` : "",
     db.database ? `db_database: ${db.database}` : "",
@@ -380,7 +391,6 @@ export function formatRuntimeDebugFingerprint(
     db.neon?.endpointId ? `db_neon_endpoint: ${db.neon.endpointId}` : "",
     db.neon ? `db_neon_pooled: ${db.neon.pooled}` : "",
     db.neon?.projectHost ? `db_neon_project_host: ${db.neon.projectHost}` : "",
-    `db_auth_token_configured: ${db.authTokenConfigured}`,
     `netlify_database_url_configured: ${db.netlifyDatabaseUrlConfigured}`,
   ]
     .filter(Boolean)

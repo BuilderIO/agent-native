@@ -11,6 +11,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
@@ -624,13 +631,19 @@ export function TranscriptBubbles({
             {t("transcriptBubbles.listening")}
           </div>
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
-            <IconNotes className="h-6 w-6 text-muted-foreground/50" />
-            <span>{t("transcriptBubbles.noTranscript")}</span>
-            <span className="text-xs">
-              {t("transcriptBubbles.liveTranscriptDescription")}
-            </span>
-          </div>
+          <Empty className="min-h-full rounded-none px-6">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconNotes />
+              </EmptyMedia>
+              <EmptyTitle className="text-sm">
+                {t("transcriptBubbles.noTranscript")}
+              </EmptyTitle>
+              <EmptyDescription className="text-xs">
+                {t("transcriptBubbles.liveTranscriptDescription")}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )
       ) : (
         <div ref={containerRef} className="flex-1 overflow-y-auto p-4">

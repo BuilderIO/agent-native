@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import {
   FeatureNotConfiguredError,
   getBuilderImageGenerationBaseUrl,
-  resolveBuilderGatewayCredentials,
+  resolveBuilderGatewayAuth,
   resolveSecret,
 } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
@@ -270,18 +270,11 @@ export async function generateWithBuilderImageApi(
   // injected gateway pair and no identity credential at all, and image
   // generation is metered rather than identity-bearing. The resolver still
   // prefers a connected Builder account, so a site that has one is unaffected.
-  const builderCredentials = await resolveBuilderGatewayCredentials();
-  if (!builderCredentials.privateKey || !builderCredentials.publicKey) {
-    const detail =
-      !builderCredentials.privateKey && !builderCredentials.publicKey
-        ? "Builder credentials are missing"
-        : !builderCredentials.privateKey
-          ? "Builder token is missing"
-          : "Builder space id is missing";
+  const builderAuth = await resolveBuilderGatewayAuth();
+  if (!builderAuth) {
     throw new BuilderImageGenerationError(
       "Builder.io is not connected for managed image generation. Connect Builder.io (free tier available), or publish with Builder credits so the site is issued its own gateway credential.",
       401,
-      detail,
     );
   }
 
@@ -342,8 +335,10 @@ export async function generateWithBuilderImageApi(
   const response = await fetch(`${baseUrl}/generations`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${builderCredentials.privateKey}`,
-      "x-builder-api-key": builderCredentials.publicKey,
+      Authorization: builderAuth.authorization,
+      ...(builderAuth.spaceId
+        ? { "x-builder-api-key": builderAuth.spaceId }
+        : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(requestBody),

@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const STORAGE_KEY = "agent-native.forms.tab-id";
+const STORAGE_KEY = "agent-native:browser-tab-id";
 const originalGetEntriesByType = (entryType: string) =>
   performance.getEntriesByType(entryType);
 
@@ -18,7 +18,7 @@ function stubNavigationType(type: PerformanceNavigationTiming["type"]) {
   });
 }
 
-describe("Forms tab id", () => {
+describe("Forms browser tab id", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     window.sessionStorage.clear();

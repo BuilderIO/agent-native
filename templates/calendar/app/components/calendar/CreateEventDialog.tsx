@@ -509,17 +509,16 @@ export function CreateEventPopover({
     if (!date || !endDate || (!allDay && (!startTime || !endTime))) {
       return;
     }
-    const allDayEnd = new Date(`${endDate}T00:00:00`);
-    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const allDayEnd = addDaysToDateString(endDate, 1);
     const startValue = fullDayOutOfOffice
       ? date
       : effectiveAllDay
-        ? new Date(`${date}T00:00:00`).toISOString()
+        ? date
         : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
-        ? allDayEnd.toISOString()
+        ? allDayEnd
         : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
     const attachmentResult = validateAttachmentDrafts(attachments);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
@@ -776,17 +775,16 @@ export function CreateEventPopover({
 
     const fullDayOutOfOffice = isOutOfOffice && allDay;
     const effectiveAllDay = allDay && !timedOnlyStatus;
-    const allDayEnd = new Date(`${endDate}T00:00:00`);
-    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const allDayEnd = addDaysToDateString(endDate, 1);
     const startValue = fullDayOutOfOffice
       ? date
       : effectiveAllDay
-        ? new Date(`${date}T00:00:00`).toISOString()
+        ? date
         : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
-        ? allDayEnd.toISOString()
+        ? allDayEnd
         : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
 
     if (

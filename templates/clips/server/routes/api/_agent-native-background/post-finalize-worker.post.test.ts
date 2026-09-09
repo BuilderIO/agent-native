@@ -8,6 +8,7 @@ const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockRunLoomImportJob = vi.hoisted(() => vi.fn());
 const mockFinalizeRun = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
+const mockMarkThumbnailFailed = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec-1" }]),
 );
@@ -75,6 +76,7 @@ vi.mock("../../../lib/ensure-recording-thumbnail.js", () => ({
       "skipped-race",
       "skipped-lease",
     ].includes(status),
+  markThumbnailFailed: (...args: unknown[]) => mockMarkThumbnailFailed(...args),
 }));
 
 vi.mock("../../../../actions/request-transcript.js", () => ({
@@ -322,6 +324,88 @@ describe("post-finalize worker", () => {
       retryAttempt: 3,
       requireAccepted: true,
     });
+  });
+
+  it("marks the thumbnail failed once retries are exhausted", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+      retryAttempt: 5,
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "skipped-media-fetch",
+      changed: false,
+      detail: "temporary storage outage",
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      retryExhausted: true,
+    });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+    expect(mockMarkThumbnailFailed).toHaveBeenCalledWith(
+      "rec-1",
+      "skipped-media-fetch",
+    );
+  });
+
+  it("marks the thumbnail failed once retries are exhausted after an error", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+      retryAttempt: 5,
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+    mockEnsureRecordingThumbnail.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      retryExhausted: true,
+      error: "database unavailable",
+    });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+    expect(mockMarkThumbnailFailed).toHaveBeenCalledWith(
+      "rec-1",
+      "database unavailable",
+    );
   });
 
   it("retries thumbnail jobs when generation throws", async () => {

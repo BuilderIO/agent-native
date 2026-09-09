@@ -23,8 +23,10 @@ vi.mock("h3", () => ({
 }));
 
 const getSession = vi.hoisted(() => vi.fn());
+const getMcpOAuthBearerSession = vi.hoisted(() => vi.fn());
 vi.mock("./auth.js", () => ({
   getSession: (...a: any[]) => getSession(...a),
+  getMcpOAuthBearerSession: (...a: any[]) => getMcpOAuthBearerSession(...a),
 }));
 
 vi.mock("./google-oauth.js", () => ({
@@ -80,6 +82,8 @@ function fakeEvent(opts: {
 
 beforeEach(() => {
   getSession.mockReset();
+  getMcpOAuthBearerSession.mockReset();
+  getMcpOAuthBearerSession.mockResolvedValue(null);
   saveRecapImage.mockReset();
   getRecapImage.mockReset();
   verifyAuth.mockReset();
@@ -126,6 +130,18 @@ describe("recap-image upload (POST /_agent-native/recap-image)", () => {
 
   it("accepts the connect bearer token via verifyAuth when there is no session", async () => {
     getSession.mockResolvedValue(null);
+    getMcpOAuthBearerSession.mockImplementation(async (event: any) => {
+      const authHeader = event.headers?.authorization;
+      if (!authHeader) return null;
+      const result = await verifyAuth(authHeader, undefined, {
+        resourceUrl: ["https://app.example.com/mcp"],
+        allowDevOpen: false,
+      });
+      const identity = result.authed ? result.identity : undefined;
+      return identity?.userEmail
+        ? { email: identity.userEmail, token: "connect-tok" }
+        : null;
+    });
     verifyAuth.mockResolvedValue({
       authed: true,
       identity: { userEmail: "connect@example.com" },

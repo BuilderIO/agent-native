@@ -91,7 +91,7 @@ const PILL_DETACHED_H_LOGICAL: u32 = 40;
 const PILL_DETACHED_TOP_MARGIN_LOGICAL: u32 = 24;
 const PILL_DETACHED_RIGHT_MARGIN_LOGICAL: u32 = 24;
 /// Gap between the visible capsule and the right screen edge, logical px.
-const PILL_RIGHT_MARGIN_LOGICAL: u32 = 28;
+const PILL_RIGHT_MARGIN_LOGICAL: u32 = 25;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -105,6 +105,21 @@ fn scale_factor(app: &AppHandle) -> f64 {
     app.get_webview_window("popover")
         .and_then(|w| w.scale_factor().ok())
         .unwrap_or(2.0)
+}
+
+fn monitor_scale_factor(app: &AppHandle, rect: (i32, i32, u32, u32)) -> f64 {
+    let (x, y, width, height) = rect;
+    app.get_webview_window("popover")
+        .and_then(|window| window.available_monitors().ok())
+        .and_then(|monitors| {
+            monitors.into_iter().find(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                position.x == x && position.y == y && size.width == width && size.height == height
+            })
+        })
+        .map(|monitor| monitor.scale_factor())
+        .unwrap_or_else(|| scale_factor(app))
 }
 
 /// Screen-edge margin for the visible capsule, physical px. The window is
@@ -182,12 +197,11 @@ fn pill_detached_position_path(app: &AppHandle) -> Option<PathBuf> {
 
 #[derive(Deserialize)]
 struct MeetingPillPosition {
+    /// Meeting positions persist the right edge so width changes do not move the pill.
     x: i32,
     y: i32,
     #[serde(default)]
     anchor: Option<String>,
-    #[serde(default)]
-    width: Option<u32>,
 }
 
 fn load_meeting_position(app: &AppHandle) -> Option<MeetingPillPosition> {
@@ -204,7 +218,6 @@ fn save_meeting_position_to_disk(app: &AppHandle, x: i32, y: i32, width: u32) {
         "x": x + width as i32,
         "y": y,
         "anchor": "right",
-        "width": width,
     })) {
         Ok(b) => b,
         Err(_) => return,
@@ -216,6 +229,14 @@ fn save_meeting_position_to_disk(app: &AppHandle, x: i32, y: i32, width: u32) {
     if std::fs::rename(&tmp, &path).is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
+}
+
+fn right_anchored_x(right_edge: i32, width: u32, min_x: i32, max_x: i32) -> i32 {
+    (right_edge - width as i32).clamp(min_x, max_x)
+}
+
+fn meeting_position_x(position: &MeetingPillPosition, width: u32, min_x: i32, max_x: i32) -> i32 {
+    right_anchored_x(position.x, width, min_x, max_x)
 }
 
 fn load_detached_position(app: &AppHandle) -> Option<(i32, i32)> {
@@ -378,7 +399,7 @@ fn anchored_rect(
             // Top-right anchor: right edge and header stay fixed; pill grows
             // left and down on expand.
             let prev_right = px + prev_w as i32;
-            let x = (prev_right - w as i32).clamp(mx, max_x);
+            let x = right_anchored_x(prev_right, w, mx, max_x);
             let y = py.clamp(my, max_y);
             return (w, h, x, y);
         }
@@ -386,22 +407,26 @@ fn anchored_rect(
         let (_, h_exp) = pill_size_physical(app, true);
         let max_y_exp = (my + mh as i32 - h_exp as i32).max(my);
         let (x, y) = match load_meeting_position(app) {
-            Some(position) if position.anchor.as_deref() == Some("right") => {
-                let saved_width = position.width.unwrap_or(w);
-                (
-                    (position.x - saved_width as i32).clamp(mx, max_x),
-                    position.y.clamp(my, max_y_exp),
-                )
-            }
+            Some(position) if position.anchor.as_deref() == Some("right") => (
+                meeting_position_x(&position, w, mx, max_x),
+                position.y.clamp(my, max_y_exp),
+            ),
             Some(position) => {
-                let (expanded_w, _) = pill_size_physical(app, true);
-                let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale_factor(app)) as i32;
+                // Legacy width was sized from the popover scale, even when the
+                // pill was placed on a different monitor. Keep that old
+                // encoding when reconstructing its right edge.
+                let target_scale = monitor_scale_factor(app, (mx, my, mw, mh));
+                let expanded_w =
+                    (PILL_W_EXPANDED_MEETING_LOGICAL as f64 * scale_factor(app)) as u32;
+                let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * target_scale) as i32;
                 let legacy_right_edge = position.x + expanded_w as i32;
                 let monitor_right = mx + mw as i32;
-                if (legacy_right_edge - (monitor_right - right_margin)).abs() <= 4 {
+                let migration_tolerance = (4.0 * target_scale) as i32;
+                if (legacy_right_edge - (monitor_right - right_margin)).abs() <= migration_tolerance
+                {
                     save_meeting_position_to_disk(app, position.x, position.y, expanded_w);
                     (
-                        (legacy_right_edge - w as i32).clamp(mx, max_x),
+                        right_anchored_x(legacy_right_edge, w, mx, max_x),
                         position.y.clamp(my, max_y_exp),
                     )
                 } else {
@@ -693,4 +718,17 @@ pub async fn recording_pill_set_detached(app: AppHandle, detached: bool) -> Resu
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{meeting_position_x, MeetingPillPosition};
+
+    #[test]
+    fn meeting_restore_uses_current_width_after_expansion() {
+        let position: MeetingPillPosition =
+            serde_json::from_str(r#"{"x":1870,"y":100,"anchor":"right","width":960}"#).unwrap();
+
+        assert_eq!(meeting_position_x(&position, 76, 0, 1844), 1794);
+    }
 }

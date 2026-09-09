@@ -39,9 +39,9 @@ export function TemplateLandingFaq({
     >
       <div className="flex flex-col lg:flex-row lg:items-stretch">
         <div className="flex shrink-0 flex-col gap-3 border-b border-[var(--docs-border)] px-6 py-8 sm:px-8 lg:w-1/3 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
-          <div className="font-mono text-sm font-semibold uppercase tracking-[0.28px]">
+          <p className="m-0 font-mono text-sm font-semibold uppercase tracking-[0.28px]">
             {eyebrow}
-          </div>
+          </p>
           <h2
             id={headingId}
             className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]"

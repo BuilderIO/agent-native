@@ -1,10 +1,8 @@
-import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
+import { closeDbExec, createGetDb, getDbExec } from "@agent-native/core/db";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import * as schema from "../schema/index.js";
@@ -18,9 +16,24 @@ import type { CalendarProvider } from "./providers/types.js";
 
 const HOST_EMAIL = "host@example.com";
 const ATTENDEE_EMAIL = "attendee@example.com";
+
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(statement: SqlStatement) {
+  if (typeof statement === "string")
+    return getDbExec().execute(postgresSql(statement));
+  return getDbExec().execute({
+    ...statement,
+    sql: postgresSql(statement.sql),
+  });
+}
 const GUEST_EMAIL = "guest@example.com";
 
-let client: Client;
 let dbDir: string;
 
 function makeEventType(overrides: Partial<EventType> = {}): EventType {
@@ -73,8 +86,8 @@ function makeCalendarProvider(
 
 beforeEach(async () => {
   dbDir = mkdtempSync(join(tmpdir(), "scheduling-booking-test-"));
-  client = createClient({ url: `file:${join(dbDir, `${randomUUID()}.db`)}` });
-  await client.execute(`
+  process.env.DATABASE_URL = `pglite:${dbDir}`;
+  await execute(`
     CREATE TABLE bookings (
       id TEXT PRIMARY KEY,
       uid TEXT NOT NULL UNIQUE,
@@ -96,8 +109,8 @@ beforeEach(async () => {
       ical_uid TEXT NOT NULL,
       ical_sequence INTEGER NOT NULL DEFAULT 0,
       recurring_event_id TEXT,
-      paid INTEGER NOT NULL DEFAULT 0,
-      no_show_host INTEGER NOT NULL DEFAULT 0,
+      paid BOOLEAN NOT NULL DEFAULT false,
+      no_show_host BOOLEAN NOT NULL DEFAULT false,
       metadata TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -106,7 +119,7 @@ beforeEach(async () => {
       visibility TEXT NOT NULL DEFAULT 'private'
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE booking_attendees (
       id TEXT PRIMARY KEY,
       booking_id TEXT NOT NULL,
@@ -114,11 +127,11 @@ beforeEach(async () => {
       name TEXT NOT NULL,
       timezone TEXT,
       locale TEXT,
-      no_show INTEGER NOT NULL DEFAULT 0,
+      no_show BOOLEAN NOT NULL DEFAULT false,
       created_at TEXT NOT NULL
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE booking_references (
       id TEXT PRIMARY KEY,
       booking_id TEXT NOT NULL,
@@ -130,7 +143,7 @@ beforeEach(async () => {
       created_at TEXT NOT NULL
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE destination_calendars (
       id TEXT PRIMARY KEY,
       credential_id TEXT NOT NULL,
@@ -142,7 +155,7 @@ beforeEach(async () => {
       created_at TEXT NOT NULL
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE scheduling_credentials (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -152,13 +165,13 @@ beforeEach(async () => {
       oauth_token_id TEXT,
       display_name TEXT,
       external_email TEXT,
-      invalid INTEGER NOT NULL DEFAULT 0,
-      is_default INTEGER NOT NULL DEFAULT 0,
+      invalid BOOLEAN NOT NULL DEFAULT false,
+      is_default BOOLEAN NOT NULL DEFAULT false,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE selected_calendars (
       id TEXT PRIMARY KEY,
       credential_id TEXT NOT NULL,
@@ -169,13 +182,13 @@ beforeEach(async () => {
       created_at TEXT NOT NULL
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE workflows (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       trigger TEXT NOT NULL,
       team_id TEXT,
-      disabled INTEGER NOT NULL DEFAULT 0,
+      disabled BOOLEAN NOT NULL DEFAULT false,
       active_on_event_type_ids TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -184,13 +197,13 @@ beforeEach(async () => {
       visibility TEXT NOT NULL DEFAULT 'private'
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE webhooks (
       id TEXT PRIMARY KEY,
       name TEXT,
       subscriber_url TEXT NOT NULL,
       secret TEXT,
-      active INTEGER NOT NULL DEFAULT 1,
+      active BOOLEAN NOT NULL DEFAULT true,
       event_triggers TEXT NOT NULL DEFAULT '[]',
       team_id TEXT,
       event_type_id TEXT,
@@ -201,7 +214,7 @@ beforeEach(async () => {
       visibility TEXT NOT NULL DEFAULT 'private'
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE event_types (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -210,7 +223,7 @@ beforeEach(async () => {
       length INTEGER NOT NULL DEFAULT 30,
       durations TEXT,
       position INTEGER NOT NULL DEFAULT 0,
-      hidden INTEGER NOT NULL DEFAULT 0,
+      hidden BOOLEAN NOT NULL DEFAULT false,
       color TEXT,
       scheduling_type TEXT NOT NULL DEFAULT 'personal',
       team_id TEXT,
@@ -226,12 +239,12 @@ beforeEach(async () => {
       period_start_date TEXT,
       period_end_date TEXT,
       seats_per_time_slot INTEGER,
-      requires_confirmation INTEGER NOT NULL DEFAULT 0,
-      disable_guests INTEGER NOT NULL DEFAULT 0,
-      hide_calendar_notes INTEGER NOT NULL DEFAULT 0,
+      requires_confirmation BOOLEAN NOT NULL DEFAULT false,
+      disable_guests BOOLEAN NOT NULL DEFAULT false,
+      hide_calendar_notes BOOLEAN NOT NULL DEFAULT false,
       success_redirect_url TEXT,
       booking_limits TEXT,
-      lock_time_zone_toggle INTEGER NOT NULL DEFAULT 0,
+      lock_time_zone_toggle BOOLEAN NOT NULL DEFAULT false,
       recurring_event TEXT,
       event_name TEXT,
       metadata TEXT,
@@ -243,7 +256,7 @@ beforeEach(async () => {
     );
   `);
 
-  const db = drizzle(client, { schema });
+  const db = createGetDb(schema)();
   setSchedulingContext({
     getDb: () => db,
     schema,
@@ -251,14 +264,14 @@ beforeEach(async () => {
   });
 });
 
-afterEach(() => {
-  client.close();
+afterEach(async () => {
+  await closeDbExec();
   rmSync(dbDir, { recursive: true, force: true });
 });
 
 /** `rescheduleBooking` re-loads the event type by id, so it must exist. */
 async function seedEventType(eventType: EventType): Promise<void> {
-  await client.execute({
+  await execute({
     sql: `INSERT INTO event_types (
       id, title, slug, description, length, durations, position, hidden, color,
       scheduling_type, team_id, locations, custom_fields, schedule_id,
@@ -365,9 +378,9 @@ describe("insertBooking", () => {
       }),
     ).rejects.toThrow();
 
-    const { rows } = await client.execute("SELECT * FROM bookings");
+    const { rows } = await execute("SELECT * FROM bookings");
     expect(rows).toHaveLength(0);
-    const { rows: attendeeRows } = await client.execute(
+    const { rows: attendeeRows } = await execute(
       "SELECT * FROM booking_attendees",
     );
     expect(attendeeRows).toHaveLength(0);
@@ -377,7 +390,7 @@ describe("insertBooking", () => {
 describe("createBooking", () => {
   it("creates a booking with attendees and references on a free slot", async () => {
     const now = new Date().toISOString();
-    await client.execute({
+    await execute({
       sql: `INSERT INTO destination_calendars
         (id, credential_id, user_email, integration, external_id, created_at)
         VALUES (?, ?, ?, ?, ?, ?)`,
@@ -433,7 +446,7 @@ describe("createBooking", () => {
       }),
     ).rejects.toBeInstanceOf(SlotConflictError);
 
-    const { rows } = await client.execute(
+    const { rows } = await execute(
       "SELECT * FROM bookings WHERE host_email = 'host@example.com'",
     );
     expect(rows).toHaveLength(1);

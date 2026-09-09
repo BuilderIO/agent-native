@@ -4,11 +4,21 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { msToClock } from "@/components/player/scrubber";
+import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import {
   Popover,
-  PopoverTrigger,
+  PopoverAnchor,
   PopoverContent,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useRecordingSearch, type SearchHit } from "@/hooks/use-library";
 import {
   clearSearchFocusRequest,
@@ -139,11 +149,12 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
   return (
     <Popover open={showPopover} onOpenChange={setOpen}>
       <div className={cn("relative w-full", className)}>
-        <PopoverTrigger asChild>
+        <PopoverAnchor asChild>
           <div className="relative">
-            <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input
+            <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
               ref={inputRef}
+              type="search"
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -151,93 +162,117 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
               }}
               onFocus={() => setOpen(true)}
               placeholder={t("searchBar.placeholder")}
-              className="w-full h-8 rounded-md border border-border bg-background ps-8 pe-12 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+              aria-label={t("searchBar.placeholder")}
+              className="h-9 ps-9 pe-12 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 focus-visible:ring-offset-0 [appearance:textfield] [&::-webkit-search-cancel-button]:appearance-none"
             />
             {query ? (
-              <button
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
                 aria-label={t("searchBar.clear")}
                 onClick={() => {
                   setQuery("");
                   inputRef.current?.focus();
                 }}
-                className="absolute end-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent"
+                className="absolute end-1 top-1/2 size-7 -translate-y-1/2 text-muted-foreground hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring/50 focus-visible:ring-offset-0"
               >
-                <IconX className="h-3 w-3" />
-              </button>
+                <IconX className="size-3.5" />
+              </Button>
             ) : (
-              <span className="absolute end-1.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <Kbd
+                aria-hidden="true"
+                className="absolute end-1.5 top-1/2 h-5 -translate-y-1/2 px-1 font-mono text-[10px]"
+              >
                 {shortcutLabel("/")}
-              </span>
+              </Kbd>
             )}
           </div>
-        </PopoverTrigger>
+        </PopoverAnchor>
 
         <PopoverContent
           align="start"
           side={side}
           sideOffset={8}
-          className="w-[min(420px,calc(100vw-2rem))] p-0 overflow-hidden"
+          className="w-[min(420px,calc(100vw-2rem))] overflow-hidden p-0"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
-          {isFetching && results.length === 0 && (
-            <div className="p-4 text-center text-xs text-muted-foreground">
-              {t("searchBar.searching")}
-            </div>
-          )}
-          {!isFetching && results.length === 0 && (
-            <div className="p-4 text-center text-xs text-muted-foreground">
-              {t("searchBar.noMatchesFor")}{" "}
-              <span className="font-medium">{query}</span>
-            </div>
-          )}
-          {results.length > 0 && (
-            <ul className="max-h-[60vh] overflow-y-auto divide-y divide-border">
+          <Command
+            shouldFilter={false}
+            aria-busy={isFetching}
+            className="rounded-md bg-transparent"
+          >
+            {isFetching && results.length === 0 ? (
+              <div
+                className="space-y-1 p-1"
+                aria-label={t("searchBar.searching")}
+                role="status"
+              >
+                {Array.from({ length: 3 }, (_, index) => (
+                  <div
+                    key={index}
+                    className="flex items-start gap-3 rounded-md px-2.5 py-2.5"
+                  >
+                    <Skeleton className="h-12 w-20 shrink-0 rounded-sm" />
+                    <div className="min-w-0 flex-1 space-y-2 pt-0.5">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-3 w-1/2" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <CommandList className="max-h-[min(60vh,480px)] p-1">
+              {!isFetching && results.length === 0 ? (
+                <CommandEmpty className="px-3 py-6 text-center text-xs text-muted-foreground">
+                  {t("searchBar.noMatchesFor")}{" "}
+                  <span className="font-medium text-foreground">{query}</span>
+                </CommandEmpty>
+              ) : null}
               {results.map((hit) => (
-                <li
+                <CommandItem
                   key={hit.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => pickResult(hit)}
-                  onKeyDown={(e) => e.key === "Enter" && pickResult(hit)}
-                  className="flex items-start gap-3 p-3 hover:bg-accent cursor-pointer"
+                  value={hit.id}
+                  onSelect={() => pickResult(hit)}
+                  className="flex items-start gap-3 rounded-md px-2.5 py-2.5"
                 >
-                  <div className="h-12 w-20 flex-none rounded bg-muted overflow-hidden">
-                    {hit.thumbnailUrl && (
-                      // eslint-disable-next-line jsx-a11y/alt-text
+                  <div className="h-12 w-20 shrink-0 overflow-hidden rounded-sm bg-muted">
+                    {hit.thumbnailUrl ? (
                       <img
                         src={hit.thumbnailUrl}
+                        alt=""
                         className="h-full w-full object-cover"
                       />
-                    )}
+                    ) : null}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-foreground truncate">
+                    <div className="truncate text-sm font-medium text-foreground">
                       {highlight(hit.title, query)}
                     </div>
-                    {hit.snippet && (
-                      <div className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
+                    {hit.snippet ? (
+                      <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
                         {highlight(hit.snippet, query)}
                       </div>
-                    )}
+                    ) : null}
                     <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground/80">
                       <span className="uppercase tracking-wide">
                         {matchLabel(hit, t)}
                       </span>
                       {typeof hit.matchMs === "number" ? (
                         <>
-                          <span>·</span>
+                          <span aria-hidden="true">·</span>
                           <span className="inline-flex items-center gap-1 tabular-nums">
-                            <IconClock className="h-3 w-3" />
+                            <IconClock className="size-3" aria-hidden="true" />
                             {msToClock(hit.matchMs)}
                           </span>
                         </>
                       ) : null}
                     </div>
                   </div>
-                </li>
+                </CommandItem>
               ))}
-            </ul>
-          )}
+            </CommandList>
+          </Command>
         </PopoverContent>
       </div>
     </Popover>

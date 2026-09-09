@@ -270,19 +270,6 @@ for (const target of selectedTargets) {
 }
 
 const filters = selectedTargets.flatMap((target) => ["--filter", target.name]);
-const nativeRepairSource = path.resolve(
-  "packages/core/src/cli/native-dependencies.ts",
-);
-if (!existsSync(nativeRepairSource)) {
-  throw new Error(
-    `[prebuild-workspace-packages] Missing native dependency repair source at ${nativeRepairSource}`,
-  );
-}
-execFileSync(process.execPath, [nativeRepairSource, "--repair"], {
-  cwd: process.cwd(),
-  stdio: "inherit",
-});
-
 console.log(
   `[prebuild-workspace-packages] Building ${selectedTargets
     .map((target) => target.name)
@@ -293,17 +280,4 @@ execFileSync(pnpmExecutable(), [...filters, "run", "build"], {
   stdio: "inherit",
   // .cmd files on Windows require shell:true to be found by execFileSync.
   shell: process.platform === "win32",
-});
-
-const nativeRepairScript = path.resolve(
-  "packages/core/dist/cli/native-dependencies.js",
-);
-if (!existsSync(nativeRepairScript)) {
-  throw new Error(
-    `[prebuild-workspace-packages] Missing native dependency repair script at ${nativeRepairScript}`,
-  );
-}
-execFileSync(process.execPath, [nativeRepairScript, "--repair"], {
-  cwd: process.cwd(),
-  stdio: "inherit",
 });

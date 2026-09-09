@@ -157,8 +157,8 @@ const hiIN = {
           body: "काम को एक बार define करें और UI, agent, HTTP, MCP, A2A और CLI से use करें।",
         },
         sqlStateOrm: {
-          title: "SQL state और ORM",
-          body: "Durable app data, application state, migrations और provider-agnostic schemas।",
+          title: "PostgreSQL state और ORM",
+          body: "Durable app data, application state, migrations और PostgreSQL/PGlite schemas।",
         },
         dbAdmin: {
           title: "Database admin",
@@ -211,7 +211,7 @@ const hiIN = {
       body1:
         "Agent-Native agentic applications बनाने के लिए open-source framework है: Chat से शुरू करें, shared actions define करें, फिर उसी state के आसपास UI, jobs और collaboration जोड़ें।",
       body2:
-        "अपना database, hosting provider, model stack और app code साथ लाएं।",
+        "Local PGlite या hosted PostgreSQL, अपना hosting provider, model stack और app code इस्तेमाल करें।",
       cta: "framework guide पढ़ें",
       primitives: {
         actions: {
@@ -222,17 +222,17 @@ const hiIN = {
         sharedState: {
           title: "साझा state",
           description:
-            "SQL-backed app state humans, agents और sessions को sync में रखता है।",
+            "PostgreSQL/PGlite-backed app state humans, agents और sessions को sync में रखता है।",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "app-agent loop, tools, skills, memory, jobs और observability साथ में ship होते हैं।",
         },
-        backendAgnostic: {
-          title: "बैकएंड अज्ञेयवादी",
+        postgresSpecific: {
+          title: "PostgreSQL-विशिष्ट",
           description:
-            "किसी भी Drizzle-supported SQL database और Nitro-compatible host को plug in करें।",
+            "Framework के PostgreSQL schema helpers को local PGlite या किसी भी Nitro-compatible host पर hosted Postgres के साथ इस्तेमाल करें।",
         },
       },
     },
@@ -311,7 +311,7 @@ const hiIN = {
     },
     quickStart: {
       title: "एक command से शुरू करें",
-      body: "एक command actions, durable threads और SQLite पर backed chat-first स्थानीय app बनाता है। `--headless` केवल तब इस्तेमाल करें जब automation-first workflow को अभी browser UI नहीं चाहिए।",
+      body: "एक command actions, durable threads और PGlite पर backed chat-first स्थानीय app बनाता है। `--headless` केवल तब इस्तेमाल करें जब automation-first workflow को अभी browser UI नहीं चाहिए।",
     },
     finalCta: {
       title: "agentic era के लिए बना software",
@@ -416,6 +416,7 @@ const hiIN = {
   },
   common: {
     copied: "नकल की गई",
+    copyFailed: "कॉपी नहीं हो सका",
     copyCommand: "आदेश कॉपी करें",
     copyCode: "कोड कॉपी करें",
     tryIt: "आज़माएँ",
@@ -445,9 +446,9 @@ const hiIN = {
     },
     actions: {
       title: "एक Action हर सतह को चलाता है",
-      bodyLine1: "Actions तय करते हैं कि आपका एजेंट क्या कर सकता है।",
+      bodyLine1: "defineAction() से एक क्षमता को एक बार परिभाषित करें।",
       bodyLine2:
-        "हर क्षमता को एक बार परिभाषित करें, फिर उसे एजेंट, UI, HTTP API, MCP, A2A या CLI से उपयोग करें।",
+        "आपका एजेंट, React UI, HTTP क्लाइंट और इंटीग्रेशन सभी एक ही कोड को कॉल करते हैं।",
       diagramAlt: "एक Action UI, MCP, एजेंट चैट, A2A, HTTP API और CLI को चलाता है",
     },
     builtIn: {
@@ -467,7 +468,7 @@ const hiIN = {
           body: "एजेंट जानता है कि उपयोगकर्ता क्या देख रहे, चुन रहे और संपादित कर रहे हैं।",
         },
         sharedSql: {
-          title: "साझा SQL डेटा",
+          title: "साझा PostgreSQL डेटा",
           body: "उपयोगकर्ता और एजेंट एक ही विश्वसनीय स्रोत को पढ़ते और अपडेट करते हैं।",
         },
         skillsMemory: {
@@ -493,13 +494,13 @@ const hiIN = {
       },
     },
     stack: {
-      title: "आपके स्टैक के साथ काम करता है",
-      body: "अपना LLM, डेटाबेस, टूल्स और इंफ्रास्ट्रक्चर लाएं। Agent-Native ओपन-सोर्स TypeScript है, इसलिए आप जो भी बनाते हैं वह आपका ही रहता है।",
+      title: "अपना स्टैक लाएं",
+      body: "Agent-Native ओपन-सोर्स TypeScript है। अपना मॉडल, डेटाबेस और होस्ट चुनें, फिर एप्लिकेशन कोड अपने रिपॉज़िटरी में रखें।",
       exploreApps: "Agent-Native से बने ऐप्स देखें",
     },
     showcase: {
-      title: "Agent-Native से आप क्या बना सकते हैं?",
-      body: "मीटिंग्स, डिज़ाइन, प्रेज़ेंटेशन, डेटा और दूसरे कामों के लिए UI वाले एजेंट बनाएं। इनमें से किसी ओपन-सोर्स ऐप से शुरुआत करें या अपना एजेंट बनाएं।",
+      title: "Agent-Native से बने वास्तविक ऐप्स",
+      body: "ओपन-सोर्स Agent-Native ऐप्स जिन्हें आप मुफ़्त में इस्तेमाल या अनंत रूप से कस्टमाइज़ कर सकते हैं।",
       browseApps: "ऐप्स देखें",
       scrollLeft: "ऐप्स बाईं ओर स्क्रॉल करें",
       scrollRight: "ऐप्स दाईं ओर स्क्रॉल करें",
@@ -518,17 +519,30 @@ const hiIN = {
       download: "डाउनलोड",
       apps: "ऐप्स",
       privacyPolicy: "गोपनीयता नीति",
-      saasTerms: "होस्ट की गई सेवा की शर्तें",
+      saasTerms: "SaaS की शर्तें",
       legalResources: "कानूनी संसाधन",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "लोकल रूप से नहीं बना रहे हैं?",
-      exploreApp: "पहले एक live ऐप देखें",
-      between: "या",
-      joinWaitlist: "waitlist में शामिल हों",
-      end: "और इसके बजाय browser में बनाएं।",
+    tabs: {
+      label: "बनाने का तरीका चुनें",
+      local: "लोकल में बनाएं",
+      localDescription: "अपने कंप्यूटर पर बनाने के लिए CLI का उपयोग करें।",
+      cloud: "क्लाउड में बनाएं",
+      cloudDescription: "Builder.io के साथ ब्राउज़र में बनाएं।",
+    },
+    cloud: {
+      intro:
+        "कुछ भी इंस्टॉल किए बिना वही ऐप बनाएं। आप जो चाहते हैं उसका वर्णन करें; एजेंट Builder द्वारा होस्ट किए गए वर्कस्पेस में कोड लिखकर चलाता है।",
+      stepOneTitle: "Builder अकाउंट बनाएं",
+      stepOneBody:
+        "ब्राउज़र में बनाने के लिए अपने Builder खाते का उपयोग करें। बिना API keys लाए मुफ्त में शुरू करें।",
+      stepTwoTitle: "प्रॉम्प्ट करें",
+      stepTwoBody:
+        "आप जो बनाना चाहते हैं उसे साधारण भाषा में बताएं और एजेंट उसे आपके लिए बना देगा।",
+      stepThreeTitle: "डिप्लॉय करें",
+      stepThreeBody:
+        "तैयार होने पर Builder में अपने एजेंट और उसके UI को एक क्लिक से डिप्लॉय करें।",
     },
   },
   templatesPage: {
@@ -606,7 +620,8 @@ const hiIN = {
     readDocs: "डॉक्स पढ़ें",
     buildOnline: "ऑनलाइन बनाएँ",
     popoverTitle: "Browser में बनाएँ",
-    popoverBody:
+    popoverBody: "Builder.io के साथ क्लाउड में agent-native ऐप तेज़ी से बनाएं.",
+    waitlistBody:
       "Builder.io क्लाउड में agent-native ऐप शुरू और कस्टमाइज़ कर सकता है — actions, auth, SQL state और agent chat सहित. शुरुआती पहुँच के लिए waitlist में शामिल हों.",
     emailLabel: "ईमेल",
     emailPlaceholder: "you@company.com",
@@ -615,6 +630,9 @@ const hiIN = {
     joined: "आप waitlist में हैं. build-online access खुलने पर हम आपको ईमेल करेंगे.",
     invalidEmail: "एक मान्य ईमेल पता दर्ज करें.",
     submitError: "Waitlist में शामिल नहीं हो सके. कृपया फिर से कोशिश करें.",
+    waitlistUnavailable:
+      "इस environment में अभी waitlist signups उपलब्ध नहीं हैं. इसके बजाय hosted docs site आज़माएँ.",
+    launchBuilder: "Builder लॉन्च करें",
   },
   templateCard: {
     pasteIntoTerminal: "अपने टर्मिनल में चिपकाएँ.",
@@ -951,6 +969,25 @@ const hiIN = {
       s060: "चुनें कि क्या कैप्चर करना है, फिर Clips में रिकॉर्डिंग शुरू करें।",
       s061: "और ऐप्स देखें",
       s062: "सभी टेम्पलेट देखें",
+      faq: {
+        question1: "क्या Clips मुफ़्त है?",
+        answer1: "हाँ। Clips मुफ़्त और ओपन सोर्स है।",
+        question2: "क्या AI स्क्रीन रिकॉर्डिंग पढ़ सकता है?",
+        answer2:
+          "हाँ। हर क्लिप में ट्रांसक्रिप्ट, सारांश और टाइमस्टैम्प वाले फ़्रेम होते हैं, जिन्हें एजेंट सीधे पढ़ सकता है।",
+        question3: "Clips, Loom से कैसे अलग है?",
+        answer3:
+          "Clips ओपन सोर्स है, डेटा आपका है और हर साझा लिंक को सिर्फ़ लोग ही नहीं, AI एजेंट भी पढ़ सकते हैं।",
+        question4: "क्या स्क्रीन रिकॉर्डिंग कंसोल की गड़बड़ियाँ कैप्चर कर सकती है?",
+        answer4:
+          "हाँ। Clips रिकॉर्डिंग के साथ ब्राउज़र कंसोल की गड़बड़ियाँ और विफल नेटवर्क अनुरोध भी कैप्चर करता है। ये ट्रांसक्रिप्ट और फ़्रेम वाले उसी साझा लिंक से जुड़े होते हैं। एजेंट क्लिप को केवल देखने के बजाय उससे डिबग कर सकता है।",
+        question5: "क्या Clips Claude, ChatGPT या Cursor के साथ काम करता है?",
+        answer5:
+          "हाँ! किसी प्लगइन या API कुंजी की ज़रूरत नहीं है। Clips का साझा लिंक किसी भी एजेंट में चिपकाएँ और वह ट्रांसक्रिप्ट, सारांश और फ़्रेम सीधे पढ़ सकता है।",
+        question6: "मेरी रिकॉर्डिंग कहाँ रहती हैं?",
+        answer6:
+          "जहाँ आप उन्हें डिप्लॉय करते हैं। सेल्फ-होस्टेड Clips आपके वीडियो, ट्रांसक्रिप्ट और विश्लेषण को आपके अपने इंफ्रास्ट्रक्चर में रखता है।",
+      },
       quickStart: {
         recordingMode: "रिकॉर्डिंग मोड",
         modeScreenCamera: "स्क्रीन + कैमरा",
@@ -1072,7 +1109,7 @@ const hiIN = {
       s004: "परिष्कृत करें",
       s005: "सभी टेम्पलेट",
       s006: "ओपन-सोर्स AI HTML प्रोटोटाइप स्टूडियो",
-      s007: "एक प्रॉम्प्ट से इंटरैक्टिव Alpine/Tailwind प्रोटोटाइप बनाएं, वेरिएंट की तुलना करें, ट्विक नियंत्रणों के साथ परिष्कृत करें, और अपनी वास्तविक फ़ाइलों को निर्यात करें।",
+      s007: "इंटरैक्टिव डिज़ाइन और प्रोटोटाइप बनाएं। जाने-पहचाने टूल से परिष्कृत करें या संवादी संपादन करें। कहीं भी निर्यात करें।",
       s008: "कुछ डिज़ाइन करें",
       s009: "यह कैसे काम करता है",
       s010: "आपकी ज़रूरत की हर चीज़",
@@ -1126,6 +1163,7 @@ const hiIN = {
       s058: "टेम्पलेट से शुरू करें और स्रोत को संपादित करने वाले एजेंट के साथ इंटरैक्टिव प्रोटोटाइप बनाना शुरू करें।",
       s059: "दस्तावेज़ पढ़ें",
       s060: "सभी टेम्पलेट देखें",
+      s061: "100% निःशुल्क, ओपन-सोर्स और कस्टमाइज़ करने योग्य।",
     },
     dispatch: {
       faq: {
@@ -2072,15 +2110,16 @@ const hiIN = {
     databaseProviders: "डेटाबेस प्रदाता",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "अंतरराष्ट्रीयकरण",
     localFileMode: "Local File Mode",
     fileUploads: "File uploads",
     deployment: "Deployment",
     deploymentOverview: "अवलोकन",
-    deploymentProviders: "प्रदाता",
+    deploymentProviders: "होस्टिंग प्रदाता",
     deploymentProduction: "प्रोडक्शन और उन्नत",
     deployAnApp: "ऐप परिनियोजित करें",
     workspaceDeployment: "वर्कस्पेस परिनियोजन",

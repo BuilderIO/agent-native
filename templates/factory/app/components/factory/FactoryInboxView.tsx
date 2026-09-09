@@ -55,6 +55,7 @@ type InboxListItem = {
   itemId?: string;
   title?: string | null;
   summary?: string | null;
+  externalId?: string | null;
   source?: string | null;
   sourceName?: string | null;
   sourceUrl?: string | null;
@@ -558,45 +559,73 @@ function InboxDetailPane({
   const runs = item.runs ?? [];
   const slack = isSlackSource(source);
   const author = (item.author ?? listItem?.author)?.trim() || null;
+  const title = inboxTitle(item) ?? inboxTitle(listItem);
+  const meta = [
+    formatInboxSource(source),
+    author ? (mentionLabels[author] ?? author) : null,
+    slack ? null : (item.externalId ?? listItem?.externalId)?.trim() || null,
+    formatInboxAge(
+      item.updatedAt ?? listItem?.updatedAt,
+      t("triage.relativeNow"),
+    ),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <TriageStatusPill status={item.status ?? listItem?.status} />
-        {author ? (
-          <span className="text-xs text-muted-foreground">
-            {t("triage.author")}: {author}
-          </span>
-        ) : null}
-        {sourceUrl && (
-          <a
-            href={sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+      <header className="space-y-1.5">
+        {title ? (
+          <h2
+            className={`text-base font-medium ${slack ? "line-clamp-1" : "break-words"}`}
           >
-            {t("triage.openSource")}
-            <IconExternalLink className="size-3" />
-          </a>
-        )}
-      </div>
+            {slack ? (
+              <SlackMrkdwn
+                text={title}
+                inline
+                mentionLabels={mentionLabels}
+                builderSlackUserId={builderSlackUserId}
+              />
+            ) : (
+              title
+            )}
+          </h2>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <TriageStatusPill status={item.status ?? listItem?.status} />
+          <span className="inline-flex min-w-0 items-center gap-1">
+            <EvidenceIcon source={source} />
+            <span className="truncate">{meta}</span>
+          </span>
+          {sourceUrl && (
+            <a
+              href={sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="ms-auto inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              {t("triage.openSource")}
+              <IconExternalLink className="size-3" />
+            </a>
+          )}
+        </div>
+      </header>
 
       {reason ? (
-        <div className="rounded-md bg-muted/40 py-2">
+        <div className="border-t border-border pt-4">
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             {t("triage.reason")}
           </p>
-          <p className="mt-1 text-sm leading-6">{reason}</p>
+          <p className="mt-1 border-s-2 border-primary/40 ps-3 text-sm leading-6">
+            {reason}
+          </p>
         </div>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="min-w-0">
+      <div className="grid gap-4 border-t border-border pt-4 lg:grid-cols-2">
+        <section className="min-w-0 lg:pe-4">
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             {t("triage.evidence")}
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("triage.evidenceDescription")}
           </p>
           <div className="mt-2">
             {slack ? (
@@ -617,12 +646,9 @@ function InboxDetailPane({
             )}
           </div>
         </section>
-        <section className="min-w-0">
+        <section className="min-w-0 lg:border-s lg:border-border lg:ps-4">
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             {t("triage.actionsTaken")}
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("triage.actionsTakenDescription")}
           </p>
           <div className="mt-2">
             <InboxActionList events={events} runs={runs} t={t} />
@@ -687,8 +713,10 @@ function SlackThreadPane({
             index === 0 ? undefined : "ms-6 border-s border-border ps-3"
           }
         >
-          <SlackMessageCard
-            message={message}
+          <InboxMessageCard
+            author={slackAuthorName(message, mentionLabels, builderSlackUserId)}
+            timestamp={message.ts ? formatSlackTs(message.ts) : null}
+            text={message.text ?? ""}
             mentionLabels={mentionLabels}
             builderSlackUserId={builderSlackUserId}
           />
@@ -698,30 +726,32 @@ function SlackThreadPane({
   );
 }
 
-function SlackMessageCard({
-  message,
+function InboxMessageCard({
+  author,
+  timestamp,
+  text,
   mentionLabels,
   builderSlackUserId,
 }: {
-  message: NonNullable<SlackThreadResponse["messages"]>[number];
+  author: string;
+  timestamp?: string | null;
+  text: string;
   mentionLabels: Record<string, string>;
   builderSlackUserId: string | null;
 }) {
   return (
     <article className="rounded-md border border-border bg-background px-3 py-2">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-xs font-medium">
-          {slackAuthorName(message, mentionLabels, builderSlackUserId)}
-        </span>
-        {message.ts ? (
+        <span className="truncate text-xs font-medium">{author}</span>
+        {timestamp ? (
           <time className="shrink-0 text-[11px] text-muted-foreground">
-            {formatSlackTs(message.ts)}
+            {timestamp}
           </time>
         ) : null}
       </div>
       <div className="mt-1">
         <SlackMrkdwn
-          text={message.text ?? ""}
+          text={text}
           mentionLabels={mentionLabels}
           builderSlackUserId={builderSlackUserId}
         />
@@ -759,13 +789,8 @@ function InboxFeedbackSection({
   t: ReturnType<typeof useT>;
 }) {
   return (
-    <section className="space-y-3 pt-10">
-      <div className="space-y-1">
-        <h2 className="text-sm font-medium">{t("triage.feedbackTitle")}</h2>
-        <p className="text-sm text-muted-foreground">
-          {t("triage.feedbackDescription")}
-        </p>
-      </div>
+    <section className="space-y-3 border-t border-border pt-4">
+      <h2 className="text-sm font-medium">{t("triage.feedbackTitle")}</h2>
       <div className="flex flex-wrap gap-2">
         {(["correct", "incorrect", "uncertain"] as Verdict[]).map((value) => (
           <Button
@@ -879,25 +904,22 @@ function StoredEvidencePane({
   builderSlackUserId: string | null;
   t: ReturnType<typeof useT>;
 }) {
-  const text =
-    item.summary || listItem?.summary || item.title || listItem?.title;
+  // The title renders as the detail heading, so it is not an evidence fallback.
+  const text = item.summary || listItem?.summary;
   if (!text) {
     return (
       <p className="text-sm text-muted-foreground">{t("triage.noEvidence")}</p>
     );
   }
+  const author = (item.author ?? listItem?.author)?.trim();
   return (
-    <div className="rounded-md border border-border bg-background px-3 py-2">
-      <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <EvidenceIcon source={item.source ?? listItem?.source} />
-        {formatInboxSource(item.source ?? listItem?.source)}
-      </div>
-      <SlackMrkdwn
-        text={text}
-        mentionLabels={mentionLabels}
-        builderSlackUserId={builderSlackUserId}
-      />
-    </div>
+    <InboxMessageCard
+      author={author || formatInboxSource(item.source ?? listItem?.source)}
+      timestamp={formatInboxTimestamp(item.createdAt ?? listItem?.createdAt)}
+      text={text}
+      mentionLabels={mentionLabels}
+      builderSlackUserId={builderSlackUserId}
+    />
   );
 }
 
@@ -1081,13 +1103,20 @@ function looksLikeSlackUserId(value: string): boolean {
   return /^[UW][A-Z0-9]+$/i.test(value.trim());
 }
 
+function inboxTitle(item: InboxListItem | InboxDetail | null): string | null {
+  // Slack items have no subject line: the poller stores an author label as the
+  // title and the root message as the summary, so the message stands in.
+  if (isSlackSource(item?.source ?? item?.sourceName)) {
+    return item?.summary?.trim() || null;
+  }
+  return item?.title?.trim() || item?.summary?.trim() || null;
+}
+
 function inboxSnippet(
   item: InboxListItem | InboxDetail | null,
   untitled: string,
 ): string {
-  const summary = item?.summary?.trim();
-  if (summary) return summary;
-  return item?.title?.trim() || untitled;
+  return inboxTitle(item) ?? untitled;
 }
 
 function isSlackSource(source?: string | null): boolean {
@@ -1129,7 +1158,18 @@ function formatInboxAge(
 function formatSlackTs(ts: string) {
   const millis = Number(ts) * 1000;
   if (!Number.isFinite(millis)) return ts;
-  return new Date(millis).toLocaleString(undefined, {
+  return formatInboxClock(new Date(millis));
+}
+
+function formatInboxTimestamp(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return formatInboxClock(date);
+}
+
+function formatInboxClock(date: Date) {
+  return date.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     hour: "numeric",

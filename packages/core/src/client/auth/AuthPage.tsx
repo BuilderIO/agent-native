@@ -1,14 +1,16 @@
 /** @jsxRuntime classic */
 
-import { MarketingHome, Starfield } from "@agent-native/toolkit/marketing";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
+import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
   signInJourney,
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
+import { OceanBackground } from "../ocean/OceanBackground.js";
 
 export type AuthView =
   | "signup"
@@ -28,7 +30,6 @@ export interface AuthMarketingProps {
   screenshotWidth?: number;
   screenshotHeight?: number;
   learnMoreUrl?: string;
-  learnMorePlacement?: "top-right" | "bottom-right";
 }
 
 export interface AuthLocaleOption {
@@ -65,10 +66,13 @@ export interface AuthPageProps {
   brandMarkSrc: string;
   githubUrl: string;
   showGoogle: boolean;
+  /** @deprecated Browser SSO entry points were removed. */
+  identitySsoEnabled?: boolean;
+  /** @deprecated Automatic browser SSO handoff was removed. */
+  identitySsoAuto?: boolean;
   signupLegalNotice?: AuthLegalNotice;
   signupLocalModeNote?: { text: string; command: string };
   docsAuthUrl: string;
-  identitySsoEnabled: boolean;
   publicOAuthOrigin: string;
   workspaceGatewayReturnOrigin: string;
   googleAuthMode: "popup" | "redirect" | "auto";
@@ -219,6 +223,26 @@ export function shouldRetryAuthSessionProbe(
   return !readable || response.status === 429 || response.status >= 500;
 }
 
+export function isConfirmedAnonymousAuthSession(
+  response: Pick<Response, "ok" | "status">,
+  data: Record<string, unknown>,
+  readable: boolean,
+): boolean {
+  return (
+    response.ok &&
+    response.status === 200 &&
+    readable &&
+    data.error === "Not authenticated"
+  );
+}
+
+export function isAuthenticatedAuthSession(
+  response: Pick<Response, "ok">,
+  data: Record<string, unknown>,
+): boolean {
+  return response.ok && typeof data.email === "string" && !data.error;
+}
+
 async function requestJson(
   url: string,
   init: RequestInit = {},
@@ -258,7 +282,9 @@ function trackAuth(
   app: string,
   name: string,
   properties: Record<string, unknown> = {},
+  email: string,
 ): void {
+  if (!isValidEmail(email) || isQaTestEmail(email)) return;
   if (
     isSyntheticTrafficValue(
       (
@@ -630,7 +656,8 @@ export function AuthPage(props: AuthPageProps) {
     signupLegalNotice,
     signupLocalModeNote,
     docsAuthUrl,
-    identitySsoEnabled,
+    identitySsoEnabled = false,
+    identitySsoAuto = false,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -659,6 +686,13 @@ export function AuthPage(props: AuthPageProps) {
   const [verificationEmail, setVerificationEmail] = React.useState("");
   const [verificationResendUntil, setVerificationResendUntil] =
     React.useState(0);
+  const [verificationResendNow, setVerificationResendNow] = React.useState(0);
+  const clearVerificationResendCooldown = React.useCallback(() => {
+    setVerificationResendUntil(0);
+    setVerificationResendNow((current) =>
+      current === 0 ? current : Date.now(),
+    );
+  }, []);
   const [googleBusy, setGoogleBusy] = React.useState(false);
   const [magicLinkBusy, setMagicLinkBusy] = React.useState(false);
   const [environmentVisible, setEnvironmentVisible] = React.useState(false);
@@ -666,6 +700,7 @@ export function AuthPage(props: AuthPageProps) {
   const [environmentProductionUrl, setEnvironmentProductionUrl] =
     React.useState("");
   const [copiedLocalMode, setCopiedLocalMode] = React.useState(false);
+  const signupViewTrackedRef = React.useRef(false);
   const pendingSignupPassword = React.useRef("");
   const oauthPollTimer = React.useRef<number | null>(null);
   const oauthPollInFlight = React.useRef(false);
@@ -677,6 +712,10 @@ export function AuthPage(props: AuthPageProps) {
   const nativeOAuthAbandonTimer = React.useRef<number | null>(null);
   const verificationCheckInFlight = React.useRef(false);
   const verifiedReturnHandled = React.useRef(false);
+  const verificationStepStartedRef = React.useRef(false);
+  const [sessionProbeComplete, setSessionProbeComplete] = React.useState(false);
+  const [sessionProbeAnonymous, setSessionProbeAnonymous] =
+    React.useState(false);
 
   const [runtimeAppBasePath, setRuntimeAppBasePath] =
     React.useState(appBasePath);
@@ -701,6 +740,10 @@ export function AuthPage(props: AuthPageProps) {
     (path: string) => `${runtimeAppBasePath}${path}`,
     [runtimeAppBasePath],
   );
+  const identityHref = React.useMemo(
+    () => apiPath("/_agent-native/identity/login"),
+    [apiPath],
+  );
   const journey = React.useCallback((): SignInJourney => {
     if (typeof window === "undefined") {
       return signInJourney({
@@ -721,11 +764,24 @@ export function AuthPage(props: AuthPageProps) {
     });
   }, [homePath, runtimeAppBasePath]);
   const resumeHref = React.useCallback(() => journey().resumeHref, [journey]);
+  const identityBootstrapHref = React.useCallback(
+    (target?: string) => {
+      const safeTarget = target || resumeHref();
+      if (!identitySsoEnabled || isAgentNativeDesktop()) return safeTarget;
+      const url = new URL(
+        apiPath("/_agent-native/identity/bootstrap"),
+        window.location.origin,
+      );
+      url.searchParams.set("return", safeTarget);
+      return `${url.pathname}${url.search}`;
+    },
+    [apiPath, identitySsoEnabled, resumeHref],
+  );
   const redirectToSignedInApp = React.useCallback(
     (target?: string) => {
-      window.location.replace(target || resumeHref());
+      window.location.replace(identityBootstrapHref(target));
     },
-    [resumeHref],
+    [identityBootstrapHref],
   );
   const setNotice = React.useCallback((key: string, notice: Notice) => {
     setMessages((current) => ({ ...current, [key]: notice }));
@@ -839,6 +895,10 @@ export function AuthPage(props: AuthPageProps) {
       setView("magicLink");
       return;
     }
+    if (params.get("c")) {
+      setView("login");
+      return;
+    }
     const storedTab = readStorage(TAB_STORAGE_KEY);
     if (storedTab === "login" || storedTab === "signup") setView(storedTab);
   }, [authMode, googleOnly, readPendingSignupEmail, setNotice, t]);
@@ -856,8 +916,12 @@ export function AuthPage(props: AuthPageProps) {
               cache: "no-store",
             },
           );
-          if (response.ok && typeof data.email === "string" && !data.error) {
+          if (isAuthenticatedAuthSession(response, data)) {
             redirectToSignedInApp();
+            return;
+          }
+          if (isConfirmedAnonymousAuthSession(response, data, readable)) {
+            setSessionProbeAnonymous(true);
             return;
           }
           retry = shouldRetryAuthSessionProbe(response, readable);
@@ -870,8 +934,81 @@ export function AuthPage(props: AuthPageProps) {
         );
       }
     };
-    void probe();
+    void probe().finally(() => setSessionProbeComplete(true));
   }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved]);
+
+  React.useEffect(() => {
+    if (
+      !identitySsoAuto ||
+      !runtimeBasePathResolved ||
+      !sessionProbeComplete ||
+      !sessionProbeAnonymous ||
+      isAgentNativeDesktop() ||
+      (view !== "login" && view !== "signup")
+    ) {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("sso") || params.has("error") || params.has("verified")) {
+      return;
+    }
+    const probeParams = new URLSearchParams({
+      return: resumeHref(),
+      prompt: "none",
+    });
+    window.location.replace(`${identityHref}?${probeParams.toString()}`);
+  }, [
+    identityHref,
+    identitySsoAuto,
+    resumeHref,
+    runtimeBasePathResolved,
+    sessionProbeAnonymous,
+    sessionProbeComplete,
+    view,
+  ]);
+
+  React.useEffect(() => {
+    if (!runtimeBasePathResolved || view !== "magicLinkSent") return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const probe = async () => {
+      if (cancelled || inFlight || document.visibilityState === "hidden") {
+        return;
+      }
+      inFlight = true;
+      try {
+        const { response, data } = await requestJson(
+          apiPath("/_agent-native/auth/session"),
+          {
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          },
+        );
+        if (!cancelled && isAuthenticatedAuthSession(response, data)) {
+          redirectToSignedInApp();
+        }
+      } catch {
+        // coercion-ok: a transient probe failure leaves the completion view in place; the
+        // next visibility event or interval retries it.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const probeOnReturn = () => {
+      if (document.visibilityState === "visible") void probe();
+    };
+    const timer = window.setInterval(() => void probe(), 1000);
+    window.addEventListener("focus", probeOnReturn);
+    document.addEventListener("visibilitychange", probeOnReturn);
+    void probe();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", probeOnReturn);
+      document.removeEventListener("visibilitychange", probeOnReturn);
+    };
+  }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved, view]);
 
   React.useEffect(() => {
     let anonymousId = readStorage(ANALYTICS_ANONYMOUS_ID_KEY);
@@ -931,12 +1068,26 @@ export function AuthPage(props: AuthPageProps) {
     } catch {
       // coercion-ok: attribution is best effort and never blocks authentication.
     }
-    trackAuth(trackingApp, "auth.signup_viewed", {
-      surface: "signup",
-      auth_mode: authMode,
-      auth_view: view,
-    });
-  }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
+    const identity = normalizeEmail(signupEmail);
+    if (
+      view !== "signup" ||
+      signupViewTrackedRef.current ||
+      !isValidEmail(identity)
+    ) {
+      return;
+    }
+    signupViewTrackedRef.current = true;
+    trackAuth(
+      trackingApp,
+      "auth.signup_viewed",
+      {
+        surface: "signup",
+        auth_mode: authMode,
+        auth_view: view,
+      },
+      identity,
+    );
+  }, [authMode, homePath, runtimeAppBasePath, signupEmail, trackingApp, view]);
 
   const localDevAllowed = React.useMemo(
     () =>
@@ -962,6 +1113,10 @@ export function AuthPage(props: AuthPageProps) {
         const available = response.ok && data.available === true;
         setLocalDevAvailable(available);
         if (!available) {
+          setFullAuthOptionsVisible(true);
+          return;
+        }
+        if (verificationStepStartedRef.current) {
           setFullAuthOptionsVisible(true);
           return;
         }
@@ -1146,6 +1301,7 @@ export function AuthPage(props: AuthPageProps) {
       verifier: string,
       kind: "google" | "magic-link",
       popup?: Window | null,
+      onAuthenticated?: (email?: string) => void,
     ) => {
       const startedAt = Date.now();
       const check = async () => {
@@ -1165,6 +1321,9 @@ export function AuthPage(props: AuthPageProps) {
             typeof data.email === "string" ||
             typeof data.token === "string"
           ) {
+            onAuthenticated?.(
+              typeof data.email === "string" ? data.email : undefined,
+            );
             finishOAuthExchange(
               target,
               typeof data.token === "string" ? data.token : undefined,
@@ -1236,6 +1395,7 @@ export function AuthPage(props: AuthPageProps) {
                   typeof data.email === "string" &&
                   !data.error
                 ) {
+                  onAuthenticated?.(data.email);
                   finishOAuthExchange(target);
                   return;
                 }
@@ -1303,21 +1463,17 @@ export function AuthPage(props: AuthPageProps) {
     } catch {
       // coercion-ok: analytics session storage is optional.
     }
-    trackAuth(
-      trackingApp,
-      view === "login" ? "auth.login_clicked" : "auth.signup_clicked",
-      {
-        surface: view === "login" ? "login" : "signup",
-        method: "google",
-        auth_view: view,
-      },
-    );
     const target = resumeHref();
-    const oauthTarget = oauthReturnTarget(target, workspaceGatewayReturnOrigin);
     const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
     const nativeDesktop = flow === "redirect" && isAgentNativeDesktop();
+    const oauthTarget = oauthReturnTarget(
+      flow === "redirect" && !nativeDesktop
+        ? identityBootstrapHref(target)
+        : target,
+      workspaceGatewayReturnOrigin,
+    );
     if (nativeDesktop) {
       stopNativeOAuth();
       nativeOAuthFlowId.current = flowId;
@@ -1404,7 +1560,19 @@ export function AuthPage(props: AuthPageProps) {
         throw new Error(authErrorText(data, t("failedToConnect")));
       }
       if (nativeDesktop) nativeOAuthRequestPending.current = false;
-      startOAuthExchange(flowId, target, verifier, "google", popup);
+      startOAuthExchange(flowId, target, verifier, "google", popup, (email) => {
+        if (!email) return;
+        trackAuth(
+          trackingApp,
+          view === "login" ? "auth.login_clicked" : "auth.signup_clicked",
+          {
+            surface: view === "login" ? "login" : "signup",
+            method: "google",
+            auth_view: view,
+          },
+          email,
+        );
+      });
       if (popup) {
         popup.location.href = data.url;
       } else {
@@ -1426,6 +1594,7 @@ export function AuthPage(props: AuthPageProps) {
   }, [
     googleAuthUrlPath,
     googleBusy,
+    identityBootstrapHref,
     resolveGoogleFlow,
     resumeHref,
     showGoogle,
@@ -1464,13 +1633,16 @@ export function AuthPage(props: AuthPageProps) {
     (email: string, password: string) => {
       const normalized = normalizeEmail(email);
       pendingSignupPassword.current = password;
+      clearVerificationResendCooldown();
       setVerificationEmail(normalized);
       rememberPendingSignupEmail(normalized);
       setNotice("verification", null);
+      verificationStepStartedRef.current = true;
+      setFullAuthOptionsVisible(true);
       setView("verification");
       writeStorage(TAB_STORAGE_KEY, "signup");
     },
-    [rememberPendingSignupEmail, setNotice],
+    [clearVerificationResendCooldown, rememberPendingSignupEmail, setNotice],
   );
 
   const tryPendingSignupLogin = React.useCallback(async () => {
@@ -1595,12 +1767,31 @@ export function AuthPage(props: AuthPageProps) {
   }, [checkVerification, view]);
 
   React.useEffect(() => {
+    if (view !== "verification") {
+      clearVerificationResendCooldown();
+    }
+  }, [clearVerificationResendCooldown, view]);
+
+  React.useEffect(() => {
     if (!verificationResendUntil) return;
-    const timer = window.setInterval(() => {
-      if (Date.now() >= verificationResendUntil) setVerificationResendUntil(0);
-    }, 1000);
-    return () => window.clearInterval(timer);
+    const refreshCooldown = () => {
+      const now = Date.now();
+      setVerificationResendNow(now);
+      if (now >= verificationResendUntil) setVerificationResendUntil(0);
+    };
+    refreshCooldown();
+    const timer = window.setInterval(refreshCooldown, 1000);
+    window.addEventListener("focus", refreshCooldown);
+    document.addEventListener("visibilitychange", refreshCooldown);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshCooldown);
+      document.removeEventListener("visibilitychange", refreshCooldown);
+    };
   }, [verificationResendUntil]);
+
+  const verificationResendActive =
+    verificationResendUntil > verificationResendNow;
 
   const handleSignup = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -1616,11 +1807,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setSubmitting("signup");
       setNotice("signup", null);
-      trackAuth(trackingApp, "auth.signup_clicked", {
-        surface: "signup",
-        method: "password",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.signup_clicked",
+        {
+          surface: "signup",
+          method: "password",
+          auth_view: view,
+        },
+        email,
+      );
       try {
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/register"),
@@ -1630,7 +1826,7 @@ export function AuthPage(props: AuthPageProps) {
             body: JSON.stringify({
               email,
               password: signupPassword,
-              callbackURL: resumeHref(),
+              callbackURL: identityBootstrapHref(resumeHref()),
             }),
           },
         );
@@ -1681,6 +1877,7 @@ export function AuthPage(props: AuthPageProps) {
     },
     [
       apiPath,
+      identityBootstrapHref,
       pendingEmailStorageKey,
       redirectToSignedInApp,
       resumeHref,
@@ -1705,11 +1902,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setSubmitting("login");
       setNotice("login", null);
-      trackAuth(trackingApp, "auth.login_clicked", {
-        surface: "login",
-        method: "password",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.login_clicked",
+        {
+          surface: "login",
+          method: "password",
+          auth_view: view,
+        },
+        email,
+      );
       try {
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/login"),
@@ -1797,11 +1999,16 @@ export function AuthPage(props: AuthPageProps) {
       }
       setMagicLinkBusy(true);
       setNotice("magic-link", null);
-      trackAuth(trackingApp, "auth.signup_clicked", {
-        surface: "signup",
-        method: "magic_link",
-        auth_view: view,
-      });
+      trackAuth(
+        trackingApp,
+        "auth.signup_clicked",
+        {
+          surface: "signup",
+          method: "magic_link",
+          auth_view: view,
+        },
+        email,
+      );
       const desktop = isAgentNativeDesktop();
       try {
         const { response, data } = await requestJson(
@@ -1813,7 +2020,7 @@ export function AuthPage(props: AuthPageProps) {
               email,
               callbackURL: desktop
                 ? apiPath("/_agent-native/auth/magic-link/desktop-callback")
-                : resumeHref(),
+                : identityBootstrapHref(resumeHref()),
             }),
           },
         );
@@ -1850,6 +2057,7 @@ export function AuthPage(props: AuthPageProps) {
     },
     [
       apiPath,
+      identityBootstrapHref,
       magicLinkEmail,
       resumeHref,
       setNotice,
@@ -1870,11 +2078,16 @@ export function AuthPage(props: AuthPageProps) {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, callbackURL: resumeHref() }),
+          body: JSON.stringify({
+            email,
+            callbackURL: identityBootstrapHref(resumeHref()),
+          }),
         },
       );
       if (response.ok) {
-        setVerificationResendUntil(Date.now() + 60_000);
+        const resendUntil = Date.now() + 60_000;
+        setVerificationResendNow(Date.now());
+        setVerificationResendUntil(resendUntil);
         setNotice("verification", {
           kind: "success",
           text: t("sentVerification"),
@@ -1893,6 +2106,7 @@ export function AuthPage(props: AuthPageProps) {
     }
   }, [
     apiPath,
+    identityBootstrapHref,
     readPendingSignupEmail,
     resumeHref,
     setNotice,
@@ -2075,20 +2289,14 @@ export function AuthPage(props: AuthPageProps) {
       message={messages.signup?.text}
     />
   );
-  const identityHref = apiPath("/_agent-native/identity/login");
-  const hideLocalDevSignupIntro = view === "signup" && localDevAvailable;
   const authCard = (
     <div className={cardClassName}>
-      {!hideLocalDevSignupIntro ? (
-        <>
-          <h1 id="heading" data-i18n={keys.heading}>
-            {t(keys.heading)}
-          </h1>
-          <p id="subtitle" className="subtitle" data-i18n={keys.subtitle}>
-            {t(keys.subtitle)}
-          </p>
-        </>
-      ) : null}
+      <h1 id="heading" data-i18n={keys.heading}>
+        {t(keys.heading)}
+      </h1>
+      <p id="subtitle" className="subtitle" data-i18n={keys.subtitle}>
+        {t(keys.subtitle)}
+      </p>
       <p
         className={`upgrade-note ${upgradeVisible ? "show" : ""}`}
         id="upgrade-note"
@@ -2097,20 +2305,6 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
-      {identitySsoEnabled ? (
-        <a
-          className="btn-identity-sso"
-          id="identity-sso-btn"
-          href={identityHref}
-          onClick={(event) => {
-            event.preventDefault();
-            const params = new URLSearchParams({ return: resumeHref() });
-            window.location.href = `${identityHref}?${params.toString()}`;
-          }}
-        >
-          Sign in with Agent-Native
-        </a>
-      ) : null}
       <div
         className="local-dev-signin"
         id="local-dev-signin"
@@ -2357,12 +2551,12 @@ export function AuthPage(props: AuthPageProps) {
               type="button"
               className="link-button"
               id="resend-verification"
-              disabled={verificationResendUntil > Date.now()}
+              disabled={verificationResendActive}
               data-i18n="resendEmail"
               onClick={() => void resendVerification()}
             >
               {t("resendEmail")}
-              {verificationResendUntil > Date.now()
+              {verificationResendActive
                 ? ` (${Math.ceil((verificationResendUntil - Date.now()) / 1000)}s)`
                 : ""}
             </button>
@@ -2372,6 +2566,7 @@ export function AuthPage(props: AuthPageProps) {
               id="back-to-signup"
               data-i18n="back"
               onClick={() => {
+                clearVerificationResendCooldown();
                 removeStorage(pendingEmailStorageKey());
                 setView("signup");
               }}
@@ -2632,7 +2827,31 @@ export function AuthPage(props: AuthPageProps) {
       appName={marketingCopy.appName}
       variant="auth"
       background={
-        marketingCopy.screenshotSrc ? null : <Starfield id="starfield" />
+        marketingCopy.screenshotSrc ? null : (
+          <OceanBackground className="auth-marketing-background" />
+        )
+      }
+      topRight={
+        marketingCopy.learnMoreUrl ? (
+          <a
+            className="auth-marketing-learn-more"
+            data-auth-marketing-learn-more="true"
+            href={marketingCopy.learnMoreUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span>
+              {t("newToApp").replace(
+                "{appName}",
+                marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
+              )}
+            </span>
+            <span aria-hidden="true"> - </span>
+            <span className="auth-marketing-learn-more-link">
+              {t("learnMore")}
+            </span>
+          </a>
+        ) : null
       }
       auth={authCard}
       className={[
@@ -2649,15 +2868,7 @@ export function AuthPage(props: AuthPageProps) {
             aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
           }}
         >
-          <img
-            className="auth-marketing-screenshot"
-            src={marketingCopy.screenshotSrc}
-            alt={`${marketingCopy.appName} preview`}
-            width={marketingCopy.screenshotWidth}
-            height={marketingCopy.screenshotHeight}
-            fetchPriority="high"
-            decoding="async"
-          />
+          <OceanBackground className="auth-marketing-screenshot" />
         </div>
       ) : (
         <div className="marketing-content">

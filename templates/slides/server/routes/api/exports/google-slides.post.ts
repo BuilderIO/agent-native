@@ -21,6 +21,17 @@ function isGoogleReconnectError(error: unknown): boolean {
   );
 }
 
+function googleSlidesEditUrl(result: {
+  id?: string;
+  webViewLink?: string;
+}): string | undefined {
+  const id = result.id?.trim();
+  if (id && /^[A-Za-z0-9_-]+$/.test(id)) {
+    return `https://docs.google.com/presentation/d/${id}/edit`;
+  }
+  return result.webViewLink;
+}
+
 /**
  * Uploads a PPTX into the user's Drive, letting Drive convert it to a native
  * Google Slides deck. The caller decides which exporter produced those bytes,
@@ -143,7 +154,8 @@ export default defineEventHandler(async (event) => {
     };
   }
 
-  if (!response.ok || !result?.webViewLink) {
+  const url = result ? googleSlidesEditUrl(result) : undefined;
+  if (!response.ok || !url) {
     setResponseStatus(event, 502);
     return {
       error:
@@ -152,5 +164,5 @@ export default defineEventHandler(async (event) => {
     };
   }
 
-  return { url: result.webViewLink, accountEmail: account.accountEmail };
+  return { url, accountEmail: account.accountEmail };
 });

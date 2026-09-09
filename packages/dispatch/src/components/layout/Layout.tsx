@@ -2037,12 +2037,25 @@ export function Layout({
       if (event.source !== frame.contentWindow) return;
 
       const open = event.data.data?.open;
+      const focus = event.data.data?.focus === true;
       if (open === true) {
-        window.dispatchEvent(new Event("agent-panel:open"));
+        window.dispatchEvent(
+          focus
+            ? new CustomEvent("agent-panel:open", {
+                detail: { focus: true },
+              })
+            : new Event("agent-panel:open"),
+        );
       } else if (open === false) {
         window.dispatchEvent(new Event("agent-panel:close"));
       } else {
-        window.dispatchEvent(new Event("agent-panel:toggle"));
+        window.dispatchEvent(
+          focus
+            ? new CustomEvent("agent-panel:toggle", {
+                detail: { focus: true },
+              })
+            : new Event("agent-panel:toggle"),
+        );
       }
     };
 

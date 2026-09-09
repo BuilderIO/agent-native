@@ -157,6 +157,11 @@ function getCacheKey(
     .digest("hex");
 }
 
+function addUtcDateCacheKey(sql: string): string {
+  if (!/\bCURRENT_DATE\s*(?:\(\s*\))?/i.test(sql)) return sql;
+  return `${sql}\n/* agent-native-utc-date:${new Date().toISOString().slice(0, 10)} */`;
+}
+
 function getL1(key: string): QueryResult | null {
   const entry = l1Cache.get(key);
   if (!entry) return null;
@@ -180,7 +185,7 @@ async function getL2(key: string): Promise<QueryResult | null> {
     const db = getDbExec();
     const nowIso = new Date().toISOString();
     const { rows } = await db.execute({
-      sql: "SELECT result FROM bigquery_cache WHERE key = ? AND expires_at > ?",
+      sql: "SELECT result FROM bigquery_cache WHERE key = $1 AND expires_at > $2",
       args: [key, nowIso],
     });
     if (!rows.length) return null;
@@ -202,13 +207,13 @@ async function setL2(
     const now = new Date();
     const expiresAt = new Date(now.getTime() + CACHE_TTL_MS);
     const serialized = JSON.stringify(result);
-    // Upsert — use delete+insert to stay dialect-agnostic (SQLite/Postgres).
+    // Upsert - use delete+insert to keep the sink write semantics explicit.
     await db.execute({
-      sql: "DELETE FROM bigquery_cache WHERE key = ?",
+      sql: "DELETE FROM bigquery_cache WHERE key = $1",
       args: [key],
     });
     await db.execute({
-      sql: "INSERT INTO bigquery_cache (key, sql, result, bytes_processed, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+      sql: "INSERT INTO bigquery_cache (key, sql, result, bytes_processed, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6)",
       args: [
         key,
         sql,
@@ -223,7 +228,7 @@ async function setL2(
     // Run ~1% of the time to avoid thrashing on every write.
     if (Math.random() < 0.01) {
       await db.execute({
-        sql: "DELETE FROM bigquery_cache WHERE expires_at <= ?",
+        sql: "DELETE FROM bigquery_cache WHERE expires_at <= $1",
         args: [now.toISOString()],
       });
     }
@@ -470,8 +475,9 @@ export async function runQuery(
     projectId,
     appEventsTable,
   );
+  const cacheableSql = addUtcDateCacheKey(resolvedSql);
 
-  const cacheKey = getCacheKey(resolvedSql, projectId, cacheScope);
+  const cacheKey = getCacheKey(cacheableSql, projectId, cacheScope);
   const l1Hit = getL1(cacheKey);
   if (l1Hit) {
     return { ...l1Hit, cached: true };
@@ -494,7 +500,7 @@ export async function runQuery(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      query: resolvedSql,
+      query: cacheableSql,
       useLegacySql: false,
       maximumBytesBilled: "750000000000", // 750GB cap
     }),
@@ -569,7 +575,7 @@ export async function runQuery(
   };
 
   setL1(cacheKey, result);
-  await setL2(cacheKey, resolvedSql, result);
+  await setL2(cacheKey, cacheableSql, result);
 
   return result;
 }

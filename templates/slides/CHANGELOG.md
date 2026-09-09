@@ -3,6 +3,15 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-03
+
+### Fixed
+
+- Send to front and send to back now restack a slide layer above or below the
+  layers it overlaps, instead of quietly doing nothing or nudging the layer down
+  the slide.
+- Dragging a text box's left or right handle now changes only its width, so the box grows and shrinks as the text rewraps. Corner handles still set the height manually.
+
 ## 2026-08-29
 
 ### Improved

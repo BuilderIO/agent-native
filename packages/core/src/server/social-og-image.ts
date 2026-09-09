@@ -14,6 +14,7 @@ import {
   resolveBuiltInAuthMarketing,
   resolveBuiltInAuthMarketingByName,
 } from "./auth-marketing.js";
+import { AGENT_NATIVE_OG_BACKGROUND_DATA_URL } from "./og-background-data.js";
 import {
   OG_ARABIC_FONT_FAMILY,
   OG_FONT_FAMILY,
@@ -37,8 +38,6 @@ export const AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL =
 
 const WIDTH = AGENT_NATIVE_OG_IMAGE_WIDTH;
 const HEIGHT = AGENT_NATIVE_OG_IMAGE_HEIGHT;
-// guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
-const BG = "#0A0A0A";
 // guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
 const FG = "#FAF9F5";
 // guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
@@ -554,7 +553,7 @@ export function renderAgentNativeOgImageSvg(
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <title>${escapeSvg(title)}${mode === "agent-native" ? " - Agent-Native preview" : " preview"}</title>
-  <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>
+  <image x="0" y="0" width="${WIDTH}" height="${HEIGHT}" href="${AGENT_NATIVE_OG_BACKGROUND_DATA_URL}" preserveAspectRatio="xMidYMid slice"/>
   ${logo ? `<g transform="translate(80 116) scale(0.94)">${logo}</g>` : ""}
   <g>
     ${textBlock({

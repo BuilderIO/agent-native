@@ -126,8 +126,9 @@ describe("DocsSidebar", () => {
     expect(databaseGroup?.children?.map((item) => item.id)).toEqual([
       "database-neon",
       "database-supabase",
-      "database-turso",
-      "database-d1",
+      "database-aws-rds",
+      "database-cloud-sql",
+      "database-azure-postgres",
       "database-postgres",
     ]);
     const productionGroup = deployment?.items.find(

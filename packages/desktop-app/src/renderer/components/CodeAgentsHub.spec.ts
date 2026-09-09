@@ -232,11 +232,14 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
-  it("keeps the light desktop composer aligned with the rail gray", () => {
+  it("keeps the light desktop composer white with a quiet unfocused border", () => {
     const shellCss = readFileSync("src/renderer/shell.css", "utf8");
 
     expect(shellCss).toMatch(
-      /\.light\s+\.desktop-chat-first-hub\s+\[data-chat-first-app-pane\]\s+\.agent-sidebar-panel\s+\.agent-composer-root\s*\{\s*background:\s*hsl\(var\(--sidebar-background\)\);\s*\}/,
+      /\.light\s+\.desktop-chat-first-hub\s+\[data-chat-first-app-pane\]\s+\.agent-sidebar-panel\s+\.agent-composer-root\s*\{\s*background:\s*hsl\(var\(--card\)\);\s*\}/,
+    );
+    expect(shellCss).toMatch(
+      /\.light\s+\.desktop-chat-first-hub\s+\[data-chat-first-app-pane\]\s+\.agent-sidebar-panel\s+\.agent-composer-root:not\(:focus-within\)\s*\{\s*border-color:\s*hsl\(var\(--border\)\);\s*\}/,
     );
   });
 

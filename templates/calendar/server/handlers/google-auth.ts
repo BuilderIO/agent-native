@@ -11,6 +11,7 @@ import {
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   resolveSecret,
@@ -360,6 +361,12 @@ export const handleGoogleCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;
@@ -615,6 +622,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;

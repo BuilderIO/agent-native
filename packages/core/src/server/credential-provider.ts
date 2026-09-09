@@ -33,6 +33,12 @@ import {
 import { getOrgSetting } from "../settings/org-settings.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
+  BUILDER_OAUTH_SCOPE,
+  getBuilderOAuthSession,
+  hasBuilderOAuthSession,
+} from "./builder-oauth.js";
+import { resolveDeployEnvironment } from "./deploy-environment.js";
+import {
   getRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
@@ -179,6 +185,61 @@ export function assertCredentialStoreReadable(result: {
  */
 export function readDeployCredentialEnv(key: string): string | undefined {
   return process.env[key] || undefined;
+}
+
+function configuredOrigin(
+  value: string | undefined,
+  assumeHttps = false,
+): string | undefined {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  const candidate =
+    assumeHttps && !/^[a-z][a-z\d+.-]*:\/\//i.test(raw)
+      ? `https://${raw}`
+      : raw;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    return url.origin;
+  } catch {
+    // coercion-ok: malformed optional target metadata cannot prove trust, so
+    // fail closed without sending the deployment bypass secret.
+    return undefined;
+  }
+}
+
+/**
+ * Resolve the Vercel Deployment Protection header for one trusted deployment
+ * target. The secret is never returned or logged, and arbitrary A2A targets do
+ * not receive it just because this deployment has the credential configured.
+ * These callers are server-to-server, so a browser bypass cookie is not useful.
+ */
+export function resolveVercelDeploymentProtectionHeaders(
+  targetUrl: string,
+): Record<string, string> {
+  const secret = readDeployCredentialEnv("VERCEL_AUTOMATION_BYPASS_SECRET");
+  if (!secret?.trim()) return {};
+
+  const targetOrigin = configuredOrigin(targetUrl);
+  if (!targetOrigin) return {};
+
+  const config = getAppConfig();
+  const isProduction = resolveDeployEnvironment() === "production";
+  const trustedOrigins = [
+    configuredOrigin(process.env.VERCEL_URL, true),
+    configuredOrigin(process.env.VERCEL_BRANCH_URL, true),
+    configuredOrigin(config.workspace.gatewayUrl),
+    configuredOrigin(config.workspace.orgDirectoryUrl),
+    ...(isProduction
+      ? [
+          configuredOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL, true),
+          configuredOrigin(config.app.url),
+        ]
+      : []),
+  ].filter((origin): origin is string => origin !== undefined);
+
+  if (!trustedOrigins.includes(targetOrigin)) return {};
+  return { "x-vercel-protection-bypass": secret.trim() };
 }
 
 const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
@@ -1118,8 +1179,10 @@ export async function resolveBuilderGatewayCredentialsDetailed(
 }
 
 /**
- * Gateway-lane credentials in the same shape as `resolveBuilderCredentials`, so
- * a consumer moves lane by changing which resolver it calls and nothing else.
+ * @deprecated Use `resolveBuilderGatewayAuth()` instead — it also checks the
+ * request owner's Builder OAuth grant, which this key-only shape cannot
+ * represent. Kept only so an external caller built against the old export
+ * does not break; no code in this repo calls it anymore.
  */
 export async function resolveBuilderGatewayCredentials(
   identity?: BuilderCredentialLookupIdentity,
@@ -1164,7 +1227,11 @@ export async function resolveBuilderGatewayCredentials(
 export interface BuilderGatewayAuth {
   /** `Bearer <token>` for the `Authorization` header. */
   authorization: string;
-  /** Send as `x-builder-api-key`. Null only for a legacy single-key deployment. */
+  /**
+   * Send as `x-builder-api-key`. Null for a legacy single-key deployment, or
+   * for an OAuth access token: the token itself carries the caller's identity,
+   * so the gateway does not require a space id alongside it.
+   */
   spaceId: string | null;
   /** Send as `x-builder-user-id` when the lane carries a Builder user. */
   userId: string | null;
@@ -1178,8 +1245,39 @@ export async function resolveHasBuilderGatewayCredential(): Promise<boolean> {
   return Boolean(await resolveBuilderGatewayAuth());
 }
 
-/** Gateway-lane `resolveBuilderAuthHeader`, same fall-through order. */
+/**
+ * Gateway-lane `resolveBuilderAuthHeader`, same fall-through order, with the
+ * request owner's Builder OAuth grant checked first. Mirrors
+ * `resolveBuilderRequestAuthorization`'s OAuth-before-legacy-key precedence in
+ * builder-api-auth.ts, including that helper's rule that OAuth custody wins
+ * outright: once a stored grant exists, a broken one (expired, missing scope,
+ * needs reconnect) reports "not configured" rather than falling through to a
+ * key-based credential that could belong to a different Builder identity.
+ */
 export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | null> {
+  const ownerEmail = getRequestUserEmail();
+  const orgId = getRequestOrgId() ?? null;
+  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
+    try {
+      const session = await getBuilderOAuthSession(
+        ownerEmail,
+        orgId,
+        BUILDER_OAUTH_SCOPE,
+      );
+      return session
+        ? {
+            authorization: `Bearer ${session.accessToken}`,
+            spaceId: null,
+            userId: null,
+          }
+        : null;
+    } catch {
+      // coercion-ok: custody exists but the grant needs reconnecting
+      // (expired, missing scope) -- report "not configured" rather than
+      // falling through to a different identity's credential.
+      return null;
+    }
+  }
   const creds = await resolveBuilderGatewayCredentialsDetailed();
   const token = creds.privateKey?.trim();
   const spaceId = creds.publicKey?.trim();

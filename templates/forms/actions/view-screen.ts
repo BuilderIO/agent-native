@@ -14,6 +14,11 @@ import { readAppStateForCurrentTab } from "./_tab-state.js";
 const FORMS_LIST_LIMIT = 25;
 const RESPONSE_PREVIEW_LIMIT = 5;
 const FIELD_PREVIEW_LIMIT = 20;
+/** Options shown per field in the screen preview. `patch-form-fields` upsert
+ *  replaces a field wholesale, so a caller that rebuilds a field from this
+ *  preview drops every option past the cap — `optionsTruncated` is what makes
+ *  a preview distinguishable from the real option list. */
+const FIELD_OPTION_PREVIEW_LIMIT = 8;
 
 function canReadPrivateFormData(role: string): boolean {
   return role === "owner" || role === "editor" || role === "admin";
@@ -42,7 +47,7 @@ function cleanText(value: unknown, maxLength = 160): string {
     : `${normalized.slice(0, maxLength - 3)}...`;
 }
 
-function summarizeFields(fields: FormField[]) {
+export function summarizeFields(fields: FormField[]) {
   return fields.slice(0, FIELD_PREVIEW_LIMIT).map((field) => ({
     id: field.id,
     type: field.type,
@@ -50,8 +55,9 @@ function summarizeFields(fields: FormField[]) {
     required: field.required,
     ...(field.options?.length
       ? {
-          options: field.options.slice(0, 8),
+          options: field.options.slice(0, FIELD_OPTION_PREVIEW_LIMIT),
           optionCount: field.options.length,
+          optionsTruncated: field.options.length > FIELD_OPTION_PREVIEW_LIMIT,
         }
       : {}),
   }));
@@ -68,6 +74,43 @@ function summarizeSettings(settings: FormSettings) {
       enabled: integration.enabled,
     })),
     allowedOriginsCount: settings.allowedOrigins?.length ?? 0,
+  };
+}
+
+interface FormsSelectionState {
+  formId?: string;
+  selectedFieldId?: string;
+  selectedFieldLabel?: string;
+  selectedFieldType?: string;
+}
+
+interface FormSelectionSummary {
+  fieldId: string;
+  label?: string;
+  type?: string;
+  hint: string;
+}
+
+/**
+ * The form builder (FormBuilderPage) writes `forms-selection` whenever the
+ * Field Properties panel is open for a field, and clears it (null) on
+ * deselect/unmount. Only surface it here when it names the SAME form the
+ * screen is currently showing — otherwise a selection left over from a form
+ * the user has since navigated away from would get attributed to whatever
+ * form they're viewing now.
+ */
+export function buildFormSelectionSummary(
+  selection: FormsSelectionState | null,
+  formId: string,
+): FormSelectionSummary | null {
+  if (!selection || selection.formId !== formId || !selection.selectedFieldId) {
+    return null;
+  }
+  return {
+    fieldId: selection.selectedFieldId,
+    label: selection.selectedFieldLabel,
+    type: selection.selectedFieldType,
+    hint: `To change this field, read its full current data with get-form, then call patch-form-fields with id="${formId}" and ops=[{"op":"upsert","field":{...that field, id "${selection.selectedFieldId}", with your edits}}] — upsert replaces the whole field.`,
   };
 }
 
@@ -113,6 +156,18 @@ export default defineAction({
             .select({ count: sql<number>`count(*)` })
             .from(schema.responses)
             .where(eq(schema.responses.formId, nav.formId));
+          const selectionState = (await readAppStateForCurrentTab(
+            "forms-selection",
+            {
+              // No global fallback: another tab's selected field must never
+              // become this tab's patch target.
+              fallbackToGlobal: false,
+            },
+          )) as FormsSelectionState | null;
+          const selection = buildFormSelectionSummary(
+            selectionState,
+            nav.formId,
+          );
 
           screen.form = {
             id: form.id,
@@ -130,6 +185,7 @@ export default defineAction({
             responseCount: responseCount?.count ?? 0,
             createdAt: form.createdAt,
             updatedAt: form.updatedAt,
+            ...(selection ? { selection } : {}),
           };
         }
       } catch {

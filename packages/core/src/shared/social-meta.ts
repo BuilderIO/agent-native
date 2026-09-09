@@ -10,7 +10,7 @@ export const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE =
 // two types distinct rather than assuming every social image is a PNG.
 export const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE = "image/jpeg";
 export const AGENT_NATIVE_SOCIAL_IMAGE_PATH = "/_agent-native/og-image.png";
-export const AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER = "font-text-v3";
+export const AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER = "background-v1";
 export const AGENT_NATIVE_SOCIAL_IMAGE_WIDTH = "1200";
 export const AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT = "630";
 export const AGENT_NATIVE_SOCIAL_IMAGE_TYPE = "image/png";

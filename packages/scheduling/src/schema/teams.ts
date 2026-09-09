@@ -8,10 +8,10 @@
 import {
   table,
   text,
-  integer,
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const teams = table("teams", {
   id: text("id").primaryKey(),
@@ -21,9 +21,7 @@ export const teams = table("teams", {
   brandColor: text("brand_color"),
   darkBrandColor: text("dark_brand_color"),
   bio: text("bio"),
-  hideBranding: integer("hide_branding", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  hideBranding: boolean("hide_branding").notNull().default(false),
   metadata: text("metadata"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
@@ -37,7 +35,7 @@ export const teamMembers = table("team_members", {
   role: text("role", { enum: ["owner", "admin", "member"] })
     .notNull()
     .default("member"),
-  accepted: integer("accepted", { mode: "boolean" }).notNull().default(false),
+  accepted: boolean("accepted").notNull().default(false),
   inviteToken: text("invite_token"),
   invitedAt: text("invited_at").notNull(),
   joinedAt: text("joined_at"),

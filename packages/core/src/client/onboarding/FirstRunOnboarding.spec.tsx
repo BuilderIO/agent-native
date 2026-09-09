@@ -334,6 +334,59 @@ describe("FirstRunOnboarding", () => {
     expect(flow.start).toHaveBeenCalledOnce();
   });
 
+  it("opens the additional Builder services when the count is clicked", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    const moreServices = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "+8 more",
+    );
+    expect(moreServices).toBeTruthy();
+    expect(document.body.textContent).not.toContain(
+      "Also included with Builder.io free credits",
+    );
+
+    act(() => moreServices?.click());
+
+    expect(document.body.textContent).toContain(
+      "Also included with Builder.io free credits",
+    );
+    expect(document.body.textContent).toContain("Voice input");
+    const moreServicesPopover =
+      document.body.querySelector("[aria-labelledby]");
+    const titleId = moreServicesPopover?.getAttribute("aria-labelledby");
+    expect(titleId).toBeTruthy();
+    expect(document.getElementById(titleId ?? "")?.textContent).toContain(
+      "Also included with Builder.io free credits",
+    );
+    expect(moreServicesPopover?.querySelector("ul")).toBeTruthy();
+    expect(
+      [...(moreServicesPopover?.querySelectorAll("li") ?? [])].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual([
+      "Voice input",
+      "Background agents",
+      "Image generation",
+      "Video generation",
+      "Connected agents",
+      "Hosting and deployment",
+      "Browser automation",
+      "Embeddings",
+    ]);
+  });
+
   it("uses the existing-account connection flow from the consent popover", () => {
     const start = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -503,7 +556,7 @@ describe("FirstRunOnboarding", () => {
 
     act(() => {
       [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
+        .find((button) => button.textContent === "Skip for now")
         ?.click();
     });
 
@@ -554,6 +607,28 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector("[data-onboarding-screen='tools']"),
     ).toBeTruthy();
+
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Sigma");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    act(() => {
+      document.body
+        .querySelector('button[aria-label="Connect Sigma"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain(
+      "Sigma's MCP URL is organization-specific.",
+    );
+    expect(document.body.textContent).toContain("Configure Sigma");
+    expect(mocks.completeFirstRun).not.toHaveBeenCalled();
   });
 
   it("skips the generic integrations catalog but still asks for a role", () => {
@@ -578,9 +653,9 @@ describe("FirstRunOnboarding", () => {
     });
 
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(
@@ -613,9 +688,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     act(() => {
@@ -655,9 +730,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(completedSteps()).toEqual(["intro", "choice", "manual"]);
@@ -694,9 +769,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
       document.body
@@ -764,9 +839,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(
@@ -809,9 +884,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     const search = document.body.querySelector(
@@ -863,9 +938,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue to tools")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     const search = document.body.querySelector(
@@ -946,9 +1021,9 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
       [...document.body.querySelectorAll("button")]
@@ -1017,14 +1092,188 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Continue")
-        ?.click();
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(document.body.textContent).toContain("Personalicemos esto para ti.");
     expect(document.body.textContent).toContain("Producto");
     expect(document.body.textContent).toContain("Desarrollo");
     expect(document.body.textContent).not.toMatch(/\bProduct\b/);
+  });
+
+  // A failed initial status read must not leave the free-credits CTA inert.
+  // The click can still start the provisioning flow, which performs its own
+  // fresh status read without bypassing the consent step.
+  it("keeps the free-credits CTA actionable after a failed status read", () => {
+    const start = vi.fn();
+    const retry = vi.fn();
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      error: "Couldn't reach Builder to check your account. Retrying.",
+      retry,
+      start,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-builder-status-error"]',
+      )?.textContent,
+    ).toContain("Couldn't reach Builder");
+
+    const cta = document.body.querySelector(
+      '[data-testid="first-run-connect-builder"]',
+    );
+    expect(cta?.getAttribute("aria-disabled")).toBeNull();
+
+    act(() => {
+      cta?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(retry).not.toHaveBeenCalled();
+    expect(
+      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
+    ).not.toBeNull();
+    expect(start).not.toHaveBeenCalled();
+
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-and-activate"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: true }),
+    );
+  });
+
+  it("opens the AI key settings page without opening the agent sidebar", async () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe("/settings/agent/llm");
+    expect(mocks.completeFirstRun).toHaveBeenCalled();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("keeps the manual setup step visible when completion fails", async () => {
+    mocks.completeFirstRun.mockRejectedValue(
+      new Error("first-run completion failed: 500"),
+    );
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe("/");
+    expect(document.body.textContent).toContain(
+      "first-run completion failed: 500",
+    );
+  });
+
+  it("shows no status error while the first Builder status read is in flight", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: false,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      error: null,
+      retry: vi.fn(),
+      start: vi.fn(),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-builder-status-error"]',
+      ),
+    ).toBeNull();
   });
 });

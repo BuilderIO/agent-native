@@ -153,6 +153,8 @@ export interface RequestContext {
   userEmail?: string;
   userName?: string;
   orgId?: string;
+  /** An authenticated caller explicitly selected Personal instead of an organization. */
+  orgScope?: "personal";
   /**
    * Narrow authorization capability verified from an embed session. This is
    * deliberately separate from user identity: capability-only sessions must
@@ -193,6 +195,8 @@ export interface RequestContext {
    * fallback. Optional — absent on paths that don't populate it.
    */
   requestOrigin?: string;
+  /** True only after the selected organization membership passed federation validation. */
+  federationMembershipValidated?: boolean;
   /**
    * True when the request's real socket peer is loopback, captured by the
    * action-route handler while the h3 event is still in scope (nothing below
@@ -249,6 +253,22 @@ export interface RequestContext {
    * during a run; tool closures dereference it on each invocation.
    */
   run?: RequestRunContext;
+}
+
+const EXPLICIT_PERSONAL_ORG_SCOPE_KEY = "__anExplicitPersonalOrgScope";
+
+export function markExplicitPersonalOrgScope(event: {
+  context?: Record<string, unknown>;
+}): void {
+  if (event.context) {
+    event.context[EXPLICIT_PERSONAL_ORG_SCOPE_KEY] = true;
+  }
+}
+
+export function hasExplicitPersonalOrgScope(event: {
+  context?: Record<string, unknown>;
+}): boolean {
+  return event.context?.[EXPLICIT_PERSONAL_ORG_SCOPE_KEY] === true;
 }
 
 const GLOBAL_KEY = "__agentNativeRequestContextAls" as const;

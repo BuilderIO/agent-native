@@ -3,6 +3,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
   createAgentNativeQueryClient,
+  getBrowserTabId,
   useDbSync,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
@@ -11,7 +12,10 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
-import { Layout as AppLayout } from "@agent-native/dispatch/components";
+import {
+  Layout as AppLayout,
+  RequireDispatchAccess,
+} from "@agent-native/dispatch/components";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -90,7 +94,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
+const TAB_ID = getBrowserTabId();
 
 function DbSyncSetup() {
   const qc = useQueryClient();
@@ -183,6 +187,14 @@ function AppContent() {
 }
 
 function PrivateAppContent() {
+  return (
+    <RequireDispatchAccess>
+      <PrivateAppShell />
+    </RequireDispatchAccess>
+  );
+}
+
+function PrivateAppShell() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();

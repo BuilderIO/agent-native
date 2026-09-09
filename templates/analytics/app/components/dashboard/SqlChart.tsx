@@ -362,7 +362,7 @@ export function seriesValueFormatter(
 /**
  * Format a single metric value for display. Coerces Postgres numeric/bigint
  * columns (returned as strings, e.g. a rate of "0.00000000000000000000") to a
- * number so the formatter applies — SQLite returns JS numbers, so this only
+ * number so the formatter applies - Postgres numeric values may arrive as strings, so this only
  * bites on Postgres/Neon, where the raw high-scale decimal would otherwise be
  * dumped verbatim. A configured `valueLabels` mapping wins; a non-numeric
  * string falls through unformatted.
@@ -1292,6 +1292,7 @@ interface SqlChartProps {
   resolvedSql?: string;
   className?: string;
   loadData?: boolean;
+  timeRange?: number;
   reportScreenshot?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
@@ -1303,6 +1304,7 @@ export function SqlChart({
   panel,
   resolvedSql,
   loadData = true,
+  timeRange,
   reportScreenshot = false,
   onExportCsvChange,
   onCopyTableChange,
@@ -1342,11 +1344,12 @@ export function SqlChart({
     if (panel.config?.pivot && rawRows.length) {
       const pivoted = pivotRows(rawRows, panel.config.pivot, {
         fillDateGaps: panel.chartType !== "bar",
+        timeRange,
       });
       return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
     }
     return { rows: rawRows, forcedYKeys: undefined };
-  }, [rawRows, panel.chartType, panel.config?.pivot]);
+  }, [rawRows, panel.chartType, panel.config?.pivot, timeRange]);
 
   const { xKey, yKeys } = useMemo(
     () => detectKeys(queryRows, panel.config, forcedYKeys),

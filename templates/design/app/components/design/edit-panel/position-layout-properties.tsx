@@ -324,6 +324,7 @@ export function PositionLayoutProperties({
   onStyleChange,
   onStylesChange,
   onAlignSelection,
+  alignSelectionDisabled = false,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
@@ -342,6 +343,8 @@ export function PositionLayoutProperties({
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
+  /** True when `onAlignSelection` would refuse this selection. */
+  alignSelectionDisabled?: boolean;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -352,6 +355,7 @@ export function PositionLayoutProperties({
   const styles = element.computedStyles;
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
+  const alignmentDisabled = alignSelectionDisabled || !onAlignSelection;
   // NOTE: this row used to also write flex alignment (justifyContent/
   // alignItems) on the selected element when it was a flex container —
   // i.e. it aligned the element's own children. That duplicated exactly
@@ -441,22 +445,25 @@ export function PositionLayoutProperties({
           left={
             <InspectorSegment className="w-full">
               <InspectorIconButton
-                label={t("editPanel.textAligns.left")}
+                label={t("editPanel.positionAligns.left")}
                 shortcut={shortcut("alt+a")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignH("left")}
               >
                 <IconLayoutAlignLeft className="size-3.5" />
               </InspectorIconButton>
               <InspectorIconButton
-                label={t("editPanel.textAligns.center")}
+                label={t("editPanel.positionAligns.centerHorizontal")}
                 shortcut={shortcut("alt+h")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignH("center")}
               >
                 <IconLayoutAlignCenter className="size-3.5" />
               </InspectorIconButton>
               <InspectorIconButton
-                label={t("editPanel.textAligns.right")}
+                label={t("editPanel.positionAligns.right")}
                 shortcut={shortcut("alt+d")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignH("right")}
               >
                 <IconLayoutAlignRight className="size-3.5" />
@@ -466,22 +473,25 @@ export function PositionLayoutProperties({
           right={
             <InspectorSegment className="w-full">
               <InspectorIconButton
-                label={t("editPanel.alignSelfOptions.start")}
+                label={t("editPanel.positionAligns.top")}
                 shortcut={shortcut("alt+w")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignV("top")}
               >
                 <IconLayoutAlignTop className="size-3.5" />
               </InspectorIconButton>
               <InspectorIconButton
-                label={t("editPanel.alignSelfOptions.center")}
+                label={t("editPanel.positionAligns.centerVertical")}
                 shortcut={shortcut("alt+v")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignV("middle")}
               >
                 <IconLayoutAlignMiddle className="size-3.5" />
               </InspectorIconButton>
               <InspectorIconButton
-                label={t("editPanel.alignSelfOptions.end")}
+                label={t("editPanel.positionAligns.bottom")}
                 shortcut={shortcut("alt+s")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignV("bottom")}
               >
                 <IconLayoutAlignBottom className="size-3.5" />

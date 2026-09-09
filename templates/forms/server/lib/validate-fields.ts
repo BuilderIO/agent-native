@@ -10,7 +10,7 @@ import {
 } from "./file-upload-policy.js";
 
 export const FIELD_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
-const FIELD_TYPES = new Set([
+export const FIELD_TYPES = [
   "text",
   "email",
   "number",
@@ -23,7 +23,8 @@ const FIELD_TYPES = new Set([
   "rating",
   "scale",
   "file",
-]);
+] as const;
+const FIELD_TYPE_SET = new Set(FIELD_TYPES);
 const CONDITIONAL_OPERATORS = new Set(["equals", "not_equals", "contains"]);
 
 /**
@@ -85,7 +86,10 @@ export function normalizePersistedFields(fields: unknown): unknown {
     return {
       ...f,
       type:
-        typeof f.type === "string" && FIELD_TYPES.has(f.type) ? f.type : "text",
+        typeof f.type === "string" &&
+        FIELD_TYPE_SET.has(f.type as (typeof FIELD_TYPES)[number])
+          ? f.type
+          : "text",
       required: f.required === undefined ? false : f.required,
     };
   });
@@ -113,9 +117,12 @@ export function assertValidFields(fields: unknown): void {
     }
     seenIds.add(id);
 
-    if (typeof f.type !== "string" || !FIELD_TYPES.has(f.type)) {
+    if (
+      typeof f.type !== "string" ||
+      !FIELD_TYPE_SET.has(f.type as (typeof FIELD_TYPES)[number])
+    ) {
       throw new Error(
-        `field #${idx + 1} has an invalid type ${JSON.stringify(f.type)}`,
+        `field #${idx + 1} has an invalid type ${JSON.stringify(f.type)} — must be one of ${FIELD_TYPES.join(", ")}`,
       );
     }
     if (typeof f.label !== "string") {

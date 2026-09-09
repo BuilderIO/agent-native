@@ -63,4 +63,32 @@ describe("delete-event", () => {
     expect(deleteEventMock).not.toHaveBeenCalled();
     expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
   });
+
+  it("gates only a delete that reaches the guests", async () => {
+    const gate = action.needsApproval;
+    if (typeof gate !== "function") throw new Error("expected a predicate");
+
+    expect(await gate({ id: "google-a" } as never)).toBe(false);
+    expect(await gate({ id: "google-a", sendUpdates: "none" } as never)).toBe(
+      false,
+    );
+    expect(await gate({ id: "google-a", sendUpdates: "all" } as never)).toBe(
+      true,
+    );
+    expect(
+      await gate({ id: "google-a", notificationMessage: "Sorry!" } as never),
+    ).toBe(true);
+    // A blank note sends no companion email, so it is not a reason to stop.
+    expect(
+      await gate({ id: "google-a", notificationMessage: "   " } as never),
+    ).toBe(false);
+    // removeOnly forces sendUpdates to none, so no guest hears about it.
+    expect(
+      await gate({
+        id: "google-a",
+        sendUpdates: "all",
+        removeOnly: "true",
+      } as never),
+    ).toBe(false);
+  });
 });

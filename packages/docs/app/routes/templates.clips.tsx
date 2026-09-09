@@ -124,40 +124,35 @@ const COMPARISON_ROWS = [
 const FAQ_ITEMS = [
   {
     id: "free",
-    question: "Is Clips free?",
-    answer: "Yes. Clips is free and open source.",
+    question: "question1",
+    answer: "answer1",
   },
   {
     id: "agent-readable",
-    question: "Can AI read a screen recording?",
-    answer:
-      "Yes. Every clip ships with a transcript, summary, and timestamped frames an agent can read directly.",
+    question: "question2",
+    answer: "answer2",
   },
   {
     id: "loom-comparison",
-    question: "How is Clips different from Loom?",
-    answer:
-      "Clips is open source, you own the data, and every share link is readable by AI agents — not just people.",
+    question: "question3",
+    answer: "answer3",
   },
   {
     id: "console-errors",
-    question: "Can a screen recording capture console errors?",
-    answer:
-      "Yes. Clips captures browser console errors and failed network requests alongside the recording. They attach themselves to the same share link as the transcript and frames. An agent can debug from a clip, not just watch it.",
+    question: "question4",
+    answer: "answer4",
   },
   {
     id: "agent-support",
-    question: "Does Clips work with Claude, ChatGPT, or Cursor?",
-    answer:
-      "Yes! No plugin or API key required. Paste a Clips share link into any agent and it can read the transcript, summary, and frames directly.",
+    question: "question5",
+    answer: "answer5",
   },
   {
     id: "recording-storage",
-    question: "Where do my recordings live?",
-    answer:
-      "Wherever you deploy them. Self-hosted Clips keeps your video, transcripts, and analytics in your own infrastructure.",
+    question: "question6",
+    answer: "answer6",
   },
-];
+] as const;
 
 type ClipPreviewSliderHandle = {
   scroll: (direction: -1 | 1) => void;
@@ -816,11 +811,20 @@ export default function ClipsTemplate() {
       {/* FAQs */}
       <TemplateLandingFaq
         idPrefix="clips-faq"
-        eyebrow={<span style={{ color: template.color }}>FAQs</span>}
-        title="Get answers to common questions"
+        eyebrow={
+          <span className="text-[var(--docs-accent)]">
+            {t("templateLanding.faq.eyebrow")}
+          </span>
+        }
+        title={t("templateLanding.faq.title")}
         items={FAQ_ITEMS.map((item) => ({
-          ...item,
-          answer: <p className="m-0">{item.answer}</p>,
+          id: item.id,
+          question: t(`templateLanding.clips.faq.${item.question}`),
+          answer: (
+            <p className="m-0">
+              {t(`templateLanding.clips.faq.${item.answer}`)}
+            </p>
+          ),
         }))}
       />
     </TemplateLandingShell>

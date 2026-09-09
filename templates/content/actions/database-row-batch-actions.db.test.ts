@@ -10,7 +10,7 @@ import type { ContentDatabaseItem } from "../shared/api.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `database-row-batch-actions-${process.pid}-${Date.now()}.sqlite`,
+  `database-row-batch-actions-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -25,14 +25,16 @@ let lockDatabaseMemberships: typeof import("./_database-membership-lock.js").loc
 let replaceMockSourceRows: typeof import("./_database-source-utils.js").replaceMockSourceRows;
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
-let nextPosition: typeof import("./_database-row-mutation.js").nextPosition;
+let updateDatabaseItemsAction: typeof import("./update-database-items.js").default;
+let nextAppendPosition: typeof import("./_position-utils.js").nextAppendPosition;
+let createAppendPositionAllocator: typeof import("./_position-utils.js").createAppendPositionAllocator;
 let spaceId: string;
 
 const OWNER = "owner@example.com";
 const COLLABORATOR = "collaborator@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -49,10 +51,13 @@ beforeAll(async () => {
   ({ lockDatabaseMemberships } =
     await import("./_database-membership-lock.js"));
   ({ replaceMockSourceRows } = await import("./_database-source-utils.js"));
-  ({ nextPosition } = await import("./_database-row-mutation.js"));
+  ({ createAppendPositionAllocator, nextAppendPosition } =
+    await import("./_position-utils.js"));
   setDocumentPropertyAction = (await import("./set-document-property.js"))
     .default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
+    .default;
+  updateDatabaseItemsAction = (await import("./update-database-items.js"))
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
@@ -83,9 +88,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;
@@ -1367,21 +1370,151 @@ describe("database row batch actions", () => {
     ).toEqual(Array.from({ length: concurrentAdds }, (_, index) => index));
   });
 
-  it("normalizes string MAX results before assigning the next position", () => {
-    expect(nextPosition("41")).toBe(42);
-    expect(nextPosition(-1)).toBe(0);
-    expect(nextPosition(2_147_483_646)).toBe(2_147_483_647);
-    expect(() => nextPosition(2_147_483_647)).toThrow(
+  it("normalizes aggregate results before assigning the next position", () => {
+    expect(nextAppendPosition("41")).toBe(42);
+    expect(nextAppendPosition(" 41 ")).toBe(42);
+    expect(nextAppendPosition(null)).toBe(0);
+    expect(nextAppendPosition(-1)).toBe(0);
+    expect(nextAppendPosition("-11")).toBe(0);
+    expect(nextAppendPosition(-111)).toBe(0);
+    expect(nextAppendPosition(2_147_483_646)).toBe(2_147_483_647);
+    expect(() => nextAppendPosition(2_147_483_647)).toThrow(
       "Database position is outside the supported range.",
     );
-    expect(() => nextPosition("")).toThrow(
+    expect(() => nextAppendPosition("")).toThrow(
       "Database position is outside the supported range.",
     );
-    expect(() => nextPosition(true)).toThrow(
+    expect(() => nextAppendPosition(true)).toThrow(
       "Database position is outside the supported range.",
     );
-    expect(() => nextPosition("not-a-position")).toThrow(
+    expect(() => nextAppendPosition("not-a-position")).toThrow(
       "Database position is outside the supported range.",
     );
+    expect(() => nextAppendPosition(1.5)).toThrow(
+      "Database position is outside the supported range.",
+    );
+    expect(() => nextAppendPosition("1.5")).toThrow(
+      "Database position is outside the supported range.",
+    );
+    expect(() => nextAppendPosition("1e2")).toThrow(
+      "Database position is outside the supported range.",
+    );
+    expect(() => nextAppendPosition(Number.MAX_SAFE_INTEGER + 1)).toThrow(
+      "Database position is outside the supported range.",
+    );
+  });
+
+  it("checks every position allocated for a multi-row append", () => {
+    const allocateLegacyPosition = createAppendPositionAllocator("-111");
+    expect(allocateLegacyPosition()).toBe(0);
+    expect(allocateLegacyPosition()).toBe(1);
+
+    const allocateAtLimit = createAppendPositionAllocator(2_147_483_646);
+    expect(allocateAtLimit()).toBe(2_147_483_647);
+    expect(() => allocateAtLimit()).toThrow(
+      "Database position is outside the supported range.",
+    );
+  });
+
+  it("sets one property across every selected row in a batch call", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(3);
+    const now = new Date().toISOString();
+    const propertyId = nextId("property");
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Status",
+      type: "text",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDatabaseItemsAction.run({
+        databaseId,
+        itemIds: rows.map((row) => row.itemId),
+        propertyId,
+        value: "Ready",
+      }),
+    );
+
+    expect(result).toMatchObject({ updated: 3, failed: 0 });
+    expect(result.results).toHaveLength(3);
+    expect(result.results.every((row) => row.success)).toBe(true);
+
+    const values = await getDb()
+      .select({
+        documentId: schema.documentPropertyValues.documentId,
+        valueJson: schema.documentPropertyValues.valueJson,
+      })
+      .from(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+    expect(values).toHaveLength(3);
+    expect(
+      values.every((value) => value.valueJson === JSON.stringify("Ready")),
+    ).toBe(true);
+  });
+
+  it("rejects an unknown property once for the whole batch instead of once per row", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(2);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDatabaseItemsAction.run({
+          databaseId,
+          itemIds: rows.map((row) => row.itemId),
+          propertyId: nextId("missing_property"),
+          value: "Ready",
+        }),
+      ),
+    ).rejects.toThrow(/not found/i);
+
+    // The whole call fails before touching any row — no property values were
+    // written, and the response never gets a chance to report per-row
+    // success/failure for a precondition that is identical for every row.
+    const values = await getDb()
+      .select({ id: schema.documentPropertyValues.id })
+      .from(schema.documentPropertyValues)
+      .where(
+        inArray(
+          schema.documentPropertyValues.documentId,
+          rows.map((row) => row.documentId),
+        ),
+      );
+    expect(values).toEqual([]);
+  });
+
+  it("rejects a batch write to a system property before mutating any row", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(2);
+    const now = new Date().toISOString();
+    const systemPropertyId = nextId("system_property");
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: systemPropertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      systemRole: "title",
+      name: "Title",
+      type: "text",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDatabaseItemsAction.run({
+          databaseId,
+          itemIds: rows.map((row) => row.itemId),
+          propertyId: systemPropertyId,
+          value: "Renamed",
+        }),
+      ),
+    ).rejects.toThrow("System properties are derived and cannot be edited.");
   });
 });

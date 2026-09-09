@@ -56,10 +56,9 @@ describe("probeDbPressure", () => {
   };
 
   it("measures counters on postgres", async () => {
-    const result = await probeDbPressure(
-      { execute: async () => ({ rows: [row] }) },
-      "postgres",
-    );
+    const result = await probeDbPressure({
+      execute: async () => ({ rows: [row] }),
+    });
     expect(result).toMatchObject({ measured: true, connections: 8 });
   });
 
@@ -67,7 +66,7 @@ describe("probeDbPressure", () => {
     expect(DB_PRESSURE_SQL.match(/pid <> pg_backend_pid\(\)/g)).toHaveLength(2);
   });
 
-  it("uses the liveness query duration instead of the pressure query duration", async () => {
+  it("uses a provided liveness query duration", async () => {
     const queries: string[] = [];
     const result = await probeDbPressure(
       {
@@ -76,7 +75,6 @@ describe("probeDbPressure", () => {
           return { rows: [row] };
         },
       },
-      "postgres",
       { trivialQueryMs: 128 },
     );
     expect(queries).toEqual([DB_PRESSURE_SQL]);
@@ -84,43 +82,22 @@ describe("probeDbPressure", () => {
   });
 
   it("accepts string counters from drivers that widen bigints", async () => {
-    const result = await probeDbPressure(
-      {
-        execute: async () => ({
-          rows: [{ ...row, connections: "8", max_same_query: "1" }],
-        }),
-      },
-      "postgres",
-    );
+    const result = await probeDbPressure({
+      execute: async () => ({
+        rows: [{ ...row, connections: "8", max_same_query: "1" }],
+      }),
+    });
     expect(result).toMatchObject({ measured: true, connections: 8 });
   });
 
-  // Each of the next four would, if folded into a zeroed "measured" result,
+  // Each of the next three would, if folded into a zeroed "measured" result,
   // report a database nobody looked at as a healthy one.
-  it("reports non-postgres as unmeasured, not healthy", async () => {
-    const result = await probeDbPressure(
-      {
-        execute: async () => {
-          throw new Error("no such table: pg_stat_activity");
-        },
-      },
-      "sqlite",
-    );
-    expect(result).toEqual({
-      measured: false,
-      reason: "dialect sqlite has no pg_stat_activity",
-    });
-  });
-
   it("reports a throwing query as unmeasured", async () => {
-    const result = await probeDbPressure(
-      {
-        execute: async () => {
-          throw new Error("permission denied for pg_stat_activity");
-        },
+    const result = await probeDbPressure({
+      execute: async () => {
+        throw new Error("permission denied for pg_stat_activity");
       },
-      "postgres",
-    );
+    });
     expect(result).toMatchObject({ measured: false });
     expect((result as { reason: string }).reason).toContain(
       "permission denied",
@@ -128,10 +105,9 @@ describe("probeDbPressure", () => {
   });
 
   it("reports an empty result set as unmeasured", async () => {
-    const result = await probeDbPressure(
-      { execute: async () => ({ rows: [] }) },
-      "postgres",
-    );
+    const result = await probeDbPressure({
+      execute: async () => ({ rows: [] }),
+    });
     expect(result).toEqual({
       measured: false,
       reason: "pressure query returned no rows",
@@ -139,10 +115,9 @@ describe("probeDbPressure", () => {
   });
 
   it("reports missing columns as unmeasured", async () => {
-    const result = await probeDbPressure(
-      { execute: async () => ({ rows: [{ connections: 8 }] }) },
-      "postgres",
-    );
+    const result = await probeDbPressure({
+      execute: async () => ({ rows: [{ connections: 8 }] }),
+    });
     expect(result).toEqual({
       measured: false,
       reason: "pressure query returned unreadable counters",

@@ -60,6 +60,26 @@ vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: vi.fn(async (_context, fn) => fn()),
 }));
 
+// listGmailMessages persists its thread candidate window through user
+// settings. Without a mocked store these tests reach the real settings table,
+// where an unreachable or busy database aborts the thread path mid-hydrate and
+// fails the ranking and refill assertions for reasons unrelated to them.
+const threadCandidatePages = vi.hoisted(
+  () => new Map<string, Record<string, unknown>>(),
+);
+
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: vi.fn(
+    async (email: string, key: string) =>
+      threadCandidatePages.get(`${email}:${key}`) ?? null,
+  ),
+  putUserSetting: vi.fn(
+    async (email: string, key: string, value: Record<string, unknown>) => {
+      threadCandidatePages.set(`${email}:${key}`, value);
+    },
+  ),
+}));
+
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: vi.fn(),
   gmailBatchGetMessages: vi.fn(),
@@ -94,6 +114,7 @@ function mockAccount() {
 describe("listGmailMessages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    threadCandidatePages.clear();
     mockAccount();
     vi.mocked(gmailListMessagesApi).mockResolvedValue({ messages: [] } as any);
   });

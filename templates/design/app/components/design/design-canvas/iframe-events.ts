@@ -29,6 +29,7 @@ export interface IframeImagePastePayload {
 
 export interface IframeContextMenuPayload {
   screenId?: string;
+  breakpointWidthPx?: number;
   clientX: number;
   clientY: number;
   viewportClientX?: number;

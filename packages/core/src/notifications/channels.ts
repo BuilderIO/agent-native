@@ -108,6 +108,20 @@ function createWebhookChannel(
   };
 }
 
+/**
+ * Whether the workspace-wide Slack default is set, so a health check can
+ * surface "nobody will hear about the next outage" instead of staying quiet.
+ * Same resolution `createSlackWebhookChannel` uses for its env fallback —
+ * a per-notification `metadata.slackWebhookUrl` override doesn't exist yet at
+ * health-check time, so it can't be part of this answer.
+ */
+export function isSlackWebhookConfigured(): boolean {
+  // config-ok: must match the sibling NOTIFICATIONS_* reads in
+  // registerBuiltinNotificationChannels above; moving that env family into
+  // app-config is one change for all five keys, not a split for this one.
+  return Boolean(process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL?.trim());
+}
+
 function createSlackWebhookChannel(
   envUrlTemplate: string | undefined,
 ): NotificationChannel {

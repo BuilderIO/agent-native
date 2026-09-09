@@ -1190,6 +1190,277 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
+  describe("details bodies authored as ordinary Markdown", () => {
+    it("preserves supported unindented block children inside a native toggle", () => {
+      const source = L(
+        "<details>",
+        "<summary>Planned revisions</summary>",
+        "Paragraph with `inline code`.",
+        "## Heading",
+        "- bullet",
+        "> quote",
+        "```ts",
+        "\tconst answer = 42;",
+        "```",
+        "![diagram](https://example.com/diagram.png)",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.type).toBe("notionToggle");
+      expect(toggle?.content?.map((node) => node.type)).toEqual([
+        "paragraph",
+        "heading",
+        "bulletList",
+        "blockquote",
+        "codeBlock",
+        "image",
+      ]);
+      expect(toggle?.content?.[4]?.content?.[0]?.text).toBe(
+        "\tconst answer = 42;",
+      );
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>Planned revisions</summary>",
+          "\tParagraph with `inline code`.",
+          "\t## Heading",
+          "\t- bullet",
+          "\t> quote",
+          "\t```ts",
+          "\t\tconst answer = 42;",
+          "\t```",
+          "\t![diagram](https://example.com/diagram.png)",
+          "</details>",
+        ),
+      );
+    });
+
+    it("keeps already-canonical and mixed-indentation details content nested", () => {
+      const source = L(
+        "<details>",
+        "<summary>Mixed</summary>",
+        "\tCanonical child",
+        "Unindented child",
+        "\t- canonical list",
+        "</details>",
+      );
+
+      const expected = L(
+        "<details>",
+        "<summary>Mixed</summary>",
+        "\tCanonical child",
+        "\tUnindented child",
+        "\t- canonical list",
+        "</details>",
+      );
+      expect(canonicalizeNfm(source)).toBe(expected);
+      expect(canonicalizeNfm(expected)).toBe(expected);
+    });
+
+    it.each([
+      {
+        name: "callout",
+        open: '<callout icon="💡">',
+        close: "</callout>",
+        childType: "notionCallout",
+      },
+      {
+        name: "synced block",
+        open: '<synced_block url="https://www.notion.so/s">',
+        close: "</synced_block>",
+        childType: "notionSyncedBlock",
+      },
+    ])(
+      "preserves an ordinary nested $name body",
+      ({ open, close, childType }) => {
+        const source = L(
+          "<details>",
+          "<summary>Nested container</summary>",
+          open,
+          "Inside nested container",
+          close,
+          "</details>",
+        );
+
+        const toggle = nfmToDoc(source).content[0];
+        expect(toggle?.content?.[0]).toMatchObject({
+          type: childType,
+          content: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "Inside nested container" }],
+            },
+          ],
+        });
+        const canonical = canonicalizeNfm(source);
+        expect(canonical).toContain(
+          L(`\t${open}`, "\t\tInside nested container", `\t${close}`),
+        );
+        expect(canonicalizeNfm(canonical)).toBe(canonical);
+      },
+    );
+
+    it("preserves ordinary nested columns and their column children", () => {
+      const source = L(
+        "<details>",
+        "<summary>Nested columns</summary>",
+        "<columns>",
+        "<column>",
+        "Inside column",
+        "</column>",
+        "</columns>",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.content?.[0]).toMatchObject({
+        type: "notionColumns",
+        content: [
+          {
+            type: "notionColumn",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "Inside column" }],
+              },
+            ],
+          },
+        ],
+      });
+      const canonical = canonicalizeNfm(source);
+      expect(canonical).toContain(
+        L(
+          "\t<columns>",
+          "\t\t<column>",
+          "\t\t\tInside column",
+          "\t\t</column>",
+          "\t</columns>",
+        ),
+      );
+      expect(canonicalizeNfm(canonical)).toBe(canonical);
+    });
+
+    it("does not absorb later toggle content into an unclosed nested container", () => {
+      const source = L(
+        "<details>",
+        "<summary>Malformed nested container</summary>",
+        '<callout icon="💡">',
+        "Still a sibling",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.content?.map((node) => node.type)).toEqual([
+        "paragraph",
+        "paragraph",
+      ]);
+      expect(toggle?.content?.[1]?.content?.[0]?.text).toBe("Still a sibling");
+    });
+
+    it("does not close a nested container from inside fenced code", () => {
+      const source = L(
+        "<details>",
+        "<summary>Nested fenced example</summary>",
+        '<callout icon="💡">',
+        "```html",
+        "</callout>",
+        "```",
+        "After fenced example",
+        "</callout>",
+        "</details>",
+      );
+
+      const callout = nfmToDoc(source).content[0]?.content?.[0];
+      expect(callout).toMatchObject({
+        type: "notionCallout",
+        content: [
+          {
+            type: "codeBlock",
+            content: [{ type: "text", text: "</callout>" }],
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "After fenced example" }],
+          },
+        ],
+      });
+      const canonical = canonicalizeNfm(source);
+      expect(canonical).toContain(
+        L(
+          '\t<callout icon="💡">',
+          "\t\t```html",
+          "\t\t</callout>",
+          "\t\t```",
+          "\t\tAfter fenced example",
+          "\t</callout>",
+        ),
+      );
+      expect(canonicalizeNfm(canonical)).toBe(canonical);
+    });
+
+    it("does not treat a details close tag inside fenced code as the container close", () => {
+      const source = L(
+        "<details>",
+        "<summary>HTML example</summary>",
+        "```html",
+        "</details>",
+        "```",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.type).toBe("notionToggle");
+      expect(toggle?.content?.[0]).toMatchObject({
+        type: "codeBlock",
+        content: [{ type: "text", text: "</details>" }],
+      });
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>HTML example</summary>",
+          "\t```html",
+          "\t</details>",
+          "\t```",
+          "</details>",
+        ),
+      );
+    });
+
+    it("normalizes an unindented closing fence after a canonical opening fence", () => {
+      const source = L(
+        "<details>",
+        "<summary>Mixed fence</summary>",
+        "\t```ts",
+        "const answer = 42;",
+        "```",
+        "</details>",
+        "After toggle",
+      );
+
+      const doc = nfmToDoc(source);
+      expect(doc.content.map((node) => node.type)).toEqual([
+        "notionToggle",
+        "paragraph",
+      ]);
+      expect(doc.content[0]?.content?.[0]).toMatchObject({
+        type: "codeBlock",
+        content: [{ type: "text", text: "const answer = 42;" }],
+      });
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>Mixed fence</summary>",
+          "\t```ts",
+          "\tconst answer = 42;",
+          "\t```",
+          "</details>",
+          "After toggle",
+        ),
+      );
+    });
+  });
+
   // n20: canonicalization must never apply the editor-only
   // terminal-filler-paragraph trim, or intentional Notion empty blocks are
   // deleted (and nesting must not apply the trim at all).

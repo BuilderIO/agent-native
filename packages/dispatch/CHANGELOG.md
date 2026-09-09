@@ -1,5 +1,50 @@
 # @agent-native/dispatch
 
+## 0.35.0
+
+### Minor Changes
+
+- 48a4eca: Add a durable audit trail for every transactional email send attempt. The shared `sendEmail()` transport now records the outbound request payload (with auth links and message bodies redacted) and the raw provider response/status for both successes and failures, so Dispatch can show exactly what was sent, to whom, and why a send failed. The `list-email-log` action gained filters for recipient, sender, status, provider, and date range with stable pagination, and a new searchable "Send log" section was added to `/admin/transactional-email`. Magic-link sign-in emails are now tagged with a `core.magic-link` template id so they show up alongside other auth emails in the catalog and send log.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- c050912: Search fields that draw their own clear button no longer also show WebKit's native cancel widget, so only one clear control renders.
+- Updated dependencies
+- Updated dependencies [58d9dc3]
+  - @agent-native/toolkit@0.19.5
+
+## 0.34.0
+
+### Minor Changes
+
+- cc2a915: Standardize framework persistence on PostgreSQL. Local development uses PGlite,
+  hosted deployments use PostgreSQL, and the database client, schema, migrations,
+  templates, docs, and tooling now target PostgreSQL directly.
+
+### Patch Changes
+
+- cb3a95f: Add opt-in canonical organization federation across Agent-Native app deployments.
+- Release all public npm packages with a patch version bump.
+- f24d3ec: Fix Dispatch metrics app adoption cards to handle unavailable values, rank apps by tracked usage, and progressively reveal the app list.
+- Updated dependencies [e29fee8]
+- Updated dependencies [cef8c06]
+- Updated dependencies
+- Updated dependencies [73c36ce]
+  - @agent-native/toolkit@0.19.4
+
+## 0.33.2
+
+### Patch Changes
+
+- 1466345: Nudge users toward their host agent chat from prompt popovers and shared
+  sidebar surfaces.
+- 9c3eded: Keep the Dispatch Open app action usable for mounted web apps.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [760d108]
+  - @agent-native/toolkit@0.19.3
+
 ## 0.33.1
 
 ### Patch Changes
@@ -854,23 +899,5 @@
 - d3f8794: Restrict shared Vault values and mutations to workspace owners and admins while keeping safe key requests available to members.
 - Updated dependencies [d3f8794]
   - @agent-native/toolkit@0.13.3
-
-## 0.17.6
-
-### Patch Changes
-
-- abb0cf5: Use canonical semantic settings routes for Dispatch team navigation.
-
-## 0.17.5
-
-### Patch Changes
-
-- 158965b: Report unauthorized thread-debug source access as a client-safe 403 instead of a server error.
-
-## 0.17.4
-
-### Patch Changes
-
-- 2765110: Restore the transactional email catalog and Brand Kit named-token public surfaces.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -441,7 +441,7 @@ export default function Index() {
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
   const workspaceDesignSystemId =
-    workspaceDesignSystem && !workspaceDesignSystem.unavailable
+    workspaceDesignSystem && workspaceDesignSystem.status === "available"
       ? workspaceDesignSystem.id
       : null;
   const lastUsedDesignSystemId =

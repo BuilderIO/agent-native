@@ -17,6 +17,10 @@ describe("list-agent-engines", () => {
     vi.doMock("../../settings/index.js", () => ({
       getSetting: vi.fn().mockResolvedValue(null),
     }));
+    vi.doMock("../../oauth-tokens/store.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../oauth-tokens/store.js")>()),
+      getOAuthTokens: vi.fn().mockResolvedValue(null),
+    }));
     vi.doMock("../../agent/app-model-defaults.js", () => ({
       getAgentAppModelDefaultForCurrentRequest: vi.fn().mockResolvedValue(null),
     }));
@@ -93,6 +97,19 @@ describe("list-agent-engines", () => {
         (engine: any) => engine.name === "ai-sdk:missing-provider",
       )?.packageInstalled,
     ).toBe(false);
+  });
+
+  it("pairs the fallback provider with its own default model", async () => {
+    const { getAgentEngineEntry } = await import("../../agent/engine/index.js");
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(await run());
+
+    expect(result.current).toEqual({
+      engine: "anthropic",
+      model: getAgentEngineEntry("anthropic")?.defaultModel,
+    });
+    expect(result.current.model).toMatch(/^claude-/);
   });
 
   it("does not report AGENT_ENGINE as current when only blocked hosted deploy credentials exist", async () => {

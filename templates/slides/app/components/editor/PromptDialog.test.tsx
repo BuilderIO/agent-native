@@ -137,6 +137,7 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 }));
 
 import PromptPopover, {
+  addInlineImageFallbacks,
   createPromptChatAttachments,
   isInsidePortaledLayer,
   uploadPromptFiles,
@@ -223,6 +224,56 @@ describe("createPromptChatAttachments", () => {
       },
     ]);
   });
+
+  it("does not add a duplicate file descriptor for uploaded images", async () => {
+    await expect(
+      createPromptChatAttachments(
+        [
+          {
+            name: "team.png",
+            contentType: "image/png",
+            file: new File(["image"], "team.png", { type: "image/png" }),
+          },
+        ],
+        [
+          {
+            path: "uploads/team.png",
+            url: "https://cdn.example.test/team.png",
+            originalName: "team.png",
+            filename: "team.png",
+            type: "image/png",
+            size: 5,
+          },
+        ],
+      ),
+    ).resolves.toEqual([]);
+  });
+});
+
+describe("addInlineImageFallbacks", () => {
+  it("uses inline bytes only when the provider did not return a URL", async () => {
+    const file = new File(["image"], "team.png", { type: "image/png" });
+    const uploaded = {
+      path: "uploads/team.png",
+      url: "https://cdn.example.test/team.png",
+      dataUrl: "data:image/png;base64,aW1hZ2U=",
+      originalName: "team.png",
+      filename: "team.png",
+      type: "image/png",
+      size: 5,
+    };
+
+    await expect(addInlineImageFallbacks([file], [uploaded])).resolves.toEqual([
+      {
+        path: "uploads/team.png",
+        url: "https://cdn.example.test/team.png",
+        originalName: "team.png",
+        filename: "team.png",
+        type: "image/png",
+        size: 5,
+      },
+    ]);
+  });
 });
 
 describe("isInsidePortaledLayer", () => {
@@ -300,7 +351,7 @@ describe("uploadPromptFiles", () => {
     );
   });
 
-  it("adds image bytes for the current turn while preserving hosted URLs", async () => {
+  it("keeps hosted images URL-only while adding bytes for unhosted images", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify([
@@ -332,8 +383,8 @@ describe("uploadPromptFiles", () => {
 
     expect(uploads[0]).toMatchObject({
       url: "https://cdn.example.test/hosted.png",
-      dataUrl: expect.stringMatching(/^data:image\/png;base64,/),
     });
+    expect(uploads[0]?.dataUrl).toBeUndefined();
     expect(uploads[1]?.dataUrl).toMatch(/^data:image\/jpeg;base64,/);
   });
 
@@ -408,9 +459,11 @@ describe("uploadPromptFiles", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify(
-          Array.from({ length: 4 }, (_, index) => ({
+          Array.from({ length: 5 }, (_, index) => ({
             path: `uploads/image-${index}.png`,
-            url: `https://cdn.example.test/image-${index}.png`,
+            ...(index === 0
+              ? { url: `https://cdn.example.test/image-${index}.png` }
+              : {}),
             originalName: `image-${index}.png`,
             filename: `image-${index}.png`,
             type: "image/png",
@@ -424,7 +477,7 @@ describe("uploadPromptFiles", () => {
 
     const uploads = await uploadPromptFiles(
       Array.from(
-        { length: 4 },
+        { length: 5 },
         (_, index) =>
           new File([new Uint8Array(600_000)], `image-${index}.png`, {
             type: "image/png",
@@ -433,10 +486,11 @@ describe("uploadPromptFiles", () => {
     );
 
     expect(uploads.filter((file) => file.dataUrl)).toHaveLength(3);
-    expect(uploads[3]).toMatchObject({
-      url: "https://cdn.example.test/image-3.png",
+    expect(uploads[0]?.dataUrl).toBeUndefined();
+    expect(uploads[0]).toMatchObject({
+      url: "https://cdn.example.test/image-0.png",
     });
-    expect(uploads[3]?.dataUrl).toBeUndefined();
+    expect(uploads[4]?.dataUrl).toBeUndefined();
   });
 });
 

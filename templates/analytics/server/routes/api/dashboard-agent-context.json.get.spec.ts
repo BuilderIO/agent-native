@@ -119,6 +119,44 @@ describe("dashboard agent context route", () => {
     });
   });
 
+  it("normalizes persisted SQL dashboard context before serving it", async () => {
+    const row = dashboardRow("public");
+    row.config = JSON.stringify({
+      name: "Revenue",
+      panels: [
+        {
+          id: "table",
+          title: "Old title",
+          sql: "SELECT 0 AS value",
+          source: "first-party",
+          chartType: "metric",
+          width: 1,
+          config: {
+            title: "Revenue by day",
+            sql: "SELECT day, revenue FROM revenue",
+            source: "bigquery",
+            chartType: "table",
+            columns: [{ key: "day" }],
+          },
+        },
+      ],
+    });
+    resultQueue.current = [[row]];
+
+    await (handler as any)({ query: { id: "dashboard-1" } });
+
+    const dashboard = mockBuildDashboardAgentContext.mock.calls[
+      mockBuildDashboardAgentContext.mock.calls.length - 1
+    ]?.[0] as { config: { panels: Array<Record<string, unknown>> } };
+    expect(dashboard.config.panels[0]).toMatchObject({
+      title: "Revenue by day",
+      sql: "SELECT day, revenue FROM revenue",
+      source: "bigquery",
+      chartType: "table",
+      config: { columns: [{ key: "day" }] },
+    });
+  });
+
   it("requires scoped agent access before serving seeded dashboard context", async () => {
     resultQueue.current = [[]];
 

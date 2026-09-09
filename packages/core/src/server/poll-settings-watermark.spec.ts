@@ -53,7 +53,6 @@ function makeState(opts: { settingsMax: number; filteredMax: number }) {
   );
   const state = new AppSyncState({
     getDb: () => ({ execute }) as never,
-    isPostgres: () => false,
   });
   return { state, settingsQueries, max };
 }

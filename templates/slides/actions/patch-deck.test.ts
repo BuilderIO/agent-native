@@ -1,3 +1,4 @@
+import { isAgentActionStopError } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
@@ -219,6 +220,48 @@ describe("applyOperation — patch-slide", () => {
     });
     expect(deck.slides[0].layoutFitRevision).toEqual(expect.any(String));
     expect(deck.slides[0].layoutFitRevision).not.toBe(layoutRevision);
+  });
+
+  it("persists dismissal for human patches and clears it for changed agent layout", () => {
+    const deck = {
+      slides: [
+        {
+          id: "s1",
+          content: "old",
+          layout: "content",
+          layoutWarningDismissed: true,
+        },
+      ],
+    };
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { layoutWarningDismissed: true },
+    });
+    expect(deck.slides[0].layoutWarningDismissed).toBe(true);
+
+    applyOperation(
+      deck,
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { notes: "human note" },
+      },
+      { clearLayoutWarningDismissal: true },
+    );
+    expect(deck.slides[0].layoutWarningDismissed).toBe(true);
+
+    applyOperation(
+      deck,
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: "new layout" },
+      },
+      { clearLayoutWarningDismissal: true },
+    );
+    expect(deck.slides[0].layoutWarningDismissed).toBeUndefined();
   });
 });
 
@@ -505,6 +548,18 @@ describe("source-imported deck structure", () => {
     ).toThrow("patch-deck with rewriteSource=true");
   });
 
+  it("allows structural operations on an editable snapshot", () => {
+    const editableSnapshot = {
+      ...metadata,
+      editableSnapshot: true,
+    };
+    expect(() =>
+      assertSourceImportOperationsPreserved(editableSnapshot, [
+        { op: "add-slide", slideId: "s2", fields: { content: "New" } },
+      ]),
+    ).not.toThrow();
+  });
+
   it("allows an explicit source rewrite", () => {
     expect(() =>
       assertSourceImportOperationsPreserved(
@@ -668,6 +723,21 @@ describe("animation target validation", () => {
           },
         ],
       ),
+    ).toThrow(/reveal-title.*does not resolve/);
+  });
+
+  it("validates animation paths on newly added slides", () => {
+    expect(() =>
+      applyAndValidate({ slides: [] }, [
+        {
+          op: "add-slide",
+          slideId: "s2",
+          fields: {
+            content,
+            animations: [animation({ elementPath: [9, 9] })],
+          },
+        },
+      ]),
     ).toThrow(/reveal-title.*does not resolve/);
   });
 
@@ -856,10 +926,11 @@ describe("animation target validation", () => {
 });
 
 describe("isAgentPatchCaller", () => {
-  it("treats tool, mcp, and a2a callers as agent callers", () => {
+  it("treats tool, mcp, a2a, and webmcp callers as agent callers", () => {
     expect(isAgentPatchCaller("tool")).toBe(true);
     expect(isAgentPatchCaller("mcp")).toBe(true);
     expect(isAgentPatchCaller("a2a")).toBe(true);
+    expect(isAgentPatchCaller("webmcp")).toBe(true);
   });
 
   it("treats the browser editor and unset callers as non-agent", () => {
@@ -887,7 +958,7 @@ describe("patch-deck agent schema", () => {
       (operation: any) => operation.properties?.op?.const === "reorder-slides",
     );
 
-    expect(operations).toHaveLength(4);
+    expect(operations).toHaveLength(5);
     expect(deckFields.properties.fields.properties.title).toMatchObject({
       type: "string",
     });
@@ -1105,6 +1176,51 @@ describe("run() — asynchronous layout fit metadata", () => {
     };
   });
 
+  it.each(["tool", "webmcp"] as const)(
+    "rejects an agent add that would exceed the persisted target for %s callers",
+    async (caller) => {
+      const slides = Array.from({ length: 8 }, (_, index) => ({
+        id: `slide-${index + 1}`,
+        content: `<div>${index + 1}</div>`,
+      }));
+      mockDeckRow!.data = JSON.stringify({
+        title: "Deck",
+        generationContext: { targetSlideCount: 8 },
+        slides,
+      });
+
+      const error = await patchDeckAction
+        .run(
+          {
+            deckId: "deck-1",
+            requireAllSourceSlides: false,
+            operations: [
+              {
+                op: "add-slide",
+                slideId: "slide-9",
+                fields: { content: "<div>9</div>" },
+              },
+            ],
+          },
+          { caller },
+        )
+        .catch((caught: unknown) => caught);
+
+      expect(isAgentActionStopError(error)).toBe(true);
+      expect(error).toMatchObject({
+        name: "AgentActionStopError",
+        errorCode: "target_slide_count_reached",
+        details: {
+          deckId: "deck-1",
+          currentSlideCount: 8,
+          projectedSlideCount: 9,
+          targetSlideCount: 8,
+        },
+      });
+      expect(lastUpdatedDeckData).toBeUndefined();
+    },
+  );
+
   it("returns pending hashes for every content-changed slide", async () => {
     const result = (await patchDeckAction.run(
       {
@@ -1149,6 +1265,42 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(result.layoutOverflow).toBeUndefined();
   });
 
+  it.each(["frontend", "tool"] as const)(
+    "does not persist an unchanged patch for %s callers",
+    async (caller) => {
+      const result = await patchDeckAction
+        .run(
+          {
+            deckId: "deck-1",
+            requireAllSourceSlides: false,
+            operations: [
+              {
+                op: "patch-slide",
+                slideId: "slide-1",
+                fields: { content: "<div>One</div>" },
+              },
+            ],
+          },
+          { caller },
+        )
+        .catch((error: unknown) => error);
+
+      if (caller === "tool") {
+        expect(result).toMatchObject({
+          message: expect.stringContaining("Nothing was written"),
+        });
+      } else {
+        expect(result).toMatchObject({
+          ok: true,
+          applied: false,
+          updatedAt: mockDeckRow!.updatedAt,
+        });
+      }
+      expect(lastUpdatedDeckData).toBeUndefined();
+      expect(mockNotifyClients).not.toHaveBeenCalled();
+    },
+  );
+
   it("broadcasts the changed slide for a single-slide agent patch", async () => {
     await patchDeckAction.run(
       {
@@ -1162,12 +1314,13 @@ describe("run() — asynchronous layout fit metadata", () => {
           },
         ],
       },
-      { caller: "tool" },
+      { caller: "tool", runId: "run-1", turnId: "turn-1" },
     );
 
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
       slideId: "slide-1",
       actor: "agent",
+      agentChangeId: "turn-1",
     });
   });
 
@@ -1241,6 +1394,48 @@ describe("run() — asynchronous layout fit metadata", () => {
     });
   });
 
+  it("clears dismissed overflow warnings for every slide on an agent deck change", async () => {
+    const persistedDeck = {
+      title: "Deck",
+      aspectRatio: "16:9",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>One</div>",
+          layoutWarningDismissed: true,
+        },
+        {
+          id: "slide-2",
+          content: "<div>Two</div>",
+          layoutWarningDismissed: true,
+        },
+      ],
+    };
+    mockDeckRow!.data = JSON.stringify(persistedDeck);
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { aspectRatio: "4:3" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(
+      JSON.parse(lastUpdatedDeckData!).slides.map(
+        (slide: { layoutWarningDismissed?: boolean }) =>
+          slide.layoutWarningDismissed,
+      ),
+    ).toEqual([undefined, undefined]);
+  });
+
   it("does not target a mixed structural batch at one slide", async () => {
     await patchDeckAction.run(
       {
@@ -1281,6 +1476,26 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
 
+  it("reports slide ids that were actually deleted", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [{ op: "delete-slide", slideId: "slide-1" }],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      ok: true,
+      updatedSlideIds: [],
+      deletedSlideIds: ["slide-1"],
+    });
+    expect(JSON.parse(lastUpdatedDeckData!).slides).toEqual([
+      expect.objectContaining({ id: "slide-2" }),
+    ]);
+  });
+
   it("omits layout fit metadata when content was not patched", async () => {
     const result = (await patchDeckAction.run(
       {
@@ -1299,6 +1514,58 @@ describe("run() — asynchronous layout fit metadata", () => {
 
     expect(result.ok).toBe(true);
     expect(result.layoutFit).toBeUndefined();
+  });
+
+  it("clears dismissed overflow warnings only for changed agent layout", async () => {
+    const persistedDeck = {
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>One</div>",
+          layoutWarningDismissed: true,
+        },
+      ],
+    };
+    mockDeckRow!.data = JSON.stringify(persistedDeck);
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Agent update</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+    expect(
+      JSON.parse(lastUpdatedDeckData!).slides[0].layoutWarningDismissed,
+    ).toBeUndefined();
+
+    mockDeckRow!.data = JSON.stringify(persistedDeck);
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Human update</div>" },
+          },
+        ],
+      },
+      {},
+    );
+    expect(
+      JSON.parse(lastUpdatedDeckData!).slides[0].layoutWarningDismissed,
+    ).toBe(true);
   });
 
   it("applies an explicit source rewrite before a structural agent edit", async () => {
@@ -1349,6 +1616,7 @@ describe("run() — asynchronous layout fit metadata", () => {
       ok: true,
       sourceRewritten: true,
       updatedSlideIds: [],
+      deletedSlideIds: ["slide-1"],
     });
     const persisted = JSON.parse(lastUpdatedDeckData!);
     expect(persisted.sourceImport).toBeUndefined();

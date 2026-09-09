@@ -14,10 +14,7 @@ import {
   defineNitroPlugin,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import {
-  deleteAutomationRuns,
-  listAutomationDefinitions,
-} from "@agent-native/core/triggers";
+import { deleteAutomationRuns } from "@agent-native/core/triggers";
 import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
@@ -41,6 +38,7 @@ import {
   type FactoryAutomationTemplateId,
 } from "../lib/factory-automation-config.js";
 import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-repair.js";
+import { listFactoryAutomationDefinitions } from "../lib/factory-automation-resources.js";
 import {
   DEFAULT_FACTORY_ID,
   assignCreatedByIfMissing,
@@ -49,7 +47,6 @@ import {
   factoryAutomationLeafName,
   factoryAutomationRunHistoryKey,
   factoryConfigRowId,
-  readAutomationFactoryId,
   readFactoryIdFromAutomationPath,
   readTriageConfigRow,
   setAutomationFrontmatterField,
@@ -276,11 +273,10 @@ evidence confirms it.
     body: `
 # Factory GitHub issue triage
 
-Read the Factory configuration. When GitHub source polling is enabled and a
-repository is configured, call poll-github-sources with includeIssues true and
-includePullRequests false. List at most 3 new or changed issues by passing
-needsReview true, source github_issue, and limit 3. Never list the full queue or
-use the action's default page size.
+Call poll-github-sources with includeIssues true and includePullRequests false.
+List at most 3 new or changed issues by passing needsReview true, source
+github_issue, and limit 3. Never list the full queue or use the action's default
+page size.
 
 Treat an issue as a clear bug only when it has a concrete error report,
 reproduction, incorrect behavior, regression, or specific failing path. Do
@@ -324,11 +320,10 @@ waives ultra-scary review or the independent-review requirement for changes to
 review/approval policy, agent-safety instructions, membership verification, or
 CI/deployment security controls, and it never authorizes a merge.
 
-Read the Factory configuration. When GitHub polling is enabled and a repository
-is configured, call poll-github-sources with includeIssues false and
-includePullRequests true. List at most 3 new or changed pull requests by
-passing needsReview true, source github, and limit 3. Never list the full queue
-or use the action's default page size.
+Call poll-github-sources with includeIssues false and includePullRequests true.
+List at most 3 new or changed pull requests by passing needsReview true, source
+github, and limit 3. Never list the full queue or use the action's default page
+size.
 
 For each open factory-repository PR, inspect the item and classify whether it is a
 clear bug fix or has product or UX implications. Avoid duplicate review noise
@@ -365,11 +360,10 @@ confirms it.
     body: `
 # Factory PR babysitting
 
-Read the Factory configuration. When GitHub polling is enabled and a repository
-is configured, call poll-github-sources with includeIssues false and
-includePullRequests true. List at most 3 new or changed pull requests by
-passing needsReview true, source github, and limit 3. Never list the full queue
-or use the action's default page size. Each item includes author.
+Call poll-github-sources with includeIssues false and includePullRequests true.
+List at most 3 new or changed pull requests by passing needsReview true, source
+github, and limit 3. Never list the full queue or use the action's default page
+size. Each item includes author.
 
 ${BABYSIT_SCOPE_INSTRUCTION}
 
@@ -609,7 +603,7 @@ export type FactoryAutomationSnapshot = {
 };
 
 export async function listFactoryAutomationResources(
-  ownerEmail: string,
+  _ownerEmail: string,
   orgId: string,
   factoryId: string,
 ): Promise<
@@ -621,24 +615,14 @@ export async function listFactoryAutomationResources(
     enabled: boolean;
   }>
 > {
-  const definitions = await listAutomationDefinitions(
-    { userEmail: ownerEmail, orgId, appId: "factory" },
-    "organization",
-  );
-  return definitions
-    .filter(
-      ({ meta, resource }) =>
-        meta.domain === "factory" &&
-        readAutomationFactoryId(meta, resource.content, resource.path) ===
-          factoryId,
-    )
-    .map(({ resource, name, meta }) => ({
-      id: resource.id,
-      name,
-      path: resource.path,
-      content: resource.content,
-      enabled: meta.enabled,
-    }));
+  const definitions = await listFactoryAutomationDefinitions(orgId, factoryId);
+  return definitions.map(({ resource, name, meta }) => ({
+    id: resource.id,
+    name,
+    path: resource.path,
+    content: resource.content,
+    enabled: meta.enabled,
+  }));
 }
 
 export async function listFactoryAutomationCleanupPaths(

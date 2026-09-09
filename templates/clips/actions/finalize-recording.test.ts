@@ -79,7 +79,6 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: mockDbExecute }),
-  isPostgres: () => false,
 }));
 
 vi.mock("@agent-native/core/event-bus", () => ({
@@ -147,6 +146,10 @@ vi.mock("../server/lib/builder-media-compression.js", () => ({
 vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
   dispatchPostFinalizeJob: (...args: unknown[]) =>
     mockDispatchPostFinalizeJob(...args),
+}));
+
+vi.mock("../server/lib/reconcile-meeting-on-finalize.js", () => ({
+  reconcileMeetingOnRecordingReady: vi.fn(async () => undefined),
 }));
 
 vi.mock("../server/lib/faststart.js", () => ({
@@ -577,6 +580,7 @@ describe("finalize-recording media serve verification", () => {
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready", videoSizeBytes: 2 }),
     );
+    expect(mockUpdateSet).toHaveBeenCalledWith({ thumbnailStatus: "pending" });
     expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
       recordingId: "rec_1",
       kind: "thumbnail",

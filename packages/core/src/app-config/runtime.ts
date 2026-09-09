@@ -5,6 +5,10 @@ export const runtimeConfig = z.object({
     env: "AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME",
     doc: "Run the dedicated Nitro agent-chat response-streaming route used by an AWS Lambda Function URL.",
   }),
+  vercelBranchUrl: z.string().trim().min(1).optional().meta({
+    env: "VERCEL_BRANCH_URL",
+    doc: "Platform-provided Vercel branch URL used to address the current preview deployment.",
+  }),
   databaseUrlUnpooled: z
     .string()
     .trim()

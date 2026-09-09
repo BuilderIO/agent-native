@@ -723,7 +723,7 @@ jobs:
               --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
               --arg dedup_key "agent-native-site-availability" \
               --arg source "${{ github.repository }}" \
-              '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent-Native public site availability recovered", source: $source}}' \
+              '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent-Native public site availability recovered", source: $source, severity: "critical"}}' \
               | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
                   --header 'Content-Type: application/json' \
                   --data-binary @- \

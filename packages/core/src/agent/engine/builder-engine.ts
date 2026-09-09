@@ -11,9 +11,9 @@
  * Interactive users authenticate with Builder OAuth. Existing connections may
  * keep using BUILDER_PRIVATE_KEY + BUILDER_PUBLIC_KEY until they reconnect.
  * When neither is present, credentials come from the gateway lane
- * (`resolveBuilderGatewayCredentials`): the user's own Builder connection,
- * otherwise the deployment's Builder-credits pair. Base URL is overridable
- * via BUILDER_GATEWAY_BASE_URL.
+ * (`resolveBuilderGatewayCredentialsDetailed`): the user's own Builder
+ * connection, otherwise the deployment's Builder-credits pair. Base URL is
+ * overridable via BUILDER_GATEWAY_BASE_URL.
  */
 
 import {
@@ -716,7 +716,13 @@ async function* emitHttpError(
     });
     return;
   }
-  if (status === 403 && isBuilderCredentialAuthError(message)) {
+  if (
+    status === 403 &&
+    ((opts.recordLegacyCredentialFailure === false &&
+      code === "http_403" &&
+      /^(?:forbidden|builder gateway returned 403)$/i.test(message.trim())) ||
+      isBuilderCredentialAuthError(message))
+  ) {
     await recordAuthFailureForCurrentLane({
       recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
       oauthScope: opts.oauthScope,

@@ -2,6 +2,7 @@ import { emit } from "@agent-native/core/event-bus";
 import { getOrgContext, orgMembers } from "@agent-native/core/org";
 import {
   getSession,
+  getAppProductionUrl,
   recordChange,
   readBody,
   runWithRequestContext,
@@ -1832,62 +1833,65 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
   }
 });
 
+export async function cancelBookingById(
+  id: string,
+  origin = getAppProductionUrl(),
+) {
+  if (!id)
+    throw createError({ statusCode: 400, statusMessage: "id is required" });
+
+  const db = getDb();
+  const existing = await db
+    .select()
+    .from(schema.bookings)
+    .where(eq(schema.bookings.id, id))
+    .then((rows) => rows[0]);
+
+  if (!existing) {
+    throw createError({ statusCode: 404, statusMessage: "Booking not found" });
+  }
+
+  // Bookings have no ownerEmail of their own — scope through the booking link.
+  const accessibleLinks = await db
+    .select({ slug: schema.bookingLinks.slug })
+    .from(schema.bookingLinks)
+    .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+  const accessibleSlugs = new Set(accessibleLinks.map((link) => link.slug));
+  if (!accessibleSlugs.has(existing.slug)) {
+    throw createError({ statusCode: 403, statusMessage: "Access denied" });
+  }
+
+  if (existing.status === "cancelled") {
+    return { success: true, alreadyCancelled: true };
+  }
+
+  const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
+  const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
+  const bookAgainUrl = existing.slug
+    ? `${origin}/book/${existing.slug}`
+    : undefined;
+  await sendBookingCancellationEmails({
+    booking: rowToBooking(existing),
+    hostEmail,
+    bookAgainUrl,
+    timeZone: bookingTimeZone,
+  });
+  await deleteGoogleEventForBooking({ booking: existing, hostEmail });
+  await db
+    .update(schema.bookings)
+    .set({ status: "cancelled" })
+    .where(eq(schema.bookings.id, id));
+  recordBookingsChanged(hostEmail);
+  return { success: true };
+}
+
 export const deleteBooking = defineEventHandler(async (event: H3Event) => {
   return requireRequestContext(event, async () => {
     try {
-      const id = getRouterParam(event, "id") as string;
-      const db = getDb();
-
-      const existing = await db
-        .select()
-        .from(schema.bookings)
-        .where(eq(schema.bookings.id, id))
-        .then((rows) => rows[0]);
-
-      if (!existing) {
-        setResponseStatus(event, 404);
-        return { error: "Booking not found" };
-      }
-
-      // Verify the caller has access to the booking link that owns this booking.
-      // Bookings have no ownerEmail of their own — scoping is via the slug →
-      // bookingLink ownership/sharing chain.
-      const accessibleLinks = await db
-        .select({ slug: schema.bookingLinks.slug })
-        .from(schema.bookingLinks)
-        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
-      const accessibleSlugs = new Set(accessibleLinks.map((l) => l.slug));
-
-      if (!accessibleSlugs.has(existing.slug)) {
-        setResponseStatus(event, 403);
-        return { error: "Access denied" };
-      }
-
-      if (existing.status === "cancelled") {
-        return { success: true, alreadyCancelled: true };
-      }
-
-      const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
-      const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
-      const reqUrl = getRequestURL(event);
-      const bookAgainUrl = existing.slug
-        ? `${reqUrl.origin}/book/${existing.slug}`
-        : undefined;
-
-      await sendBookingCancellationEmails({
-        booking: rowToBooking(existing),
-        hostEmail,
-        bookAgainUrl,
-        timeZone: bookingTimeZone,
-      });
-      await deleteGoogleEventForBooking({ booking: existing, hostEmail });
-
-      await db
-        .update(schema.bookings)
-        .set({ status: "cancelled" })
-        .where(eq(schema.bookings.id, id));
-      recordBookingsChanged(hostEmail);
-      return { success: true };
+      return await cancelBookingById(
+        getRouterParam(event, "id") as string,
+        getRequestURL(event).origin,
+      );
     } catch (error: any) {
       setResponseStatus(event, error?.statusCode ?? 500);
       return { error: error.message };

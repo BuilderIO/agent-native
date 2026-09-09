@@ -667,7 +667,7 @@ const FUNNEL_EVENTS_CTE = `WITH signup_identity AS (
   FROM funnel_events e
   JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
 )`;
-const SIGNIFICANT_ACTION_FILTER = `(event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
+const SIGNIFICANT_ACTION_FILTER = `((event_name IN ('action_completed', 'core_action_completed') AND COALESCE(properties::jsonb ->> 'success', 'true') = 'true') OR event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
 const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
   SELECT DISTINCT funnel_user_key
   FROM funnel_events
@@ -743,7 +743,7 @@ const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
     FROM cohort_events e
     WHERE e.funnel_user_key = s.funnel_user_key
       AND s.completed_at IS NOT NULL
-      AND (e.event_name = 'onboarding_app_entered' OR (e.event_name = 'session status' AND e.signed_in = 'true'))
+      AND (e.event_name IN ('app_entered', 'onboarding_app_entered') OR (e.event_name = 'session status' AND e.signed_in = 'true'))
       AND e.timestamp::timestamptz >= s.completed_at
       AND ${FUNNEL_SCOPE_FILTER}
   ) entered ON true

@@ -1,55 +1,19 @@
 /**
  * SQL storage for Yjs collaborative document state.
  *
- * Uses a framework-level `_collab_docs` table (TEXT columns with base64
- * encoding for binary Yjs state) that works across SQLite and Postgres.
+ * Uses a framework-level `_collab_docs` table with base64-encoded binary Yjs
+ * state.
  */
 
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
-type DbExecClient = ReturnType<typeof getDbExec>;
-type DbExecuteArg = Parameters<DbExecClient["execute"]>[0];
-type DbExecuteResult = Awaited<ReturnType<DbExecClient["execute"]>>;
-
-function isSqliteBusyError(error: unknown): boolean {
-  if (isPostgres()) return false;
-  const candidate = error as { code?: unknown; message?: unknown } | null;
-  return (
-    candidate?.code === "SQLITE_BUSY" ||
-    candidate?.code === "SQLITE_BUSY_RECOVERY" ||
-    (typeof candidate?.message === "string" &&
-      /database is locked|SQLITE_BUSY/i.test(candidate.message))
-  );
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function executeWithSqliteRetry(
-  client: DbExecClient,
-  statement: DbExecuteArg,
-): Promise<DbExecuteResult> {
-  const delays = [25, 75, 150, 300, 600];
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await client.execute(statement);
-    } catch (error) {
-      const delay = delays[attempt];
-      if (delay === undefined || !isSqliteBusyError(error)) throw error;
-      await sleep(delay);
-    }
-  }
-}
-
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
-      const nowDefault = isPostgres() ? "NOW()::text" : "datetime('now')";
+      const nowDefault = "NOW()::text";
       const createSql = `
         CREATE TABLE IF NOT EXISTS _collab_docs (
           doc_id TEXT PRIMARY KEY,
@@ -60,29 +24,12 @@ export async function ensureTable(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
-        // PG-guard: probe information_schema first (no lock) and only issue
-        // DDL when the table/column is actually missing, wrapped in a
-        // transaction-scoped lock_timeout so a contended lock fails fast.
-        await ensureTableExists("_collab_docs", createSql);
-        await ensureColumnExists(
-          "_collab_docs",
-          "version",
-          `ALTER TABLE _collab_docs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
-        );
-        return;
-      }
-
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
-      // create-then-additive-alter behaviour.
-      await client.execute(createSql);
-      try {
-        await client.execute(
-          `ALTER TABLE _collab_docs ADD COLUMN version INTEGER NOT NULL DEFAULT 0`,
-        );
-      } catch {
-        // Existing deployments already have the column after the first run.
-      }
+      await ensureTableExists("_collab_docs", createSql);
+      await ensureColumnExists(
+        "_collab_docs",
+        "version",
+        `ALTER TABLE _collab_docs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
+      );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -153,18 +100,16 @@ export async function trySaveYDocState(
   await ensureTable();
   const client = getDbExec();
   const b64 = uint8ArrayToBase64(state);
-  const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
+  const nowExpr = "NOW()::text";
   if (expectedVersion === null) {
-    const result = await executeWithSqliteRetry(client, {
-      sql: isPostgres()
-        ? `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`
-        : `INSERT OR IGNORE INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr})`,
+    const result = await client.execute({
+      sql: `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`,
       args: [docId, b64, textSnapshot],
     });
     return result.rowsAffected > 0;
   }
 
-  const result = await executeWithSqliteRetry(client, {
+  const result = await client.execute({
     sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ? AND version = ?`,
     args: [b64, textSnapshot, docId, expectedVersion],
   });
@@ -180,22 +125,20 @@ export async function saveYDocState(
   await ensureTable();
   const client = getDbExec();
   const b64 = uint8ArrayToBase64(state);
-  const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
-  const updated = await executeWithSqliteRetry(client, {
+  const nowExpr = "NOW()::text";
+  const updated = await client.execute({
     sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ?`,
     args: [b64, textSnapshot, docId],
   });
   if (updated.rowsAffected > 0) return;
 
-  const inserted = await executeWithSqliteRetry(client, {
-    sql: isPostgres()
-      ? `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`
-      : `INSERT OR IGNORE INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr})`,
+  const inserted = await client.execute({
+    sql: `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`,
     args: [docId, b64, textSnapshot],
   });
   if (inserted.rowsAffected > 0) return;
 
-  await executeWithSqliteRetry(client, {
+  await client.execute({
     sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ?`,
     args: [b64, textSnapshot, docId],
   });

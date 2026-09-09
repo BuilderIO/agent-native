@@ -33,6 +33,7 @@ The script generates a unique ID, creates a URL slug, and stores the form in SQL
 | `date`        | Date picker                    | No             | Birthday, deadline    |
 | `rating`      | Star rating (1-5)              | No             | Satisfaction, quality |
 | `scale`       | Numeric scale (e.g., 1-10)     | No             | NPS, likelihood       |
+| `file`        | File upload                    | No             | Resume, attachment    |
 
 ## Field JSON Schema
 
@@ -79,6 +80,7 @@ field `id` so they cannot be ambiguous.
 - `validation` — min/max/pattern/message for custom validation
 - `conditional` — show field only when another field matches a condition
 - `width` — `"full"` (default) or `"half"` for side-by-side layout
+- `multiple`, `accept`, `maxSizeBytes`, `maxFiles` — file upload settings for `file` fields
 
 ## Updating a Form
 

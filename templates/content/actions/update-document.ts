@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
@@ -36,6 +37,10 @@ import {
   setFavoriteMembership,
 } from "./_content-favorites.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+} from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
@@ -294,7 +299,7 @@ export function isStaleBuilderImageSourceComponentSave(args: {
 
 export default defineAction({
   description:
-    "Update an existing document's title, content, icon, or favorite status.",
+    "Update an existing document's metadata or browser-owned content. Agents must use get-document followed by edit-document with baseRevision and idempotencyKey for body changes.",
   deferLoading: false,
   publicAgent: {
     expose: true,
@@ -303,7 +308,7 @@ export default defineAction({
     isConsequential: true,
     title: "Update Content Document",
     description:
-      "Delegate a sparse update to an existing Content document while preserving omitted fields.",
+      "Delegate a sparse metadata update to an existing Content document while preserving omitted fields. For body changes, use get-document followed by edit-document with its revision protocol.",
   },
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
@@ -332,8 +337,8 @@ export default defineAction({
     // `updatedAt` instead of a blind overwrite — this is how the browser
     // editor's autosave avoids clobbering a document that a concurrent
     // process (e.g. the Notion auto-pull) updated after the editor's last
-    // snapshot but before this save landed. Agent/CLI callers that omit it
-    // keep today's last-write-wins behavior unchanged.
+    // snapshot but before this save landed. External body edits are rejected
+    // below and must use edit-document's revision and receipt protocol.
     baseUpdatedAt: z
       .string()
       .optional()
@@ -385,6 +390,21 @@ export default defineAction({
   ): Promise<DocumentUpdateResponse | DocumentUpdateConflictResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+
+    const isExternalCaller =
+      ctx?.caller === "tool" ||
+      ctx?.caller === "mcp" ||
+      ctx?.caller === "webmcp" ||
+      ctx?.caller === "a2a";
+    if (isExternalCaller && args.content !== undefined) {
+      throw new ActionContractError(
+        "External document body updates require get-document followed by edit-document with baseRevision and idempotencyKey.",
+        {
+          errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
+          statusCode: 400,
+        },
+      );
+    }
 
     // Only surface AI presence for genuine agent invocations (in-app tool loop,
     // sub-agents/A2A → "tool"; external MCP agents → "mcp"). The browser editor
@@ -513,9 +533,11 @@ export default defineAction({
     // caller last reconciled. Guard the write with a compare-and-swap in that
     // case so a concurrent update (e.g. the Notion auto-pull applying a newer
     // remote edit) between the caller's snapshot and this save landing isn't
-    // silently overwritten. Title/icon/favorite-only saves are unaffected —
-    // only a save that's actually changing content is CAS-guarded.
-    const useContentCas = contentChanged && args.baseUpdatedAt !== undefined;
+    // silently overwritten. A recovery may carry unchanged content alongside
+    // a stale title, so supplying content still guards the whole write.
+    // Title/icon/favorite-only requests without content remain unaffected.
+    const useContentCas =
+      args.content !== undefined && args.baseUpdatedAt !== undefined;
 
     if (anyChange) {
       const updates: Record<string, unknown> = {
@@ -526,6 +548,7 @@ export default defineAction({
       if (args.description !== undefined)
         updates.description = args.description.trim();
       if (contentChanged) updates.content = content;
+      if (contentChanged) updates.bodyRevision = existing.bodyRevision + 1;
       if (iconChanged) updates.icon = args.icon;
       let contentCasConflict = false;
       await db.transaction(async (tx) => {
@@ -702,6 +725,12 @@ export default defineAction({
               canManage: canManageRole(access.role),
               createdAt: current.createdAt,
               updatedAt: current.updatedAt,
+              revision: documentRevisionToken(
+                current.bodyRevision,
+                current.content,
+              ),
+              bodyRevision: current.bodyRevision,
+              contentHash: documentContentHash(current.content),
               source: serializeDocumentSource(current),
               softDeletedDatabaseIds: [],
             },
@@ -788,6 +817,9 @@ export default defineAction({
         canManage: canManageRole(access.role),
         createdAt: doc.createdAt,
         updatedAt: doc.updatedAt,
+        revision: documentRevisionToken(doc.bodyRevision, doc.content),
+        bodyRevision: doc.bodyRevision,
+        contentHash: documentContentHash(doc.content),
         contentFidelity: inspectNfmFidelity(doc.content),
         source: serializeDocumentSource(doc),
         softDeletedDatabaseIds,

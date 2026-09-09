@@ -73,7 +73,6 @@ function isUniqueConstraintError(error: unknown): boolean {
         : (JSON.stringify(candidate.message) ?? "");
     if (
       code === "23505" ||
-      code.includes("SQLITE_CONSTRAINT") ||
       /unique constraint|unique violation|duplicate key/i.test(message)
     ) {
       return true;

@@ -22,69 +22,72 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply**, under a hard question budget, then recap.
 
-The sweep's output is fixes. Slack replies are a side effect of having
-something worth saying, never the unit of work. A run that fixes two bugs and
-posts three messages beats a run that posts thirty.
+Output is fixes; reply only when informative. Two fixes and three messages
+beats thirty replies.
 
 ## Phase 0: claim what you are taking
 
-Other agents work this channel concurrently, so an unclaimed report is one
-someone else is about to start investigating. The eye is a lock, not a
-bookmark, and a lock taken after the work is worthless.
+Other agents work concurrently. The eye is a temporary work lock: keep it only
+while investigating, fixing, or waiting on one targeted detail.
 
-Enumerate with `slack_read_channel` from newest backwards, following its
-`next_cursor` until you reach a parent already carrying your `👀` or one older
-than 5 days — that is the window. Record its oldest timestamp as the recap's
-start cursor. Classify from **parent-level evidence only**: message text,
-attachments, reactions. Do not open threads or investigate yet.
+**Defects are in scope: fix them or ask for the one detail needed to fix them.**
+Failure to reproduce means ask, not close; state what you tried and request one
+unblocker - request id, time, screenshot, account, or URL.
 
-**`slack_search` is not a scan.** It ranks and truncates, so a channel-plus-date
-query returns a subset and never promises every message. A run that used search
-as its only cursor missed six clear bugs, including a data-loss report — "undo
-made all my slides blank", with clip and run id attached. Search finds known
-things: prior replies, your eyes, repeat symptoms. Enumeration is the channel
-read; put its count in the recap.
+Use **Skipped** only for non-defects: feature requests, enhancements, or
+subjective preferences. Breakage is never skipped. **Open - no reply** is a last
+resort after working the defect and finding neither a fix nor a useful question;
+document why.
+
+Release your eye for every terminal disposition: **Fixed**, **Shipped**,
+**Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**, or
+**Abandoned - no answer in 4 days**. Only **In progress** and pending
+**Clarification needed** retain it. **Clustered** is terminal for a duplicate
+row that is not the single owning investigation.
+
+**Releasing means add `✅`, not delete `👀`.** Slack exposes
+`add_reaction`/`get_reactions`, not removal, so `✅` is the durable release
+marker. Only `👀` without it is open, matching the Phase 1 cursor.
+
+Release only this workflow's eye. A foreign workflow eye is ownership, even
+stale: do not release, duplicate, or reply over it. Record **Owned elsewhere**
+and leave it for handoff; preserve it as a blocker when needed.
+
+Enumerate `slack_read_channel` newest backward through `next_cursor` until a
+parent has your open `👀` without `✅`, or is older than 5 days. Use its oldest
+timestamp as the recap cursor. Classify from parent text, attachments, and
+reactions; do not open threads yet.
+
+**`slack_search` is not a scan.** It ranks and truncates. Use channel reads for
+enumeration and put their count in the recap; use search for known things such
+as prior replies, eyes, and repeat symptoms.
 
 A channel read returns parents, so use its timestamps directly; *search* hits
 are usually replies, so resolve those through the permalink `thread_ts` first.
 
-Then add `👀` from the invoking identity to every item you intend to tackle,
-and read reactions back before deep reads. A run that claims one of seven
-actionable reports has left six for a peer to duplicate. Parents that already
-carry your eye join the carried-over worklist;
-do not add a second reaction.
+Add `👀` to every intended item and read reactions back before investigation.
+Claim all actionable reports, including carried-over parents, without adding a
+second reaction.
 
-Claiming is not working: Phase 0 only marks what you will take, never
-investigates or replies, so it does not preempt the rule that older open
-questions come before newer reports.
+Claiming only marks work; it does not investigate or reply, so older open
+questions still outrank newer reports.
 
-Phase 1's searches reach back past this window, so they surface parents the
-channel scan never saw. Claim those the same way the moment they enter the
-worklist — eye first, read back, then investigate. Claim-before-investigation
-applies to every item you work, not only to the ones the scan found.
+Phase 1 searches reach past this window. Claim search-discovered work when it
+enters the worklist - eye first, read back, then investigate.
 
-Claim generously and correct cheaply: if a deeper read shows an item is out of
-scope or already owned, remove the eye. A retracted eye costs nothing; an hour
-of duplicated investigation costs two agents. If the reaction write or
-read-back fails, record the item as unavailable and stop working it — never
-proceed on an unverified claim.
+Claim generously, correct cheaply: release out-of-scope work with `✅`; record
+foreign ownership and leave its eye; stop on an unverified reaction.
 
-**Never end a run holding a claim you did not work.** This includes carried-over
-eyes: give each a disposition or remove it. An eye with
-nobody behind it is worse than none — peers read it as owned and skip it. One
-run left six eyed and unworked, a data-loss report among them, then rotated
-off its branch; all six looked handled.
+**Never end with an unworked claim.** Give carried-over eyes a disposition or
+release them with `✅`; peers treat an unexplained eye as owned.
 
-**The eye means "I have this," not "I owe you a message."** It carries no
-reply obligation — that coupling is what produced 23 questions in one hour.
-Every item gets a recap row; carried-over claims count there too, and only some
-get a Slack reply.
+**The eye means "I have this," not "I owe you a message."** Every item gets a
+recap row; only informative outcomes get a reply, and terminal outcomes release
+the eye.
 
-Claim only what the classification rules below put in scope, with one
-clarification: "duplicate" means the same message twice, a re-post or
-cross-post. **A fresh report of a symptom we already answered is not a
-duplicate; it is the repeat signal.** Claim and cluster it so Phase 2's repeat
-gate can run. Skipping it is how a failed fix stays believed.
+Claim what the classification rules put in scope. A duplicate is the same
+message, repost, or cross-post. **A fresh symptom after an answer is a repeat:**
+claim and cluster it so Phase 2 can test the prior fix.
 
 ## Phase 1: answer the people who answered you
 
@@ -122,8 +125,12 @@ Also search for the invoking identity's eye-marked parents before applying the
 disclosure filter:
 
 ```
-slack_search: hasmy:eyes in:<#CHANNEL>
+slack_search: hasmy::eyes: -hasmy::white_check_mark: in:<#CHANNEL>
 ```
+
+The emoji-delimited modifiers are required. They scope the search to messages
+with the connected identity's eye and without its release marker. Do not
+replace them with emoji text searches.
 
 The test for "answered" is mechanical: **did a person speak after your
 question?** Someone counts when their message carries no disclosure marker —
@@ -152,11 +159,11 @@ finished.
 
 Then identify the latest disposition from
 this workflow or its companion. Keep every unanswered **Clarification needed**
-question in the pending-question set until it is answered, explicitly
-resolved, or aged out at four days. **Fixed**, **Shipped**, and **In progress**
-are not pending questions. Treat **Open - no reply** as terminal only for an
-eye-only item with no outstanding clarification; it never replaces an
-unanswered clarification question that is still inside its four-day window.
+question in the pending-question set until it is answered, explicitly resolved,
+or aged out at four days. **Fixed**, **Shipped**, and **In progress** are not
+pending questions. **Open - no reply** cannot replace an unanswered
+clarification. Apply the Phase 0 release contract to every terminal state; a
+non-owning **Clustered** row releases its eye too.
 
 Only an unanswered **Clarification needed** thread enters the age branches
 below — never one whose latest reply is **Fixed**, **Shipped**, or **In
@@ -170,14 +177,14 @@ unanswered clarification, restore it to the pending set.
   An answer that the issue is already resolved, fixed elsewhere, or not ours —
   a linked PR, "not a Clips issue" — is still an answer. Close it as
   **Resolved elsewhere** (terminal, and distinct from **Skipped**, which means
-  out of scope): remove the `👀`, name who resolved it and where, post
-  nothing. Removing the eye is what makes the closure durable, or the next
-  run's `hasmy:eyes` resurfaces it as unfinished forever.
+  out of scope): release the `👀` with `✅`, name who resolved it and where, post
+  nothing. Adding `✅` is what makes the closure durable, or the next run's
+  open-claim cursor resurfaces it as unfinished forever.
 - **No answer, posted under 4 days ago** → leave it. Post nothing. A second
   message is a nag, not a follow-up.
 - **No answer, posted over 4 days ago** → the question failed. Drop it
-  silently: no reminder, no re-ask, no new reaction. Remove the `👀` and record
-  **Abandoned - no answer in 4 days**, which is a terminal ledger disposition
+  silently: no reminder, no re-ask, no new reaction. Release the `👀` with
+  `✅` and record **Abandoned - no answer in 4 days**, which is a terminal ledger disposition
   ranking with **Fixed** and **Open - no reply** — an expired thread keeps no
   eye and owes no reply, in this workflow or a standalone companion run. If the
   bug still matters, carry it forward as an internal investigation with no
@@ -278,13 +285,12 @@ people would prefer. Ship the smallest version that delivers the endorsed
 improvement, and let the reporter react to something real.
 
 For every authorized upvoted improvement, add `👀` before investigation or
-delegation and read the reaction back. Audit it in the same ledger as a clear
-bug, using **Shipped** or **Open - no reply** as its terminal disposition.
-This is the required eye-reaction procedure for upvoted improvements, not an
-optional reminder.
+delegation and read it back. Audit it with the clear-bug ledger, using
+**Shipped** or **Open - no reply** as terminal dispositions; the Phase 0 release
+contract applies.
 
-Phase 0 already claimed these with `👀`. If an earlier run eyed something out
-of scope, remove the reaction; do not post a compensating message.
+Phase 0 already claimed these with `👀`. If this workflow earlier eyed
+something out of scope, release it with `✅`; do not post a compensating message.
 
 Run an unbounded reaction search across identities as well:
 
@@ -292,11 +298,11 @@ Run an unbounded reaction search across identities as well:
 slack_search: has:reaction in:<#CHANNEL>
 ```
 
-Read each matching parent and its reaction metadata, retaining `👀` from any
-valid workflow identity — `hasmy:eyes` optimizes the current identity's scan
-but is never the only cursor. An eye-only clear bug or upvoted improvement
-stays in the worklist until it reaches a terminal disposition, rediscovered
-through that durable marker rather than dropping out with the scan window.
+Read each matching parent and its reaction metadata. Use other valid workflow
+identities' eyes only to detect **Owned elsewhere**; leave those items out of
+your worklist. The `hasmy::eyes: -hasmy::white_check_mark:` cursor optimizes the
+current identity's scan but is never the only cursor. Keep your active claims in the worklist until a verified fix,
+targeted clarification, or Phase 0 release.
 
 Group repeat symptoms into one cluster with one owning investigation; the
 repeat gate in Phase 2 owns how they are worked.
@@ -407,9 +413,10 @@ have. Three kinds qualify:
   PR, a person actively working it). Acknowledge it; ask nothing.
 - **A question** — subject to the budget below.
 
-Everything else gets an eye, an internal recap row, and **no message**.
-Silence is a valid disposition. A clear bug you investigated and could not
-crack is recorded internally as open, not broadcast as a status update.
+Everything else gets an internal recap row and **no message**. Follow the Phase
+0 contract for the eye. A defect you could not fix earns a question, not
+silence; record **Open - no reply** only when no question would unblock it, and
+do not message merely to hand off.
 Never post the same sentence into multiple threads: if three reports share one
 cause, reply in one and record the rest as clustered.
 
@@ -418,16 +425,8 @@ working it, stay out — do not narrate over someone mid-conversation.
 
 ### The question budget
 
-**At most three questions per run, across all sources.** This is a hard cap,
-not a target. Most runs should ask zero or one.
-
-The cap exists because the yield was measured. Sweeps asking one or two sharp,
-thread-specific follow-ups got 7 of 8 answered, median 6.6 minutes. The
-2026-09-01 sweep asked 23 templated questions in an hour and had 1 answer half
-an hour later, and three of the 23 asked for something already attached to the
-parent. Volume is not coverage: it spends the channel's willingness to answer
-on the questions that did not matter, and the ones that did go unanswered with
-them.
+**At most three questions per run, across all sources.** Most runs ask zero or
+one.
 
 So rank before you ask. For each candidate, state: *if I get this answer, I
 can ship the fix.* Ask the three with the strongest answer. If fewer than
@@ -522,7 +521,7 @@ not shipping blockers.
 ## Recap
 
 Every item inspected gets a row, including ones you deliberately stayed silent
-on — that is how silence stays auditable.
+on - that is how silence stays auditable.
 
 ```md
 ## Feedback sweep
@@ -532,17 +531,19 @@ Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Source / item | Disposition | Replied? | Why and evidence |
-| --- | --- | --- | --- |
-| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Resolved elsewhere / Skipped / Abandoned - no answer in 4 days | yes / no | ... |
+| Source / item | Disposition | Replied? | Eye | Why and evidence |
+| --- | --- | --- | --- | --- |
+| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Resolved elsewhere / Skipped / Abandoned - no answer in 4 days / Owned elsewhere | yes / no | held by me / held by other / released with `✅` | ... |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Unavailable or unverified: ...
 ```
 
-`Open - no reply` is a success state when the item is genuinely blocked on
-investigation rather than on the reporter. "Nothing matched" is valid only
-after each source was queried successfully, with the cursor stated.
+`Open - no reply` is a last resort, not a success state. It requires that you
+worked the defect, could not fix it, and could not form a question that would
+unblock it; a run whose ledger is mostly `Open - no reply` has under-asked, not
+finished. It always means the eye was released with `✅`. "Nothing matched" is valid only after each
+source was queried successfully, with the cursor stated.
 
 ## Related skills
 

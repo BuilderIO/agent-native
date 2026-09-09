@@ -43,6 +43,7 @@ import { getAppConfig } from "../app-config/index.js";
 import {
   getState,
   putState,
+  compareAndSetState,
   deleteState,
   listComposeDrafts,
   getComposeDraft,
@@ -56,6 +57,7 @@ import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import {
   getDbExec,
   isProductionServerlessFunctionRuntime,
+  type DbExec,
 } from "../db/client.js";
 import {
   getDatabaseRuntimeFingerprint,
@@ -79,7 +81,10 @@ import {
   handleMcpOAuthProtectedResourceMetadata,
 } from "../mcp/oauth-route.js";
 import { MCP_ROUTE_PREFIXES } from "../mcp/route-paths.js";
-import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
+import {
+  isSlackWebhookConfigured,
+  registerBuiltinNotificationChannels,
+} from "../notifications/channels.js";
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { getOrgContext } from "../org/context.js";
 import { createProgressHandler } from "../progress/routes.js";
@@ -207,6 +212,11 @@ import {
   readDeployCredentialEnv,
   resolveSecret,
 } from "./credential-provider.js";
+import {
+  readDatabaseIdentity,
+  resolveRunningAppIdentity,
+  type DatabaseIdentityReadResult,
+} from "./database-identity.js";
 import { probeDbPressure, type DbPressure } from "./db-pressure.js";
 import {
   resolveDeployEnvironment,
@@ -553,11 +563,32 @@ export interface DbHealthProbeResult {
   database: {
     configured: boolean;
     source: string;
-    dialect: string;
     urlHash?: string;
+    /** Pooler-agnostic identity of the physical database — see getDatabaseRuntimeFingerprint(). */
+    fingerprint?: string;
     appName?: string;
-    authTokenConfigured: boolean;
     netlifyDatabaseUrlConfigured: boolean;
+    /**
+     * Which app first recorded owning this database (the `beta.<app>`/`<app>`
+     * pair share one). Present only when `db` is true — the read reuses the
+     * connection the `SELECT 1` above just confirmed. `"timeout"` is its own
+     * state distinct from `"unreadable"`: a hung read must never be reported
+     * as "nothing recorded".
+     */
+    identity?: DatabaseIdentityReadResult | { state: "timeout" };
+    /**
+     * True only when `identity.state === "recorded"` and the recorded app
+     * differs from the app running this probe. Every other identity state
+     * reports `false` — "not confirmed mismatched", never "confirmed
+     * matching".
+     */
+    identityMismatch?: boolean;
+    /**
+     * What this runtime believes its own app is (`app.slug ?? app.id`), or
+     * `null` when the bundle cannot derive one. A null here is why a
+     * mismatch cannot be claimed, and is itself a finding worth reading.
+     */
+    runningApp?: string | null;
   };
   /**
    * Hosted-realtime wiring, so a deploy can be verified without signing in.
@@ -721,13 +752,46 @@ export async function runDbHealthProbe(
       exec: dbExec as ReturnType<typeof getDbExec>,
     });
   }
+  // Same bounded-read pattern as the `SELECT 1` above, and reuses this exact
+  // connection rather than letting the settings store open its own — the
+  // whole reason a mispointed database went unnoticed for 12 days is that
+  // nothing reads this on the hot path. `"timeout"` is its own state,
+  // returned distinctly from `withHealthDeadline`'s fallback below: a hung
+  // read must never be reported as "nothing recorded".
+  let identity: DatabaseIdentityReadResult | { state: "timeout" } | undefined;
+  let identityMismatch: boolean | undefined;
+  let runningApp: string | null | undefined;
+  if (db) {
+    identity = await withHealthDeadline<
+      DatabaseIdentityReadResult | { state: "timeout" }
+    >(
+      readDatabaseIdentity(dbExec as DbExec).catch(
+        (err): DatabaseIdentityReadResult => ({
+          state: "unreadable",
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      ),
+      { state: "timeout" as const },
+    );
+    // Only "recorded" can ever prove a mismatch — the other three states mean
+    // the check couldn't confirm one, not that it confirmed there wasn't.
+    // And only a KNOWN running identity can disagree with the recorded one:
+    // a hosted bundle that cannot derive its own slug/id must report the gap
+    // (`runningApp: null`), not a mismatch that blocks every production
+    // cutover — which is exactly what the first crm promotion did.
+    runningApp = resolveRunningAppIdentity();
+    identityMismatch =
+      identity.state === "recorded" &&
+      runningApp !== null &&
+      identity.app !== runningApp;
+  }
   const database = getDatabaseRuntimeFingerprint();
   // Measured on the connection `SELECT 1` just warmed, so the number reflects
   // the database's own load rather than a serverless cold start.
   let pressure: DbPressure | undefined;
   if (options.pressure) {
     pressure = db
-      ? await probeDbPressure(dbExec, database.dialect, { trivialQueryMs })
+      ? await probeDbPressure(dbExec, { trivialQueryMs })
       : { measured: false, reason: "database unreachable" };
   }
   // Same deadline, same reason as the `SELECT 1` above. `resolveRealtimeHealth`
@@ -751,11 +815,11 @@ export async function runDbHealthProbe(
     database: {
       configured: database.configured,
       source: database.source,
-      dialect: database.dialect,
       urlHash: database.urlHash,
+      fingerprint: database.fingerprint,
       appName: database.appName,
-      authTokenConfigured: database.authTokenConfigured,
       netlifyDatabaseUrlConfigured: database.netlifyDatabaseUrlConfigured,
+      ...(identity ? { identity, identityMismatch, runningApp } : {}),
     },
     ...(schema ? { schema } : {}),
     ...(pressure ? { pressure } : {}),
@@ -1600,6 +1664,38 @@ export function shouldRunCoreRouteBootDatabaseWork(
   return !isProductionServerlessFunctionRuntime(env);
 }
 
+export function getBuilderConnectErrorDisposition(
+  error: unknown,
+  connectAttemptId: string | null,
+): "correlated" | "legacy" | null {
+  if (!error || typeof error !== "object" || !("message" in error)) {
+    return null;
+  }
+  const attemptId = "attemptId" in error ? error.attemptId : undefined;
+  if (typeof attemptId === "string") {
+    return attemptId === connectAttemptId ? "correlated" : null;
+  }
+  return "legacy";
+}
+
+export function getBuilderConnectErrorKey(
+  ownerEmail: string,
+  connectAttemptId: string | null = null,
+): string {
+  return connectAttemptId
+    ? `builder-connect-error:${ownerEmail}:${connectAttemptId}`
+    : `builder-connect-error:${ownerEmail}`;
+}
+
+function getBuilderConnectErrorCleanupKeys(
+  ownerEmail: string,
+  connectAttemptId: string | null,
+): string[] {
+  const legacyKey = getBuilderConnectErrorKey(ownerEmail);
+  const attemptKey = getBuilderConnectErrorKey(ownerEmail, connectAttemptId);
+  return attemptKey === legacyKey ? [legacyKey] : [attemptKey, legacyKey];
+}
+
 /**
  * Creates a Nitro plugin that mounts all standard agent-native framework routes.
  *
@@ -1772,6 +1868,8 @@ export function createCoreRoutesPlugin(
       excludedPaths: [
         `${FRAMEWORK_ROUTE_PREFIX}/ping`,
         `${FRAMEWORK_ROUTE_PREFIX}/health`,
+        `${FRAMEWORK_ROUTE_PREFIX}/identity`,
+        `${FRAMEWORK_ROUTE_PREFIX}/embed/start`,
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
     });
@@ -1780,6 +1878,8 @@ export function createCoreRoutesPlugin(
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
         ...(!options.disablePing ? [`${P}/ping`] : []),
         ...(!options.disableHealth ? [`${P}/health`] : []),
+        `${P}/identity`,
+        ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
       ]);
 
       // Keep the framework-owned S3-compatible provider available even when an
@@ -1848,37 +1948,82 @@ export function createCoreRoutesPlugin(
       if (!options.disableHealth) {
         // Registered before `/health` because h3 matches by prefix, and the
         // health handler would otherwise swallow this path.
+        // Resolved once per process — the deployment's own CONFIGURED
+        // canonical origin (never the current request's), so a probe result
+        // can't be spoofed via a Host header, and matches what the callback
+        // route itself builds (resolveOAuthRedirectUri / getAppUrl) for the
+        // default sign-in callback path.
+        const googleHealthOrigin = await (async () => {
+          try {
+            const { getAppProductionUrl } = await import("./app-url.js");
+            return getAppProductionUrl();
+          } catch (err) {
+            console.warn(
+              "[health] could not resolve configured origin for Google redirect URI probe:",
+              err,
+            );
+            return undefined;
+          }
+        })();
         getH3App(nitroApp).use(
           `${P}/health/google`,
           defineEventHandler(async (event) => {
             setResponseHeader(event, "cache-control", "no-store");
-            const result =
-              event.url?.searchParams.get("client") === "managed"
-                ? googleOAuthManagedConnection === "not_applicable"
+            const googleRedirectUri = googleHealthOrigin
+              ? `${googleHealthOrigin}${googleOAuthCallbackPaths[0]}`
+              : undefined;
+            const isManaged =
+              event.url?.searchParams.get("client") === "managed";
+            const result = isManaged
+              ? googleOAuthManagedConnection === "not_applicable"
+                ? {
+                    status: "unconfigured" as const,
+                    clientId: null,
+                    mismatchedPairs: false,
+                    credentialSource: "none" as const,
+                    reason:
+                      "this app does not expose deployment-level Google OAuth",
+                    redirectUriStatus: "unknown" as const,
+                    redirectUri: null,
+                    checkedAt: Date.now(),
+                  }
+                : googleOAuthCredentialMode === "user"
                   ? {
                       status: "unconfigured" as const,
                       clientId: null,
                       mismatchedPairs: false,
-                      credentialSource: "none" as const,
+                      credentialSource: "user" as const,
                       reason:
-                        "this app does not expose deployment-level Google OAuth",
+                        "user-scoped OAuth credentials are checked after authentication",
+                      redirectUriStatus: "unknown" as const,
+                      redirectUri: null,
                       checkedAt: Date.now(),
                     }
-                  : googleOAuthCredentialMode === "user"
-                    ? {
-                        status: "unconfigured" as const,
-                        clientId: null,
-                        mismatchedPairs: false,
-                        credentialSource: "user" as const,
-                        reason:
-                          "user-scoped OAuth credentials are checked after authentication",
-                        checkedAt: Date.now(),
-                      }
-                    : await checkGoogleManagedCredential()
-                : await checkGoogleSignInCredential();
+                  : await checkGoogleManagedCredential({
+                      redirectUri: googleRedirectUri,
+                    })
+              : await checkGoogleSignInCredential({
+                  redirectUri: googleRedirectUri,
+                });
             // `invalid` is the fleet-wide outage shape: the deploy is up and
-            // healthy while nobody can sign in. Page on it.
-            if (result.status === "invalid") setResponseStatus(event, 503);
+            // healthy while nobody can sign in. Page on it. A registered
+            // client/secret with a mismatched redirect URI is the same
+            // outage from the browser's side — Google rejects the callback
+            // before this app ever sees a code — so page on that too. Gate
+            // the managed pair's mismatch on managedConnection === "required":
+            // an app that only declares managed OAuth as optional/unknown may
+            // legitimately have no redirect URI registered for it yet.
+            //
+            // NOTE: mismatchedPairs:true together with
+            // redirectUriStatus:"registered" is the EXPECTED shape for
+            // managedConnection:"required" apps that intentionally run
+            // sign-in and managed workspace OAuth as two different Google
+            // clients — never page on mismatchedPairs alone.
+            const shouldPage =
+              result.status === "invalid" ||
+              (result.redirectUriStatus === "mismatched" &&
+                (!isManaged || googleOAuthManagedConnection === "required"));
+            if (shouldPage) setResponseStatus(event, 503);
             return {
               ...result,
               callbackPaths: googleOAuthCallbackPaths,
@@ -1887,6 +2032,24 @@ export function createCoreRoutesPlugin(
             };
           }),
         );
+        // Resolved once per process, not per request — this is the
+        // deployment's own CONFIGURED canonical host (env var / first-party
+        // template prodUrl / platform-injected URL), never the current
+        // request's origin, or a mismatch could never be observed.
+        const healthBaseUrlHost = await (async () => {
+          try {
+            const { getAppProductionUrl } = await import("./app-url.js");
+            return (
+              new URL(getAppProductionUrl()).hostname.toLowerCase() || undefined
+            );
+          } catch (err) {
+            console.warn(
+              "[health] could not resolve configured base URL host:",
+              err,
+            );
+            return undefined;
+          }
+        })();
         getH3App(nitroApp).use(
           `${P}/health`,
           defineEventHandler(async (event) => {
@@ -1906,8 +2069,194 @@ export function createCoreRoutesPlugin(
               pressure,
             });
             if (strict && !result.ready) setResponseStatus(event, 503);
-            return result;
+            const requestHost =
+              getRequestURL(event).hostname.toLowerCase() || undefined;
+            return {
+              ...result,
+              auth: {
+                baseUrlHost: healthBaseUrlHost,
+                requestHost,
+                hostMismatch: Boolean(
+                  healthBaseUrlHost &&
+                  requestHost &&
+                  healthBaseUrlHost !== requestHost,
+                ),
+              },
+              // Informational only — an unconfigured webhook never fails
+              // health. It answers "would the next chat outage page anyone",
+              // since chat-health-alert.ts silently no-ops without it.
+              alerts: {
+                chatHealthSlackWebhookConfigured: isSlackWebhookConfigured(),
+              },
+            };
           }),
+        );
+      }
+
+      // Security headers, CORS, and the workspace-app handshake routes
+      // (`/identity`, `/embed/start`) are registered here, before
+      // `awaitBootstrap`, on the same precedent as `/ping` and `/health`
+      // above: a cold function makes the desktop/mobile shell's embed
+      // handshake wait on the whole DB-dependent bootstrap chain below for
+      // no reason, when nothing here needs it — only lazy singletons
+      // (getDbExec, getBetterAuth, getAppConfig, readCorsAllowedOrigins)
+      // that initialize on first use. h3 dispatches middleware in
+      // registration order, so security headers and CORS must be mounted
+      // before these routes, not after.
+
+      // Security response headers — emitted on every framework response.
+      // Mounted before route handlers so 4xx/5xx error pages also carry the
+      // headers. Routes that need to tighten a specific header override via
+      // setResponseHeader.
+      const { createSecurityHeadersMiddleware } =
+        await import("./security-headers.js");
+      getH3App(nitroApp).use(createSecurityHeadersMiddleware());
+
+      // CORS for framework routes. Desktop tray apps (Tauri/Electron) run on
+      // their own dev origin (e.g. localhost:1420) and make credentialed
+      // requests against the template's server at a different port. We echo
+      // the exact origin + Allow-Credentials so same-site localhost ports
+      // can cross-send cookies.
+      const allowlist = readCorsAllowedOrigins();
+      getH3App(nitroApp).use(
+        defineEventHandler((event) => {
+          const pathname = stripAppBasePath(
+            event.url?.pathname ??
+              String(event.node?.req?.url ?? event.path ?? "/").split("?")[0],
+          );
+          if (!pathname.startsWith(P) && !pathname.startsWith("/api/")) return;
+          const readRequestHeader = (name: string): string | undefined => {
+            const lower = name.toLowerCase();
+            const raw =
+              (event as any).node?.req?.headers?.[lower] ??
+              (event as any).node?.req?.headers?.[name];
+            if (Array.isArray(raw)) return raw[0];
+            if (typeof raw === "string") return raw;
+            return getHeader(event, name) ?? undefined;
+          };
+          const origin = readRequestHeader("origin");
+          const method = getMethod(event);
+          const requestedHeaders = readRequestHeader(
+            "access-control-request-headers",
+          );
+          const requestedHeaderNames = String(requestedHeaders ?? "")
+            .toLowerCase()
+            .split(",")
+            .map((header) => header.trim());
+          const mcpEmbedCorsRequest =
+            isMcpEmbedCorsOrigin(origin) &&
+            (requestedHeaderNames.includes(EMBED_TARGET_HEADER.toLowerCase()) ||
+              requestedHeaderNames.includes(EMBED_TRANSPLANT_HEADER) ||
+              Boolean(readRequestHeader(EMBED_TARGET_HEADER)) ||
+              Boolean(readRequestHeader(EMBED_TRANSPLANT_HEADER)) ||
+              Boolean(readRequestHeader("authorization")));
+
+          // Decide whether this origin is allowed. We never fall back to the
+          // first allowlist entry — that previously echoed `Access-Control-
+          // Allow-Origin: <unrelated-allowed-origin>` for disallowed callers,
+          // which is permissive enough that some clients followed through.
+          const allowedOrigin = mcpEmbedCorsRequest
+            ? origin
+            : getAllowedCorsOrigin(origin, {
+                allowedOrigins: allowlist,
+                allowAnyOriginWhenNoAllowlist: false,
+              });
+
+          // Reject preflights from disallowed cross-origin callers BEFORE
+          // returning 204. Previously the OPTIONS short-circuit returned 204
+          // with no ACAO header, which the browser then treats as a CORS
+          // failure — but also short-circuited any further checks. Now we
+          // explicitly 403 disallowed cross-origin preflights.
+          if (method === "OPTIONS") {
+            if (origin && !allowedOrigin) {
+              setResponseStatus(event, 403);
+              return "";
+            }
+            if (allowedOrigin) {
+              setResponseHeader(
+                event,
+                "Access-Control-Allow-Origin",
+                allowedOrigin,
+              );
+              setResponseHeader(event, "Vary", "Origin");
+              if (shouldAllowMcpEmbedCredentials(allowedOrigin)) {
+                setResponseHeader(
+                  event,
+                  "Access-Control-Allow-Credentials",
+                  "true",
+                );
+              }
+              setResponseHeader(
+                event,
+                "Access-Control-Allow-Methods",
+                "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+              );
+              setResponseHeader(
+                event,
+                "Access-Control-Allow-Headers",
+                MCP_EMBED_CORS_ALLOW_HEADERS,
+              );
+            }
+            setResponseStatus(event, 204);
+            return "";
+          }
+
+          // Non-preflight requests: only set CORS response headers when we
+          // have an allowed origin. Same-origin / no-origin requests fall
+          // through without explicit CORS headers (browser treats them as
+          // same-origin by default).
+          if (!allowedOrigin) return;
+          setResponseHeader(
+            event,
+            "Access-Control-Allow-Origin",
+            allowedOrigin,
+          );
+          setResponseHeader(event, "Vary", "Origin");
+          if (shouldAllowMcpEmbedCredentials(allowedOrigin)) {
+            setResponseHeader(
+              event,
+              "Access-Control-Allow-Credentials",
+              "true",
+            );
+          }
+          setResponseHeader(
+            event,
+            "Access-Control-Allow-Methods",
+            "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+          );
+          setResponseHeader(
+            event,
+            "Access-Control-Allow-Headers",
+            MCP_EMBED_CORS_ALLOW_HEADERS,
+          );
+        }),
+      );
+
+      // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. `/login`
+      // 302s to the identity hub;
+      // `/callback` verifies the hub-issued A2A-signed identity JWT and JIT-
+      // links the verified email into this app's local Better Auth store. The
+      // handler fails closed unless direct web SSO is configured or the
+      // packaged Desktop SSO Canary requests a canonical Agent-Native app.
+      // Mounting the handler unconditionally lets that request-scoped decision
+      // work.
+      getH3App(nitroApp).use(
+        `${P}/identity`,
+        defineEventHandler(async (event: H3Event) => {
+          // Framework strips the mount prefix; what remains is the subpath
+          // after `/identity` (e.g. `/login`, `/callback`).
+          const subpath = event.url?.pathname || "";
+          return handleIdentitySso(event, subpath);
+        }),
+      );
+
+      if (!options.disableEmbedRoute) {
+        // One-time ticket launcher for MCP Apps that embed the full React app.
+        // The ticket is minted by an authenticated MCP tool call and exchanged
+        // here for a short-lived browser session cookie + bearer fallback.
+        getH3App(nitroApp).use(
+          `${P}/embed/start`,
+          createEmbedStartRouteHandler({ getExistingSession: getSession }),
         );
       }
 
@@ -2052,134 +2401,6 @@ export function createCoreRoutesPlugin(
           createWorkspaceProviderOAuthHandler(provider, "callback"),
         );
       }
-
-      // Security response headers — emitted on every framework response.
-      // Mounted before route handlers so 4xx/5xx error pages also carry the
-      // headers. Routes that need to tighten a specific header override via
-      // setResponseHeader.
-      const { createSecurityHeadersMiddleware } =
-        await import("./security-headers.js");
-      getH3App(nitroApp).use(createSecurityHeadersMiddleware());
-
-      // CORS for framework routes. Desktop tray apps (Tauri/Electron) run on
-      // their own dev origin (e.g. localhost:1420) and make credentialed
-      // requests against the template's server at a different port. We echo
-      // the exact origin + Allow-Credentials so same-site localhost ports
-      // can cross-send cookies.
-      const allowlist = readCorsAllowedOrigins();
-      getH3App(nitroApp).use(
-        defineEventHandler((event) => {
-          const pathname = stripAppBasePath(
-            event.url?.pathname ??
-              String(event.node?.req?.url ?? event.path ?? "/").split("?")[0],
-          );
-          if (!pathname.startsWith(P) && !pathname.startsWith("/api/")) return;
-          const readRequestHeader = (name: string): string | undefined => {
-            const lower = name.toLowerCase();
-            const raw =
-              (event as any).node?.req?.headers?.[lower] ??
-              (event as any).node?.req?.headers?.[name];
-            if (Array.isArray(raw)) return raw[0];
-            if (typeof raw === "string") return raw;
-            return getHeader(event, name) ?? undefined;
-          };
-          const origin = readRequestHeader("origin");
-          const method = getMethod(event);
-          const requestedHeaders = readRequestHeader(
-            "access-control-request-headers",
-          );
-          const requestedHeaderNames = String(requestedHeaders ?? "")
-            .toLowerCase()
-            .split(",")
-            .map((header) => header.trim());
-          const mcpEmbedCorsRequest =
-            isMcpEmbedCorsOrigin(origin) &&
-            (requestedHeaderNames.includes(EMBED_TARGET_HEADER.toLowerCase()) ||
-              requestedHeaderNames.includes(EMBED_TRANSPLANT_HEADER) ||
-              Boolean(readRequestHeader(EMBED_TARGET_HEADER)) ||
-              Boolean(readRequestHeader(EMBED_TRANSPLANT_HEADER)) ||
-              Boolean(readRequestHeader("authorization")));
-
-          // Decide whether this origin is allowed. We never fall back to the
-          // first allowlist entry — that previously echoed `Access-Control-
-          // Allow-Origin: <unrelated-allowed-origin>` for disallowed callers,
-          // which is permissive enough that some clients followed through.
-          const allowedOrigin = mcpEmbedCorsRequest
-            ? origin
-            : getAllowedCorsOrigin(origin, {
-                allowedOrigins: allowlist,
-                allowAnyOriginWhenNoAllowlist: false,
-              });
-
-          // Reject preflights from disallowed cross-origin callers BEFORE
-          // returning 204. Previously the OPTIONS short-circuit returned 204
-          // with no ACAO header, which the browser then treats as a CORS
-          // failure — but also short-circuited any further checks. Now we
-          // explicitly 403 disallowed cross-origin preflights.
-          if (method === "OPTIONS") {
-            if (origin && !allowedOrigin) {
-              setResponseStatus(event, 403);
-              return "";
-            }
-            if (allowedOrigin) {
-              setResponseHeader(
-                event,
-                "Access-Control-Allow-Origin",
-                allowedOrigin,
-              );
-              setResponseHeader(event, "Vary", "Origin");
-              if (shouldAllowMcpEmbedCredentials(allowedOrigin)) {
-                setResponseHeader(
-                  event,
-                  "Access-Control-Allow-Credentials",
-                  "true",
-                );
-              }
-              setResponseHeader(
-                event,
-                "Access-Control-Allow-Methods",
-                "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-              );
-              setResponseHeader(
-                event,
-                "Access-Control-Allow-Headers",
-                MCP_EMBED_CORS_ALLOW_HEADERS,
-              );
-            }
-            setResponseStatus(event, 204);
-            return "";
-          }
-
-          // Non-preflight requests: only set CORS response headers when we
-          // have an allowed origin. Same-origin / no-origin requests fall
-          // through without explicit CORS headers (browser treats them as
-          // same-origin by default).
-          if (!allowedOrigin) return;
-          setResponseHeader(
-            event,
-            "Access-Control-Allow-Origin",
-            allowedOrigin,
-          );
-          setResponseHeader(event, "Vary", "Origin");
-          if (shouldAllowMcpEmbedCredentials(allowedOrigin)) {
-            setResponseHeader(
-              event,
-              "Access-Control-Allow-Credentials",
-              "true",
-            );
-          }
-          setResponseHeader(
-            event,
-            "Access-Control-Allow-Methods",
-            "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          );
-          setResponseHeader(
-            event,
-            "Access-Control-Allow-Headers",
-            MCP_EMBED_CORS_ALLOW_HEADERS,
-          );
-        }),
-      );
 
       // Defense-in-depth CSRF check for state-changing /_agent-native/* routes
       // (see `csrf.ts` for the threat model and allowlist) is registered by
@@ -2414,7 +2635,6 @@ export function createCoreRoutesPlugin(
           const schema = await runDatabaseSchemaHealthCheck().catch((err) => ({
             ok: false,
             checked: false,
-            dialect: getDatabaseRuntimeFingerprint().dialect,
             missingTables: [],
             missingColumns: [],
             error: err instanceof Error ? err.message : String(err),
@@ -2538,19 +2758,21 @@ export function createCoreRoutesPlugin(
             // looks successful even though the user's credentials were not saved.
             try {
               if (userEmail) {
-                const errKey = `builder-connect-error:${userEmail}`;
+                const errKey = getBuilderConnectErrorKey(
+                  userEmail,
+                  connectAttemptId,
+                );
                 const errRow = await getSetting(errKey);
-                const isCorrelatedProvisioningError =
-                  errRow?.code === "account_exists" &&
-                  typeof connectAttemptId === "string" &&
-                  errRow.attemptId === connectAttemptId;
-                const isLegacyConnectError = errRow?.code !== "account_exists";
+                const errorDisposition = getBuilderConnectErrorDisposition(
+                  errRow,
+                  connectAttemptId,
+                );
                 if (
                   errRow &&
                   typeof errRow.message === "string" &&
-                  (isCorrelatedProvisioningError || isLegacyConnectError)
+                  errorDisposition
                 ) {
-                  if (isLegacyConnectError) {
+                  if (errorDisposition === "legacy") {
                     await deleteSetting(errKey).catch(() => {});
                   }
                   return withConnectToken({
@@ -2918,11 +3140,14 @@ export function createCoreRoutesPlugin(
                 sec_fetch_site: getHeader(event, "sec-fetch-site") ?? null,
               },
             );
-            await putSetting(`builder-connect-error:${ownerEmail}`, {
-              message: crossOriginMessage,
-              at: Date.now(),
-              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-            }).catch(() => {});
+            await putSetting(
+              getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+              {
+                message: crossOriginMessage,
+                at: Date.now(),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+              },
+            ).catch(() => {});
             console.warn("[builder-connect] rejected cross-origin connect", {
               hasConnectToken: Boolean(connectToken),
               secFetchSite: getHeader(event, "sec-fetch-site") ?? null,
@@ -2955,12 +3180,15 @@ export function createCoreRoutesPlugin(
               reason: string,
               code?: string,
             ) => {
-              await putSetting(`builder-connect-error:${ownerEmail}`, {
-                message,
-                at: Date.now(),
-                ...(code ? { code } : {}),
-                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-              }).catch(() => {});
+              await putSetting(
+                getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+                {
+                  message,
+                  at: Date.now(),
+                  ...(code ? { code } : {}),
+                  ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+                },
+              ).catch(() => {});
               await trackBuilderLifecycle(
                 event,
                 "builder connect failed",
@@ -3027,8 +3255,13 @@ export function createCoreRoutesPlugin(
                 deleteSetting("builder-disconnected").catch(
                   () => false, // coercion-ok: best-effort cleanup after successful provisioning
                 ),
-                deleteSetting(`builder-connect-error:${ownerEmail}`).catch(
-                  () => false, // coercion-ok: best-effort cleanup after successful provisioning
+                ...getBuilderConnectErrorCleanupKeys(
+                  ownerEmail,
+                  connectAttemptId,
+                ).map((key) =>
+                  deleteSetting(key).catch(
+                    () => false, // coercion-ok: best-effort cleanup after successful provisioning
+                  ),
                 ),
               ]);
               await trackBuilderLifecycle(
@@ -3081,7 +3314,12 @@ export function createCoreRoutesPlugin(
           // useBuilderStatus polling sees the stale error and aborts the
           // new attempt before it can complete.
           try {
-            await deleteSetting(`builder-connect-error:${ownerEmail}`);
+            await Promise.all(
+              getBuilderConnectErrorCleanupKeys(
+                ownerEmail,
+                connectAttemptId,
+              ).map((key) => deleteSetting(key)),
+            );
           } catch {
             // No prior error row — fine
           }
@@ -3115,6 +3353,14 @@ export function createCoreRoutesPlugin(
             allowMemberInitiation: true,
           });
           if (orgConnectDenied) {
+            await putSetting(
+              getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+              {
+                message: orgConnectDenied,
+                at: Date.now(),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+              },
+            ).catch(() => {});
             await trackBuilderLifecycle(
               event,
               "builder connect failed",
@@ -3199,11 +3445,14 @@ export function createCoreRoutesPlugin(
             );
             // Best-effort: also write the error row so the parent's
             // /builder/status poll picks it up if BroadcastChannel doesn't.
-            await putSetting(`builder-connect-error:${ownerEmail}`, {
-              message: msg,
-              at: Date.now(),
-              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-            }).catch(() => {});
+            await putSetting(
+              getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+              {
+                message: msg,
+                at: Date.now(),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+              },
+            ).catch(() => {});
             setResponseStatus(event, 503);
             setResponseHeader(
               event,
@@ -3438,7 +3687,7 @@ export function createCoreRoutesPlugin(
                 await writeBuilderCredentials(ownerEmail, credentials, scope);
                 await Promise.all([
                   deleteSetting("builder-disconnected").catch(() => false),
-                  deleteSetting(`builder-connect-error:${ownerEmail}`).catch(
+                  deleteSetting(getBuilderConnectErrorKey(ownerEmail)).catch(
                     () => false,
                   ),
                 ]);
@@ -3623,11 +3872,16 @@ export function createCoreRoutesPlugin(
             tracking: BuilderConnectTrackingParams = {},
           ) => {
             if (ownerEmail) {
-              await putSetting(`builder-connect-error:${ownerEmail}`, {
-                message,
-                at: Date.now(),
-                ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
-              }).catch(() => {});
+              await putSetting(
+                getBuilderConnectErrorKey(ownerEmail, callbackAttemptId),
+                {
+                  message,
+                  at: Date.now(),
+                  ...(callbackAttemptId
+                    ? { attemptId: callbackAttemptId }
+                    : {}),
+                },
+              ).catch(() => {});
               await trackBuilderLifecycle(
                 event,
                 "builder connect failed",
@@ -3821,8 +4075,13 @@ export function createCoreRoutesPlugin(
           try {
             await Promise.all([
               deleteSetting("builder-disconnected").catch(() => false), // coercion-ok: best-effort cleanup after successful OAuth save
-              deleteSetting(`builder-connect-error:${ownerEmail}`).catch(
-                () => false, // coercion-ok: best-effort cleanup after successful OAuth save
+              ...getBuilderConnectErrorCleanupKeys(
+                ownerEmail,
+                callbackAttemptId,
+              ).map((key) =>
+                deleteSetting(key).catch(
+                  () => false, // coercion-ok: best-effort cleanup after successful OAuth save
+                ),
               ),
             ]);
           } catch {
@@ -4897,24 +5156,6 @@ export function createCoreRoutesPlugin(
         }
       }
 
-      // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. `/login`
-      // 302s to the identity hub;
-      // `/callback` verifies the hub-issued A2A-signed identity JWT and JIT-
-      // links the verified email into this app's local Better Auth store. The
-      // handler fails closed unless direct web SSO is configured or the
-      // packaged Desktop SSO Canary requests a canonical Agent-Native app.
-      // Mounting the handler unconditionally lets that request-scoped decision
-      // work.
-      getH3App(nitroApp).use(
-        `${P}/identity`,
-        defineEventHandler(async (event: H3Event) => {
-          // Framework strips the mount prefix; what remains is the subpath
-          // after `/identity` (e.g. `/login`, `/callback`).
-          const subpath = event.url?.pathname || "";
-          return handleIdentitySso(event, subpath);
-        }),
-      );
-
       if (!options.disableOpenRoute) {
         // Stable deep-link route. External agents (MCP/A2A) surface
         // `/_agent-native/open?app=…&view=…&<recordId>=…` links; this resolves
@@ -4931,14 +5172,6 @@ export function createCoreRoutesPlugin(
       }
 
       if (!options.disableEmbedRoute) {
-        // One-time ticket launcher for MCP Apps that embed the full React app.
-        // The ticket is minted by an authenticated MCP tool call and exchanged
-        // here for a short-lived browser session cookie + bearer fallback.
-        getH3App(nitroApp).use(
-          `${P}/embed/start`,
-          createEmbedStartRouteHandler({ getExistingSession: getSession }),
-        );
-
         // POST /_agent-native/mcp/embed-error — telemetry sink for MCP App
         // embed shells. The shell runs in a sandboxed, opaque-origin iframe
         // (Codex, Cursor, ChatGPT, Claude) with no session cookie or CSRF
@@ -5068,6 +5301,7 @@ export function createCoreRoutesPlugin(
             const method = getMethod(event);
             if (method === "GET") return getState(event);
             if (method === "PUT") return putState(event);
+            if (method === "PATCH") return compareAndSetState(event);
             if (method === "DELETE") return deleteState(event);
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };

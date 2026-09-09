@@ -29,6 +29,9 @@ describe("MCP embed headers", () => {
       "X-Agent-Native-Client-Compatibility",
     );
     expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain("X-Agent-Native-Build-Id");
+    expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain(
+      "X-Agent-Native-Browser-Tab",
+    );
   });
 
   it("hands cookies to the desktop dev renderer only in development", () => {

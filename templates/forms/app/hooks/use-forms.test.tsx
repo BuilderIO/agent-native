@@ -236,11 +236,21 @@ describe("useDeleteForm", () => {
       });
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const [uploadUrl, uploadRequest] = fetchMock.mock.calls[0] as [
-      string,
-      RequestInit,
-    ];
+    // Match this flow's own requests by URL rather than asserting a global
+    // call count: an unrelated queued request from an earlier test in this file
+    // can land on this stub and made the count assertion flake.
+    const flowCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/form-1"),
+    ) as Array<[string, RequestInit]>;
+    const uploadCalls = flowCalls.filter(([url]) =>
+      url.includes("/api/upload/form-1"),
+    );
+    const submitCalls = flowCalls.filter(([url]) =>
+      url.includes("/api/submit/form-1"),
+    );
+    expect(uploadCalls).toHaveLength(1);
+    expect(submitCalls).toHaveLength(1);
+    const [uploadUrl, uploadRequest] = uploadCalls[0]!;
     expect(uploadUrl).toContain("/api/upload/form-1");
     expect(uploadRequest.method).toBe("POST");
     expect(uploadRequest.body).toBeInstanceOf(FormData);
@@ -248,7 +258,7 @@ describe("useDeleteForm", () => {
     expect(uploadBody.get("fieldId")).toBe("attachments");
     expect((uploadBody.get("file") as File).name).toBe(file.name);
 
-    const [, submitRequest] = fetchMock.mock.calls[1] as [string, RequestInit];
+    const [, submitRequest] = submitCalls[0]!;
     const submitted = JSON.parse(submitRequest.body as string);
     expect(submitted.data).toMatchObject({
       attachments: [

@@ -1,8 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import {
-  listAutomationDefinitions,
-  listAutomationRuns,
-} from "@agent-native/core/triggers";
+import { listAutomationRuns } from "@agent-native/core/triggers";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -18,12 +15,12 @@ import {
   isAuditRunAfterCursor,
 } from "../server/lib/audit-cursor.js";
 import { projectFactoryAuditReport } from "../server/lib/factory-audit-report.js";
+import { listFactoryAutomationDefinitions } from "../server/lib/factory-automation-resources.js";
 import {
   factoryIdSchema,
   orgFactoryItemFilter,
   orgFactoryRunFilter,
   readAutomationDisplayName,
-  readAutomationFactoryId,
   resolveAutomationDisplayName,
 } from "../server/lib/factory-scope.js";
 import {
@@ -56,7 +53,7 @@ export default defineAction({
     { factoryId, automation, startedAfter, cursor, limit },
     context,
   ) => {
-    const { userEmail, orgId } = await requireWorkspaceMember(
+    const { orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
     let startedAfterMs: number | null = null;
@@ -68,15 +65,9 @@ export default defineAction({
     }
     const decodedCursor = cursor ? decodeAuditCursor(cursor) : null;
 
-    const definitions = await listAutomationDefinitions(
-      { userEmail, orgId, appId: "factory" },
-      "organization",
-    );
-    const factoryDefinitions = definitions.filter(
-      ({ meta, resource }) =>
-        meta.domain === "factory" &&
-        readAutomationFactoryId(meta, resource.content, resource.path) ===
-          factoryId,
+    const factoryDefinitions = await listFactoryAutomationDefinitions(
+      orgId,
+      factoryId,
     );
     const automations = factoryDefinitions
       .map(({ name, resource }) => ({

@@ -249,6 +249,7 @@ import {
   type PlanAccessStatusResponse,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
+import { sendToPlanCreationAgentChat } from "@/lib/agent-chat";
 import {
   assessPlanPrompt,
   isProbablyImportedPlan,
@@ -3876,7 +3877,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const handleNativeReaderScroll = () => {
     documentStateRef.current = readNativeDocumentState();
     setNativeSelectionComment(null);
-    scheduleNativeMarkerUpdate();
+    if (commentMarkersVisible || pendingAnnotation || activeAnnotation) {
+      // Ordinary reading must not invalidate the document tree on every wheel frame.
+      scheduleNativeMarkerUpdate();
+    }
   };
 
   const readNativeSelectionComment =
@@ -8463,7 +8467,7 @@ function CreatePlanDialog({
       toast.message(t("plansPage.create.describeFirst"));
       return;
     }
-    sendToAgentChat({
+    sendToPlanCreationAgentChat({
       type: "content",
       submit: true,
       message: buildCreatePlanAgentMessage({ prompt, source, planKind, t }),

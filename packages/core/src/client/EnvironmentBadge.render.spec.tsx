@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,10 +15,7 @@ vi.mock("./app-config.js", () => ({
   injectedAgentNativeConfig: () => injectedAgentNativeConfigMock(),
 }));
 
-import {
-  BETA_REDIRECT_STORAGE_KEY,
-  EnvironmentBadge,
-} from "./EnvironmentBadge.js";
+import { EnvironmentBadge } from "./EnvironmentBadge.js";
 
 describe("EnvironmentBadge render", () => {
   let container: HTMLDivElement;
@@ -42,7 +40,6 @@ describe("EnvironmentBadge render", () => {
       },
     });
     window.localStorage?.removeItem("agent-native:beta-opt-out-until");
-    window.localStorage?.removeItem(BETA_REDIRECT_STORAGE_KEY);
     window.sessionStorage?.removeItem("agent-native:force-production");
   });
 
@@ -60,7 +57,7 @@ describe("EnvironmentBadge render", () => {
     vi.clearAllMocks();
   });
 
-  it("does not render a dev pill for configured local development", () => {
+  it("renders a non-navigating dev pill for configured local development", () => {
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -79,12 +76,18 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    expect(container.querySelector('[role="status"]')).toBeNull();
+    const badge = container.querySelector('[role="status"]');
+    expect(badge?.textContent).toBe("dev");
+    expect(badge?.getAttribute("aria-label")).toBe(
+      "Local development environment",
+    );
+    expect(badge?.className).toContain("bottom-3");
+    expect(badge?.className).toContain("left-3");
     expect(container.querySelector("button")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
   });
 
-  it("keeps local development empty after hydration", async () => {
+  it("supports an inline dev pill for app-owned brand slots", () => {
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -101,12 +104,44 @@ describe("EnvironmentBadge render", () => {
       status: "unauthenticated",
     });
 
-    act(() => root.render(<EnvironmentBadge />));
+    act(() => root.render(<EnvironmentBadge placement="inline" />));
+
+    const badge = container.querySelector('[role="status"]');
+    expect(badge?.textContent).toBe("dev");
+    expect(badge?.className).toContain("inline-flex");
+    expect(badge?.className).toContain("h-5");
+    expect(badge?.className).not.toContain("fixed");
+    expect(badge?.className).not.toContain("bottom-3");
+  });
+
+  it("defers the dev pill to a post-mount effect so the first client commit matches SSR's null output", async () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "localhost",
+        href: "http://localhost:3000/dispatch",
+        replace: vi.fn(),
+      },
+    });
+    injectedAgentNativeConfigMock.mockReturnValue({
+      deployment: { environment: "local" },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    // flushSync commits the render synchronously without flushing passive
+    // effects, so this captures exactly what React reconciles against the
+    // server-rendered HTML: the server (no window) always renders nothing,
+    // so this first commit must too, or React logs a hydration mismatch and
+    // discards the subtree.
+    flushSync(() => root.render(<EnvironmentBadge />));
     expect(container.querySelector('[role="status"]')).toBeNull();
 
     await act(async () => {});
 
-    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("dev");
   });
 
   it.each([
@@ -156,6 +191,29 @@ describe("EnvironmentBadge render", () => {
 
     expect(container.querySelector("button")?.textContent).toContain("beta");
     expect(container.textContent).toContain("beta");
+  });
+
+  it("opens an inline beta chip below an app-owned brand slot", () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge placement="inline" />));
+
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toContain("beta");
+    expect(trigger?.className).toContain("inline-flex");
+    expect(trigger?.className).not.toContain("fixed");
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    expect(document.body.querySelector('[data-side="bottom"]')).not.toBeNull();
   });
 
   it("keeps the beta chip linked to production for every visitor", () => {
@@ -265,9 +323,6 @@ describe("EnvironmentBadge render", () => {
     expect(replace).toHaveBeenCalledWith(
       "https://beta.plan.agent-native.com/inbox?tab=all#runs",
     );
-    expect(
-      Number(window.localStorage.getItem(BETA_REDIRECT_STORAGE_KEY)),
-    ).toBeGreaterThan(Date.now());
   });
 
   it("keeps an employee on production for a forced browser session", () => {

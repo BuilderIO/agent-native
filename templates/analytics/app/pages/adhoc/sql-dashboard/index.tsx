@@ -34,6 +34,7 @@ import {
   type DragStartEvent,
   type CollisionDetection,
 } from "@dnd-kit/core";
+import { normalizeDashboardConfig } from "@shared/dashboard-config-normalization";
 import {
   IconArchive,
   IconArrowBackUp,
@@ -893,7 +894,9 @@ function SqlDashboardPageContent({
       const raw = ytext.toJSON();
       if (!raw) return;
       try {
-        const parsed = JSON.parse(raw) as SqlDashboardConfig;
+        const parsed = normalizeDashboardConfig(
+          JSON.parse(raw) as Record<string, unknown>,
+        ) as unknown as SqlDashboardConfig;
         if (parsed && Array.isArray(parsed.panels)) {
           if (!revisionRestoreInFlightRef.current) {
             resetRevisionNavigation();

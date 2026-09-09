@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { gotoEditor } from "./helpers";
 
 const VIEWPORT_RELATIVE_HTML = `<!doctype html>
@@ -15,7 +16,7 @@ async function postAction(
   name: string,
   input: Record<string, unknown>,
 ) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
+  const baseUrl = e2eBaseURL();
   const response = await request.post(
     `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/${name}`,
     { data: input },

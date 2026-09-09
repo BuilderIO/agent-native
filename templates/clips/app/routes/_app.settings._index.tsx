@@ -11,16 +11,20 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
   type SettingsSearchEntry,
+  type SettingsTabItem,
 } from "@agent-native/core/client/settings";
 import {
   DEFAULT_CLIPS_RECORDING_VISIBILITY,
   type ClipsDefaultVisibility,
 } from "@shared/clips-ai-prefs";
+import { CLIPS_EXPERIMENTS } from "@shared/experiments";
+import { IconBell } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/library/page-header";
 import { AiSetupSection } from "@/components/settings/ai-setup-section";
+import { NotificationSettings } from "@/components/settings/notification-settings";
 import { SlackSection } from "@/components/settings/slack-section";
 import { VideoStorageSection } from "@/components/settings/video-storage-section";
 import { Button } from "@/components/ui/button";
@@ -31,7 +35,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { OrganizationIdentityCard } from "@/components/workspace/organization-identity-card";
 import { useSecretStatus } from "@/hooks/use-secret-status";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
@@ -47,7 +50,6 @@ const SPEEDS = ["1", "1.2", "1.5", "1.75", "2"];
 
 interface ClipsUserSettings {
   defaultPlaybackSpeed?: string;
-  emailNotifications?: boolean;
   includeFullVideoInAi?: boolean;
   defaultRecordingVisibility?: ClipsDefaultVisibility;
 }
@@ -80,12 +82,50 @@ async function saveSettings(value: ClipsUserSettings): Promise<void> {
 
 export default function SettingsIndexRoute() {
   const t = useT();
+  const experiments = useMemo(
+    () =>
+      CLIPS_EXPERIMENTS.map((experiment) => {
+        if (experiment.key === "clips.video-editing") {
+          return {
+            ...experiment,
+            displayName: t("settings.experimentVideoEditing"),
+            description: t("settings.experimentVideoEditingDescription"),
+          };
+        }
+        if (experiment.key === "clips.meetings") {
+          return {
+            ...experiment,
+            displayName: t("settings.experimentMeetings"),
+            description: t("settings.experimentMeetingsDescription"),
+          };
+        }
+        return {
+          ...experiment,
+          displayName: t("settings.experimentWisprFlow"),
+          description: t("settings.experimentWisprFlowDescription"),
+        };
+      }),
+    [t],
+  );
   const agentSettingsTabs = useAgentSettingsTabs();
+  const notificationSettingsTab = useMemo<SettingsTabItem>(
+    () => ({
+      id: "notifications",
+      label: t("settings.notifications"),
+      icon: IconBell,
+      group: "app",
+      keywords:
+        "email notifications alerts views comments reactions monthly recap",
+      content: <NotificationSettings />,
+    }),
+    [t],
+  );
   // Organization identity (name, logo, brand color) belongs with membership,
   // so it rides on the framework's Organization tab rather than a second one.
   const settingsTabs = useMemo(
-    () =>
-      agentSettingsTabs.map((tab) =>
+    () => [
+      notificationSettingsTab,
+      ...agentSettingsTabs.map((tab) =>
         tab.id === "organization"
           ? {
               ...tab,
@@ -98,7 +138,8 @@ export default function SettingsIndexRoute() {
             }
           : tab,
       ),
-    [agentSettingsTabs],
+    ],
+    [agentSettingsTabs, notificationSettingsTab],
   );
   const { data: org } = useOrg();
   const switchOrg = useSwitchOrg();
@@ -130,7 +171,6 @@ export default function SettingsIndexRoute() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [defaultSpeed, setDefaultSpeed] = useState("1.2");
-  const [emailNotifications, setEmailNotifications] = useState(true);
   const [defaultVisibility, setDefaultVisibility] =
     useState<ClipsDefaultVisibility>(DEFAULT_CLIPS_RECORDING_VISIBILITY);
   useEffect(() => {
@@ -138,7 +178,6 @@ export default function SettingsIndexRoute() {
     void loadSettings().then((v) => {
       if (cancelled) return;
       setDefaultSpeed(v.defaultPlaybackSpeed ?? "1.2");
-      setEmailNotifications(v.emailNotifications ?? true);
       setDefaultVisibility(
         v.defaultRecordingVisibility ?? DEFAULT_CLIPS_RECORDING_VISIBILITY,
       );
@@ -191,7 +230,6 @@ export default function SettingsIndexRoute() {
     try {
       await saveSettings({
         defaultPlaybackSpeed: defaultSpeed,
-        emailNotifications,
         defaultRecordingVisibility: defaultVisibility,
       });
       toast.success(t("settings.saved"));
@@ -252,12 +290,6 @@ export default function SettingsIndexRoute() {
         keywords: "sharing visibility private public organization default",
         hash: "sharing",
       },
-      {
-        id: "clips-notifications",
-        label: t("settings.notifications"),
-        keywords: "email notifications alerts",
-        hash: "notifications",
-      },
     ],
     [t],
   );
@@ -271,6 +303,9 @@ export default function SettingsIndexRoute() {
       </PageHeader>
       <SettingsTabsPage
         account={<AccountSettingsCard />}
+        experiments={experiments}
+        experimentsIntro={t("settings.experimentsIntro")}
+        experimentsLabel={t("settings.experiments")}
         whatsNewLabel={t("settings.whatsNew")}
         extraTabs={settingsTabs}
         generalSearchEntries={generalSearchEntries}
@@ -345,20 +380,6 @@ export default function SettingsIndexRoute() {
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                  }
-                />
-                <SettingsRow
-                  id="notifications"
-                  label={t("settings.emailNotifications")}
-                  description={t("settings.emailNotificationsDescription")}
-                  control={
-                    <Switch
-                      id="email-notif"
-                      aria-label={t("settings.emailNotifications")}
-                      checked={emailNotifications}
-                      onCheckedChange={setEmailNotifications}
-                      disabled={loading}
-                    />
                   }
                 />
               </SettingsGroup>

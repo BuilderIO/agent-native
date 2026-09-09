@@ -4,7 +4,6 @@ updates:
     directories:
       - /
       - /packages/*
-      - /examples/*
       - /templates/*
       - /templates/*/desktop
       - /templates/*/chrome-extension

@@ -1,6 +1,7 @@
 import { Tabs, useDesignSystem } from "@agent-native/toolkit/design-system";
 import {
   IconArrowUpRight,
+  IconFlask,
   IconHistory,
   IconSearch,
   IconSettings,
@@ -19,8 +20,13 @@ import {
 } from "react";
 import { Link, useInRouterContext, useLocation } from "react-router";
 
-import { appBasePath, appPath } from "../../client/api-path.js";
-import { buildSettingsRoute } from "../../navigation/index.js";
+import { appMountPath, appMountedPath } from "../../client/api-path.js";
+import type { ExperimentDefinition } from "../../experiments/registry.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
+import { ExperimentsSettings } from "../experiments/ExperimentsSettings.js";
 import { cn } from "../utils.js";
 
 type SettingsTabIcon = ComponentType<{ className?: string }>;
@@ -77,6 +83,10 @@ export interface SettingsTabsPageProps {
   team?: ReactNode;
   whatsNew?: ReactNode;
   extraTabs?: SettingsTabItem[];
+  /** User experiments to expose in the searchable settings surface. */
+  experiments?: readonly ExperimentDefinition[];
+  experimentsLabel?: string;
+  experimentsIntro?: string;
   generalLabel?: string;
   accountLabel?: string;
   teamLabel?: string;
@@ -228,12 +238,13 @@ function activeTabFromLocation(
 function appLocalPathname(pathname?: string): string {
   if (typeof window === "undefined" && !pathname) return "/";
   const currentPathname = pathname ?? window.location.pathname;
-  const basePath = appBasePath();
+  const mountPath = appMountPath(STANDARD_APP_ROUTES.settings);
   if (
-    basePath &&
-    (currentPathname === basePath || currentPathname.startsWith(`${basePath}/`))
+    mountPath &&
+    (currentPathname === mountPath ||
+      currentPathname.startsWith(`${mountPath}/`))
   ) {
-    return currentPathname.slice(basePath.length) || "/";
+    return currentPathname.slice(mountPath.length) || "/";
   }
   return currentPathname;
 }
@@ -258,7 +269,7 @@ function updateRouteForTab(tabId: string, section?: string) {
   window.history.pushState(
     null,
     "",
-    `${appPath(route)}${window.location.search}`,
+    `${appMountedPath(route, STANDARD_APP_ROUTES.settings)}${window.location.search}`,
   );
   window.dispatchEvent(new Event("popstate"));
 }
@@ -294,6 +305,9 @@ function SettingsTabsPageContent({
   searchPlaceholder = "Search settings",
   searchEntries,
   generalSearchEntries,
+  experiments = [],
+  experimentsLabel = "Experiments",
+  experimentsIntro,
   value,
   onValueChange,
   routerLocation,
@@ -327,6 +341,28 @@ function SettingsTabsPageContent({
       });
     }
     next.push(...inlineTabs);
+    if (experiments.length > 0) {
+      next.push({
+        id: "experiments",
+        label: experimentsLabel,
+        icon: IconFlask,
+        keywords: "experimental unstable beta bugs feedback",
+        content: (
+          <ExperimentsSettings
+            experiments={experiments}
+            title={experimentsLabel}
+            intro={experimentsIntro}
+          />
+        ),
+        searchEntries: experiments.map((experiment) => ({
+          id: `experiment:${experiment.key}`,
+          label: experiment.displayName ?? experiment.key,
+          keywords: `${experiment.key} ${experiment.keywords ?? ""}`,
+          description: experiment.description,
+          hash: `experiment-${experiment.key}`,
+        })),
+      });
+    }
     if (team && !hasOrganizationTab) {
       next.push({
         id: "team",
@@ -351,6 +387,9 @@ function SettingsTabsPageContent({
     account,
     accountLabel,
     extraTabs,
+    experiments,
+    experimentsIntro,
+    experimentsLabel,
     general,
     generalLabel,
     generalSearchEntries,
@@ -503,6 +542,39 @@ function SettingsTabsPageContent({
 
   const selectedTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
+  useEffect(() => {
+    if (!routerLocation || !selectedTab) return;
+    const pathname = appLocalPathname(routerLocation.pathname);
+    if (!pathname.startsWith("/settings/")) return;
+    const routeValue = pathname
+      .slice("/settings/".length)
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => {
+        try {
+          return decodeURIComponent(segment);
+        } catch {
+          return segment;
+        }
+      })
+      .join(":");
+    const prefix = `${selectedTab.id}:`;
+    if (!routeValue.startsWith(prefix)) return;
+    const section = routeValue.slice(prefix.length);
+    const targetId =
+      selectedTab.searchEntries?.find(
+        (entry) => normalizeTabId(entry.hash ?? entry.id) === section,
+      )?.hash ?? section;
+    if (!targetId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(targetId.replace(/^#/, ""))?.scrollIntoView?.({
+        block: "start",
+        behavior: "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [routerLocation, selectedTab]);
+
   // Flatten tab + deep-link entries into one searchable index.
   const searchIndex = useMemo<ResolvedSearchEntry[]>(() => {
     const entries: ResolvedSearchEntry[] = [];
@@ -614,7 +686,7 @@ function SettingsTabsPageContent({
               }}
               placeholder={searchPlaceholder}
               aria-label={searchPlaceholder}
-              className="h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
+              className="agent-native-search-input h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
             />
             {query ? (
               <button

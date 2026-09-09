@@ -20,7 +20,7 @@ const SHORT_CONTENT_HTML = `<!DOCTYPE html>
   </body>
 </html>`;
 
-test("a screen's document fills its frame", async ({ page }) => {
+test("a screen's document fills its frame", async ({ page }, testInfo) => {
   const designId = await readSeedDesignId();
   const design = await (
     await page.request.get(
@@ -38,7 +38,7 @@ test("a screen's document fills its frame", async ({ page }) => {
   });
 
   await gotoEditor(page, designId);
-  await cdpScreenshot(page, "../../.tmp/body-fit.png");
+  await cdpScreenshot(page, testInfo.outputPath("body-fit.png"));
 
   const measured = await page.evaluate(() => {
     const iframe = document.querySelector<HTMLIFrameElement>(

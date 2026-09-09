@@ -45,6 +45,5 @@ learnings.md
 /test-results/
 /playwright-report/
 /e2e/.auth/
-data/e2e.db
-data/e2e.db-*
+data/pglite/
 .agent-native/

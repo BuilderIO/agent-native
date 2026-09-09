@@ -44,6 +44,8 @@ vi.mock("../db/index.js", () => ({
       status: "recordings.status",
       videoUrl: "recordings.videoUrl",
       thumbnailUrl: "recordings.thumbnailUrl",
+      thumbnailStatus: "recordings.thumbnailStatus",
+      thumbnailFailureReason: "recordings.thumbnailFailureReason",
       editsJson: "recordings.editsJson",
       animatedThumbnailUrl: "recordings.animatedThumbnailUrl",
       filmstripUrl: "recordings.filmstripUrl",
@@ -63,7 +65,10 @@ vi.mock("./video-frame.js", () => ({
   },
 }));
 
-import { ensureRecordingThumbnail } from "./ensure-recording-thumbnail";
+import {
+  ensureRecordingThumbnail,
+  markThumbnailFailed,
+} from "./ensure-recording-thumbnail";
 
 function createDb(
   recording: Record<string, unknown>,
@@ -135,7 +140,7 @@ describe("ensureRecordingThumbnail", () => {
   });
 
   it("extracts and persists one thumbnail when the upload omitted it", async () => {
-    const { db, update } = createDb(recording());
+    const { db, update, updateSet } = createDb(recording());
     mocks.getDb.mockReturnValue(db);
 
     const result = await ensureRecordingThumbnail({
@@ -165,10 +170,88 @@ describe("ensureRecordingThumbnail", () => {
       }),
     );
     expect(update).toHaveBeenCalledOnce();
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        thumbnailStatus: "generated",
+        thumbnailFailureReason: null,
+      }),
+    );
     expect(mocks.writeAppState).toHaveBeenCalledWith(
       "refresh-signal",
       expect.any(Object),
     );
+  });
+
+  it("marks a recording with no media as terminally unavailable", async () => {
+    const { db, update, updateSet } = createDb(recording({ videoUrl: null }));
+    mocks.getDb.mockReturnValue(db);
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(result).toEqual({
+      recordingId: "rec-1",
+      status: "skipped-no-media",
+      changed: false,
+    });
+    expect(update).toHaveBeenCalledOnce();
+    expect(updateSet).toHaveBeenCalledWith({
+      thumbnailStatus: "none",
+      thumbnailFailureReason: "skipped-no-media",
+    });
+  });
+
+  it("marks a Loom-embed-backed recording as terminally unavailable", async () => {
+    const { db, update, updateSet } = createDb(
+      recording({ videoUrl: "https://www.loom.com/embed/abcdefgh12345678" }),
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(result).toEqual({
+      recordingId: "rec-1",
+      status: "skipped-loom-embed",
+      changed: false,
+    });
+    expect(update).toHaveBeenCalledOnce();
+    expect(updateSet).toHaveBeenCalledWith({
+      thumbnailStatus: "none",
+      thumbnailFailureReason: "skipped-loom-embed",
+    });
+  });
+
+  it("does not persist a status for a retryable failure", async () => {
+    const { db, update } = createDb(recording());
+    mocks.getDb.mockReturnValue(db);
+    mocks.extractJpegFrame.mockRejectedValue(new Error("decode failed"));
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      mediaBytes: new Uint8Array([9, 9, 9]),
+    });
+
+    expect(result.status).toBe("skipped-frame-extraction");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("markThumbnailFailed persists a failed status with the given reason", async () => {
+    const { db, update, updateSet } = createDb(recording());
+    mocks.getDb.mockReturnValue(db);
+
+    await markThumbnailFailed("rec-1", "retries exhausted");
+
+    expect(update).toHaveBeenCalledOnce();
+    expect(updateSet).toHaveBeenCalledWith({
+      thumbnailStatus: "failed",
+      thumbnailFailureReason: "retries exhausted",
+    });
   });
 
   it("does not regenerate an existing thumbnail", async () => {

@@ -41,6 +41,11 @@ const enUS = {
     languageTitle: "Language",
     languageDescription: "Choose the interface language for Design.",
     languageLabel: "Interface language",
+    experiments: "Experiments",
+    experimentsIntro:
+      "These are new, unstable features and may have bugs. We value your feedback.",
+    experimentTweaks: "Design tweaks",
+    experimentTweaksDescription: "Try AI-powered design tweaks.",
   },
   pages: {
     presentEmpty: "No content to present",
@@ -305,6 +310,14 @@ const enUS = {
       center: "Center",
       right: "Right",
       justify: "Justify",
+    },
+    positionAligns: {
+      left: "Align left",
+      centerHorizontal: "Align horizontal centers",
+      right: "Align right",
+      top: "Align top",
+      centerVertical: "Align vertical centers",
+      bottom: "Align bottom",
     },
     textDecorations: {
       underline: "Underline",
@@ -1044,12 +1057,12 @@ const enUS = {
       modeAuto: "Auto",
       modePreview: "Preview change",
       modeAsk: "Ask agent",
-      modeRegenerate: "Regenerate",
+      modeRegenerate: "Edit with AI", // i18n-copy-ignore: localized node-rewrite CTA overrides live in app/i18n/*.ts and are updated with this source string
       agentModeOptions: "Choose agent behavior",
       pendingReview: "Review changes · {{count}}",
       pendingReviewMenu: "Changes ready to review",
       reviewCandidate: "Review change",
-      regenerate: "Regenerate…",
+      regenerate: "Edit with AI…",
       sending: "Regenerating…",
       sent: "Regeneration request sent",
       sendFailed: "Could not send the regeneration request",
@@ -1868,6 +1881,14 @@ const designLocaleOverrides = {
         right: "正确的",
         justify: "证明合法",
       },
+      positionAligns: {
+        left: "左对齐",
+        centerHorizontal: "水平居中对齐",
+        right: "右对齐",
+        top: "顶部对齐",
+        centerVertical: "垂直居中对齐",
+        bottom: "底部对齐",
+      },
       textDecorations: {
         underline: "下划线",
         strikethrough: "删除线",
@@ -2296,6 +2317,14 @@ const designLocaleOverrides = {
         center: "Centro",
         right: "Bien",
         justify: "Justificar",
+      },
+      positionAligns: {
+        left: "Alinear a la izquierda",
+        centerHorizontal: "Centrar horizontalmente",
+        right: "Alinear a la derecha",
+        top: "Alinear arriba",
+        centerVertical: "Centrar verticalmente",
+        bottom: "Alinear abajo",
       },
       textDecorations: {
         underline: "Subrayado",
@@ -2751,6 +2780,14 @@ const designLocaleOverrides = {
         center: "Centre",
         right: "Droite",
         justify: "Justifier",
+      },
+      positionAligns: {
+        left: "Aligner à gauche",
+        centerHorizontal: "Centrer horizontalement",
+        right: "Aligner à droite",
+        top: "Aligner en haut",
+        centerVertical: "Centrer verticalement",
+        bottom: "Aligner en bas",
       },
       textDecorations: {
         underline: "Souligné",
@@ -3211,6 +3248,14 @@ const designLocaleOverrides = {
         right: "Rechts",
         justify: "Rechtfertigen",
       },
+      positionAligns: {
+        left: "Links ausrichten",
+        centerHorizontal: "Horizontal zentrieren",
+        right: "Rechts ausrichten",
+        top: "Oben ausrichten",
+        centerVertical: "Vertikal zentrieren",
+        bottom: "Unten ausrichten",
+      },
       textDecorations: {
         underline: "Unterstrichen",
         strikethrough: "Durchgestrichen",
@@ -3670,6 +3715,14 @@ const designLocaleOverrides = {
         right: "右",
         justify: "正当化する",
       },
+      positionAligns: {
+        left: "左揃え",
+        centerHorizontal: "左右中央揃え",
+        right: "右揃え",
+        top: "上揃え",
+        centerVertical: "上下中央揃え",
+        bottom: "下揃え",
+      },
       textDecorations: {
         underline: "下線",
         strikethrough: "取り消し線",
@@ -4124,6 +4177,14 @@ const designLocaleOverrides = {
         right: "오른쪽",
         justify: "신이 옳다고 하다",
       },
+      positionAligns: {
+        left: "왼쪽 정렬",
+        centerHorizontal: "가로 가운데 정렬",
+        right: "오른쪽 정렬",
+        top: "위쪽 정렬",
+        centerVertical: "세로 가운데 정렬",
+        bottom: "아래쪽 정렬",
+      },
       textDecorations: {
         underline: "밑줄",
         strikethrough: "취소선",
@@ -4569,6 +4630,14 @@ const designLocaleOverrides = {
         center: "Centro",
         right: "Certo",
         justify: "Justificar",
+      },
+      positionAligns: {
+        left: "Alinhar à esquerda",
+        centerHorizontal: "Centralizar horizontalmente",
+        right: "Alinhar à direita",
+        top: "Alinhar acima",
+        centerVertical: "Centralizar verticalmente",
+        bottom: "Alinhar abaixo",
       },
       textDecorations: {
         underline: "Sublinhado",
@@ -5024,6 +5093,14 @@ const designLocaleOverrides = {
         right: "सही",
         justify: "औचित्य",
       },
+      positionAligns: {
+        left: "बाएँ संरेखित करें",
+        centerHorizontal: "क्षैतिज रूप से मध्य में संरेखित करें",
+        right: "दाएँ संरेखित करें",
+        top: "ऊपर संरेखित करें",
+        centerVertical: "लंबवत रूप से मध्य में संरेखित करें",
+        bottom: "नीचे संरेखित करें",
+      },
       textDecorations: {
         underline: "रेखांकित",
         strikethrough: "स्ट्राइकथ्रू",
@@ -5465,6 +5542,14 @@ const designLocaleOverrides = {
         center: "مركز",
         right: "يمين",
         justify: "يبرر",
+      },
+      positionAligns: {
+        left: "محاذاة إلى اليسار",
+        centerHorizontal: "توسيط أفقي",
+        right: "محاذاة إلى اليمين",
+        top: "محاذاة إلى الأعلى",
+        centerVertical: "توسيط رأسي",
+        bottom: "محاذاة إلى الأسفل",
       },
       textDecorations: {
         underline: "تسطير",
@@ -16025,6 +16110,11 @@ export const messagesByLocale = {
           languageTitle: "语言",
           languageDescription: "选择 Design 的界面语言。",
           languageLabel: "界面语言",
+          experiments: "实验功能",
+          experimentsIntro:
+            "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
+          experimentTweaks: "设计微调",
+          experimentTweaksDescription: "试用 AI 设计微调功能。",
         },
         designEditor: {
           toasts: {
@@ -16104,6 +16194,11 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Elige el idioma de la interfaz de Design.",
           languageLabel: "Idioma de la interfaz",
+          experiments: "Experimentos",
+          experimentsIntro:
+            "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
+          experimentTweaks: "Ajustes de diseño",
+          experimentTweaksDescription: "Prueba los ajustes de diseño con IA.",
         },
         designEditor: {
           toasts: {
@@ -16186,6 +16281,12 @@ export const messagesByLocale = {
           languageTitle: "Langue",
           languageDescription: "Choisissez la langue de l'interface de Design.",
           languageLabel: "Langue de l'interface",
+          experiments: "Expériences",
+          experimentsIntro:
+            "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
+          experimentTweaks: "Ajustements de design",
+          experimentTweaksDescription:
+            "Essayez les ajustements de design avec l’IA.",
         },
         designEditor: {
           toasts: {
@@ -16268,6 +16369,11 @@ export const messagesByLocale = {
           languageTitle: "Sprache",
           languageDescription: "Wähle die Oberflächensprache für Design.",
           languageLabel: "Oberflächensprache",
+          experiments: "Experimente",
+          experimentsIntro:
+            "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
+          experimentTweaks: "Design-Anpassungen",
+          experimentTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
         },
         designEditor: {
           toasts: {
@@ -16350,6 +16456,12 @@ export const messagesByLocale = {
           languageTitle: "言語",
           languageDescription: "Design のインターフェース言語を選択します。",
           languageLabel: "インターフェース言語",
+          experiments: "実験機能",
+          experimentsIntro:
+            "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
+          experimentTweaks: "デザインの調整",
+          experimentTweaksDescription:
+            "AI によるデザイン調整をお試しください。",
         },
         designEditor: {
           toasts: {
@@ -16433,6 +16545,11 @@ export const messagesByLocale = {
           languageTitle: "언어",
           languageDescription: "Design의 인터페이스 언어를 선택하세요.",
           languageLabel: "인터페이스 언어",
+          experiments: "실험 기능",
+          experimentsIntro:
+            "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
+          experimentTweaks: "디자인 트윅",
+          experimentTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
         },
         designEditor: {
           toasts: {
@@ -16514,6 +16631,11 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Escolha o idioma da interface do Design.",
           languageLabel: "Idioma da interface",
+          experiments: "Experimentos",
+          experimentsIntro:
+            "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
+          experimentTweaks: "Ajustes de design",
+          experimentTweaksDescription: "Experimente ajustes de design com IA.",
         },
         designEditor: {
           toasts: {
@@ -16596,6 +16718,11 @@ export const messagesByLocale = {
           languageTitle: "भाषा",
           languageDescription: "Design की interface भाषा चुनें।",
           languageLabel: "इंटरफ़ेस भाषा",
+          experiments: "प्रयोग",
+          experimentsIntro:
+            "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
+          experimentTweaks: "डिज़ाइन ट्वीक",
+          experimentTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
         },
         designEditor: {
           toasts: {
@@ -16678,6 +16805,12 @@ export const messagesByLocale = {
           languageTitle: "اللغة",
           languageDescription: "اختر لغة واجهة Design.",
           languageLabel: "لغة الواجهة",
+          experiments: "التجارب",
+          experimentsIntro:
+            "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
+          experimentTweaks: "تعديلات التصميم",
+          experimentTweaksDescription:
+            "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
         },
         designEditor: {
           toasts: {
