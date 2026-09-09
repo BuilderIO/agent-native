@@ -201,9 +201,14 @@ describe("applyFederatedOverlayValues", () => {
       value: "Primary source value",
       editable: true,
     } as ContentDatabaseItem["properties"][number];
+    const sharedProperty = {
+      definition: { id: "shared-property" },
+      value: "Shared primary value",
+      editable: true,
+    } as ContentDatabaseItem["properties"][number];
     const unmatchedItem = {
       ...item("doc-unmatched"),
-      properties: [secondaryProperty, primaryProperty],
+      properties: [secondaryProperty, primaryProperty, sharedProperty],
     };
     const primary = source({
       id: "primary",
@@ -218,6 +223,21 @@ describe("applyFederatedOverlayValues", () => {
         localFieldKey: "primary-property",
         sourceFieldKey: "primary-owner",
         sourceFieldLabel: "Primary owner",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "source",
+        readOnly: true,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
+      {
+        id: "primary-shared-field",
+        propertyId: "shared-property",
+        propertyName: "Shared owner",
+        localFieldKey: "shared-property",
+        sourceFieldKey: "shared-owner",
+        sourceFieldLabel: "Shared owner",
         sourceFieldType: "text",
         mappingType: "property",
         writeOwner: "source",
@@ -248,6 +268,21 @@ describe("applyFederatedOverlayValues", () => {
         freshness: "fresh",
         lastSyncedAt: null,
       },
+      {
+        id: "secondary-shared-field",
+        propertyId: "shared-property",
+        propertyName: "Shared owner",
+        localFieldKey: "shared-property",
+        sourceFieldKey: "shared-owner",
+        sourceFieldLabel: "Shared owner",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "source",
+        readOnly: true,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
     ];
 
     const federated = federateSources({
@@ -263,5 +298,9 @@ describe("applyFederatedOverlayValues", () => {
       applyFederatedOverlayValues(federated, [primary, secondary])[0]
         .properties[1],
     ).toMatchObject({ value: "Primary source value", editable: false });
+    expect(
+      applyFederatedOverlayValues(federated, [primary, secondary])[0]
+        .properties[2],
+    ).toMatchObject({ value: "Shared primary value", editable: false });
   });
 });

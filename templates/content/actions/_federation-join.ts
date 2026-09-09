@@ -160,6 +160,15 @@ export function applyFederatedOverlayValues(
         ),
       ),
   );
+  const primaryOrStandalonePropertyIds = new Set(
+    sources
+      .filter((source) => source.metadata.federation?.role !== "secondary")
+      .flatMap((source) =>
+        source.fields.flatMap((field) =>
+          field.propertyId ? [field.propertyId] : [],
+        ),
+      ),
+  );
   return items.map((item) => {
     const valueByPropertyId = new Map<string, DocumentPropertyValue>();
     for (const overlay of item.sourceOverlays ?? []) {
@@ -183,7 +192,8 @@ export function applyFederatedOverlayValues(
           };
         }
         if (!sourceManagedPropertyIds.has(propertyId)) return property;
-        return secondaryPropertyIds.has(propertyId)
+        return secondaryPropertyIds.has(propertyId) &&
+          !primaryOrStandalonePropertyIds.has(propertyId)
           ? { ...property, value: null, editable: false }
           : { ...property, editable: false };
       }),
