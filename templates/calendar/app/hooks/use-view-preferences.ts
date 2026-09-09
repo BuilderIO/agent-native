@@ -466,20 +466,20 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
 
       if (demo) return;
 
-      enqueueSourcePreferenceMutation(
-        accountMutationChains.current,
-        accountEmail,
-        () =>
-          callAction("update-calendar-visual-preferences", {
-            accountEmail,
-            accountColorMode,
-            ...(googleCalendarPreferenceKey
-              ? {
-                  googleCalendarPreferenceKey,
-                  googleCalendarColor: null,
-                }
-              : {}),
-          }),
+      const mutationChains = googleCalendarPreferenceKey
+        ? colorMutationChains.current
+        : accountMutationChains.current;
+      enqueueSourcePreferenceMutation(mutationChains, accountEmail, () =>
+        callAction("update-calendar-visual-preferences", {
+          accountEmail,
+          accountColorMode,
+          ...(googleCalendarPreferenceKey
+            ? {
+                googleCalendarPreferenceKey,
+                googleCalendarColor: null,
+              }
+            : {}),
+        }),
       )
         .then((result) => {
           if (accountPreferenceRequestIds.current[accountEmail] !== requestId) {
