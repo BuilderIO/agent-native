@@ -71,7 +71,7 @@ describe("built-in auth marketing layout contract", () => {
     );
     // the auth canvas stays crisp and fully visible behind the card
     expect(html).toMatch(
-      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*filter:\s*none;[^}]*opacity:\s*1;/,
+      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*filter:\s*none;[^}]*opacity:\s*0\.15;/,
     );
   });
 
