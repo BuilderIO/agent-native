@@ -151,6 +151,28 @@
   }
 }
 
+@keyframes clips-feedback-nudge {
+  0%,
+  88%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  91% {
+    transform: translateY(-1px) rotate(-8deg);
+  }
+  94% {
+    transform: translateY(0) rotate(7deg);
+  }
+  97% {
+    transform: translateY(-1px) rotate(-3deg);
+  }
+}
+
+.clips-feedback-nudge {
+  animation: clips-feedback-nudge 6s ease-in-out infinite;
+  transform-origin: center;
+}
+
 .clips-collapsible-content {
   overflow: hidden;
   transform-origin: top;
@@ -167,6 +189,10 @@
 @media (prefers-reduced-motion: reduce) {
   .clips-collapsible-content[data-state] {
     animation-duration: 1ms;
+  }
+
+  .clips-feedback-nudge {
+    animation: none;
   }
 }
 

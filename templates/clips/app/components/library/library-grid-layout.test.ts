@@ -19,6 +19,7 @@ describe("selected library actions layout", () => {
     );
     const primaryActionsSource = readSource("./library-primary-actions.tsx");
     const feedbackSource = readSource("./sidebar-feedback-button.tsx");
+    const globalStyles = readSource("../../global.css");
     const spacesRouteSource = readSource("../../routes/_app.spaces._index.tsx");
     const spaceRouteSource = readSource(
       "../../routes/_app.spaces.$spaceId.tsx",
@@ -135,6 +136,14 @@ describe("selected library actions layout", () => {
     expect(feedbackSource).toContain(
       "bg-transparent text-primary hover:bg-accent/60 hover:text-primary",
     );
+    expect(feedbackSource).toContain(
+      "h-auto w-full justify-start gap-2 bg-transparent px-2 py-1.5 text-xs font-normal",
+    );
+    expect(feedbackSource).toContain("IconMoodSmile");
+    expect(feedbackSource).toContain("clips-feedback-nudge");
+    expect(globalStyles).toContain("@keyframes clips-feedback-nudge");
+    expect(globalStyles).toContain(".clips-feedback-nudge {");
+    expect(globalStyles).toContain("animation: none");
     expect(feedbackSource).not.toContain("bg-primary/5");
     expect(layoutSource).toContain('currentAppId="clips"');
     expect(feedbackSource).toContain("openBugReportDialog");
