@@ -89,7 +89,10 @@ describe("slides html export route", () => {
   });
 
   it("returns 401 without invoking the action when the session has no email", async () => {
-    mockResolveAuth.mockResolvedValue({ ok: true, context: { orgId: "org-1" } });
+    mockResolveAuth.mockResolvedValue({
+      ok: true,
+      context: { orgId: "org-1" },
+    });
 
     const result = await handler();
 
