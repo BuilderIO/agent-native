@@ -11,18 +11,16 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconDatabase,
-  IconDots,
   IconFileText,
   IconFolder,
   IconFolderOpen,
   IconPlus,
-  IconPin,
-  IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
+import { SidebarRowMenu } from "@/components/sidebar/SidebarRowMenu";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -33,7 +31,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -720,11 +717,13 @@ function DatabaseSidebarRow({
   };
 }) {
   const t = useT();
-  const { canEdit, canManage, canFavorite, hasMenuActions } =
-    documentSidebarActionAvailability(item.document, {
+  const { canEdit, canManage, canFavorite } = documentSidebarActionAvailability(
+    item.document,
+    {
       favoriteAvailable: Boolean(onToggleFavorite),
       manageAvailable: Boolean(onDeleteItem),
-    });
+    },
+  );
   const canCreateChild = canEdit && Boolean(onCreateChildPage);
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (
@@ -782,163 +781,139 @@ function DatabaseSidebarRow({
   }
 
   return (
-    <>
-      <div className="group relative min-w-0">
-        {hasChildren ? (
-          <button
-            type="button"
-            className="pointer-events-none absolute top-0 z-10 flex size-7 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    <SidebarRowMenu
+      document={item.document}
+      sourceOwned={Boolean(item.sourceRecord)}
+      onFavorite={
+        canFavorite && onToggleFavorite
+          ? () => onToggleFavorite(item)
+          : undefined
+      }
+      onDelete={
+        canManage && onDeleteItem ? () => onDeleteItem(item) : undefined
+      }
+    >
+      {(menuTrigger) => (
+        <div className="group relative min-w-0">
+          {hasChildren ? (
+            <button
+              type="button"
+              className="pointer-events-none absolute top-0 z-10 flex size-7 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              style={{
+                insetInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
+              }}
+              aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${title}`}
+              aria-expanded={expanded}
+              onPointerUp={(event) => event.currentTarget.blur()}
+              onClick={() => onToggleExpanded?.(!expanded)}
+            >
+              <IconChevronRight
+                className={cn(
+                  "size-3.5 transition-transform",
+                  expanded && "rotate-90",
+                )}
+              />
+            </button>
+          ) : null}
+          <Link
+            to={`/page/${item.document.id}`}
+            {...reorder?.controls.attributes}
+            {...reorder?.controls.listeners}
+            data-sidebar-reorder-item-id={reorder?.controls.itemId}
+            role="link"
+            className={cn(
+              "flex h-7 min-w-0 items-center gap-1.5 rounded pe-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              reorder && "touch-none cursor-pointer select-none",
+              reorder?.controls.isDragging && "cursor-grabbing",
+              active && "font-semibold text-foreground",
+            )}
             style={{
-              insetInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
+              paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
             }}
-            aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${title}`}
-            aria-expanded={expanded}
+            onClick={handleClick}
             onPointerUp={(event) => event.currentTarget.blur()}
-            onClick={() => onToggleExpanded?.(!expanded)}
+            aria-current={active ? "page" : undefined}
           >
-            <IconChevronRight
+            <span
               className={cn(
-                "size-3.5 transition-transform",
-                expanded && "rotate-90",
+                "flex size-7 shrink-0 items-center justify-center",
+                hasChildren &&
+                  "group-hover:opacity-0 group-focus-within:opacity-0",
               )}
-            />
-          </button>
-        ) : null}
-        <Link
-          to={`/page/${item.document.id}`}
-          {...reorder?.controls.attributes}
-          {...reorder?.controls.listeners}
-          data-sidebar-reorder-item-id={reorder?.controls.itemId}
-          role="link"
-          className={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded pe-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            reorder && "touch-none cursor-pointer select-none",
-            reorder?.controls.isDragging && "cursor-grabbing",
-            active && "font-semibold text-foreground",
-          )}
-          style={{
-            paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
-          }}
-          onClick={handleClick}
-          onPointerUp={(event) => event.currentTarget.blur()}
-          aria-current={active ? "page" : undefined}
-        >
-          <span
-            className={cn(
-              "flex size-7 shrink-0 items-center justify-center",
-              hasChildren &&
-                "group-hover:opacity-0 group-focus-within:opacity-0",
-            )}
-            aria-hidden="true"
-          >
-            {item.document.icon ? (
-              <span className="text-sm leading-none">{item.document.icon}</span>
-            ) : (
-              <IconFileText className="size-3.5 text-muted-foreground" />
-            )}
-          </span>
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate",
-              (hasMenuActions || canCreateChild) &&
+              aria-hidden="true"
+            >
+              {item.document.icon ? (
+                <span className="text-sm leading-none">
+                  {item.document.icon}
+                </span>
+              ) : (
+                <IconFileText className="size-3.5 text-muted-foreground" />
+              )}
+            </span>
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate",
                 "group-hover:pe-12 group-focus-within:pe-12",
-            )}
-          >
-            {title}
-          </span>
-        </Link>
+              )}
+            >
+              {title}
+            </span>
+          </Link>
 
-        {(hasMenuActions || canCreateChild) && (
-          <div className="pointer-events-none absolute end-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-            {hasMenuActions && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={t("sidebar.moreActionsFor", { label: title })}
-                  >
-                    <IconDots size={14} />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48">
-                  {canFavorite && onToggleFavorite ? (
-                    <DropdownMenuItem onSelect={() => onToggleFavorite(item)}>
-                      <IconPin
-                        className="me-2 size-4"
-                        strokeWidth={item.document.isFavorite ? 2.2 : 1.7}
-                      />
-                      {item.document.isFavorite
-                        ? t("sidebar.unpinFromSidebar")
-                        : t("sidebar.pinToSidebar")}
-                    </DropdownMenuItem>
-                  ) : null}
-                  {canFavorite &&
-                  onToggleFavorite &&
-                  canManage &&
-                  onDeleteItem ? (
-                    <DropdownMenuSeparator />
-                  ) : null}
-                  {canManage && onDeleteItem ? (
+          {
+            <div className="pointer-events-none absolute end-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+              {menuTrigger}
+
+              {canCreateChild ? (
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={t("sidebar.addChildTo", { title })}
+                          data-sidebar-add-child
+                        >
+                          <IconPlus size={14} />
+                        </button>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("sidebar.addChild")}</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent align="start" className="w-44">
                     <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onSelect={() => onDeleteItem(item)}
+                      onSelect={() => onCreateChildPage?.(item)}
                     >
-                      <IconTrash className="me-2 size-4" />
-                      {t("database.delete")}
+                      <IconFileText className="me-2 size-4" />
+                      {t("sidebar.page")}
                     </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-
-            {canCreateChild ? (
-              <DropdownMenu>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        aria-label={t("sidebar.addChildTo", { title })}
-                        data-sidebar-add-child
+                    {onCreateChildDatabase ? (
+                      <DropdownMenuItem
+                        onSelect={() => onCreateChildDatabase(item)}
                       >
-                        <IconPlus size={14} />
-                      </button>
-                    </DropdownMenuTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("sidebar.addChild")}</TooltipContent>
-                </Tooltip>
-                <DropdownMenuContent align="start" className="w-44">
-                  <DropdownMenuItem onSelect={() => onCreateChildPage?.(item)}>
-                    <IconFileText className="me-2 size-4" />
-                    {t("sidebar.page")}
-                  </DropdownMenuItem>
-                  {onCreateChildDatabase ? (
-                    <DropdownMenuItem
-                      onSelect={() => onCreateChildDatabase(item)}
-                    >
-                      <IconDatabase className="me-2 size-4" />
-                      {t("sidebar.database")}
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <button
-                type="button"
-                className="flex size-6 cursor-not-allowed items-center justify-center rounded text-muted-foreground/50"
-                aria-label={t("sidebar.addChildTo", { title })}
-                data-sidebar-add-child
-                disabled
-              >
-                <IconPlus size={14} />
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </>
+                        <IconDatabase className="me-2 size-4" />
+                        {t("sidebar.database")}
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <button
+                  type="button"
+                  className="flex size-6 cursor-not-allowed items-center justify-center rounded text-muted-foreground/50"
+                  aria-label={t("sidebar.addChildTo", { title })}
+                  data-sidebar-add-child
+                  disabled
+                >
+                  <IconPlus size={14} />
+                </button>
+              )}
+            </div>
+          }
+        </div>
+      )}
+    </SidebarRowMenu>
   );
 }
 

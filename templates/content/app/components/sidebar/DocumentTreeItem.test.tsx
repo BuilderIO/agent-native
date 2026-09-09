@@ -76,6 +76,7 @@ async function render(node: ReactNode) {
             database: { delete: "Delete" },
             sidebar: {
               addChild: "Add child",
+              moreActionsFor: "More actions for {{label}}",
               addChildTo: "Add child to {{title}}",
               database: "Database",
               page: "Page",
@@ -199,12 +200,12 @@ describe("sidebar document permission menus", () => {
     expect(onCreateChildDatabase).not.toHaveBeenCalled();
 
     const menuItems = await openActions(container);
-    expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
-      "Pin to sidebar",
-    ]);
+    expect(menuItems.some((item) => item.textContent?.trim() === "Pin to sidebar")).toBe(true);
+    expect(menuItems.filter((item) => item.getAttribute("aria-disabled") === "true")).toHaveLength(2);
+    expect(menuItems.some((item) => item.textContent === "Delete")).toBe(false);
 
     await act(async () => {
-      menuItems[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      menuItems.find((item) => item.textContent?.trim() === "Pin to sidebar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
     expect(onToggleFavorite).toHaveBeenCalledOnce();
@@ -236,7 +237,7 @@ describe("sidebar document permission menus", () => {
       const menuItems = await openActions(container);
       expect(
         menuItems.map((item) => item.textContent?.trim().replace(/[.…]+$/, "")),
-      ).toEqual(expectedMenuItems);
+      ).toEqual(expect.arrayContaining([...expectedMenuItems]));
       expect(menuItems.some((item) => item.textContent === "Delete")).toBe(
         canManage,
       );

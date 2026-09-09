@@ -1,6 +1,9 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
+import { sidebarCommandMessagesByLocale } from "../sidebar-command-messages";
+
 const messages = {
+  sidebarCommands: sidebarCommandMessagesByLocale["zh-TW"],
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandContent: "內容",

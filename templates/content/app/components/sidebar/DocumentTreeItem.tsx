@@ -13,17 +13,14 @@ import {
   IconFolder,
   IconFileText,
   IconPlus,
-  IconPin,
-  IconTrash,
-  IconDots,
 } from "@tabler/icons-react";
 import { useState } from "react";
+import { Link } from "react-router";
 
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -34,6 +31,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { documentSidebarActionAvailability } from "./document-sidebar-actions";
+import { SidebarRowMenu } from "./SidebarRowMenu";
 
 interface DocumentTreeItemProps {
   node: DocumentTreeNode;
@@ -99,8 +97,10 @@ export function DocumentTreeItem({
   const isActive = node.id === activeId;
   const isLocalFileNode = node.source?.mode === "local-files";
   const isLocalFolder = isLocalFileNode && node.source?.kind === "folder";
-  const { canEdit, canManage, canFavorite, hasMenuActions } =
-    documentSidebarActionAvailability(node, { favoriteAvailable: true });
+  const { canEdit, canManage, canFavorite } = documentSidebarActionAvailability(
+    node,
+    { favoriteAvailable: true },
+  );
   const canCreateChild = canEdit && !isLocalFileNode;
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const indent = depth * 12 + 12;
@@ -127,203 +127,182 @@ export function DocumentTreeItem({
         transition,
       }}
     >
-      <div
-        {...(isLocalFileNode ? {} : attributes)}
-        {...(isLocalFileNode ? {} : listeners)}
-        aria-label={node.title || "Untitled"}
-        className={cn(
-          "group relative flex min-w-0 items-center gap-1.5 rounded-md border-l-2 py-[5px] pe-2 text-sm cursor-pointer select-none",
-          canEdit && !isLocalFileNode && "cursor-grab active:cursor-grabbing",
-          isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
-          isActive
-            ? "border-primary bg-accent text-accent-foreground font-medium"
-            : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
-        )}
-        style={{
-          paddingInlineStart: `${indent}px`,
-          width: rowWidth === undefined ? undefined : `${rowWidth}px`,
-        }}
-        onClick={() => {
-          if (isLocalFolder && hasChildren) {
-            onToggleExpanded(node.id);
-            return;
-          }
-          onSelect(node.id);
-        }}
-        aria-expanded={hasChildren ? expanded : undefined}
+      <SidebarRowMenu
+        document={node}
+        onFavorite={
+          canFavorite
+            ? () => onToggleFavorite(node.id, !node.isFavorite)
+            : undefined
+        }
+        onDelete={
+          canManage
+            ? () => onDelete(node.id, node.title || t("sidebar.untitled"))
+            : undefined
+        }
+        onAddContext={
+          canEdit && !isLocalFileNode
+            ? () => setContextSheetOpen(true)
+            : undefined
+        }
       >
-        <span className="relative flex-shrink-0 w-5 h-5">
-          <span
+        {(menuTrigger) => (
+          <div
+            {...(isLocalFileNode ? {} : attributes)}
+            {...(isLocalFileNode ? {} : listeners)}
+            aria-label={node.title || "Untitled"}
             className={cn(
-              "absolute inset-0 flex items-center justify-center text-center",
-              hasChildren && "group-hover:opacity-0",
-              hasChildren && (expanded || isActive) && "opacity-0",
+              "group relative flex min-w-0 items-center gap-1.5 rounded-md border-l-2 py-[5px] pe-2 text-sm cursor-pointer select-none",
+              canEdit &&
+                !isLocalFileNode &&
+                "cursor-grab active:cursor-grabbing",
+              isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
+              isActive
+                ? "border-primary bg-accent text-accent-foreground font-medium"
+                : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
+            style={{
+              paddingInlineStart: `${indent}px`,
+              width: rowWidth === undefined ? undefined : `${rowWidth}px`,
+            }}
+            aria-expanded={hasChildren ? expanded : undefined}
           >
-            <DocumentSidebarIcon document={node} />
-          </span>
-          {hasChildren && (
-            <button
-              type="button"
-              aria-label={
-                expanded
-                  ? `Collapse ${node.title || "Untitled"}`
-                  : `Expand ${node.title || "Untitled"}`
-              }
-              className={cn(
-                "absolute inset-0 flex items-center justify-center rounded hover:bg-accent opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto",
-                (expanded || isActive) && "opacity-100 pointer-events-auto",
-              )}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleExpanded(node.id);
-              }}
-            >
-              <IconChevronRight
-                size={14}
+            <span className="relative flex-shrink-0 w-5 h-5">
+              <span
                 className={cn(
-                  "transition-transform",
-                  expanded && "rotate-90",
-                  "rtl:-scale-x-100",
+                  "absolute inset-0 flex items-center justify-center text-center",
+                  hasChildren && "group-hover:opacity-0",
+                  hasChildren && (expanded || isActive) && "opacity-0",
                 )}
-              />
-            </button>
-          )}
-        </span>
-
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate",
-            (hasMenuActions || canCreateChild) && "pr-12",
-          )}
-        >
-          {node.title || "Untitled"}
-        </span>
-
-        <div
-          className={cn(
-            "pointer-events-none absolute right-1 top-1/2 flex flex-shrink-0 -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
-            "bg-accent text-foreground",
-            isActive && "text-accent-foreground",
-          )}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          {hasMenuActions && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+              >
+                <DocumentSidebarIcon document={node} />
+              </span>
+              {hasChildren && (
                 <button
                   type="button"
-                  className="flex h-6 w-6 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={`More actions for ${node.title || "Untitled"}`}
-                  onClick={(e) => e.stopPropagation()}
+                  aria-label={
+                    expanded
+                      ? `Collapse ${node.title || "Untitled"}`
+                      : `Expand ${node.title || "Untitled"}`
+                  }
+                  className={cn(
+                    "absolute inset-0 flex items-center justify-center rounded hover:bg-accent opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto",
+                    (expanded || isActive) && "opacity-100 pointer-events-auto",
+                  )}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleExpanded(node.id);
+                  }}
                 >
-                  <IconDots size={14} />
+                  <IconChevronRight
+                    size={14}
+                    className={cn(
+                      "transition-transform",
+                      expanded && "rotate-90",
+                      "rtl:-scale-x-100",
+                    )}
+                  />
                 </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                {canFavorite && (
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleFavorite(node.id, !node.isFavorite);
-                    }}
-                  >
-                    <IconPin
-                      size={14}
-                      className="me-2"
-                      strokeWidth={node.isFavorite ? 2.2 : 1.7}
-                    />
-                    {node.isFavorite
-                      ? t("sidebar.unpinFromSidebar")
-                      : t("sidebar.pinToSidebar")}
-                  </DropdownMenuItem>
-                )}
-                {canFavorite && canManage && <DropdownMenuSeparator />}
-                {canEdit && !isLocalFileNode && (
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setContextSheetOpen(true);
-                    }}
-                  >
-                    <IconPlus size={14} className="me-2" />
-                    {t("creativeContext.addToContext" /* i18n-key-ignore */)}
-                  </DropdownMenuItem>
-                )}
-                {canManage && (
-                  <DropdownMenuItem
-                    className="text-destructive"
-                    onSelect={(e) => {
-                      e.stopPropagation();
-                      onDelete(node.id, node.title || t("sidebar.untitled"));
-                    }}
-                  >
-                    <IconTrash size={14} className="me-2" />
-                    {t("database.delete")}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+              )}
+            </span>
 
-          {canCreateChild ? (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex h-7 w-7 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      aria-label={t("sidebar.addChildTo", {
-                        title: node.title || t("sidebar.untitled"),
-                      })}
-                      data-sidebar-add-child
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <IconPlus size={14} />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>{t("sidebar.addChild")}</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="start" className="w-44">
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCreateChildPage(node.id);
-                  }}
-                >
-                  <IconFileText className="me-2 size-4" />
-                  {t("sidebar.page")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCreateChildDatabase(node.id);
-                  }}
-                >
-                  <IconDatabase className="me-2 size-4" />
-                  {t("sidebar.database")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <button
-              type="button"
-              className="flex h-7 w-7 cursor-not-allowed items-center justify-center rounded text-muted-foreground/50"
-              aria-label={t("sidebar.addChildTo", {
-                title: node.title || t("sidebar.untitled"),
-              })}
-              data-sidebar-add-child
-              disabled
+            {isLocalFolder ? (
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate pe-12 text-start"
+                onClick={() => onToggleExpanded(node.id)}
+              >
+                {node.title || t("sidebar.untitled")}
+              </button>
+            ) : (
+              <Link
+                to={`/page/${node.id}`}
+                className="min-w-0 flex-1 truncate pe-12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={(event) => {
+                  if (
+                    event.button === 0 &&
+                    !event.ctrlKey &&
+                    !event.metaKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    event.preventDefault();
+                    onSelect(node.id);
+                  }
+                }}
+              >
+                {node.title || t("sidebar.untitled")}
+              </Link>
+            )}
+
+            <div
+              className={cn(
+                "pointer-events-none absolute right-1 top-1/2 flex flex-shrink-0 -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+                "bg-accent text-foreground",
+                isActive && "text-accent-foreground",
+              )}
+              onPointerDown={(e) => e.stopPropagation()}
             >
-              <IconPlus size={14} />
-            </button>
-          )}
-        </div>
-      </div>
+              {menuTrigger}
+
+              {canCreateChild ? (
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex h-7 w-7 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={t("sidebar.addChildTo", {
+                            title: node.title || t("sidebar.untitled"),
+                          })}
+                          data-sidebar-add-child
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <IconPlus size={14} />
+                        </button>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("sidebar.addChild")}</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent align="start" className="w-44">
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCreateChildPage(node.id);
+                      }}
+                    >
+                      <IconFileText className="me-2 size-4" />
+                      {t("sidebar.page")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCreateChildDatabase(node.id);
+                      }}
+                    >
+                      <IconDatabase className="me-2 size-4" />
+                      {t("sidebar.database")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <button
+                  type="button"
+                  className="flex h-7 w-7 cursor-not-allowed items-center justify-center rounded text-muted-foreground/50"
+                  aria-label={t("sidebar.addChildTo", {
+                    title: node.title || t("sidebar.untitled"),
+                  })}
+                  data-sidebar-add-child
+                  disabled
+                >
+                  <IconPlus size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </SidebarRowMenu>
 
       <CreativeContextShareSheet
         open={contextSheetOpen}

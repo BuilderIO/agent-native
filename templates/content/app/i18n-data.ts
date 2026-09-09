@@ -3,6 +3,7 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
 import zhTW from "./i18n/zh-TW";
+import { sidebarCommandMessagesByLocale } from "./sidebar-command-messages";
 
 const databaseMessages = {
   aField: "a field",
@@ -3135,6 +3136,7 @@ const localFilesMessages = {
 };
 
 const enUS = {
+  sidebarCommands: sidebarCommandMessagesByLocale["en-US"],
   creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandContent: "Content",
@@ -9925,6 +9927,7 @@ const landingMessagesByLocale = {
 
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
+    sidebarCommands: { ...enUS.sidebarCommands, ...overrides.sidebarCommands },
     root: { ...enUS.root, ...overrides.root },
     theme: { ...enUS.theme, ...overrides.theme },
     navigation: { ...enUS.navigation, ...overrides.navigation },
@@ -10021,6 +10024,7 @@ function mergeMessagesForLocale(
   };
   const base = mergeMessages({
     ...overrides,
+    sidebarCommands: sidebarCommandMessagesByLocale[locale],
     creativeContext: creativeContextMessagesByLocale[locale],
   });
   return {
