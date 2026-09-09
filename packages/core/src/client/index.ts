@@ -16,6 +16,7 @@ export {
   AgentNativeI18nProvider,
   LanguagePicker,
   getLocaleInitScript,
+  isLocaleCode,
   isValidLocaleCode,
   localeDirection,
   localeMetadataFor,

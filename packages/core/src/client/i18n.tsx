@@ -57,6 +57,7 @@ export {
   LOCALE_METADATA,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
+  isLocaleCode,
   isValidLocaleCode,
   localeDirection,
   localeMetadataFor,
