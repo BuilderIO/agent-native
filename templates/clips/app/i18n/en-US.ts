@@ -64,6 +64,7 @@ const messages = {
     extensions: "Extensions",
     newRecording: "New recording",
     folders: "Folders",
+    recordings: "Recordings",
     newFolder: "New folder",
     noSpaces: "No spaces yet",
     desktopCta: "Get desktop app",
@@ -502,6 +503,11 @@ const messages = {
     shareLink: "Share link",
     shareWithHumans: "Share with humans",
     shareWithAgents: "Share with agents",
+    people: "People",
+    agents: "Agents",
+    openInClaude: "Open in Claude",
+    openInClaudeCode: "Open in Claude Code",
+    openInCodex: "Open in Codex",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
       "Fetch this Clips agent context URL: {{agentContextUrl}}. Use transcript.segments for spoken context, fetch recommendedFrames or the frame API URLs to see the screen, and check browserDiagnostics if present for redacted console logs and fetch/XHR request metadata.",
@@ -1707,6 +1713,7 @@ const messages = {
     donePageTitle: "Bug report submitted · Clips",
     eyebrow: "Bug report",
     title: "Record a bug report",
+    sidebarCta: "Send feedback",
     description:
       "Capture a short repro with screen, voice, and redacted browser context for your team.",
     issueTitleLabel: "Issue title",

@@ -1,7 +1,7 @@
 import { useExperiment } from "@agent-native/core/client/experiments";
 import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/experiments";
 import { useEffect, useRef } from "react";
-import { Outlet, useLocation, useNavigate } from "react-router";
+import { Outlet, useNavigate } from "react-router";
 
 import { LibraryLayout } from "@/components/library/library-layout";
 import { useAutoTitleBridge } from "@/hooks/use-auto-title";
@@ -71,8 +71,6 @@ function useGlobalSequenceShortcuts() {
 // Pathless layout route — keeps the left sidebar + agent chat mounted across
 // every library/space/archive/trash navigation. See client-side-routing skill.
 export default function AppLayoutRoute() {
-  const location = useLocation();
-  const recordingWorkspace = /^\/r\/[^/]+\/?$/.test(location.pathname);
   // Watch for server-queued title delegations and dispatch them to the agent
   // chat. `sendToAgentChat` is browser-only so the server can't call it
   // directly; this bridge is how `request-transcript`'s "auto-title when the
@@ -83,7 +81,7 @@ export default function AppLayoutRoute() {
   useGlobalSequenceShortcuts();
 
   return (
-    <LibraryLayout showAgentSidebar={!recordingWorkspace}>
+    <LibraryLayout>
       <Outlet />
     </LibraryLayout>
   );

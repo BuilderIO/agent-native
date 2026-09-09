@@ -85,7 +85,7 @@ export const ViewerTabsList = React.forwardRef<
     ref={ref}
     variant="line"
     className={cn(
-      "h-10 w-full shrink-0 justify-start overflow-x-auto rounded-none p-0",
+      "h-10 min-h-10 w-fit max-w-full shrink-0 justify-start overflow-x-auto rounded-none px-3 py-0",
       className,
     )}
     {...props}
@@ -100,7 +100,7 @@ export const ViewerTabsTrigger = React.forwardRef<
   <TabsTrigger
     ref={ref}
     className={cn(
-      "h-10 min-w-0 rounded-none px-2 py-0 text-xs after:bottom-0",
+      "h-10 min-w-0 flex-none rounded-none px-2 py-0 text-sm data-[state=active]:after:bottom-0 data-[state=active]:after:inset-x-2",
       className,
     )}
     {...props}

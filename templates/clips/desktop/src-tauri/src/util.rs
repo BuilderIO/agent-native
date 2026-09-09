@@ -111,11 +111,9 @@ pub fn set_capture_included(window: &WebviewWindow) {
 
 pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
     let app_handle = app.handle().clone();
-    // The window is sized to the visible panel EXACTLY — elevation comes from
-    // the native NSWindow shadow (shadow(true) below), which macOS derives
-    // from the drawn rounded panel's alpha. A transparent CSS-shadow apron is
-    // never used here: its invisible margin eats clicks and reads as dead
-    // space around the UI.
+    // The window is sized to the visible panel exactly. The HTML paints the
+    // rounded shape and macOS derives the native shadow from that alpha mask,
+    // so adding native decorations would create a second frame above it.
     WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
         .title("Clips")
         .inner_size(
