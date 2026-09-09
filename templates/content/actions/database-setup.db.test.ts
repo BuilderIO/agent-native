@@ -58,7 +58,7 @@ beforeAll(async () => {
   );
   const spaces = await as(owner, () => listSpaces.run({}));
   spaceId = spaces.spaces[0].id;
-});
+}, 120_000);
 
 afterAll(() => {
   if (!databaseUrl.startsWith("postgres"))

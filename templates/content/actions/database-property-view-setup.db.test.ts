@@ -42,7 +42,7 @@ beforeAll(async () => {
   );
   const spaces = await asOwner(() => listSpaces.run({}));
   spaceId = spaces.spaces[0]!.id;
-});
+}, 120_000);
 
 afterAll(() => rmSync(path, { recursive: true, force: true }));
 

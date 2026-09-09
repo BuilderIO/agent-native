@@ -22,6 +22,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -318,7 +319,11 @@ export async function loadContext(
     .from(schema.documentPropertyDefinitions)
     .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
   const sourceFields = await db
-    .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
+    .select({
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+    })
     .from(schema.contentDatabaseSourceFields)
     .innerJoin(
       schema.contentDatabaseSources,
@@ -328,9 +333,16 @@ export async function loadContext(
       ),
     )
     .where(eq(schema.contentDatabaseSources.databaseId, database.id));
+  const sourceFieldsByPropertyId = new Map<string, typeof sourceFields>();
+  for (const field of sourceFields) {
+    if (!field.propertyId) continue;
+    const fields = sourceFieldsByPropertyId.get(field.propertyId) ?? [];
+    fields.push(field);
+    sourceFieldsByPropertyId.set(field.propertyId, fields);
+  }
   const sourceManagedPropertyIds = new Set(
-    sourceFields.flatMap((field) =>
-      field.propertyId ? [field.propertyId] : [],
+    [...sourceFieldsByPropertyId].flatMap(([propertyId, fields]) =>
+      contentDatabaseSourceFieldsAllowLocalWrite(fields) ? [] : [propertyId],
     ),
   );
   return {

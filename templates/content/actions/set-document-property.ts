@@ -14,6 +14,7 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
@@ -28,13 +29,16 @@ import {
   normalizedValueJson,
 } from "./_property-utils.js";
 
-async function assertPropertyNotSourceManaged(
+async function assertPropertyWritableByRowMutation(
   db: ReturnType<typeof getDb>,
   databaseId: string,
   definition: typeof schema.documentPropertyDefinitions.$inferSelect,
 ) {
-  const [sourceField] = await db
-    .select({ id: schema.contentDatabaseSourceFields.id })
+  const sourceFields = await db
+    .select({
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+    })
     .from(schema.contentDatabaseSourceFields)
     .innerJoin(
       schema.contentDatabaseSources,
@@ -48,9 +52,8 @@ async function assertPropertyNotSourceManaged(
         eq(schema.contentDatabaseSources.databaseId, databaseId),
         eq(schema.contentDatabaseSourceFields.propertyId, definition.id),
       ),
-    )
-    .limit(1);
-  if (!sourceField) return;
+    );
+  if (contentDatabaseSourceFieldsAllowLocalWrite(sourceFields)) return;
   throw new ActionContractError(
     `Property "${definition.name}" is not writable by database row mutations.`,
     {
@@ -175,7 +178,7 @@ export default defineAction({
             "Property type changed before the operation completed.",
           );
         }
-        await assertPropertyNotSourceManaged(
+        await assertPropertyWritableByRowMutation(
           tx as unknown as ReturnType<typeof getDb>,
           database.id,
           lockedDefinition,
@@ -332,7 +335,7 @@ export default defineAction({
       if (isComputedPropertyType(lockedType)) {
         throw new Error("Computed properties cannot be edited.");
       }
-      await assertPropertyNotSourceManaged(
+      await assertPropertyWritableByRowMutation(
         tx as unknown as ReturnType<typeof getDb>,
         database.id,
         lockedDefinition,

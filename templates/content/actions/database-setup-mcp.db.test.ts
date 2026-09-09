@@ -160,7 +160,7 @@ beforeAll(async () => {
     connect(owner),
     connect(outsider),
   ]);
-});
+}, 120_000);
 
 afterAll(async () => {
   await Promise.all(

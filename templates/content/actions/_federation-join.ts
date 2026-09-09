@@ -19,6 +19,10 @@ import type {
   DocumentPropertyValue,
 } from "../shared/api.js";
 import { evaluateNormalizationFormula } from "../shared/properties.js";
+import {
+  contentDatabaseSourceFieldAllowsLocalWrite,
+  contentDatabaseSourceFieldsAllowLocalWrite,
+} from "../shared/source-field-policy.js";
 
 // Map a source row's own values into the canonical key space. Returns null for
 // an un-joinable row (empty/broken formula result) — null never matches, not
@@ -144,11 +148,21 @@ export function applyFederatedOverlayValues(
   items: ContentDatabaseItem[],
   sources: ContentDatabaseSource[],
 ): ContentDatabaseItem[] {
+  const sourceFieldsByPropertyId = new Map<
+    string,
+    ContentDatabaseSource["fields"]
+  >();
+  for (const source of sources) {
+    for (const field of source.fields) {
+      if (!field.propertyId) continue;
+      const fields = sourceFieldsByPropertyId.get(field.propertyId) ?? [];
+      fields.push(field);
+      sourceFieldsByPropertyId.set(field.propertyId, fields);
+    }
+  }
   const sourceManagedPropertyIds = new Set(
-    sources.flatMap((source) =>
-      source.fields.flatMap((field) =>
-        field.propertyId ? [field.propertyId] : [],
-      ),
+    [...sourceFieldsByPropertyId].flatMap(([propertyId, fields]) =>
+      contentDatabaseSourceFieldsAllowLocalWrite(fields) ? [] : [propertyId],
     ),
   );
   const secondaryPropertyIds = new Set(
@@ -156,7 +170,9 @@ export function applyFederatedOverlayValues(
       .filter((source) => source.metadata.federation?.role === "secondary")
       .flatMap((source) =>
         source.fields.flatMap((field) =>
-          field.propertyId ? [field.propertyId] : [],
+          field.propertyId && !contentDatabaseSourceFieldAllowsLocalWrite(field)
+            ? [field.propertyId]
+            : [],
         ),
       ),
   );

@@ -26,6 +26,7 @@ let replaceMockSourceRows: typeof import("./_database-source-utils.js").replaceM
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
 let updateDatabaseItemsAction: typeof import("./update-database-items.js").default;
+let updateDatabaseItemAction: typeof import("./update-database-item.js").default;
 let nextAppendPosition: typeof import("./_position-utils.js").nextAppendPosition;
 let createAppendPositionAllocator: typeof import("./_position-utils.js").createAppendPositionAllocator;
 let spaceId: string;
@@ -58,6 +59,8 @@ beforeAll(async () => {
   getContentDatabaseAction = (await import("./get-content-database.js"))
     .default;
   updateDatabaseItemsAction = (await import("./update-database-items.js"))
+    .default;
+  updateDatabaseItemAction = (await import("./update-database-item.js"))
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
@@ -1160,6 +1163,172 @@ describe("database row batch actions", () => {
           ),
         ),
     ).toEqual([{ valueJson: JSON.stringify("Original local value") }]);
+  });
+
+  it("allows only locally owned writable mapped properties to save locally", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(1);
+    const now = new Date().toISOString();
+    const sourceId = nextId("source");
+    const mappings = [
+      { key: "local", writeOwner: "local", readOnly: 0 },
+      { key: "source", writeOwner: "source", readOnly: 0 },
+      { key: "derived", writeOwner: "derived", readOnly: 0 },
+      { key: "read_only", writeOwner: "local", readOnly: 1 },
+    ] as const;
+    const propertyIds = Object.fromEntries(
+      mappings.map(({ key }) => [key, nextId(`${key}_property`)]),
+    );
+
+    await getDb()
+      .insert(schema.documentPropertyDefinitions)
+      .values(
+        mappings.map(({ key }, position) => ({
+          id: propertyIds[key],
+          ownerEmail: OWNER,
+          databaseId,
+          name: key,
+          type: "text",
+          visibility: "always_show",
+          optionsJson: "{}",
+          position,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId,
+      sourceType: "mock-local",
+      sourceName: "Ownership fixture",
+      sourceTable: databaseId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseSourceFields)
+      .values([
+        ...mappings.map(({ key, writeOwner, readOnly }) => ({
+          id: nextId(`${key}_source_field`),
+          ownerEmail: OWNER,
+          sourceId,
+          propertyId: propertyIds[key],
+          localFieldKey: key,
+          sourceFieldKey: key,
+          sourceFieldLabel: key,
+          sourceFieldType: "text",
+          mappingType: "property",
+          writeOwner,
+          readOnly,
+          createdAt: now,
+          updatedAt: now,
+        })),
+        {
+          id: nextId("additional_local_source_field"),
+          ownerEmail: OWNER,
+          sourceId,
+          propertyId: propertyIds.source,
+          localFieldKey: "source-local-copy",
+          sourceFieldKey: "source-local-copy",
+          sourceFieldLabel: "Additional local mapping",
+          sourceFieldType: "text",
+          mappingType: "property",
+          writeOwner: "local",
+          readOnly: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+    const discovered = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseAction.run({ databaseId }),
+    );
+    if (!("items" in discovered) || !discovered.mutationContract) {
+      throw new Error("Expected a database mutation contract");
+    }
+    expect(
+      discovered.mutationContract.properties.find(
+        (property) => property.id === propertyIds.local,
+      ),
+    ).toMatchObject({ writable: true, sourceManaged: false });
+    expect(
+      discovered.items[0].properties.find(
+        (property) => property.definition.id === propertyIds.local,
+      ),
+    ).toMatchObject({ editable: true });
+    for (const key of ["source", "derived", "read_only"] as const) {
+      expect(
+        discovered.mutationContract.properties.find(
+          (property) => property.id === propertyIds[key],
+        ),
+      ).toMatchObject({ writable: false, sourceManaged: true });
+      expect(
+        discovered.items[0].properties.find(
+          (property) => property.definition.id === propertyIds[key],
+        ),
+      ).toMatchObject({ editable: false });
+    }
+
+    const guardedResult = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        updateDatabaseItemAction.run({
+          target: discovered.mutationContract!.target,
+          expectedSchemaRevision: discovered.mutationContract!.schemaRevision,
+          idempotencyKey: nextId("local_field_update"),
+          itemId: discovered.items[0].id,
+          documentId: discovered.items[0].document.id,
+          expectedRowRevision: discovered.items[0].rowRevision!,
+          propertyValues: { [propertyIds.local]: "Saved by guarded update" },
+        }),
+    );
+    expect(guardedResult.receipt.readback.propertyValues).toMatchObject({
+      [propertyIds.local]: "Saved by guarded update",
+    });
+
+    const localResult = await runWithRequestContext({ userEmail: OWNER }, () =>
+      setDocumentPropertyAction.run({
+        documentId: rows[0].documentId,
+        databaseId,
+        propertyId: propertyIds.local,
+        value: "Saved locally",
+      }),
+    );
+    expect(
+      localResult.properties.find(
+        (property) => property.definition.id === propertyIds.local,
+      ),
+    ).toMatchObject({ value: "Saved locally", editable: true });
+
+    for (const key of ["source", "derived", "read_only"] as const) {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          setDocumentPropertyAction.run({
+            documentId: rows[0].documentId,
+            databaseId,
+            propertyId: propertyIds[key],
+            value: "Rejected write",
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "PROPERTY_NOT_WRITABLE" });
+    }
+
+    expect(
+      await getDb()
+        .select({
+          propertyId: schema.documentPropertyValues.propertyId,
+          valueJson: schema.documentPropertyValues.valueJson,
+        })
+        .from(schema.documentPropertyValues)
+        .where(
+          eq(schema.documentPropertyValues.documentId, rows[0].documentId),
+        ),
+    ).toEqual([
+      {
+        propertyId: propertyIds.local,
+        valueJson: JSON.stringify("Saved locally"),
+      },
+    ]);
   });
 
   it("serializes a racing source association before membership removal", async () => {

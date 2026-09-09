@@ -190,6 +190,98 @@ describe("federateSources", () => {
 });
 
 describe("applyFederatedOverlayValues", () => {
+  it("keeps only unambiguous local-owned mappings editable", () => {
+    const localProperty = {
+      definition: { id: "local-property" },
+      value: "Local value",
+      editable: true,
+    } as ContentDatabaseItem["properties"][number];
+    const local = source({ id: "local", rows: [] });
+    local.fields = [
+      {
+        id: "local-field",
+        propertyId: "local-property",
+        propertyName: "Local field",
+        localFieldKey: "local-property",
+        sourceFieldKey: "local-property",
+        sourceFieldLabel: "Local field",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "local",
+        readOnly: false,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
+    ];
+
+    expect(
+      applyFederatedOverlayValues(
+        [{ ...item("doc-local"), properties: [localProperty] }],
+        [local],
+      )[0].properties[0],
+    ).toMatchObject({ value: "Local value", editable: true });
+
+    const blocking = source({ id: "blocking", rows: [] });
+    blocking.fields = [
+      {
+        ...local.fields[0],
+        id: "source-field",
+        writeOwner: "source",
+      },
+    ];
+    expect(
+      applyFederatedOverlayValues(
+        [{ ...item("doc-blocked"), properties: [localProperty] }],
+        [local, blocking],
+      )[0].properties[0],
+    ).toMatchObject({ value: "Local value", editable: false });
+  });
+
+  it("keeps an overlay-provided value noneditable even with local metadata", () => {
+    const local = source({ id: "local", rows: [] });
+    local.fields = [
+      {
+        id: "local-field",
+        propertyId: "local-property",
+        propertyName: "Local field",
+        localFieldKey: "local-property",
+        sourceFieldKey: "local-property",
+        sourceFieldLabel: "Local field",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "local",
+        readOnly: false,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
+    ];
+    const overlaid = {
+      ...item("doc-overlay"),
+      properties: [
+        {
+          definition: { id: "local-property" },
+          value: "Stale local value",
+          editable: true,
+        } as ContentDatabaseItem["properties"][number],
+      ],
+      sourceOverlays: [
+        {
+          sourceId: "local",
+          sourceName: "Local",
+          sourceRowId: "row-1",
+          values: { "local-property": "Overlay value" },
+          fields: local.fields,
+        },
+      ],
+    };
+
+    expect(
+      applyFederatedOverlayValues([overlaid], [local])[0].properties[0],
+    ).toMatchObject({ value: "Overlay value", editable: false });
+  });
+
   it("keeps mapped properties read-only without blanking a primary value", () => {
     const secondaryProperty = {
       definition: { id: "secondary-property" },
@@ -240,8 +332,8 @@ describe("applyFederatedOverlayValues", () => {
         sourceFieldLabel: "Shared owner",
         sourceFieldType: "text",
         mappingType: "property",
-        writeOwner: "source",
-        readOnly: true,
+        writeOwner: "local",
+        readOnly: false,
         provenance: "test",
         freshness: "fresh",
         lastSyncedAt: null,
