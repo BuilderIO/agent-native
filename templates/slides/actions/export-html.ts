@@ -48,11 +48,24 @@ function sanitizeSlideContent(html: string): string {
     .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 }
 
-function safeCssToken(value: unknown, fallback: string): string {
+function safeCssToken(
+  value: unknown,
+  fallback: string,
+  builderTokenValues?: Record<string, string>,
+): string {
   if (typeof value !== "string") return fallback;
   const sanitized = sanitizeCssValue(value);
   if (!sanitized) return fallback;
-  return sanitized.replace(/[{}<>;]/g, "").slice(0, 240) || fallback;
+  const resolved = sanitized
+    .replace(/[{}<>;]/g, "")
+    .replace(
+      /var\(\s*(--[a-zA-Z][\w-]*)\s*\)/g,
+      (_, name: string) => builderTokenValues?.[name] ?? `var(${name})`,
+    )
+    .trim();
+  return /var\(\s*--/i.test(resolved)
+    ? fallback
+    : resolved.slice(0, 240) || fallback;
 }
 
 const STANDALONE_TAILWIND_BACKGROUNDS: Record<string, string> = {
@@ -139,27 +152,30 @@ function standaloneDesignSystemVars(
     `--ds-bg: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND)}`,
     // guard:allow-raw-color - standalone export fallback palette
     // guard:allow-raw-color - standalone export dark-background fallback
-    `--ds-text: ${safeCssToken(colors?.text, darkBackground ? "#FFFFFF" : "#1F2933")}`,
+    `--ds-text: ${safeCssToken(colors?.text, darkBackground ? "#FFFFFF" : "#1F2933", builderTokenValues)}`,
     // guard:allow-raw-color - standalone export fallback palette
     // guard:allow-raw-color - standalone export dark-background fallback
-    `--ds-text-muted: ${safeCssToken(colors?.textMuted, darkBackground ? "rgba(255, 255, 255, 0.72)" : "#667085")}`,
+    `--ds-text-muted: ${safeCssToken(colors?.textMuted, darkBackground ? "rgba(255, 255, 255, 0.72)" : "#667085", builderTokenValues)}`,
     // guard:allow-raw-color - standalone export fallback palette
-    `--ds-accent: ${safeCssToken(colors?.accent, "#2457D6")}`,
+    `--ds-accent: ${safeCssToken(colors?.accent, "#2457D6", builderTokenValues)}`,
     // guard:allow-raw-color - standalone export fallback palette
-    `--ds-primary: ${safeCssToken(colors?.primary, "#2457D6")}`,
+    `--ds-primary: ${safeCssToken(colors?.primary, "#2457D6", builderTokenValues)}`,
     // guard:allow-raw-color - standalone export fallback palette
-    `--ds-secondary: ${safeCssToken(colors?.secondary, "#C85C3A")}`,
+    `--ds-secondary: ${safeCssToken(colors?.secondary, "#C85C3A", builderTokenValues)}`,
     // guard:allow-raw-color - standalone export fallback palette
-    `--ds-surface: ${safeCssToken(colors?.surface, "#FFFFFF")}`,
-    `--ds-heading-font: ${safeCssToken(typography?.headingFont, "Inter, sans-serif")}`,
-    `--ds-body-font: ${safeCssToken(typography?.bodyFont, "Inter, sans-serif")}`,
-    `--ds-radius: ${safeCssToken(borders?.radius, "14px")}`,
+    `--ds-surface: ${safeCssToken(colors?.surface, "#FFFFFF", builderTokenValues)}`,
+    `--ds-heading-font: ${safeCssToken(typography?.headingFont, "Inter, sans-serif", builderTokenValues)}`,
+    `--ds-body-font: ${safeCssToken(typography?.bodyFont, "Inter, sans-serif", builderTokenValues)}`,
+    `--ds-radius: ${safeCssToken(borders?.radius, "14px", builderTokenValues)}`,
     ...Object.entries(builderTokenValues ?? {})
       .filter(
         ([name, value]) =>
           /^--[a-zA-Z][\w-]*$/.test(name) && typeof value === "string",
       )
-      .map(([name, value]) => `${name}: ${safeCssToken(value, "initial")}`),
+      .map(
+        ([name, value]) =>
+          `${name}: ${safeCssToken(value, "initial", builderTokenValues)}`,
+      ),
   ].join("; ");
 }
 
