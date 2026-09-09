@@ -132,6 +132,20 @@ test("keeps package metadata targeted but runs the drizzle guard", () => {
   assert.equal(scope.checks.drizzle, true);
 });
 
+test("routes each headless AgentKit package through dependency-aware fast tests", () => {
+  for (const name of ["protocol", "client", "adapters", "conformance"]) {
+    const packageDir = `packages/agentkit-${name}`;
+    const scope = classifyChangedPaths([`${packageDir}/src/index.ts`]);
+
+    assert.equal(scope.full, false);
+    assert.equal(scope.docsOnly, false);
+    assert.equal(scope.checks.fast_tests, true);
+    assert.equal(scope.checks.typecheck, true);
+    assert.equal(scope.checks.build, true);
+    assert.deepEqual(scope.workspaceFilters, [`...{${packageDir}}...`]);
+  }
+});
+
 test("includes nested template workspaces in selectors", () => {
   assert.deepEqual(
     workspaceFiltersForPaths(["templates/clips/desktop/src/main.ts"]),

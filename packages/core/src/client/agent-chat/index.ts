@@ -314,6 +314,25 @@ export {
 export * from "../chat/connectors.js";
 export * from "../chat/runtime.js";
 export {
+  createAgentKitProtocolAdapter,
+  type AgentKitProtocolAdapter,
+  type CreateAgentKitProtocolAdapterOptions,
+} from "../chat/agentkit-protocol.js";
+export {
+  createAgentNativeAgentKitTransport,
+  type CreateAgentNativeAgentKitTransportOptions,
+} from "../chat/agentkit-agent-native.js";
+export {
+  AGENT_CHAT_RUNNING_EVENT,
+  dispatchAgentChatRunning,
+  resolveAgentChatRunningThreadId,
+  useAgentChatRunningThreads,
+  type AgentChatPresentationPhase,
+  type AgentChatRunningEventDetail,
+  type AgentChatRunningThreadsState,
+  type UseAgentChatRunningThreadsOptions,
+} from "../use-agent-chat-running-threads.js";
+export {
   CHAT_FIRST_APP_LAYOUT_STORAGE_KEY,
   CHAT_FIRST_DEFAULT_APP_IDS,
   CHAT_FIRST_SURFACE_TABS_STORAGE_KEY,

@@ -904,9 +904,10 @@ jobs:
 
       # Build the extracted recap CLI before core so its compatibility shim is
       # available to source imports, then produce the real serverless bundle.
-      - name: Build recap CLI, toolkit, core, and creative context
+      - name: Build recap CLI, AgentKit protocol, toolkit, core, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
+          pnpm --filter @agent-native/agentkit-protocol build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/creative-context build
@@ -970,12 +971,16 @@ jobs:
       - name: Test serverless function size baseline guard
         run: pnpm test:function-size-baseline
 
+      - name: Test package release registration and workflows
+        run: pnpm test:package-release-workflow
+
       # Source-backed guards import published-style package entrypoints, so
       # build the workspace packages they inspect before loading locale data.
       - name: Build packages for source-backed guards
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/toolkit build
+          pnpm --filter @agent-native/agentkit-protocol build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/creative-context build
 

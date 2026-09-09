@@ -8,6 +8,7 @@ import {
   DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
   NPM_PUBLISH_PACKAGE_NAMES,
 } from "./changeset-publish-sequential.ts";
+import { AGENTKIT_NPM_PACKAGE_NAMES } from "./public-package-names.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -107,11 +108,43 @@ describe("npm package release workflow", () => {
   it("keeps the release changeset package list aligned with the publisher", () => {
     const source = readFileSync("scripts/create-release-changeset.ts", "utf8");
     assert.match(source, /NPM_PUBLISH_PACKAGE_NAMES/);
-    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 8);
+    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 12);
   });
 
   it("allows npm propagation to settle before failing a publish", () => {
     assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 15 * 60_000);
+  });
+
+  it("registers exactly the four headless AgentKit packages for publication", () => {
+    assert.deepEqual(AGENTKIT_NPM_PACKAGE_NAMES, [
+      "@agent-native/agentkit-protocol",
+      "@agent-native/agentkit-client",
+      "@agent-native/agentkit-adapters",
+      "@agent-native/agentkit-conformance",
+    ]);
+    const paths = (trigger.push as Workflow).paths as string[];
+    for (const name of AGENTKIT_NPM_PACKAGE_NAMES) {
+      const dir = `packages/${name.slice("@agent-native/".length)}`;
+      assert(paths.includes(`${dir}/**`));
+      const pkg = JSON.parse(readFileSync(`${dir}/package.json`, "utf8"));
+      assert.equal(pkg.name, name);
+      assert.equal(pkg.publishConfig.access, "public");
+      assert.equal(typeof pkg.scripts.test, "string");
+    }
+    assert(!paths.includes("packages/agentkit/**"));
+    assert(!paths.includes("packages/agentkit-react/**"));
+  });
+
+  it("runs release regression tests in PR CI", () => {
+    const ci = parse(
+      readFileSync(".github/workflows/ci.yml", "utf8"),
+    ) as Workflow;
+    const guards = (ci.jobs as Workflow).guards as Workflow;
+    assert(
+      (guards.steps as Workflow[]).some(
+        (step) => step.run === "pnpm test:package-release-workflow",
+      ),
+    );
   });
 
   it("consumes concurrent public changesets after stable publication", () => {
