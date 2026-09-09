@@ -154,6 +154,27 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-legacy");
   });
 
+  it("preserves Personal scope for a legacy connect JWT from its stored row", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      orgId: null,
+    });
+    const token = await sign({
+      sub: "ci@example.com",
+      scope: "mcp-connect",
+      jti: "jti-personal",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(true);
+    expect(res.identity).toEqual({
+      userEmail: "ci@example.com",
+      orgId: null,
+      orgDomain: undefined,
+    });
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-personal");
+  });
+
   it("rejects a legacy connect JWT when its org lookup is unavailable", async () => {
     isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
@@ -585,6 +606,21 @@ describe("resolveMcpIdentityOrgId", () => {
         orgDomain: "example.com",
       }),
     ).resolves.toBe("org-explicit");
+
+    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves explicit Personal scope without an email fallback", async () => {
+    resolveOrgIdForEmailMock.mockResolvedValue("org-email");
+
+    await expect(
+      resolveMcpIdentityOrgId({
+        userEmail: "alice@example.com",
+        orgId: null,
+        orgDomain: undefined,
+      }),
+    ).resolves.toBeUndefined();
 
     expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();

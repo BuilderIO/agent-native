@@ -215,7 +215,8 @@ export interface MCPConfig {
  */
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
-  orgId?: string | undefined;
+  /** Omitted means no recorded scope; null means explicit Personal scope. */
+  orgId?: string | null;
   orgDomain: string | undefined;
   /** Present only for standard remote MCP OAuth access tokens. */
   oauthScopes?: string[];
@@ -1939,6 +1940,9 @@ export async function createMCPServerForRequest(
       {
         userEmail: effectiveIdentity?.userEmail,
         orgId,
+        ...(effectiveIdentity?.orgId === null
+          ? { orgScope: "personal" as const }
+          : {}),
         ...(requestMeta?.origin ? { requestOrigin: requestMeta.origin } : {}),
         ...(mcpRequestId ? { mcpRequestId } : {}),
       },
@@ -2783,16 +2787,18 @@ async function isConnectTokenAllowed(
 }
 
 type ConnectTokenOrgResolution =
-  | { status: "claimed"; orgId: string }
+  | { status: "claimed"; orgId: string | null }
   | { status: "found"; orgId: string | null }
   | { status: "missing" }
   | { status: "unavailable" };
 
 async function resolveConnectTokenOrgId(
   jti: string | undefined,
-  claimedOrgId: string | undefined,
+  claimedOrgId: string | null | undefined,
 ): Promise<ConnectTokenOrgResolution> {
-  if (claimedOrgId) return { status: "claimed", orgId: claimedOrgId };
+  if (claimedOrgId !== undefined) {
+    return { status: "claimed", orgId: claimedOrgId };
+  }
   if (!jti) return { status: "missing" };
   const { lookupConnectTokenOrg } = await import("./connect-store.js");
   return lookupConnectTokenOrg(jti);
@@ -2800,10 +2806,10 @@ async function resolveConnectTokenOrgId(
 
 function orgIdFromConnectTokenResolution(
   resolution: ConnectTokenOrgResolution,
-): string | undefined {
+): string | null | undefined {
   if (resolution.status === "claimed") return resolution.orgId;
   if (resolution.status === "found") {
-    return resolution.orgId === null ? undefined : resolution.orgId;
+    return resolution.orgId;
   }
   return undefined;
 }
@@ -2886,7 +2892,7 @@ export async function verifyAuth(
         authed: true,
         identity: {
           userEmail: oauthIdentity.userEmail,
-          ...(orgId ? { orgId } : {}),
+          ...(orgId !== undefined ? { orgId } : {}),
           orgDomain: oauthIdentity.orgDomain,
           oauthScopes: oauthIdentity.scopes,
           oauthClientId: oauthIdentity.clientId,
@@ -2937,10 +2943,11 @@ export async function verifyAuth(
       }
     }
 
-    const claimedOrgId =
-      typeof payload.org_id === "string" && payload.org_id
+    const claimedOrgId = Object.prototype.hasOwnProperty.call(payload, "org_id")
+      ? typeof payload.org_id === "string" && payload.org_id
         ? payload.org_id
-        : undefined;
+        : null
+      : undefined;
     const orgResolution = await resolveConnectTokenOrgId(
       tokenScope === MCP_CONNECT_SCOPE
         ? (payload.jti as string | undefined)
@@ -2961,7 +2968,7 @@ export async function verifyAuth(
         // resolved identity is org-scoped even when the org has no domain
         // mapping. Legacy connect JWTs use their stored org scope when that
         // claim is absent; ordinary personal/delegation JWTs are unchanged.
-        ...(orgId ? { orgId } : {}),
+        ...(orgId !== undefined ? { orgId } : {}),
         orgDomain:
           typeof payload.org_domain === "string"
             ? (payload.org_domain as string)
@@ -3035,7 +3042,7 @@ export async function resolveOrgIdFromDomain(
 export async function resolveMcpIdentityOrgId(
   identity: MCPCallerIdentity | undefined,
 ): Promise<string | undefined> {
-  if (identity?.orgId) return identity.orgId;
+  if (identity?.orgId !== undefined) return identity.orgId ?? undefined;
 
   const orgIdFromDomain = await resolveOrgIdFromDomain(identity?.orgDomain);
   if (orgIdFromDomain) return orgIdFromDomain;

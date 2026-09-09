@@ -133,6 +133,17 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
     expect(result?.orgDomain).toBeUndefined();
   });
 
+  it("preserves an explicit Personal org claim as null", async () => {
+    const token = await signMcpOAuthAccessToken({
+      ...baseSign,
+      orgId: null,
+    });
+    const decoded = jose.decodeJwt(token);
+    expect(decoded.org_id).toBeNull();
+    const result = await verifyMcpOAuthAccessToken(token, RESOURCE);
+    expect(result?.orgId).toBeNull();
+  });
+
   it("sets the typ marker, issuer, audience, jti, and an expiry", async () => {
     vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     const token = await signMcpOAuthAccessToken(baseSign);

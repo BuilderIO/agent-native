@@ -21,7 +21,8 @@ export const MCP_OAUTH_DEFAULT_SCOPE = MCP_OAUTH_SCOPES.join(" ");
 
 export interface McpOAuthAccessTokenClaims {
   sub: string;
-  org_id?: string;
+  /** Omitted means no recorded scope; null means explicit Personal scope. */
+  org_id?: string | null;
   org_domain?: string;
   scope: string;
   client_id: string;
@@ -102,7 +103,7 @@ export async function signMcpOAuthAccessToken(params: {
   return new jose.SignJWT({
     typ: "agent-native-mcp-oauth",
     sub: params.ownerEmail,
-    ...(params.orgId ? { org_id: params.orgId } : {}),
+    ...(params.orgId !== undefined ? { org_id: params.orgId } : {}),
     ...(params.orgDomain ? { org_domain: params.orgDomain } : {}),
     scope: params.scope,
     client_id: params.clientId,
@@ -153,7 +154,7 @@ export async function verifyMcpOAuthAccessToken(
   resource: string | string[] | undefined,
 ): Promise<{
   userEmail: string;
-  orgId?: string;
+  orgId?: string | null;
   orgDomain?: string;
   scopes: string[];
   clientId: string;
@@ -213,7 +214,11 @@ export async function verifyMcpOAuthAccessToken(
     }
     return {
       userEmail: payload.sub,
-      orgId: typeof payload.org_id === "string" ? payload.org_id : undefined,
+      orgId: Object.prototype.hasOwnProperty.call(payload, "org_id")
+        ? typeof payload.org_id === "string"
+          ? payload.org_id
+          : null
+        : undefined,
       orgDomain:
         typeof payload.org_domain === "string" ? payload.org_domain : undefined,
       scopes,

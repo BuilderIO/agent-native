@@ -86,7 +86,7 @@ function mockEmptyDb() {
 
 async function mintConnectToken(opts: {
   ownerEmail: string;
-  orgId?: string;
+  orgId?: string | null;
   orgDomain?: string;
   resource: string;
   issuer: string;
@@ -252,6 +252,79 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
         orgId: "org-from-membership",
       });
       expect(resolveOrgIdForEmail).toHaveBeenCalledWith("owner@plans.test");
+    },
+    ACTION_ROUTE_CONNECT_AUTH_TIMEOUT_MS,
+  );
+
+  it(
+    "keeps an explicit Personal Bearer token out of the owner org",
+    async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-action-route-e2e");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.A2A_SECRET;
+
+      mockEmptyDb();
+      const resolveOrgIdForEmail = vi
+        .fn()
+        .mockResolvedValue("org-from-membership");
+      vi.doMock("../org/context.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        resolveOrgIdForEmail,
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const { getRequestOrgId } = await import("./request-context.js");
+      const { getOwnerFromEvent, resolveOrgId } = await buildOwnerResolver();
+
+      let received: { actionOrgId: string | null; requestOrgId?: string };
+      const actions: Record<string, ActionEntry> = {
+        "import-visual-plan-source": {
+          run: vi.fn(async (_params, ctx) => {
+            received = {
+              actionOrgId: ctx.orgId,
+              requestOrgId: getRequestOrgId(),
+            };
+            return { planId: "plan_123", url: "/plans/plan_123" };
+          }),
+        } as any,
+      };
+
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: (path: string, handler: any) => mounted.push({ path, handler }),
+      };
+      mountActionRoutes(nitroApp, actions, {
+        getOwnerFromEvent,
+        resolveOrgId,
+      });
+
+      const token = await mintConnectToken({
+        ownerEmail: "owner@plans.test",
+        orgId: null,
+        resource: "http://localhost/_agent-native/mcp",
+        issuer: "http://localhost",
+      });
+
+      const result = await mounted[0].handler(
+        makePostEvent({
+          path: "/_agent-native/actions/import-visual-plan-source",
+          headers: { authorization: `Bearer ${token}` },
+          body: { title: "My plan", mdx: { "plan.mdx": "# Plan" } },
+        }),
+      );
+
+      expect(result).toEqual({ planId: "plan_123", url: "/plans/plan_123" });
+      expect(received!).toEqual({
+        actionOrgId: null,
+        requestOrgId: undefined,
+      });
+      expect(resolveOrgIdForEmail).not.toHaveBeenCalled();
     },
     ACTION_ROUTE_CONNECT_AUTH_TIMEOUT_MS,
   );

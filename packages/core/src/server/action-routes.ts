@@ -85,7 +85,10 @@ function currentBuildId(): string {
  */
 import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
-import { runWithRequestContext } from "./request-context.js";
+import {
+  hasExplicitPersonalOrgScope,
+  runWithRequestContext,
+} from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
 const FRONTEND_MUTATION_METHODS = new Set(["POST", "PUT", "DELETE"]);
@@ -677,7 +680,9 @@ function mountActionRoutesInternal(
           orgId = options?.resolveOrgId
             ? ((await options.resolveOrgId(event)) ?? undefined)
             : undefined;
-          if (!orgId && userEmail) orgId = await storedActiveOrgId(userEmail);
+          if (!hasExplicitPersonalOrgScope(event) && !orgId && userEmail) {
+            orgId = await storedActiveOrgId(userEmail);
+          }
         }
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
@@ -690,6 +695,9 @@ function mountActionRoutesInternal(
             userEmail,
             userName,
             orgId,
+            ...(hasExplicitPersonalOrgScope(event)
+              ? { orgScope: "personal" as const }
+              : {}),
             authCapability,
             timezone,
             browserSessionId,
