@@ -164,13 +164,11 @@ describe("document sidebar layout", () => {
     );
   });
 
-  it("settles search dismissal by clearing the hidden query", () => {
+  it("opens the shared search picker without keeping a hidden sidebar query", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
-    expect(sidebar).toContain("const closeSearch = useCallback");
-    expect(sidebar).toContain('setSearchQuery("")');
-    expect(sidebar).toContain("if (isSearching)");
-    expect(sidebar).toContain("closeSearch();");
+    expect(sidebar).toContain("onClick={openCommandMenu}");
+    expect(sidebar).not.toContain("setSearchQuery");
   });
 
   it("reveals child destinations without concurrent rollback conflicts", () => {
