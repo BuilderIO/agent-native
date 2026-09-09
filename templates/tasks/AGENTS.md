@@ -13,11 +13,6 @@ Read the matching skill before acting. This file is the always-on layer; the ski
 
 ## Core Rules
 
-- Interaction feedback must be immediate: reflect every user input on screen
-  within 100 ms when possible, and no later than 400 ms for the first visible
-  response when completion takes longer. Never wait for a network round-trip
-  before showing a state change; use optimistic UI, a focused loading/progress
-  state, or a clear working state, then reconcile or roll back.
 
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.

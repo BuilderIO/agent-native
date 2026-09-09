@@ -5,7 +5,7 @@ description: >-
   for any user-facing UI change: new surfaces, screenshot-driven feedback,
   copy/density cleanup, settings, control placement, or a "make this look
   good" pass. Do not load it only for purely mechanical wiring or formatting.
-scope: dev
+scope: both
 license: Complete terms in LICENSE.txt
 source: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md
 local-changes: >-

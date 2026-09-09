@@ -19,11 +19,6 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
-- Interaction feedback must be immediate: reflect every user input on screen
-  within 100 ms when possible, and no later than 400 ms for the first visible
-  response when completion takes longer. Never wait for a network round-trip
-  before showing a state change; use optimistic UI, a focused loading/progress
-  state, or a clear working state, then reconcile or roll back.
 
 - Use actions for reads, labels, settings, drafts, queued drafts, filters,
   scheduling, refresh, and CRM context. Don't edit mail SQL directly unless a

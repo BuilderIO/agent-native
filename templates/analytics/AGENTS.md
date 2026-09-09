@@ -49,11 +49,6 @@ certified ones); label figures "Unverified" when no live query ran.
 
 ## Core Rules
 
-- Interaction feedback must be immediate: reflect every user input on screen
-  within 100 ms when possible, and no later than 400 ms for the first visible
-  response when completion takes longer. Never wait for a network round-trip
-  before showing a state change; use optimistic UI, a focused loading/progress
-  state, or a clear working state, then reconcile or roll back.
 
 - A sibling app sends natural-language or shaped input over A2A, never SQL; this
   app owns schema, source selection, and tools. Prefer natural-language

@@ -27,11 +27,6 @@ the agent can use.
   domain button hands work to the agent. Keep the first viewport sparse with
   progressive disclosure; never use sparkle, wand, magic, or robot icons as AI
   affordances.
-- Interaction feedback must be immediate: reflect every user input on screen
-  within 100 ms when possible, and no later than 400 ms for the first visible
-  response when completion takes longer. Never wait for a network round-trip
-  before showing a state change; use optimistic UI, a focused loading/progress
-  state, or a clear working state, then reconcile or roll back.
 - Page and section data loads use layout-matching `Skeleton` geometry, never a
   generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
   and progress actions.
