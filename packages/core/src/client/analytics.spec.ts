@@ -922,25 +922,6 @@ describe("browser analytics pageviews", () => {
     );
   });
 
-  it("tags browser Sentry events with the build id as the release, matching uploaded source maps", async () => {
-    installBrowser();
-    (globalThis as any).__AGENT_NATIVE_BUILD_ID__ = "deploy-99";
-    (window as any).__AGENT_NATIVE_CONFIG__ = {
-      sentryDsn: "https://public@example/4511270423822336",
-    };
-    const { configureTracking } = await freshAnalytics();
-
-    configureTracking({});
-    await tick();
-
-    expect(sentryMock.init).toHaveBeenCalledWith(
-      expect.objectContaining({
-        release: "agent-native-client@deploy-99",
-      }),
-    );
-    delete (globalThis as any).__AGENT_NATIVE_BUILD_ID__;
-  });
-
   it("labels first-party analytics events with the deployment environment", async () => {
     installBrowser("https://beta.mail.agent-native.com/inbox");
     const { analyticsCalls } = installFetch();

@@ -3649,9 +3649,7 @@ function createAgentNativePlugins(
     includeReactTransform ? createReactTransformPlugin() : null,
     createDesignSystemThemePlugin(options.designSystemTheme),
     createTailwindPlugin(options),
-    // No-ops (empty array) unless a Sentry auth token/org/project is
-    // configured. Safe to always include — its hooks only fire during a
-    // real `vite build`, never `vite dev`.
+    // No-ops unless a Sentry auth token/org/project is configured.
     ...createSentrySourceMapUploadPlugin(options.outDir ?? "dist/spa"),
   ].filter(Boolean);
 }
@@ -3990,11 +3988,8 @@ function createAgentNativeConfig(
       // the standard property survives the production pipeline.
       cssMinify: userConfig.build?.cssMinify ?? "esbuild",
       cssTarget: userConfig.build?.cssTarget ?? ["es2020", "safari18"],
-      // "hidden" emits `.map` files for Sentry to upload without adding a
-      // `//# sourceMappingURL` comment to the shipped JS, so production
-      // never serves real source maps publicly. Only turned on when a
-      // Sentry source-map upload is actually configured — otherwise this
-      // stays `false`, unchanged from the previous default.
+      // "hidden" writes .map files for upload without a public
+      // sourceMappingURL comment, so production never serves them directly.
       sourcemap:
         userConfig.build?.sourcemap ??
         (isSentrySourceMapUploadEnabled() ? "hidden" : false),
