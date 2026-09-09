@@ -777,6 +777,38 @@ function mountActionRoutesInternal(
                   : isFrontendActionRequest(event)
                     ? "frontend"
                     : "http");
+              // WebMCP/HTTP-MCP tool calls skip the agent loop entirely, so
+              // `needsApproval` is never evaluated for them upstream — the
+              // action stays registered (see `mountWebMcpActionRoutes`) but
+              // this is the only place its gate still runs for this caller.
+              // Fail closed on a throw, same contract as the agent loop's
+              // approval check, and refuse with guidance instead of a bare
+              // rejection: a WebMCP caller has no approval UI of its own, so
+              // the message tells it to get the human's confirmation in chat.
+              if (caller === "webmcp" && entry.needsApproval !== undefined) {
+                let mustApprove = false;
+                try {
+                  mustApprove =
+                    typeof entry.needsApproval === "function"
+                      ? Boolean(
+                          await entry.needsApproval(params, {
+                            userEmail,
+                            orgId: orgId ?? null,
+                            appId: options?.appId,
+                            caller,
+                          }),
+                        )
+                      : entry.needsApproval === true;
+                } catch {
+                  mustApprove = true;
+                }
+                if (mustApprove) {
+                  throw new ActionContractError(
+                    `"${name}" requires human approval for these arguments. WebMCP tool calls cannot grant that approval themselves — ask the user to confirm this action in chat, then call it there.`,
+                    { errorCode: "approval_required", statusCode: 409 },
+                  );
+                }
+              }
               const result = await entry.run(params, {
                 userEmail,
                 orgId: orgId ?? null,
@@ -996,13 +1028,17 @@ export function mountWebMcpActionRoutes(
   actions: Record<string, ActionEntry>,
   options?: MountWebMcpActionRoutesOptions,
 ) {
+  // `needsApproval` no longer excludes an action from discovery: the gate
+  // moved to per-call enforcement in `mountActionRoutesInternal` (evaluated
+  // against this call's actual args, caller === "webmcp"), so a plain call
+  // that never trips the predicate stays callable and a call that does gets
+  // a clear "ask the user to confirm" refusal instead of silently running.
   const eligible = Object.fromEntries(
     Object.entries(actions).filter(
       ([name, entry]) =>
         /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
         isActionExposedToExternalAgents(entry) &&
-        entry.agentTool !== false &&
-        entry.needsApproval === undefined,
+        entry.agentTool !== false,
     ),
   );
   const publicEligible = Object.fromEntries(

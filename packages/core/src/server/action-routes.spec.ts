@@ -2576,12 +2576,17 @@ describe("mountWebMcpActionRoutes", () => {
     const compatibilityInvocationRoute = mounted.find(
       ({ path }) => path === "/mcp/tool/eligible",
     );
+    const approvalInvocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/approval",
+    );
 
     expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
       [
         "/_agent-native/webmcp/manifest",
         "/_agent-native/webmcp/actions/eligible",
+        "/_agent-native/webmcp/actions/approval",
         "/mcp/tool/eligible",
+        "/mcp/tool/approval",
       ],
       nitroApp,
     );
@@ -2620,6 +2625,16 @@ describe("mountWebMcpActionRoutes", () => {
           readOnly: true,
           requiresAuth: true,
         },
+        {
+          name: "approval",
+          title: "Approval",
+          description: "Approval",
+          parameters: { type: "object" },
+          inputSchema: { type: "object" },
+          endpoint: "https://clips.example.com/mcp/tool/approval",
+          method: "POST",
+          requiresAuth: true,
+        },
       ],
     });
 
@@ -2632,6 +2647,13 @@ describe("mountWebMcpActionRoutes", () => {
         description: "Eligible",
         inputSchema: { type: "object" },
         readOnly: true,
+      },
+      {
+        name: "approval",
+        title: "Approval",
+        description: "Approval",
+        inputSchema: { type: "object" },
+        readOnly: false,
       },
     ]);
     expect(getOwnerFromEvent).toHaveBeenCalled();
@@ -2657,6 +2679,19 @@ describe("mountWebMcpActionRoutes", () => {
       }),
     ).resolves.toEqual({ caller: "webmcp" });
     expect(run).toHaveBeenCalledTimes(2);
+
+    // A needsApproval action is discoverable and registered, but WebMCP has
+    // no approval UI of its own: the call is refused instead of executed,
+    // and the refusal tells the caller to get the human's confirmation.
+    const approvalResult = await approvalInvocationRoute?.handler({
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    });
+    expect(approvalResult).toMatchObject({
+      error: expect.stringContaining("ask the user to confirm"),
+      errorCode: "approval_required",
+    });
   });
 
   it("filters manifest.keyToolNames to tools this manifest actually lists", async () => {
