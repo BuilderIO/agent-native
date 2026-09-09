@@ -87,6 +87,7 @@ import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
   hasExplicitPersonalOrgScope,
+  markExplicitPersonalOrgScope,
   runWithRequestContext,
 } from "./request-context.js";
 
@@ -590,6 +591,7 @@ function mountActionRoutesInternal(
             });
           }
           if (caller) {
+            if (caller.orgId === null) markExplicitPersonalOrgScope(event);
             seedAgentRunOwnerContext(event, {
               owner: caller.owner,
               anonymous: caller.anonymous,

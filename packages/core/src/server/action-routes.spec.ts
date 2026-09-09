@@ -2468,6 +2468,63 @@ describe("mountActionRoutes", () => {
     expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
   });
 
+  it("keeps adapter-resolved Personal callers out of an ambient session org", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext, getRequestOrgId } =
+      await import("./request-context.js");
+    mockGetSession.mockResolvedValue({
+      email: "cookie-user@example.com",
+      orgId: "org-from-cookie",
+    } as any);
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-from-cookie" });
+    const resolveOrgId = vi.fn(async () => "org-from-cookie");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = {
+            ctx,
+            requestContext: getRequestContext(),
+            requestOrgId: getRequestOrgId(),
+          };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "cookie-user@example.com",
+      resolveOrgId,
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "personal-caller@example.com",
+          anonymous: false,
+          orgId: null,
+        }),
+      },
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { cookie: "better-auth.session_token=unrelated" },
+      context: {} as Record<string, unknown>,
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBeNull();
+    expect(received.requestOrgId).toBeUndefined();
+    expect(received.requestContext.orgScope).toBe("personal");
+    expect(resolveOrgId).not.toHaveBeenCalled();
+    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(mockGetOrgContext).not.toHaveBeenCalled();
+  });
+
   it("does not seed the adapter's orgId into the owner context", async () => {
     // seedAgentRunOwnerContext carries identity only; org is request-context
     // state. Downstream consumers of the seeded owner context must not see
