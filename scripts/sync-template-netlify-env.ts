@@ -80,6 +80,7 @@ const TEMPLATE_SITES: TemplateSite[] = Object.entries(NETLIFY_SITES)
 const SITE_BY_NAME = new Map(TEMPLATE_SITES.map((site) => [site.name, site]));
 const DEFAULT_SOURCES = [".env", ".env.local"];
 const DEFAULT_SCOPES = ["builds", "functions", "runtime"];
+const ENV_SCOPES_BY_KEY = new Map([["SENTRY_AUTH_TOKEN", ["builds"]]]);
 const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
@@ -148,7 +149,11 @@ const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
 // hosted site, unlike SENTRY_DSN which can vary per site. Pulling them from
 // the invoking shell (rather than each template's committed .env) means the
 // token is never written to disk in this repo.
-const FLEET_WIDE_ENV_KEYS = ["SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT"];
+const FLEET_WIDE_ENV_KEYS = [
+  "SENTRY_AUTH_TOKEN",
+  "SENTRY_ORG",
+  "SENTRY_PROJECT",
+];
 const FORBIDDEN_HOSTED_TEMPLATE_ENV_EXACT = new Set([
   "ANTHROPIC_API_KEY",
   "AMPLITUDE_API_KEY",
@@ -225,6 +230,7 @@ Options:
                            SENTRY_AUTH_TOKEN, SENTRY_ORG, and SENTRY_PROJECT are
                            read from this shell's environment (not any template
                            .env) since they're the same for every hosted site.
+                           SENTRY_AUTH_TOKEN is always scoped to builds only.
   --help                  Show this help.
 
 Known templates:
@@ -522,6 +528,13 @@ export function resolveNetlifyApiContext(context: string): string {
   return isBetaContext(context) ? "production" : context;
 }
 
+export function resolveNetlifyEnvScopes(
+  key: string,
+  scopes: string[],
+): string[] {
+  return ENV_SCOPES_BY_KEY.get(key) ?? scopes;
+}
+
 function siteIdForContext(site: TemplateSite, context: string): string {
   if (!isBetaContext(context)) return site.siteId;
   if (!site.betaSiteId) {
@@ -766,7 +779,7 @@ async function main() {
         accountId: options.accountId!,
         context: options.context,
         key,
-        scopes: options.scopes,
+        scopes: resolveNetlifyEnvScopes(key, options.scopes),
         siteId: targetSiteId,
         token: token!,
         value,

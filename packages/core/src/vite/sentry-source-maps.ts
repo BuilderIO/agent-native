@@ -4,6 +4,9 @@
  * captured events. Both derive it from the same `resolveAgentNativeBuildId()`
  * identifier so they can't drift apart independently.
  */
+import { readdir, rm } from "node:fs/promises";
+import path from "node:path";
+
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import type { Plugin } from "vite";
 
@@ -62,6 +65,38 @@ export function isSentrySourceMapUploadEnabled(
   return resolveSentrySourceMapUploadConfig(env) !== null;
 }
 
+async function removeSourceMaps(directory: string): Promise<void> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  await Promise.all(
+    entries.map(async (entry) => {
+      const filePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await removeSourceMaps(filePath);
+      } else if (entry.name.endsWith(".map")) {
+        await rm(filePath, { force: true });
+      }
+    }),
+  );
+}
+
+function createUploadedSourceMapCleanupPlugin(): Plugin {
+  return {
+    name: "agent-native:delete-uploaded-sentry-source-maps",
+    enforce: "post",
+    writeBundle: {
+      order: "post",
+      sequential: true,
+      async handler(outputOptions) {
+        if (outputOptions.dir) {
+          await removeSourceMaps(outputOptions.dir);
+        } else if (outputOptions.file) {
+          await rm(`${outputOptions.file}.map`, { force: true });
+        }
+      },
+    },
+  };
+}
+
 // Safe to always include in the plugins array regardless of `vite build` vs
 // `vite dev` — `@sentry/vite-plugin`'s hooks only act during a real Rollup
 // build.
@@ -70,7 +105,7 @@ export function createSentrySourceMapUploadPlugin(
 ): Plugin[] {
   const config = resolveSentrySourceMapUploadConfig(env);
   if (!config) return [];
-  return sentryVitePlugin({
+  const uploadPlugins = sentryVitePlugin({
     org: config.org,
     project: config.project,
     authToken: config.authToken,
@@ -83,18 +118,13 @@ export function createSentrySourceMapUploadPlugin(
       name: config.release,
       inject: false,
     },
-    // No `sourcemaps.filesToDeleteAfterUpload`: the plugin runs that deletion
-    // unconditionally, even when the upload itself failed and `errorHandler`
-    // below swallowed it — which would delete the only copies of the maps
-    // with nothing uploaded to replace them. Leaving `.map` files in `dist/`
-    // means a release is never worse than un-symbolicated; `sourcemap:
-    // "hidden"` already keeps them off the shipped JS's sourceMappingURL.
+    // Sentry's built-in filesToDeleteAfterUpload runs in a finally block, even
+    // after a failed upload. Throw here so the build cannot publish an artifact
+    // whose maps were neither uploaded nor intentionally retained.
     errorHandler: (error) => {
-      console.warn(
-        `[agent-native] Sentry source map upload failed (build continues): ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
+      throw error;
     },
   }) as Plugin[];
+
+  return [...uploadPlugins, createUploadedSourceMapCleanupPlugin()];
 }
