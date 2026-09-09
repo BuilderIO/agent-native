@@ -43,6 +43,7 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getSession } from "../server/auth.js";
+import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -1691,6 +1692,8 @@ export const syncA2ASecretHandler = defineEventHandler(
           const token = await signA2AToken(ctx.email, orgDomain, signSecret);
 
           const target = `${agent.url.replace(/\/$/, "")}/_agent-native/org/a2a-secret/receive`;
+          const protectionHeaders =
+            resolveVercelDeploymentProtectionHeaders(target);
           const res = await ssrfSafeFetch(
             target,
             {
@@ -1698,10 +1701,16 @@ export const syncA2ASecretHandler = defineEventHandler(
               headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${token}`,
+                ...protectionHeaders,
               },
               body: JSON.stringify({ secret, orgDomain }),
             },
-            { maxRedirects: 3 },
+            {
+              maxRedirects: 3,
+              ...(protectionHeaders["x-vercel-protection-bypass"]
+                ? { followRedirects: false }
+                : {}),
+            },
           );
 
           if (!res.ok) {

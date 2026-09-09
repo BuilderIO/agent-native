@@ -88,21 +88,27 @@ export interface OrgMembersPage {
   nextOffset: number | null;
 }
 
-export function useOrgMembers(offset = 0) {
+export function useOrgMembers(offset = 0, query = "") {
   // Scope the cache by active orgId so switching or creating an org forces a
   // fresh fetch rather than briefly showing the previous org's members.
   const { data: org } = useOrg();
+  const search = query.trim().toLowerCase();
   const params = new URLSearchParams({
     limit: String(ORG_MEMBER_PAGE_SIZE),
     offset: String(offset),
   });
+  if (search) params.set("search", search);
   return useQuery<OrgMembersPage>({
-    queryKey: ["org-members", org?.orgId ?? null, offset],
-    queryFn: () => apiFetch(`${ORG_BASE}/members?${params}`),
+    queryKey: ["org-members", org?.orgId ?? null, offset, search],
+    queryFn: ({ signal }) =>
+      apiFetch(`${ORG_BASE}/members?${params}`, { signal }),
     enabled: Boolean(org?.orgId),
     staleTime: 30_000,
     placeholderData: (previousData, previousQuery) =>
-      previousQuery?.queryKey[1] === org?.orgId ? previousData : undefined,
+      previousQuery?.queryKey[1] === org?.orgId &&
+      previousQuery?.queryKey[3] === search
+        ? previousData
+        : undefined,
   });
 }
 

@@ -7,6 +7,7 @@ vi.mock("./builtin-tools.js", () => ({ getBuiltinCrossAppTools: () => ({}) }));
 
 const isJtiRevokedMock = vi.fn();
 const touchTokenUsedMock = vi.fn(async () => {});
+const lookupConnectTokenOrgMock = vi.fn();
 const getA2ASecretByDomainMock = vi.fn();
 const resolveOrgByDomainMock = vi.fn();
 const resolveOrgIdForEmailMock = vi.fn();
@@ -15,6 +16,7 @@ vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
   isJtiRevoked: (...a: any[]) => isJtiRevokedMock(...a),
   touchTokenUsed: (...a: any[]) => touchTokenUsedMock(...a),
+  lookupConnectTokenOrg: (...a: any[]) => lookupConnectTokenOrgMock(...a),
 }));
 vi.mock("../org/context.js", () => ({
   getA2ASecretByDomain: (...a: any[]) => getA2ASecretByDomainMock(...a),
@@ -44,6 +46,7 @@ async function sign(
 describe("verifyAuth — connect-token revoke check", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "missing" });
     getA2ASecretByDomainMock.mockResolvedValue(null);
     resolveOrgByDomainMock.mockResolvedValue(null);
     resolveOrgIdForEmailMock.mockResolvedValue(null);
@@ -129,6 +132,73 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-active");
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-active");
   });
+
+  it("restores org scope for a legacy connect JWT from its stored token row", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      orgId: "org_legacy",
+    });
+    const token = await sign({
+      sub: "ci@example.com",
+      scope: "mcp-connect",
+      jti: "jti-legacy",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(true);
+    expect(res.identity).toEqual({
+      userEmail: "ci@example.com",
+      orgId: "org_legacy",
+      orgDomain: undefined,
+    });
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-legacy");
+  });
+
+  it("preserves Personal scope for a legacy connect JWT from its stored row", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      orgId: null,
+    });
+    const token = await sign({
+      sub: "ci@example.com",
+      scope: "mcp-connect",
+      jti: "jti-personal",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(true);
+    expect(res.identity).toEqual({
+      userEmail: "ci@example.com",
+      orgId: null,
+      orgDomain: undefined,
+    });
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-personal");
+  });
+
+  it("rejects a legacy connect JWT when its org lookup is unavailable", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
+    const token = await sign({
+      sub: "ci@example.com",
+      scope: "mcp-connect",
+      jti: "jti-unavailable",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res).toEqual({ authed: false });
+  });
+
+  it.each([123, { id: "org_123" }, ""])(
+    "rejects an A2A JWT with malformed org_id: %j",
+    async (orgId) => {
+      const token = await sign({
+        sub: "ci@example.com",
+        org_id: orgId,
+      });
+      const res = await verifyAuth(`Bearer ${token}`);
+      expect(res).toEqual({ authed: false });
+      expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("preserves the framework first-party MCP marker from audience-bound connect-scoped tokens", async () => {
     isJtiRevokedMock.mockResolvedValue(false);
@@ -294,6 +364,51 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-oauth-active");
   });
 
+  it("restores org scope for a legacy connect OAuth token from its stored token row", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      orgId: "org_legacy",
+    });
+    const resource = "https://mail.agent-native.com/_agent-native/mcp";
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth-connect@example.com",
+      clientId: "agent-native-connect",
+      scope: "mcp:read mcp:write mcp:apps",
+      resource,
+      issuer: "https://mail.agent-native.com",
+      jti: "jti-oauth-legacy",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res.authed).toBe(true);
+    expect(res.identity).toMatchObject({
+      userEmail: "oauth-connect@example.com",
+      orgId: "org_legacy",
+      oauthClientId: "agent-native-connect",
+    });
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-oauth-legacy");
+  });
+
+  it("rejects a legacy connect OAuth token when its org lookup is unavailable", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
+    const resource = "https://mail.agent-native.com/_agent-native/mcp";
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth-connect@example.com",
+      clientId: "agent-native-connect",
+      scope: "mcp:read mcp:write mcp:apps",
+      resource,
+      issuer: "https://mail.agent-native.com",
+      jti: "jti-oauth-unavailable",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res).toEqual({ authed: false });
+  });
+
   it("rejects a revoked connect-minted MCP OAuth token", async () => {
     isJtiRevokedMock.mockResolvedValue(true);
     const resource = "https://mail.agent-native.com/_agent-native/mcp";
@@ -374,6 +489,7 @@ describe("verifyAuth — connect-token revoke check", () => {
 describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "missing" });
     getA2ASecretByDomainMock.mockResolvedValue(null);
     resolveOrgByDomainMock.mockResolvedValue(null);
     resolveOrgIdForEmailMock.mockResolvedValue(null);
@@ -503,6 +619,21 @@ describe("resolveMcpIdentityOrgId", () => {
         orgDomain: "example.com",
       }),
     ).resolves.toBe("org-explicit");
+
+    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves explicit Personal scope without an email fallback", async () => {
+    resolveOrgIdForEmailMock.mockResolvedValue("org-email");
+
+    await expect(
+      resolveMcpIdentityOrgId({
+        userEmail: "alice@example.com",
+        orgId: null,
+        orgDomain: undefined,
+      }),
+    ).resolves.toBeUndefined();
 
     expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();

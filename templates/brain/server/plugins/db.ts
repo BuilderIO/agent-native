@@ -484,6 +484,16 @@ export const runBrainMigrations = runMigrations(
         `CREATE UNIQUE INDEX IF NOT EXISTS brain_sync_runs_active_source_idx ON brain_sync_runs (active_source_id)`,
       ].join(";\n"),
     },
+    {
+      version: 26,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS brain_knowledge_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS brain_project_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS brain_proposal_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS brain_source_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
   ],
   { table: "brain_migrations" },
 );

@@ -103,7 +103,8 @@ beforeEach(async () => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
     CREATE TABLE organizations (
       id TEXT PRIMARY KEY,
@@ -156,6 +157,7 @@ describe("shareable resource access helpers", () => {
   });
 
   it("recognizes reserved synthetic QA emails so share notifications can be suppressed", () => {
+    expect(isSyntheticQaEmail("steve+autoz-run-123@example.com")).toBe(true);
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.test")).toBe(true);
     expect(isSyntheticQaEmail("codex+qa-lane@example.invalid")).toBe(true);
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.com")).toBe(false);
@@ -577,7 +579,8 @@ describe("shareable resource access helpers", () => {
         principal_id TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'viewer',
         created_by TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        notified_at TEXT
       );
     `);
     registerShareableResource({

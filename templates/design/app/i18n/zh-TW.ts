@@ -36,6 +36,11 @@ const messages = {
     languageTitle: "語言",
     languageDescription: "選取 Design 的介面語言。",
     languageLabel: "介面語言",
+    experiments: "實驗功能",
+    experimentsIntro:
+      "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
+    experimentTweaks: "設計微調",
+    experimentTweaksDescription: "試用 AI 設計微調功能。",
   },
   pages: {
     presentEmpty: "沒有可展示的內容",

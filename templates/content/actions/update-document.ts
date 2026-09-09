@@ -533,9 +533,11 @@ export default defineAction({
     // caller last reconciled. Guard the write with a compare-and-swap in that
     // case so a concurrent update (e.g. the Notion auto-pull applying a newer
     // remote edit) between the caller's snapshot and this save landing isn't
-    // silently overwritten. Title/icon/favorite-only saves are unaffected —
-    // only a save that's actually changing content is CAS-guarded.
-    const useContentCas = contentChanged && args.baseUpdatedAt !== undefined;
+    // silently overwritten. A recovery may carry unchanged content alongside
+    // a stale title, so supplying content still guards the whole write.
+    // Title/icon/favorite-only requests without content remain unaffected.
+    const useContentCas =
+      args.content !== undefined && args.baseUpdatedAt !== undefined;
 
     if (anyChange) {
       const updates: Record<string, unknown> = {

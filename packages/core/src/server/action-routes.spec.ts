@@ -2468,6 +2468,63 @@ describe("mountActionRoutes", () => {
     expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
   });
 
+  it("keeps adapter-resolved Personal callers out of an ambient session org", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext, getRequestOrgId } =
+      await import("./request-context.js");
+    mockGetSession.mockResolvedValue({
+      email: "cookie-user@example.com",
+      orgId: "org-from-cookie",
+    } as any);
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-from-cookie" });
+    const resolveOrgId = vi.fn(async () => "org-from-cookie");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = {
+            ctx,
+            requestContext: getRequestContext(),
+            requestOrgId: getRequestOrgId(),
+          };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "cookie-user@example.com",
+      resolveOrgId,
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "personal-caller@example.com",
+          anonymous: false,
+          orgId: null,
+        }),
+      },
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { cookie: "better-auth.session_token=unrelated" },
+      context: {} as Record<string, unknown>,
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBeNull();
+    expect(received.requestOrgId).toBeUndefined();
+    expect(received.requestContext.orgScope).toBe("personal");
+    expect(resolveOrgId).not.toHaveBeenCalled();
+    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(mockGetOrgContext).not.toHaveBeenCalled();
+  });
+
   it("does not seed the adapter's orgId into the owner context", async () => {
     // seedAgentRunOwnerContext carries identity only; org is request-context
     // state. Downstream consumers of the seeded owner context must not see
@@ -2576,12 +2633,17 @@ describe("mountWebMcpActionRoutes", () => {
     const compatibilityInvocationRoute = mounted.find(
       ({ path }) => path === "/mcp/tool/eligible",
     );
+    const approvalInvocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/approval",
+    );
 
     expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
       [
         "/_agent-native/webmcp/manifest",
         "/_agent-native/webmcp/actions/eligible",
+        "/_agent-native/webmcp/actions/approval",
         "/mcp/tool/eligible",
+        "/mcp/tool/approval",
       ],
       nitroApp,
     );
@@ -2620,6 +2682,16 @@ describe("mountWebMcpActionRoutes", () => {
           readOnly: true,
           requiresAuth: true,
         },
+        {
+          name: "approval",
+          title: "Approval",
+          description: "Approval",
+          parameters: { type: "object" },
+          inputSchema: { type: "object" },
+          endpoint: "https://clips.example.com/mcp/tool/approval",
+          method: "POST",
+          requiresAuth: true,
+        },
       ],
     });
 
@@ -2632,6 +2704,13 @@ describe("mountWebMcpActionRoutes", () => {
         description: "Eligible",
         inputSchema: { type: "object" },
         readOnly: true,
+      },
+      {
+        name: "approval",
+        title: "Approval",
+        description: "Approval",
+        inputSchema: { type: "object" },
+        readOnly: false,
       },
     ]);
     expect(getOwnerFromEvent).toHaveBeenCalled();
@@ -2657,6 +2736,121 @@ describe("mountWebMcpActionRoutes", () => {
       }),
     ).resolves.toEqual({ caller: "webmcp" });
     expect(run).toHaveBeenCalledTimes(2);
+
+    // A needsApproval action is discoverable and registered, but WebMCP has
+    // no approval UI of its own: the call is refused instead of executed,
+    // and the refusal tells the caller to get the human's confirmation.
+    const approvalResult = await approvalInvocationRoute?.handler({
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    });
+    expect(approvalResult).toMatchObject({
+      error: expect.stringContaining("ask the user to confirm"),
+      errorCode: "approval_required",
+    });
+  });
+
+  it("evaluates needsApproval against schema-validated args, not raw JSON", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const { z } = await import("zod");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async (args) => ({ ranWith: args }));
+    // `dryRun` defaults true and coerces the string "false" a client might
+    // send; only the validated value reflects that. A predicate reading raw
+    // JSON would see `undefined` (not the default) or the string "false" (not
+    // `false`) and approve calls it should have gated.
+    const schema = z.object({
+      dryRun: z.preprocess(
+        (v) => (v === "false" ? false : v),
+        z.boolean().default(true),
+      ),
+    });
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        remediate: {
+          tool: { description: "Remediate", parameters: { type: "object" } },
+          schema,
+          run,
+          needsApproval: (args: { dryRun: boolean }) => args.dryRun === false,
+        } as any,
+      },
+      { getOwnerFromEvent: vi.fn(async () => "owner@example.com") },
+    );
+
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/remediate",
+    );
+
+    // Omitted entirely: the schema default (true) applies, so this must run.
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ ranWith: { dryRun: true } });
+
+    // Sent as the string "false": raw JSON is truthy, but the coerced value
+    // is `false`, so this must be refused rather than silently executed.
+    const coercedResult = await invocationRoute?.handler({
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({ dryRun: "false" }) },
+    });
+    expect(coercedResult).toMatchObject({ errorCode: "approval_required" });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-validate an already-validated call through a real defineAction entry", async () => {
+    // Uses the actual `defineAction` wrapping (not a hand-built ActionEntry
+    // stub) so `entry.run` is the real re-validating closure: a stub `run`
+    // would never exercise the double-parse this test guards against. The
+    // schema's `.preprocess` is deliberately NOT idempotent — each pass
+    // appends another suffix — so a second, unintended validation pass would
+    // be observable in what `run` actually receives.
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const { defineAction } = await import("../action.js");
+    const { z } = await import("zod");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async (args: { tag: string }) => ({ ranWith: args }));
+    const action = defineAction({
+      description: "Tag",
+      schema: z.object({
+        tag: z.preprocess((v) => `${v}!`, z.string()),
+      }),
+      needsApproval: () => false,
+      run,
+    });
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      { tag: action as unknown as ActionEntry },
+      { getOwnerFromEvent: vi.fn(async () => "owner@example.com") },
+    );
+
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/tag",
+    );
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({ tag: "a" }) },
+      }),
+    ).resolves.toEqual({ ranWith: { tag: "a!" } });
   });
 
   it("filters manifest.keyToolNames to tools this manifest actually lists", async () => {

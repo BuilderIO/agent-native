@@ -724,6 +724,17 @@ const messages = {
     agentTitle: "Gestionar agente",
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
+    experiments: "Experimentos",
+    experimentsIntro:
+      "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
+    experimentVideoEditing: "Edición de vídeo",
+    experimentVideoEditingDescription: "Prueba el nuevo editor de vídeo.",
+    experimentMeetings: "Reuniones y transcripción",
+    experimentMeetingsDescription:
+      "Prueba la captura y transcripción automática de reuniones.",
+    experimentWisprFlow: "Dictado por voz",
+    experimentWisprFlowDescription:
+      "Prueba la nueva función de dictado por voz.",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
     preferencesTitle: "Preferencias",
     languageTitle: "Idioma",
@@ -1813,7 +1824,7 @@ const messages = {
     refreshing: "Refreshing…",
     howToTriggerTitle: "How to trigger meeting notes",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history.",
+      "Las notas de reuniones de Clips reúnen eventos del calendario, captura de audio del escritorio y transcripciones con notas de IA en un solo historial.",
     guideCalendarTitle: "Connect Google Calendar",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you.",
@@ -1839,6 +1850,36 @@ const messages = {
       "Útil para recuperar el inicio de una explicación más larga.",
     privateReady:
       "Este clip es privado. Ya puedes añadir el historial local de Rewind.",
+  },
+  browserDiagnostics: {
+    debug: "Depuración",
+    title: "Diagnósticos del navegador",
+    failureSummary:
+      "{{consoleCount}} problemas de consola · {{networkCount}} solicitudes fallidas",
+    noFailures: "No se detectaron fallos",
+    failuresPresent: "Se detectaron fallos del navegador",
+    captureSuccessful: "Diagnósticos capturados correctamente",
+    capturedFrom: "Capturado desde {{source}}",
+    browserCapture: "Captura del navegador",
+    views: "Vistas de diagnóstico",
+    issues: "Problemas",
+    consoleSource: "Consola",
+    networkSource: "Red",
+    consoleCount: "Consola {{count}}",
+    networkCount: "Red {{count}}",
+    afterRecording: "Después de la grabación",
+    seekToTime: "Ir a {{time}}",
+    occurrences: "Apariciones",
+    message: "Mensaje",
+    stackTrace: "Traza de pila",
+    request: "Solicitud",
+    status: "Estado",
+    duration: "Duración",
+    error: "Error",
+    noIssuesTitle: "No se detectaron problemas del navegador",
+    noConsoleTitle: "No hay eventos de consola",
+    noNetworkTitle: "No hay solicitudes de red",
+    capturedDescription: "Se capturaron diagnósticos para esta grabación.",
   },
   timeline: { clipStartedHere: "El clip empezó aquí" },
 };

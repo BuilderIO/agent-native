@@ -554,7 +554,8 @@ async function createTables(client: PGliteClient): Promise<void> {
       role text NOT NULL DEFAULT 'viewer',
       created_by text NOT NULL,
       created_at text NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )
+    ,
+      notified_at TEXT)
   `,
   );
   await execute(
@@ -613,7 +614,8 @@ async function createTables(client: PGliteClient): Promise<void> {
       role text NOT NULL DEFAULT 'viewer',
       created_by text NOT NULL,
       created_at text NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )
+    ,
+      notified_at TEXT)
   `,
   );
 }

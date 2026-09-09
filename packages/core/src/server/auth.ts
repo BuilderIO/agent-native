@@ -194,6 +194,7 @@ import {
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
+import { clearIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import {
   isCanonicalAgentNativeAppRequest,
   isCanonicalIdentitySsoClientRequest,
@@ -218,6 +219,8 @@ import {
 import {
   getRequestContext,
   hasContinuationLocalRequestContext,
+  hasExplicitPersonalOrgScope,
+  markExplicitPersonalOrgScope,
   runWithRequestContext,
 } from "./request-context.js";
 import { captureAuthError } from "./sentry.js";
@@ -1012,7 +1015,7 @@ export async function getMcpOAuthBearerSession(
   if (!bearerToken) return null;
 
   try {
-    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveOrgIdFromDomain }] =
+    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveMcpIdentityOrgId }] =
       await Promise.all([
         import("../mcp/oauth-route.js"),
         import("../mcp/build-server.js"),
@@ -1023,8 +1026,8 @@ export async function getMcpOAuthBearerSession(
     });
     const identity = result.authed ? result.identity : undefined;
     if (!identity?.userEmail) return null;
-    const orgId =
-      identity.orgId ?? (await resolveOrgIdFromDomain(identity.orgDomain));
+    if (identity.orgId === null) markExplicitPersonalOrgScope(event);
+    const orgId = await resolveMcpIdentityOrgId(identity);
     return {
       email: identity.userEmail,
       token: bearerToken,
@@ -1290,6 +1293,7 @@ async function persistMagicLinkLegacySession(
   const token = resolved?.token ?? decodeSessionCookieValue(rawToken);
   setFrameworkSessionCookie(event, token);
   if (!resolved) return;
+  clearIdentityGoogleAuthCookie(event);
   try {
     await addSession(resolved.token, resolved.email);
   } catch (error) {
@@ -1730,6 +1734,7 @@ async function performLogout(
   invalidateSessionEmailCache();
 
   clearFrameworkSessionCookies(event);
+  clearIdentityGoogleAuthCookie(event);
   clearFirstRunOnboardingCookie(event);
   optOutOfAuthDisabledSession(event);
 
@@ -1999,10 +2004,6 @@ function getOnboardingHtmlOptions(
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
-    identitySsoRequestHost: event ? getHeader(event, "host") : undefined,
-    identitySsoRequestProtocol: event
-      ? getHeader(event, "x-forwarded-proto")
-      : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
     initialPrompt: event ? requestHasInitialPrompt(event) : false,
@@ -3363,6 +3364,21 @@ function loginHtmlResponse(
   });
 }
 
+function resolveWorkspaceAccessAppId(): string {
+  const app = getAppConfig().app;
+  const workspaceId = app.workspaceId?.trim();
+  if (workspaceId) return workspaceId;
+
+  const isDispatch = [
+    app.id,
+    app.legacyId,
+    app.template,
+    app.slug,
+    app.packageName,
+  ].some((value) => value?.trim().toLowerCase() === "dispatch");
+  return isDispatch ? "dispatch" : "";
+}
+
 function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
   if (!isReadMethod(event)) return false;
   if (pathname.endsWith(".data")) return false;
@@ -3601,7 +3617,11 @@ function createAuthGuardFn(
     // identity subpath.
     const isIdentitySsoEntryPath =
       p === "/_agent-native/identity/login" ||
-      p === "/_agent-native/identity/callback";
+      p === "/_agent-native/identity/callback" ||
+      p === "/_agent-native/identity/bootstrap" ||
+      p === "/_agent-native/identity/bootstrap/binding" ||
+      p === "/_agent-native/identity/bootstrap/continue" ||
+      p === "/_agent-native/identity/bootstrap/activate";
     const isDesktopIdentityRequest =
       isDesktopSsoUserAgent(getHeader(event, "user-agent")) &&
       isCanonicalAgentNativeAppRequest(
@@ -3813,10 +3833,13 @@ function createAuthGuardFn(
 
     const session = await getSession(event);
     if (session) {
-      const workspaceAppId = getAppConfig().app.workspaceId?.trim() || "";
+      const workspaceAppId = resolveWorkspaceAccessAppId();
+      const sharedWorkspaceAccessPath =
+        p === "/_agent-native/org/me" ||
+        p === "/_agent-native/actions/list-workspace-apps";
       if (
         workspaceAppId &&
-        workspaceAppId !== "dispatch" &&
+        !sharedWorkspaceAccessPath &&
         (p.startsWith("/api/") || p.startsWith("/_agent-native/")) &&
         !(await isWorkspaceAppAccessAllowed(workspaceAppId, {
           email: session.email,
@@ -4102,6 +4125,7 @@ function createLocalDevAuthHandler(config?: BetterAuthConfig) {
         return { error: "Local development sign-in is unavailable" };
       }
       setFrameworkSessionCookie(event, session.token);
+      clearIdentityGoogleAuthCookie(event);
       setFirstRunOnboardingCookie(event);
       await addSession(session.token, session.email);
       return authLoginResponse(event, session.token, session.email);
@@ -4195,6 +4219,7 @@ async function maybeAutoCreateDevSession(
     if (!result?.token) return null;
 
     setFrameworkSessionCookie(event, result.token);
+    clearIdentityGoogleAuthCookie(event);
     setFirstRunOnboardingCookie(event);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
 
@@ -4251,7 +4276,7 @@ async function backfillSessionOrg(
   session: AuthSession,
   event: H3Event,
 ): Promise<AuthSession> {
-  if (session.orgId) return session;
+  if (session.orgId || hasExplicitPersonalOrgScope(event)) return session;
   // Event-aware variant: shares the per-request org_members lookup with
   // getOrgContext so one request never pays the membership query twice.
   const { resolveOrgIdForEmailViaEvent } = await import("../org/context.js");
@@ -4731,11 +4756,7 @@ async function mountBetterAuthRoutes(
       if (!publicPaths.includes(gp)) publicPaths.push(gp);
     }
 
-    const googleScopes = [
-      "openid",
-      "https://www.googleapis.com/auth/userinfo.email",
-      "https://www.googleapis.com/auth/userinfo.profile",
-    ].join(" ");
+    const googleScopes = "openid email profile";
 
     app.use(
       "/_agent-native/google/auth-url",
@@ -5565,6 +5586,7 @@ async function mountBetterAuthRoutes(
       if (isSignOut) optOutOfAuthDisabledSession(event);
       const authRequest = toWebRequest(event);
       let requestForAuth = authRequest;
+      let emailAuthEmail: string | undefined;
       const signupCookieHeader = isEmailSignup
         ? authRequest.headers.get("cookie")
         : undefined;
@@ -5611,6 +5633,9 @@ async function mountBetterAuthRoutes(
           .json()
           .catch(() => undefined)) as { email?: unknown } | undefined;
         const email = typeof body?.email === "string" ? body.email : "";
+        if (reqPath.includes("/sign-in/email")) {
+          emailAuthEmail = normalizeAuthEmail(email) ?? undefined;
+        }
         if (email && (await isGoogleSignInRequiredForEmail(email))) {
           return new Response(
             JSON.stringify({ error: GOOGLE_AUTH_REQUIRED_MESSAGE }),
@@ -5746,6 +5771,7 @@ async function mountBetterAuthRoutes(
           ? getSetCookieHeaders(stagedHeaders).length
           : 0;
         clearFrameworkSessionHintCookies(event);
+        clearIdentityGoogleAuthCookie(event);
         if (stagedHeaders) {
           for (const cookie of getSetCookieHeaders(stagedHeaders).slice(
             stagedCookieCount,
@@ -5773,6 +5799,17 @@ async function mountBetterAuthRoutes(
             (response as Response).headers.append("set-cookie", cookie);
           }
         }
+      }
+
+      if (
+        emailAuthEmail &&
+        isResponse &&
+        (response as Response).status >= 200 &&
+        (response as Response).status < 400 &&
+        extractSessionTokenFromAuthResponse(response as Response)
+      ) {
+        clearIdentityGoogleAuthCookie(event);
+        response = mergeStagedCookies(event, response as Response);
       }
 
       if (isMagicLinkVerification && isResponse) {
@@ -6000,6 +6037,7 @@ async function mountBetterAuthRoutes(
         });
         if (result?.token) {
           setFrameworkSessionCookie(event, result.token);
+          clearIdentityGoogleAuthCookie(event);
           setFirstRunOnboardingCookie(event);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {
@@ -6425,6 +6463,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         });
         if (result?.token) {
           setFrameworkSessionCookie(event, result.token);
+          clearIdentityGoogleAuthCookie(event);
           setFirstRunOnboardingCookie(event);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {

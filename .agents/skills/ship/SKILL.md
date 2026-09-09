@@ -145,7 +145,7 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   an actionable in-scope item, require a verified feedback-ledger disposition
   and reaction state - **Fixed**, **Shipped**, **Resolved elsewhere**,
   **Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, or
-  **Open - no reply** after this workflow's eye has been removed;
+  **Open - no reply** after this workflow's eye has been released with `✅`;
   **In progress** or **Clarification needed** while this workflow's eye is
   held. Silent terminal states do not require a Slack reply; never manufacture
   one just to satisfy this handoff check. An eye-only or stale eye-only item
@@ -163,9 +163,9 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   requests, replies, dispatches, or merge blockers.
 
 If a prior run mistakenly added an eye to an out-of-scope or already-owned
-parent, remove it with the connected Slack action when available. Do not add a
-new reply or reaction. If removal is unavailable, record the exact parent for
-manual cleanup and keep it out of the ship ledger's actionable work.
+parent, release it with `✅` when reactions are available. Do not add a new
+reply or investigate it. If the release marker is unavailable, record the exact
+parent for manual cleanup and keep it out of the ship ledger's actionable work.
 
 When deciding whether an awaiting clarification is already answered, treat the
 requested URL, error, screenshot, repro, run ID, or other evidence as present
@@ -218,14 +218,14 @@ claims separate. A green test or PR does not prove that beta or production is
 live; deployment monitoring belongs to `/ship-now` or `/ship-and-monitor`.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
 review item has a fix, a concise reply, or an explicit terminal disposition
-with its `👀` removed, and that no new evidence has been left without a
+with its `✅` release marker, and that no new evidence has been left without a
 disposition. Items routed to Sid or Alice remain outside this
 workflow's ownership. External, duplicate, deferred, and informational items
 also follow their recorded disposition rather than blocking this workflow. A
   parent marked with `👀` is not thereby complete or non-actionable: preserve the
   reaction without duplicating it, and for actionable in-scope items do not merge
   while an active eye-only or stale eye-only item lacks a verified disposition.
-  A foreign valid workflow eye is owned elsewhere and must not be removed by
+  A foreign valid workflow eye is owned elsewhere and must not be released by
   this workflow; exclude it from this handoff unless this PR depends on that
   item, in which case preserve it as a handoff blocker. A released terminal
   item is not a merge blocker.

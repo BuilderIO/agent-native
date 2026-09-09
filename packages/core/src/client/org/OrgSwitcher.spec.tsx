@@ -598,4 +598,130 @@ describe("OrgSwitcher", () => {
       document.body.querySelector<HTMLAnchorElement>('a[href="/analytics"]'),
     ).not.toBeNull();
   });
+
+  it.each(["owner", "admin"] as const)(
+    "shows Dispatch to organization %s members",
+    (role) => {
+      mocks.appLinks.mockReturnValue({
+        apps: [
+          {
+            id: "dispatch",
+            name: "Dispatch",
+            href: "/dispatch/overview",
+            isDispatch: true,
+            status: "ready",
+          },
+          {
+            id: "analytics",
+            name: "Analytics",
+            href: "/analytics",
+            isDispatch: false,
+            status: "ready",
+          },
+        ],
+        dispatchAllAppsHref: "/dispatch/apps",
+        dispatchHref: "/dispatch/overview",
+        isLoading: false,
+        isWorkspace: false,
+      });
+      mocks.useOrg.mockReturnValue({
+        data: {
+          email: `${role}@example.com`,
+          orgId: "org-1",
+          orgName: "Acme",
+          role,
+          orgs: [{ orgId: "org-1", orgName: "Acme", role }],
+          pendingInvitations: [],
+          domainMatches: [],
+        },
+        isLoading: false,
+      });
+
+      render(<OrgSwitcher />);
+      act(() => {
+        container.querySelector<HTMLButtonElement>("button")!.click();
+      });
+      const appsButton = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((button) => button.textContent?.trim().startsWith("Apps"));
+      expect(appsButton).not.toBeNull();
+
+      act(() => {
+        appsButton!.click();
+      });
+
+      expect(
+        document.body.querySelector<HTMLAnchorElement>(
+          'a[href="/dispatch/overview"]',
+        ),
+      ).not.toBeNull();
+    },
+  );
+
+  it("hides Dispatch and its all-apps link from organization members", () => {
+    mocks.appLinks.mockReturnValue({
+      apps: [
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          href: "/dispatch/overview",
+          isDispatch: true,
+          status: "ready",
+        },
+        {
+          id: "analytics",
+          name: "Analytics",
+          href: "/analytics",
+          isDispatch: false,
+          status: "ready",
+        },
+        ...Array.from({ length: 10 }, (_, index) => ({
+          id: `app-${index}`,
+          name: `App ${index}`,
+          href: `/app-${index}`,
+          isDispatch: false,
+          status: "ready" as const,
+        })),
+      ],
+      dispatchAllAppsHref: "/dispatch/apps",
+      dispatchHref: "/dispatch/overview",
+      isLoading: false,
+      isWorkspace: false,
+    });
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "member@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        role: "member",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "member" }],
+        pendingInvitations: [],
+        domainMatches: [],
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+    const appsButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim().startsWith("Apps"));
+    expect(appsButton).not.toBeNull();
+
+    act(() => {
+      appsButton!.click();
+    });
+
+    expect(
+      document.body.querySelector<HTMLAnchorElement>(
+        'a[href="/dispatch/overview"]',
+      ),
+    ).toBeNull();
+    expect(
+      document.body.querySelector<HTMLAnchorElement>('a[href="/analytics"]'),
+    ).not.toBeNull();
+    expect(document.body.textContent).not.toContain("more in Dispatch");
+  });
 });

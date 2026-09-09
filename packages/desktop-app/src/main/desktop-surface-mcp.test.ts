@@ -4,6 +4,7 @@ import {
 } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { CaptureActiveDesktopBrowserScreenshot } from "./desktop-browser-screenshot";
 import { DesktopSurfaceMcpBridge } from "./desktop-surface-mcp";
 
 const active: Array<{ bridge: DesktopSurfaceMcpBridge; client: Client }> = [];
@@ -16,7 +17,9 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function createHarness() {
+async function createHarness(
+  captureActiveBrowserScreenshot?: CaptureActiveDesktopBrowserScreenshot,
+) {
   const openApp = vi.fn();
   const bridge = new DesktopSurfaceMcpBridge({
     listApps: () => [
@@ -29,6 +32,7 @@ async function createHarness() {
       appName: "Mail",
       path: "/inbox",
     }),
+    captureActiveBrowserScreenshot,
   });
   const url = await bridge.start();
   const registration = bridge.register();
@@ -122,5 +126,40 @@ describe("DesktopSurfaceMcpBridge", () => {
     });
     expect(unsafe.isError).toBe(true);
     expect(harness.openApp).not.toHaveBeenCalled();
+  });
+
+  it("returns pixels from the active inline browser surface", async () => {
+    const screenshot = {
+      data: Buffer.from("inline-browser").toString("base64"),
+      mediaType: "image/jpeg" as const,
+      width: 1_200,
+      height: 800,
+    };
+    const harness = await createHarness(async () => screenshot);
+    const tool = (await harness.client.listTools()).tools.find(
+      (candidate) => candidate.name === "browser_screenshot",
+    );
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true,
+      openWorldHint: false,
+    });
+
+    const result = await harness.client.callTool({
+      name: "browser_screenshot",
+      arguments: {},
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          captured: true,
+          source: "active-inline-browser",
+          width: 1_200,
+          height: 800,
+        }),
+      },
+      { type: "image", data: screenshot.data, mimeType: "image/jpeg" },
+    ]);
   });
 });

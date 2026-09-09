@@ -58,8 +58,13 @@ describe("AuthPage", () => {
   });
 
   it("renders the password auth surface on the server without browser globals", () => {
+    const props = propsFromHtml(getOnboardingHtml());
     const html = renderToString(
-      <AuthPage {...propsFromHtml(getOnboardingHtml())} />,
+      <AuthPage
+        {...props}
+        identitySsoEnabled={false}
+        identitySsoAuto={false}
+      />,
     );
 
     expect(html).toContain('id="signup-form"');
@@ -68,7 +73,7 @@ describe("AuthPage", () => {
     expect(html).not.toContain("onclick");
   });
 
-  it("composes the shared marketing home and product screenshot for branded auth", () => {
+  it("composes the shared marketing home and animated background for branded auth", () => {
     const onboardingHtml = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
     });
@@ -76,15 +81,14 @@ describe("AuthPage", () => {
     const html = renderToString(<AuthPage {...props} />);
 
     expect(html).toContain('data-agent-native-marketing-home="true"');
-    expect(html).toContain('class="auth-marketing-screenshot"');
-    expect(html).toContain("/auth-marketing/slides.webp");
+    expect(html).toContain("auth-marketing-screenshot");
+    expect(html).not.toContain('<img class="auth-marketing-screenshot"');
     expect(html).toContain("New to Slides?");
     expect(html).toContain('href="https://agent-native.com/apps/slides"');
     expect(html).toContain('class="auth-marketing-learn-more"');
     expect(onboardingHtml).toContain(
       "bottom: max(1rem, env(safe-area-inset-bottom));\n    inset-inline-end: max(1rem, env(safe-area-inset-right));",
     );
-    expect(html).not.toContain('data-agent-native-starfield="true"');
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
     expect(html).toContain('class="form-panel');
@@ -92,8 +96,12 @@ describe("AuthPage", () => {
     expect(html).not.toContain('id="local-note"');
     expect(onboardingHtml).toContain("aspect-ratio: 914 / 818");
     expect(onboardingHtml).toContain("width: 100%");
-    expect(onboardingHtml).toContain("filter: blur(3px)");
-    expect(onboardingHtml).toContain("opacity: 0.8");
+    expect(onboardingHtml).toContain(
+      "position: fixed;\n    inset: 0;\n    z-index: 0;",
+    );
+    expect(onboardingHtml).toContain("max-height: none;");
+    expect(onboardingHtml).toContain("filter: none");
+    expect(onboardingHtml).toContain("opacity: 0.15");
     expect(onboardingHtml).toContain("object-fit: cover");
     expect(onboardingHtml).toContain(
       "box-shadow: 0 12px 36px rgba(0,0,0,0.38)",
@@ -101,10 +109,15 @@ describe("AuthPage", () => {
     expect(onboardingHtml).toContain(
       "box-shadow: 0 18px 50px rgba(0,0,0,0.62)",
     );
-    expect(onboardingHtml).toContain("flex: 1 1 0;");
-    expect(onboardingHtml).toContain("align-items: flex-start;");
-    expect(onboardingHtml).toContain("flex: 0 0 28rem;");
-    expect(onboardingHtml).toContain("margin-inline: 0;");
+    expect(onboardingHtml).toContain(
+      "position: fixed;\n    inset: 0;\n    z-index: 1;\n    display: flex;\n    align-items: center;\n    justify-content: flex-start;",
+    );
+    expect(onboardingHtml).toContain(
+      ".auth-marketing-home.has-product-screenshot .form-panel > .card {\n    margin-block: auto;\n  }",
+    );
+    expect(onboardingHtml).not.toContain(
+      ".auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }",
+    );
     expect(onboardingHtml).toContain("border-radius: 0.75rem;");
     expect(onboardingHtml).toContain("@media (prefers-color-scheme: light)");
     expect(onboardingHtml).toContain(
@@ -113,13 +126,6 @@ describe("AuthPage", () => {
     expect(onboardingHtml).toContain("color-scheme: light;");
     expect(onboardingHtml).toContain(
       ".auth-marketing-home .card .verification-copy",
-    );
-    expect(onboardingHtml).toContain(
-      "@media (min-width: 901px) and (max-width: 1500px)",
-    );
-    expect(onboardingHtml).toContain("left: -140px");
-    expect(onboardingHtml).toContain(
-      "grid-template-columns: minmax(0, 927px) minmax(0, 1fr);",
     );
   });
 
@@ -142,7 +148,7 @@ describe("AuthPage", () => {
     const html = getOnboardingHtml({ requestHost });
 
     expect(html).toContain(`style="aspect-ratio:${ratio}"`);
-    expect(html).toContain('class="auth-marketing-screenshot"');
+    expect(html).toContain("auth-marketing-screenshot");
   });
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {
