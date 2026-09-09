@@ -74,12 +74,9 @@ export default function TemplatesPage() {
                 {t("templatesPage.firstPartyTitle")}
               </h2>
             </div>
-            {/* Breaks back out of the section's padding, but stops 1px short of
-                the full measure at each breakpoint: the page's decorative
-                column rules are drawn as a border inside that measure, and this
-                band's own background would otherwise paint over them for its
-                whole height. */}
-            <div className="-mx-[15px] grid min-w-0 gap-5 border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-5 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
+            {/* Breaks back out of the section's padding so the cards touch at
+                the full content measure, like the homepage app rail. */}
+            <div className="-mx-[15px] grid min-w-0 border-s border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-0 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
               {featuredTemplates.map((template) => (
                 <TemplateCard key={template.name} template={template} />
               ))}
@@ -159,9 +156,9 @@ export default function TemplatesPage() {
             </div>
 
             {communityApps.length > 0 ? (
-              // Matches the first-party band, including the 1px inset that
-              // keeps this fill from painting over the decorative column rules.
-              <div className="-mx-[15px] grid min-w-0 gap-5 border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] px-5 pt-5 pb-10 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
+              // Keep community cards on the same touching grid as first-party
+              // apps, while the card content retains its own internal padding.
+              <div className="-mx-[15px] grid min-w-0 border-s border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-0 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
                 {communityApps.map((app) => (
                   <CommunityAppCard key={app.slug} app={app} />
                 ))}
