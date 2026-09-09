@@ -482,6 +482,11 @@ const messages = {
     shareLink: "分享链接",
     shareWithHumans: "与人分享",
     shareWithAgents: "与代理商分享",
+    people: "人员",
+    agents: "智能体",
+    openInClaude: "在 Claude 中打开",
+    openInClaudeCode: "在 Claude Code 中打开",
+    openInCodex: "在 Codex 中打开",
     copyAgentPrompt: "复制代理提示",
     agentPrompt:
       "获取这个 Clips 代理上下文 URL：{{agentContextUrl}}。使用 transcript.segments 读取语音上下文，获取 recommendedFrames 或帧 API URL 来查看屏幕，并在 browserDiagnostics 存在时检查经过脱敏的控制台日志和 fetch/XHR 请求元数据。",

@@ -514,6 +514,11 @@ const messages = {
     shareLink: "Link de compartilhamento",
     shareWithHumans: "Compartilhe com pessoas",
     shareWithAgents: "Compartilhe com agentes",
+    people: "Pessoas",
+    agents: "Agentes",
+    openInClaude: "Abrir no Claude",
+    openInClaudeCode: "Abrir no Claude Code",
+    openInCodex: "Abrir no Codex",
     copyAgentPrompt: "Copiar prompt para agente",
     agentPrompt:
       "Busque esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Use transcript.segments para o contexto falado, busque recommendedFrames ou as URLs da API de quadros para ver a tela e confira browserDiagnostics, se presente, para logs de console redigidos e metadados de solicitações fetch/XHR.",

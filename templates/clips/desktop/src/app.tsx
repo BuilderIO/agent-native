@@ -897,7 +897,7 @@ function SettingsSwitch({
       onCheckedChange={onCheckedChange}
       disabled={disabled}
       aria-label={label}
-      className="data-[state=checked]:border-success data-[state=checked]:bg-success data-[state=unchecked]:border-border"
+      tone="success"
     />
   );
 }
@@ -1347,7 +1347,7 @@ export function App({
     loadDevices,
     requestDeviceAccess,
   } = useMediaDevices({
-    bubbleActiveRef,
+    microphoneEnabled: micOn,
     popoverVisible,
     setCameraError,
     setRecError,

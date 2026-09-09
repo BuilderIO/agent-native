@@ -1,5 +1,9 @@
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
+import {
+  AGENT_SIDEBAR_QUERY_PARAM,
+  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
+} from "@agent-native/core/shared";
 
 import { parseTimeParam } from "@/lib/time-param";
 
@@ -99,18 +103,22 @@ export function stateFromLocation(
     const recordingId = decodePathSegment(recordingMatch[1]);
     if (!recordingId) return { view: "library" };
     const panel = params.get("panel");
+    const agentSidebarOpen =
+      params.get(AGENT_SIDEBAR_QUERY_PARAM) === AGENT_SIDEBAR_QUERY_VALUE_OPEN;
     const atParam = params.get("at") ?? params.get("t");
     const atMs = atParam == null ? undefined : parseTimeParam(atParam);
     return {
       view: panel === "insights" ? "insights" : "recording",
       recordingId,
-      ...(panel === "comments" ||
-      panel === "transcript" ||
-      panel === "agent" ||
-      panel === "insights" ||
-      panel === "settings"
-        ? { panel }
-        : {}),
+      ...(agentSidebarOpen
+        ? { panel: "agent" as const }
+        : panel === "comments" ||
+            panel === "transcript" ||
+            panel === "agent" ||
+            panel === "insights" ||
+            panel === "settings"
+          ? { panel }
+          : {}),
       ...(Number.isFinite(atMs) && atMs! >= 0 ? { atMs } : {}),
       ...(searchTerm ? { search: searchTerm } : {}),
     };
@@ -208,7 +216,14 @@ export function pathFromCommand(cmd: NavigateCommand): string {
     case "recording":
       if (!cmd.recordingId) return "/library";
       const recordingParams = new URLSearchParams();
-      if (cmd.panel) recordingParams.set("panel", cmd.panel);
+      if (cmd.panel === "agent") {
+        recordingParams.set(
+          AGENT_SIDEBAR_QUERY_PARAM,
+          AGENT_SIDEBAR_QUERY_VALUE_OPEN,
+        );
+      } else if (cmd.panel) {
+        recordingParams.set("panel", cmd.panel);
+      }
       if (typeof cmd.atMs === "number" && Number.isFinite(cmd.atMs)) {
         // Viewer routes use the public `at` query parameter in seconds while
         // navigation commands expose timestamps in milliseconds.

@@ -4,7 +4,11 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import { useOrgRole } from "@agent-native/core/client/org";
-import { docsUrl } from "@agent-native/core/shared";
+import {
+  AGENT_SIDEBAR_QUERY_PARAM,
+  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
+  docsUrl,
+} from "@agent-native/core/shared";
 import {
   IconArchive,
   IconCalendar,
@@ -479,7 +483,9 @@ export function ClipsCommandMenu({
             <CommandMenu.Item
               onSelect={() =>
                 void navigate(
-                  withQuery(`/r/${context.recordingId}`, { panel: "agent" }),
+                  withQuery(`/r/${context.recordingId}`, {
+                    [AGENT_SIDEBAR_QUERY_PARAM]: AGENT_SIDEBAR_QUERY_VALUE_OPEN,
+                  }),
                 )
               }
               keywords={["agent", "ask", "recording"]}

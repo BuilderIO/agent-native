@@ -515,6 +515,11 @@ const messages = {
     shareLink: "共有リンク",
     shareWithHumans: "人と共有する",
     shareWithAgents: "エージェントと共有する",
+    people: "ユーザー",
+    agents: "エージェント",
+    openInClaude: "Claude で開く",
+    openInClaudeCode: "Claude Code で開く",
+    openInCodex: "Codex で開く",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
       "この Clips エージェントコンテキスト URL を取得してください: {{agentContextUrl}}。音声の文脈には transcript.segments を使い、画面を見るために recommendedFrames またはフレーム API URL を取得し、browserDiagnostics がある場合は、編集済みのコンソールログと fetch/XHR リクエストのメタデータを確認してください。",

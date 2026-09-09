@@ -482,6 +482,11 @@ const messages = {
     shareLink: "分享連結",
     shareWithHumans: "與人分享",
     shareWithAgents: "與 Agent 分享",
+    people: "使用者",
+    agents: "Agent",
+    openInClaude: "在 Claude 中開啟",
+    openInClaudeCode: "在 Claude Code 中開啟",
+    openInCodex: "在 Codex 中開啟",
     copyAgentPrompt: "複製 Agent 提示",
     agentPrompt:
       "取得這個 Clips Agent 脈絡 URL：{{agentContextUrl}}。使用 transcript.segments 讀取語音脈絡，取得 recommendedFrames 或影格 API URL 來查看螢幕，並在 browserDiagnostics 存在時檢查已遮蔽的主控台記錄和 fetch/XHR 請求中繼資料。",

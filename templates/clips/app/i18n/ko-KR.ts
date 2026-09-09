@@ -506,6 +506,11 @@ const messages = {
     shareLink: "공유 링크",
     shareWithHumans: "사람과 공유",
     shareWithAgents: "상담원과 공유",
+    people: "사용자",
+    agents: "에이전트",
+    openInClaude: "Claude에서 열기",
+    openInClaudeCode: "Claude Code에서 열기",
+    openInCodex: "Codex에서 열기",
     copyAgentPrompt: "에이전트 프롬프트 복사",
     agentPrompt:
       "이 Clips 에이전트 컨텍스트 URL을 가져오세요: {{agentContextUrl}}. 말한 내용의 맥락은 transcript.segments를 사용하고, 화면을 보기 위해 recommendedFrames 또는 프레임 API URL을 가져오며, browserDiagnostics가 있으면 수정된 콘솔 로그와 fetch/XHR 요청 메타데이터를 확인하세요.",
