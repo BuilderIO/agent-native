@@ -230,7 +230,6 @@ export function resolveVercelDeploymentProtectionHeaders(
     configuredOrigin(process.env.VERCEL_BRANCH_URL, true),
     configuredOrigin(config.workspace.gatewayUrl),
     configuredOrigin(config.workspace.orgDirectoryUrl),
-    ...config.a2a.allowedOrigins.map((origin) => configuredOrigin(origin)),
     ...(isProduction
       ? [
           configuredOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL, true),

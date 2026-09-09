@@ -2295,7 +2295,7 @@ describe("server/auth", () => {
 
     it("protects standalone Dispatch APIs for organization members", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("APP_NAME", "dispatch");
+      vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({
           execute: vi.fn(async (statement: unknown) => {
@@ -2327,6 +2327,34 @@ describe("server/auth", () => {
         error: "You do not have access to this workspace app.",
       });
       expect(event.res.status).toBe(403);
+    });
+
+    it("does not apply Dispatch access to a renamed Dispatch scaffold", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      defineAppConfig({
+        app: {
+          id: "custom-control-plane",
+          name: "Custom control plane",
+          sourceTemplate: "dispatch",
+        },
+      });
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => ({
+          email: "member@example.com",
+          orgId: "org-1",
+        }),
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+
+      await expect(
+        guard(createMockEvent({ path: "/_agent-native/actions/list" })),
+      ).resolves.toBeUndefined();
     });
 
     it("allows framework-managed bearer routes to reach their own verifier", async () => {

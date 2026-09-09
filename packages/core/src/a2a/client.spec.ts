@@ -178,6 +178,30 @@ describe("A2AClient", () => {
     expect(requestHeaders?.get("x-vercel-protection-bypass")).toBeNull();
   });
 
+  it("does not send the Vercel bypass to generic allowed A2A origins", async () => {
+    vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-vercel-bypass");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", "agent.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_A2A_ALLOWED_ORIGINS",
+      "https://private-a2a.example.test",
+    );
+    let requestHeaders: Headers | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        requestHeaders = new Headers(init?.headers);
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    await expect(
+      new A2AClient("https://private-a2a.example.test").getAgentCard(),
+    ).rejects.toThrow("Failed to fetch agent card (404)");
+
+    expect(requestHeaders?.get("x-vercel-protection-bypass")).toBeNull();
+  });
+
   it("inherits the synthetic marker for direct A2A clients", async () => {
     let requestHeaders: HeadersInit | undefined;
     vi.stubGlobal(

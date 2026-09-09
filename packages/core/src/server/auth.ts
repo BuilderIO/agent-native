@@ -3367,9 +3367,7 @@ function resolveWorkspaceAccessAppId(): string {
   const isDispatch = [
     app.id,
     app.legacyId,
-    app.name,
     app.template,
-    app.sourceTemplate,
     app.slug,
     app.packageName,
   ].some((value) => value?.trim().toLowerCase() === "dispatch");
