@@ -11,6 +11,9 @@ describe("selected library actions layout", () => {
     const gridSource = readSource("./library-grid.tsx");
     const layoutSource = readSource("./library-layout.tsx");
     const folderTreeSource = readSource("./folder-tree.tsx");
+    const organizationStateSource = readSource(
+      "../../../actions/list-organization-state.ts",
+    );
     const libraryRouteSource = readSource(
       "../../routes/_app.library._index.tsx",
     );
@@ -100,6 +103,20 @@ describe("selected library actions layout", () => {
     expect(folderTreeSource).toContain("compact ?");
     expect(folderTreeSource).toContain("!compact &&");
     expect(folderTreeSource).toContain("compact && hasChildren");
+    expect(folderTreeSource).toContain("node.recordingCount");
+    expect(folderTreeSource).toContain("tabular-nums");
+    expect(folderTreeSource).toContain("group-hover:opacity-0");
+    expect(folderTreeSource).toContain("peer-data-[state=open]:opacity-0");
+    expect(folderTreeSource).toContain("pointer-events-none");
+    expect(layoutSource).toContain(
+      "recordingCount: Number(folder.recordingCount ?? 0)",
+    );
+    expect(organizationStateSource).toContain(
+      ".groupBy(schema.recordings.folderId)",
+    );
+    expect(organizationStateSource).toContain(
+      "recordingCount: recordingCountByFolder.get(f.id) ?? 0",
+    );
     expect(layoutSource).not.toContain('t("navigation.noSpaces")');
     expect(layoutSource).not.toContain('t("folderTree.noFolders")');
     expect(layoutSource).not.toContain("pageHasHeaderSearch");

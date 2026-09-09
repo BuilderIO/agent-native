@@ -34,6 +34,7 @@ export default function SpaceRoute() {
           parentId: f.parentId ?? null,
           spaceId: f.spaceId ?? null,
           name: f.name,
+          recordingCount: Number(f.recordingCount ?? 0),
         })),
     [folders, spaceId],
   );

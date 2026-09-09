@@ -251,6 +251,7 @@ export function LibraryLayout({
           parentId: f.parentId ?? null,
           spaceId: f.spaceId ?? null,
           name: f.name,
+          recordingCount: Number(f.recordingCount ?? 0),
         })),
     [libFolders],
   );
@@ -264,6 +265,7 @@ export function LibraryLayout({
         parentId: folder.parentId ?? null,
         spaceId: folder.spaceId,
         name: folder.name,
+        recordingCount: Number(folder.recordingCount ?? 0),
       });
       foldersBySpace.set(folder.spaceId, folders);
     }
