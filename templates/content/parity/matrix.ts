@@ -2,6 +2,43 @@ import type { ParityRow } from "./matrix.types";
 
 export const parityMatrix: ParityRow[] = [
   {
+    id: "sidebar.trash-search-preview-recovery",
+    surface: "sidebar",
+    label:
+      "Search Page and Database Trash, preview authorized content, and confirm recovery scope",
+    uiEntrypoints: [
+      "app/components/sidebar/DocumentSidebar.tsx",
+      "app/components/trash/TrashBrowser.tsx",
+      "app/components/trash/TrashRecoveryPreview.tsx",
+      "app/components/trash/TrashRecoveryActions.tsx",
+    ],
+    durableEffect:
+      "Authorized Trash queries and readonly previews preserve identity; confirmed recovery restores selected subtrees or permanently deletes the disclosed scope.",
+    uiImplementation:
+      "The Trash route uses shared Actions for filtered cursor pagination, readonly content, and permission-checked recovery plans with stale-scope rejection.",
+    status: "action-backed",
+    actions: [
+      "list-content-trash",
+      "get-trashed-document",
+      "plan-content-trash-recovery",
+      "restore-document",
+      "restore-content-database",
+      "permanently-delete-document",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/list-content-trash.db.test.ts",
+      "actions/get-trashed-document.test.ts",
+      "actions/trash-recovery.db.test.ts",
+      "app/components/trash/TrashRecoveryPreview.test.tsx",
+      "app/components/trash/TrashRecoveryActions.test.tsx",
+    ],
+  },
+  {
     id: "sidebar.document-tree-crud",
     surface: "sidebar",
     label: "Create, delete, move, favorite, list, search, and open pages",

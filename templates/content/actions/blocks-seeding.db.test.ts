@@ -219,7 +219,10 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
             { db: tx, spaceId },
           ),
         ),
-      ).rejects.toThrow(`No editor access to document ${documentId}`);
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_MUTATION_ACCESS_CHANGED",
+        statusCode: 403,
+      });
 
       const databases = await db
         .select({ id: schema.contentDatabases.id })

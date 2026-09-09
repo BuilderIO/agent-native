@@ -101,7 +101,7 @@ async function fixture() {
       id: documentId,
       ownerEmail: OWNER,
       spaceId: "synthetic_space",
-      parentId: databaseDocumentId,
+      parentId: null,
       title: "Synthetic row",
       content: "# Before",
       visibility: "private",
@@ -462,7 +462,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       id: restoredDocumentId,
       ownerEmail: OWNER,
       spaceId: "synthetic_space",
-      parentId: seed.databaseDocumentId,
+      parentId: null,
       title: "Synthetic trashed row",
       content: "# Not migrated",
       visibility: "private",
@@ -543,7 +543,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
   }, 60_000);
 
   it.each(["same-trash-root", "active"] as const)(
-    "rebuilds permanent-delete scope after a concurrent %s row insertion",
+    "rejects permanent deletion after a concurrent %s row insertion",
     async (rowState) => {
       const seed = await fixture();
       const stamp = "2026-01-01T00:00:00.000Z";
@@ -552,6 +552,11 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       await runWithRequestContext({ userEmail: OWNER }, () =>
         deleteContentDatabase.run({ databaseId: seed.databaseId }),
       );
+
+      // Database trash preserves live member Pages; isolate the concurrent row.
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.documentId, seed.documentId));
 
       let requestInsertion = () => {};
       let releaseHolder = () => {};
@@ -580,7 +585,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
             id: extraDocumentId,
             ownerEmail: OWNER,
             spaceId: "synthetic_space",
-            parentId: seed.databaseDocumentId,
+            parentId: null,
             title: "Concurrent synthetic row",
             content: "# Concurrent",
             visibility: "private",
@@ -608,47 +613,41 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
         deletion = runWithRequestContext({ userEmail: OWNER }, () =>
           permanentlyDeleteDocument.run({ id: seed.databaseDocumentId }),
         );
-        const deletionExpectation =
+        const deletionExpectation = expect(deletion).rejects.toThrow(
           rowState === "active"
-            ? expect(deletion).rejects.toThrow(
-                "Database contains an active row outside this Trash item",
-              )
-            : null;
+            ? "Database contains an active row outside this Trash item"
+            : "The Trash selection changed. Review its scope again.",
+        );
         await waitForPostgresLockWait(1);
         requestInsertion();
         await insertionCompleted;
         releaseHolder();
         await holder;
 
-        if (deletionExpectation) {
-          await deletionExpectation;
-          expect(
-            await getDb()
-              .select()
-              .from(schema.contentDatabases)
-              .where(eq(schema.contentDatabases.id, seed.databaseId)),
-          ).toHaveLength(1);
-          expect(
-            await getDb()
-              .select()
-              .from(schema.documents)
-              .where(eq(schema.documents.id, extraDocumentId)),
-          ).toHaveLength(1);
-        } else {
-          await deletion;
-          expect(
-            await getDb()
-              .select()
-              .from(schema.contentDatabaseItems)
-              .where(eq(schema.contentDatabaseItems.id, extraItemId)),
-          ).toHaveLength(0);
-          expect(
-            await getDb()
-              .select()
-              .from(schema.documents)
-              .where(eq(schema.documents.id, extraDocumentId)),
-          ).toHaveLength(0);
-        }
+        await deletionExpectation;
+        expect(
+          await getDb()
+            .select()
+            .from(schema.contentDatabases)
+            .where(eq(schema.contentDatabases.id, seed.databaseId)),
+        ).toHaveLength(1);
+        expect(
+          await getDb()
+            .select()
+            .from(schema.documents)
+            .where(
+              inArray(schema.documents.id, [
+                seed.databaseDocumentId,
+                extraDocumentId,
+              ]),
+            ),
+        ).toHaveLength(2);
+        expect(
+          await getDb()
+            .select()
+            .from(schema.contentDatabaseItems)
+            .where(eq(schema.contentDatabaseItems.id, extraItemId)),
+        ).toHaveLength(1);
       } finally {
         requestInsertion();
         releaseHolder();
@@ -868,7 +867,12 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
     await getDb()
       .update(schema.documents)
       .set({ parentId: rootId })
-      .where(eq(schema.documents.id, seed.databaseDocumentId));
+      .where(
+        inArray(schema.documents.id, [
+          seed.databaseDocumentId,
+          seed.documentId,
+        ]),
+      );
     let releaseFlush = () => {};
     let migration: Promise<any> | undefined;
     let trash: Promise<any> | undefined;
@@ -987,6 +991,11 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       releaseGate();
       await gateHolder;
       await trash;
+      await migrationExpectation;
+      // Membership removal is separate from trashing its Database.
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.documentId, seed.documentId));
       permanentDelete = runWithRequestContext({ userEmail: OWNER }, () =>
         permanentlyDeleteDocument.run({ id: seed.databaseDocumentId }),
       );

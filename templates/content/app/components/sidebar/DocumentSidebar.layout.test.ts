@@ -414,58 +414,27 @@ describe("document sidebar layout", () => {
     expect(reorder).toContain("event.preventDefault()");
   });
 
-  it("keeps a unified page and database Trash lifecycle visible in the sidebar", () => {
+  it("links to the unified page and database Trash browser", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const messages = readSidebarSource("../../i18n-data.ts");
+    const trashSection = sidebar.slice(
+      sidebar.indexOf("const renderTrashSection = () =>"),
+      sidebar.indexOf(
+        "if (collapsed)",
+        sidebar.indexOf("const renderTrashSection = () =>"),
+      ),
+    );
 
-    expect(sidebar).toContain("useTrashedContentDatabases");
-    expect(sidebar).toContain("useTrashedDocuments");
-    expect(sidebar).toContain("useDeleteContentDatabase");
-    expect(sidebar).toContain("useRestoreContentDatabase");
-    expect(sidebar).toContain("const trashItems =");
-    expect(sidebar).toContain("const trashedPageItems =");
-    expect(sidebar).toContain("const handleRestoreDocument = useCallback");
-    expect(sidebar).toContain(
-      "const handlePermanentDeleteDocument = useCallback",
+    expect(trashSection).toContain("<Link");
+    expect(trashSection).toContain('to="/trash"');
+    expect(trashSection).toContain(
+      'aria-current={location.pathname === "/trash" ? "page" : undefined}',
     );
-    expect(sidebar).toContain("const handleRestoreDatabase = useCallback");
-    expect(sidebar).toContain(
-      "const handlePermanentDeleteDatabase = useCallback",
-    );
-    expect(sidebar).toContain("const renderTrashSection = () =>");
-    expect(sidebar).toContain("trash: true");
-    expect(sidebar).toContain("value?.trash ?? true");
-    expect(sidebar).toContain("TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY");
-    expect(sidebar).toContain('toggleSection("trash")');
-    expect(sidebar).toContain("<IconTrash");
-    expect(sidebar).toContain("group-hover/trash:opacity-0");
-    expect(sidebar).toContain("group-hover/trash:opacity-100");
-    expect(sidebar).toContain('className="px-2"');
-    expect(sidebar).toContain("handleRestoreDatabase(database.databaseId)");
-    expect(sidebar).toContain("handlePermanentDeleteDatabase");
-    expect(sidebar).toContain("handleRestoreDocument(document.documentId)");
-    expect(sidebar).toContain("handlePermanentDeleteDocument");
-    expect(sidebar).toContain("database.documentId");
-    expect(sidebar).toContain("database.canPermanentlyDelete");
-    expect(sidebar).toContain("deletedDocument?.database");
-    expect(sidebar).toContain("deleteContentDatabase.mutateAsync");
-    expect(sidebar).toContain("databaseId: deletedDocument.database.id");
-    expect(sidebar).toContain('t("sidebar.restoreDatabase")');
-    expect(sidebar).toContain('t("sidebar.deletePermanently")');
+    expect(trashSection).toContain("<IconTrash");
+    expect(trashSection).toContain('t("sidebar.trash")');
     expect(sidebar).toContain("{renderTrashSection()}");
-
-    expect(messages).toContain('trash: "Trash"');
-    expect(messages).toContain('restoreDatabase: "Restore"');
-    expect(messages).toContain('restorePage: "Restore"');
-    expect(messages).toContain('trashEmpty: "Trash is empty"');
-    expect(messages).toContain(
-      'deleteDatabasePermanentlyQuestion: "Delete database permanently?"',
-    );
-    expect(messages).toContain(
-      'failedRestoreDatabase: "Failed to restore database"',
-    );
+    expect(sidebar).not.toContain("useTrashedContentDatabases");
+    expect(sidebar).not.toContain("useTrashedDocuments");
   });
-
   it("removes the standalone Local files destination and gates the dev database link to Code mode", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 

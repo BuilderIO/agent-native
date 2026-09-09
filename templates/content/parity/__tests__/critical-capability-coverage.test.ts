@@ -11,6 +11,7 @@ const priorityCapabilityIds = [
   "database.rows",
   "source-sync.database-source-bindings",
   "sidebar.document-tree-crud",
+  "sidebar.trash-search-preview-recovery",
   "editor.document-body-and-title",
   "local-files.import-export-mounted-folder",
   "sharing.document-discoverability-and-export",
