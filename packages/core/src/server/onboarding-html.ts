@@ -1268,7 +1268,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const marketingStyles = hasMarketing
     ? `
   body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
-  #starfield {
+  [data-agent-native-starfield] {
     position: fixed;
     inset: 0;
     width: 100%;
@@ -1278,7 +1278,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    #starfield { opacity: 0.18; }
+    [data-agent-native-starfield] { opacity: 0.18; }
   }
   .split {
     position: relative;
@@ -2290,8 +2290,8 @@ ${marketingStyles}
     height: 100%;
     max-width: none;
     max-height: none;
-    filter: blur(18px);
-    opacity: 0.8;
+    filter: none;
+    opacity: 1;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
     position: fixed;

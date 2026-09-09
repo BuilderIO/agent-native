@@ -1,5 +1,5 @@
 // Contract: the marketing panel's "New to <app>? Learn more" link, its
-// bottom-right placement, and the branded auth background blur/opacity treatment
+// bottom-right placement, and the branded auth background treatment
 // were deleted as dead code twice in one day. This spec renders the real
 // onboarding HTML for every entry in BUILT_IN_AUTH_MARKETING and asserts the
 // structural contract directly, so a future deletion fails a test instead of
@@ -69,9 +69,9 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toMatch(
       /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*bottom:/,
     );
-    // the auth background dim/blur treatment used by the marketing panel
+    // the auth canvas stays crisp and fully visible behind the card
     expect(html).toMatch(
-      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*filter:\s*blur\(18px\);[^}]*opacity:\s*0\.8;/,
+      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*filter:\s*none;[^}]*opacity:\s*1;/,
     );
   });
 

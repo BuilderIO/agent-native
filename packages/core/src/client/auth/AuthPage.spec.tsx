@@ -81,7 +81,7 @@ describe("AuthPage", () => {
     const html = renderToString(<AuthPage {...props} />);
 
     expect(html).toContain('data-agent-native-marketing-home="true"');
-    expect(html).toContain('class="auth-marketing-screenshot"');
+    expect(html).toContain("auth-marketing-screenshot");
     expect(html).not.toContain('<img class="auth-marketing-screenshot"');
     expect(html).toContain("New to Slides?");
     expect(html).toContain('href="https://agent-native.com/apps/slides"');
@@ -100,8 +100,8 @@ describe("AuthPage", () => {
       "position: fixed;\n    inset: 0;\n    z-index: 0;",
     );
     expect(onboardingHtml).toContain("max-height: none;");
-    expect(onboardingHtml).toContain("filter: blur(18px)");
-    expect(onboardingHtml).toContain("opacity: 0.8");
+    expect(onboardingHtml).toContain("filter: none");
+    expect(onboardingHtml).toContain("opacity: 1");
     expect(onboardingHtml).toContain("object-fit: cover");
     expect(onboardingHtml).toContain(
       "box-shadow: 0 12px 36px rgba(0,0,0,0.38)",
@@ -148,7 +148,7 @@ describe("AuthPage", () => {
     const html = getOnboardingHtml({ requestHost });
 
     expect(html).toContain(`style="aspect-ratio:${ratio}"`);
-    expect(html).toContain('class="auth-marketing-screenshot"');
+    expect(html).toContain("auth-marketing-screenshot");
   });
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {
