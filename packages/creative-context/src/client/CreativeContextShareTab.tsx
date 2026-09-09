@@ -388,7 +388,7 @@ export function CreativeContextShareTab({
   const busy = manageContext.isPending || manageMembership.isPending;
   const selectedContext = contexts.find((context) => context.id === contextId);
   const canCreateContext =
-    contextsQuery.data?.canCreateContext === true &&
+    contextsQuery.data?.canCreateContext === true ||
     contexts.some((context) => context.access.canAdmin);
   const needsBroaderPublicationConfirmation = selectedResources.some((item) =>
     requiresBroaderPublication(item, selectedContext),
