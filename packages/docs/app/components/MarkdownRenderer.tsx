@@ -1,0 +1,666 @@
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  marked,
+  type MarkedExtension,
+  type RendererThis,
+  type Tokens,
+} from "marked";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { codeToHtml } from "shiki";
+
+import {
+  BUILDER_IMAGE_WIDTHS,
+  getBuilderImageSrcSet,
+  getBuilderImageUrl,
+  isBuilderImageUrl,
+} from "./builder-image-urls";
+import {
+  DEFAULT_DOCS_LOCALE,
+  localizeSiteHref,
+  type DocsLocale,
+} from "./docs-locale";
+import { slugifyHeading } from "./heading-slug";
+
+interface Props {
+  markdown: string;
+  locale?: DocsLocale;
+}
+
+interface HighlightedMarkdownHtml {
+  sourceHtml: string;
+  html: string;
+}
+
+interface ImageDimensions {
+  width: number;
+  height: number;
+}
+
+const DEFAULT_CODE_MAX_LINES = 17;
+const MAX_CONFIGURED_CODE_LINES = 2000;
+const MAX_RENDERED_MARKDOWN_CACHE_ENTRIES = 64;
+const DOCS_BUILDER_IMAGE_FALLBACK_WIDTH =
+  BUILDER_IMAGE_WIDTHS[BUILDER_IMAGE_WIDTHS.length - 1] ?? 2400;
+
+const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
+  "/screenshots/analytics.png": { width: 1400, height: 710 },
+  "/screenshots/calendar.png": { width: 1400, height: 710 },
+  "/screenshots/clips.png": { width: 1400, height: 710 },
+  "/screenshots/content.png": { width: 1400, height: 710 },
+  "/screenshots/dispatch.png": { width: 1400, height: 810 },
+  "/screenshots/forms.png": { width: 1400, height: 710 },
+  "/screenshots/mail.png": { width: 1400, height: 710 },
+  "/screenshots/slides.png": { width: 1400, height: 710 },
+  "/screenshots/chat.png": { width: 2434, height: 1440 },
+  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe2c86908c2fa4f119ee4aa90b4823944?format=webp&width=1200":
+    { width: 1200, height: 947 },
+  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=1200":
+    { width: 1200, height: 947 },
+  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=1200":
+    { width: 1200, height: 947 },
+  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd73f749f8c54dbcb577420ab1a18788":
+    { width: 2000, height: 1479 },
+};
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);?/g, (_, dec: string) =>
+      String.fromCodePoint(Number.parseInt(dec, 10)),
+    )
+    .replace(/&colon;?/gi, ":")
+    .replace(/&tab;?/gi, "\t")
+    .replace(/&newline;?/gi, "\n")
+    .replace(/&amp;?/gi, "&");
+}
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  bq: "sql",
+  docker: "dockerfile",
+  js: "javascript",
+  jsx: "jsx",
+  md: "markdown",
+  mjs: "javascript",
+  py: "python",
+  rb: "ruby",
+  shell: "bash",
+  sh: "bash",
+  ts: "typescript",
+  tsx: "tsx",
+  txt: "text",
+  yml: "yaml",
+  zsh: "bash",
+};
+
+const GENERIC_LANGUAGES = new Set(["", "plain", "plaintext", "text", "txt"]);
+
+interface CodeFenceOptions {
+  language?: string;
+  maxLines?: number;
+  /** Real project file path from a `filename="path/to/file.ts"` fence attribute. */
+  filename?: string;
+}
+
+function parseCodeFenceOptions(info: string | undefined): CodeFenceOptions {
+  const tokens = info?.trim().match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  const options: CodeFenceOptions = {};
+
+  for (const token of tokens) {
+    const normalized = token.toLowerCase();
+    const maxLinesMatch = token.match(/^(?:maxlines|max-lines|lines)=(.+)$/i);
+    const filenameMatch = token.match(/^filename=(.+)$/i);
+    const disablesCollapse = [
+      "expanded",
+      "showall",
+      "show-all",
+      "nocollapse",
+      "no-collapse",
+    ].includes(normalized);
+
+    if (maxLinesMatch) {
+      const raw = maxLinesMatch[1].replace(/^['"]|['"]$/g, "");
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) {
+        options.maxLines = Math.max(
+          0,
+          Math.min(MAX_CONFIGURED_CODE_LINES, Math.floor(parsed)),
+        );
+      }
+      continue;
+    }
+
+    if (filenameMatch) {
+      const raw = filenameMatch[1].replace(/^['"]|['"]$/g, "").trim();
+      if (raw) options.filename = raw;
+      continue;
+    }
+
+    if (disablesCollapse) {
+      options.maxLines = 0;
+      continue;
+    }
+
+    if (!options.language && !token.includes("=")) {
+      options.language = token;
+    }
+  }
+
+  return options;
+}
+
+function normalizeLanguage(lang: string | undefined): string {
+  const raw = lang?.trim().split(/\s+/, 1)[0]?.toLowerCase() ?? "";
+  const withoutPrefix = raw.replace(/^language-/, "");
+  return LANGUAGE_ALIASES[withoutPrefix] ?? withoutPrefix;
+}
+
+function looksLikeJson(code: string): boolean {
+  const trimmed = code.trim();
+  if (!trimmed || !/^[{[]/.test(trimmed)) return false;
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function looksLikeMarkdown(code: string): boolean {
+  const lines = code.split(/\r?\n/);
+  let score = 0;
+
+  if (/^\s*---\s*\n[\s\S]*?\n---\s*(?:\n|$)/.test(code)) score += 2;
+  if (/```/.test(code)) score += 2;
+  if (/<!--\s*[^>]+\.md\s*-->/.test(code)) score += 4;
+  if (/^\s{0,3}#{1,6}\s+\S/m.test(code)) score += 3;
+  if (/^\s{0,3}>\s+\S/m.test(code)) score += 1;
+  if (/\[[^\]\n]+]\([^)]+\)/.test(code)) score += 2;
+
+  const listLines = lines.filter((line) =>
+    /^\s{0,3}(?:[-*+]|\d+\.)\s+\S/.test(line),
+  ).length;
+  if (listLines >= 2) score += 2;
+
+  return score >= 3;
+}
+
+function inferCodeBlockLanguage(code: string): string {
+  const trimmed = code.trim();
+
+  if (looksLikeMarkdown(trimmed)) return "markdown";
+  if (looksLikeJson(trimmed)) return "json";
+  if (/^\s*[{[][\s\S]*,\s*\/\/.+/m.test(trimmed)) return "jsonc";
+  if (/^\s*<([a-z][\w:-]*)(?:\s|>|\/>)/i.test(trimmed)) return "html";
+  if (
+    /^\s*(?:SELECT|WITH|INSERT|UPDATE|DELETE|CREATE|ALTER)\b/im.test(trimmed)
+  ) {
+    return "sql";
+  }
+  if (/^\s*(?:FROM|RUN|COPY|ENTRYPOINT|CMD|ENV|ARG|WORKDIR)\b/m.test(trimmed)) {
+    return "dockerfile";
+  }
+  if (
+    /^\s*(?:npm|pnpm|yarn|npx|bun|git|cd|curl|export|agent-native|wrangler)\b/m.test(
+      trimmed,
+    ) ||
+    /^\s*[A-Z_][A-Z0-9_]*=.*$/m.test(trimmed)
+  ) {
+    return "bash";
+  }
+  if (/^\s*(?:import|export)\s/m.test(trimmed)) {
+    return /\bfrom\s+["'][^"']+\.(?:tsx|jsx)["']/.test(trimmed) ||
+      /<[A-Z][\w.]*(?:\s|>)/.test(trimmed)
+      ? "tsx"
+      : "typescript";
+  }
+  if (/^\s*(?:const|let|var|type|interface|function|class)\s/m.test(trimmed)) {
+    return /<[A-Z][\w.]*(?:\s|>)/.test(trimmed) ? "tsx" : "typescript";
+  }
+  if (/^\s*[\w.-]+\s*:\s+\S/m.test(trimmed)) return "yaml";
+  if (/^\s*[.#]?[\w:-]+(?:\s+[.#]?[\w:-]+)*\s*\{/m.test(trimmed)) {
+    return "css";
+  }
+
+  return "text";
+}
+
+export function resolveCodeBlockLanguage(
+  lang: string | undefined,
+  code: string,
+): string {
+  const normalized = normalizeLanguage(parseCodeFenceOptions(lang).language);
+  if (!GENERIC_LANGUAGES.has(normalized)) return normalized;
+  return inferCodeBlockLanguage(code);
+}
+
+function codeLineCount(code: string): number {
+  const normalized = code.replace(/\r\n/g, "\n").replace(/\n$/, "");
+  return normalized ? normalized.split("\n").length : 0;
+}
+
+function codeToggleLabel(hiddenLines: number): string {
+  return `Show ${hiddenLines} more line${hiddenLines === 1 ? "" : "s"}`;
+}
+
+function isSafeUrl(rawUrl: string, kind: "link" | "image"): boolean {
+  const decoded = decodeHtmlEntities(rawUrl).trim();
+  if (!decoded) return false;
+
+  const normalized = decoded.replace(/[\s\u0000-\u001f\u007f]+/g, "");
+  const lower = normalized.toLowerCase();
+  if (
+    lower.startsWith("javascript:") ||
+    lower.startsWith("data:") ||
+    lower.startsWith("vbscript:") ||
+    lower.startsWith("file:") ||
+    lower.startsWith("//")
+  ) {
+    return false;
+  }
+
+  if (kind === "image" && lower.startsWith("data:image/")) {
+    return /^data:image\/(?:gif|png|jpe?g|webp|avif);base64,/i.test(decoded);
+  }
+
+  if (decoded.startsWith("/") || decoded.startsWith("#")) return true;
+  if (decoded.startsWith("./") || decoded.startsWith("../")) return true;
+
+  try {
+    const url = new URL(decoded);
+    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol);
+  } catch {
+    return !/^[a-z][a-z\d+.-]*:/i.test(lower);
+  }
+}
+
+function imageDimensionsForHref(href: string): ImageDimensions | undefined {
+  return DOCS_IMAGE_DIMENSIONS[decodeHtmlEntities(href).trim()];
+}
+
+/**
+ * Marked tokenizer extension: `[[Ctrl+K]]` → `<kbd>Ctrl+K</kbd>`
+ * Lets authors write keyboard shortcuts inline without raw HTML.
+ */
+const kbdExtension: MarkedExtension = {
+  extensions: [
+    {
+      name: "kbd",
+      level: "inline",
+      start: (src: string) => src.indexOf("[["),
+      tokenizer(src: string) {
+        const match = /^\[\[([^\]]+?)\]\]/.exec(src);
+        if (!match) return;
+        return { type: "kbd", raw: match[0], text: match[1] };
+      },
+      renderer(token: Tokens.Generic) {
+        return `<kbd class="docs-kbd">${escapeHtml(token.text as string)}</kbd>`;
+      },
+    },
+  ],
+};
+
+marked.use(kbdExtension);
+
+// Custom renderer to add IDs to headings and handle {#custom-id} syntax
+function createRenderer(locale: DocsLocale) {
+  const renderer = new marked.Renderer();
+
+  renderer.html = function ({ text }: Tokens.HTML) {
+    // Strip HTML comments entirely (used by the docs build for screenshot
+    // metadata, e.g. `<!-- screenshot: url=... -->` — should never render).
+    // Escape everything else for safety.
+    if (/^\s*<!--[\s\S]*?-->\s*$/.test(text)) return "";
+    return escapeHtml(text);
+  };
+
+  renderer.link = function (this: RendererThis, token: Tokens.Link) {
+    const text = this.parser.parseInline(token.tokens);
+    if (!isSafeUrl(token.href, "link")) return text;
+    const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
+    const href = localizeSiteHref(token.href, locale);
+    return `<a href="${escapeHtml(href)}"${title}>${text}</a>`;
+  };
+
+  renderer.image = function (token: Tokens.Image) {
+    if (!isSafeUrl(token.href, "image")) return "";
+    const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
+    const dimensions = imageDimensionsForHref(token.href);
+    const sizeAttributes = dimensions
+      ? ` width="${dimensions.width}" height="${dimensions.height}"`
+      : "";
+    const builderImageAttributes = isBuilderImageUrl(token.href)
+      ? [
+          `src="${escapeHtml(getBuilderImageUrl(token.href, DOCS_BUILDER_IMAGE_FALLBACK_WIDTH))}"`,
+          `srcset="${escapeHtml(getBuilderImageSrcSet(token.href) ?? "")}"`,
+        ].join(" ")
+      : `src="${escapeHtml(token.href)}"`;
+    const image = `<img ${builderImageAttributes} alt="${escapeHtml(token.text)}"${title} class="docs-image" loading="lazy" decoding="async"${sizeAttributes}>`;
+
+    if (!dimensions) return image;
+
+    return `<span class="docs-image-frame" style="aspect-ratio: ${dimensions.width} / ${dimensions.height};">${image}</span>`;
+  };
+
+  // Wrap code blocks in `.code-block` from the start so that the post-hydration
+  // shiki swap only replaces the inner <pre> — no margin / structure change.
+  renderer.code = function ({ text, lang }: Tokens.Code) {
+    const options = parseCodeFenceOptions(lang);
+    const resolvedLang = resolveCodeBlockLanguage(options.language, text);
+    const langClass = ` class="language-${escapeHtml(resolvedLang)}"`;
+    const lineCount = codeLineCount(text);
+    const maxLines = options.maxLines ?? DEFAULT_CODE_MAX_LINES;
+    const cap = maxLines > 0 ? maxLines : null;
+    const collapsible = cap != null && lineCount > cap;
+    const hiddenLines = cap == null ? 0 : lineCount - cap;
+    const collapsedAttrs = collapsible
+      ? ` data-collapsed="true" data-code-line-count="${lineCount}" data-code-max-lines="${cap}" style="--code-block-max-lines: ${cap}"`
+      : "";
+    const toggle = collapsible
+      ? `<button type="button" class="code-block-toggle" aria-expanded="false">${codeToggleLabel(hiddenLines)}</button>`
+      : "";
+    const fade = collapsible
+      ? `<div class="code-block-fade" aria-hidden="true"></div>`
+      : "";
+    const filenameAttr = options.filename ? ` data-filename="true"` : "";
+    const filenameBar = options.filename
+      ? `<div class="code-block-filename"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg><span>${escapeHtml(options.filename)}</span></div>`
+      : "";
+
+    return `<div class="code-block group relative"${filenameAttr}${collapsedAttrs}>${filenameBar}<div class="code-block-scroll"><pre><code${langClass}>${escapeHtml(text)}</code></pre>${fade}</div>${toggle}</div>\n`;
+  };
+
+  renderer.heading = function (
+    this: RendererThis,
+    { tokens, depth }: Tokens.Heading,
+  ) {
+    // Render inline tokens to HTML so backticks, links, etc. work in headings.
+    // marked v9+ passes raw markdown source as `text`; we need parseInline.
+    const rendered = this.parser.parseInline(tokens);
+    // Extract custom ID from {#my-id} syntax (lives in the rendered text)
+    const idMatch = rendered.match(/\s*\{#([\w-]+)\}\s*$/);
+    let id: string;
+    let displayHtml: string;
+    if (idMatch) {
+      id = idMatch[1];
+      displayHtml = rendered.replace(/\s*\{#[\w-]+\}\s*$/, "");
+    } else {
+      displayHtml = rendered;
+      const plain = rendered.replace(/<[^>]+>/g, "");
+      id = slugifyHeading(plain);
+    }
+    const tag = `h${depth}`;
+    return `<${tag} id="${id}">${displayHtml}</${tag}>\n`;
+  };
+
+  return renderer;
+}
+
+const renderedMarkdownCache = new Map<string, string>();
+
+export function renderMarkdownToHtml(
+  markdown: string,
+  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+): string {
+  const cacheKey =
+    locale === DEFAULT_DOCS_LOCALE ? markdown : `${locale}\0${markdown}`;
+  const cached = renderedMarkdownCache.get(cacheKey);
+  if (cached !== undefined) {
+    renderedMarkdownCache.delete(cacheKey);
+    renderedMarkdownCache.set(cacheKey, cached);
+    return cached;
+  }
+
+  const renderer = createRenderer(locale);
+  const html = marked(markdown, { renderer, async: false }) as string;
+  if (renderedMarkdownCache.size >= MAX_RENDERED_MARKDOWN_CACHE_ENTRIES) {
+    const oldest = renderedMarkdownCache.keys().next().value;
+    if (oldest !== undefined) renderedMarkdownCache.delete(oldest);
+  }
+  renderedMarkdownCache.set(cacheKey, html);
+  return html;
+}
+
+export function resolveRenderedMarkdownHtml(
+  baseHtml: string,
+  highlightedHtml: HighlightedMarkdownHtml | null,
+) {
+  return highlightedHtml?.sourceHtml === baseHtml
+    ? highlightedHtml.html
+    : baseHtml;
+}
+
+export default function MarkdownRenderer({
+  markdown,
+  locale = DEFAULT_DOCS_LOCALE,
+}: Props) {
+  const articleRef = useRef<HTMLDivElement>(null);
+  const t = useT();
+  const [highlightedHtml, setHighlightedHtml] =
+    useState<HighlightedMarkdownHtml | null>(null);
+
+  // Convert markdown to HTML
+  const baseHtml = useMemo(() => {
+    return renderMarkdownToHtml(markdown, locale);
+  }, [markdown, locale]);
+
+  // Highlight code blocks with Shiki after mount
+  useEffect(() => {
+    let cancelled = false;
+    setHighlightedHtml(null);
+
+    async function highlightCodeBlocks(html: string) {
+      // Match the inner <pre><code class="language-xxx">...</code></pre> emitted
+      // by `renderer.code`. The surrounding `<div class="code-block">` wrapper
+      // stays put — we only swap the <pre> contents so margins don't shift.
+      const codeBlockPattern =
+        /<pre><code class="language-([\w-]+)">([\s\S]*?)<\/code><\/pre>/g;
+      const matches: {
+        full: string;
+        lang: string;
+        code: string;
+        index: number;
+      }[] = [];
+      let match;
+      while ((match = codeBlockPattern.exec(html)) !== null) {
+        matches.push({
+          full: match[0],
+          lang: match[1],
+          code: match[2],
+          index: match.index,
+        });
+      }
+
+      if (matches.length === 0) {
+        if (!cancelled) setHighlightedHtml({ sourceHtml: html, html });
+        return;
+      }
+
+      // Highlight all code blocks in parallel
+      const highlighted = await Promise.all(
+        matches.map(async (m) => {
+          const decoded = m.code
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&amp;/g, "&")
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'");
+          try {
+            const result = await codeToHtml(decoded, {
+              lang: m.lang,
+              themes: {
+                light: "github-light-default",
+                dark: "github-dark-default",
+              },
+              // Emit BOTH --shiki-light and --shiki-dark CSS vars (no baked-in
+              // default theme) so per-theme color rules work in both modes.
+              defaultColor: false,
+            });
+            return { ...m, html: result };
+          } catch {
+            // Fallback: keep original
+            return { ...m, html: m.full };
+          }
+        }),
+      );
+
+      // Replace inner <pre> only — the `.code-block` wrapper from the renderer
+      // already lives in the markup, so we don't add another one.
+      let result = html;
+      for (let i = highlighted.length - 1; i >= 0; i--) {
+        const h = highlighted[i];
+        result =
+          result.slice(0, h.index) +
+          h.html +
+          result.slice(h.index + h.full.length);
+      }
+
+      if (!cancelled) setHighlightedHtml({ sourceHtml: html, html: result });
+    }
+
+    void highlightCodeBlocks(baseHtml);
+    return () => {
+      cancelled = true;
+    };
+  }, [baseHtml]);
+
+  // Add anchor links to headings after render
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!el) return;
+
+    const headings = el.querySelectorAll("h2[id], h3[id], h4[id]");
+    for (const heading of headings) {
+      if (heading.querySelector(".heading-anchor")) continue;
+      const anchor = document.createElement("a");
+      anchor.href = `#${(heading as HTMLElement).id}`;
+      anchor.className = "heading-anchor";
+      while (heading.firstChild) {
+        anchor.appendChild(heading.firstChild);
+      }
+      const hash = document.createElement("span");
+      hash.className = "heading-anchor-hash";
+      hash.textContent = "#";
+      anchor.appendChild(hash);
+      heading.appendChild(anchor);
+    }
+  }, [highlightedHtml]);
+
+  // Add copy buttons to code blocks after render
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!el) return;
+
+    function handleCodeBlockClick(e: MouseEvent) {
+      const toggle = (e.target as Element).closest<HTMLButtonElement>(
+        "button.code-block-toggle",
+      );
+      if (toggle) {
+        const wrapper = toggle.closest<HTMLElement>(".code-block");
+        if (!wrapper) return;
+        const collapsed = wrapper.dataset.collapsed === "true";
+        const lineCount = Number(wrapper.dataset.codeLineCount ?? 0);
+        const maxLines = Number(wrapper.dataset.codeMaxLines ?? 0);
+        const hiddenLines = Math.max(0, lineCount - maxLines);
+
+        wrapper.dataset.collapsed = collapsed ? "false" : "true";
+        toggle.setAttribute("aria-expanded", collapsed ? "true" : "false");
+        toggle.textContent = collapsed
+          ? "Show less"
+          : codeToggleLabel(hiddenLines);
+        return;
+      }
+
+      const btn = (e.target as Element).closest<HTMLButtonElement>(
+        "button.code-copy-btn",
+      );
+      if (!btn) return;
+      const wrapper = btn.closest<HTMLElement>(".code-block");
+      if (!wrapper) return;
+      const codeEl = wrapper.querySelector("code");
+      const text = codeEl?.textContent ?? "";
+      navigator.clipboard.writeText(text).catch(() => undefined);
+
+      const checkSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+      const copySvg = btn.dataset.copySvg ?? "";
+      btn.innerHTML = checkSvg;
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.innerHTML = copySvg;
+        btn.disabled = false;
+      }, 2000);
+    }
+
+    el.addEventListener("click", handleCodeBlockClick);
+
+    const copySvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+
+    const blocks = el.querySelectorAll<HTMLElement>(".code-block");
+    for (const block of blocks) {
+      if (block.querySelector(".code-copy-btn")) continue;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "code-copy-btn";
+      btn.setAttribute("aria-label", t("common.copyCode"));
+      btn.dataset.copySvg = copySvg;
+      btn.innerHTML = copySvg;
+      block.appendChild(btn);
+    }
+
+    return () => {
+      el.removeEventListener("click", handleCodeBlockClick);
+    };
+  }, [highlightedHtml, t]);
+
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!el) return;
+
+    const images = Array.from(
+      el.querySelectorAll<HTMLImageElement>("img.docs-image"),
+    );
+    const cleanups: (() => void)[] = [];
+
+    for (const image of images) {
+      const markLoaded = () => {
+        image.classList.add("is-loaded");
+      };
+
+      if (image.complete && image.naturalWidth > 0) {
+        markLoaded();
+        continue;
+      }
+
+      image.addEventListener("load", markLoaded);
+      image.addEventListener("error", markLoaded);
+      cleanups.push(() => {
+        image.removeEventListener("load", markLoaded);
+        image.removeEventListener("error", markLoaded);
+      });
+    }
+
+    return () => {
+      for (const cleanup of cleanups) cleanup();
+    };
+  }, [baseHtml, highlightedHtml]);
+
+  return (
+    <div
+      ref={articleRef}
+      className="docs-content"
+      dangerouslySetInnerHTML={{
+        __html: resolveRenderedMarkdownHtml(baseHtml, highlightedHtml),
+      }}
+    />
+  );
+}

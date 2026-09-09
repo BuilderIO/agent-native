@@ -1,0 +1,720 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockReadUserUploadedFile = vi.hoisted(() => vi.fn());
+const mockPdfText = vi.hoisted(() => vi.fn());
+const mockPdfScreenshot = vi.hoisted(() => vi.fn());
+const mockPdfGetImage = vi.hoisted(() => vi.fn());
+const mockPdfLoad = vi.hoisted(() => vi.fn());
+const mockParsePdfFidelity = vi.hoisted(() => vi.fn());
+const mockUploadPptxSlideImages = vi.hoisted(() => vi.fn());
+const mockParsePptx = vi.hoisted(() => vi.fn());
+const mockConvertToSlideHtml = vi.hoisted(() => vi.fn());
+const mockConvertSectionsToSlides = vi.hoisted(() => vi.fn());
+const mockUploadFile = vi.hoisted(() => vi.fn());
+const mockStartBuilderDesignSystemIndex = vi.hoisted(() => vi.fn());
+const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
+const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
+const mockUpsertBuilderProxyDesignSystem = vi.hoisted(() => vi.fn());
+const mockPdfParseOptions = vi.hoisted(() => vi.fn());
+const mockPdfSetWorker = vi.hoisted(() => vi.fn());
+const mockPdfDestroy = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockGetPdfWorkerData = vi.hoisted(() =>
+  vi.fn(() => "data:text/javascript;base64,d29ya2Vy"),
+);
+const mockCanvasFactory = vi.hoisted(() => ({
+  create: vi.fn(),
+  reset: vi.fn(),
+  destroy: vi.fn(),
+}));
+const mockGetDb = vi.hoisted(() => vi.fn());
+const mockEq = vi.hoisted(() => vi.fn(() => "where"));
+
+vi.mock("pdf-parse/worker", () => ({
+  CanvasFactory: mockCanvasFactory,
+  getData: mockGetPdfWorkerData,
+}));
+
+vi.mock("pdf-parse", () => ({
+  PDFParse: class {
+    static setWorker(worker: string) {
+      mockPdfSetWorker(worker);
+    }
+
+    constructor(options: unknown) {
+      mockPdfParseOptions(options);
+    }
+
+    async getText() {
+      return mockPdfText();
+    }
+
+    async getScreenshot(...args: unknown[]) {
+      return mockPdfScreenshot(...args);
+    }
+
+    async getImage(...args: unknown[]) {
+      return mockPdfGetImage(...args);
+    }
+
+    async load() {
+      return mockPdfLoad();
+    }
+
+    async destroy() {
+      return mockPdfDestroy();
+    }
+  },
+}));
+
+vi.mock("../server/handlers/import/pdf-fidelity-parser.js", () => ({
+  parsePdfFidelity: (...args: unknown[]) => mockParsePdfFidelity(...args),
+}));
+
+vi.mock("../server/handlers/import/pptx-assets.js", () => ({
+  uploadPptxSlideImages: (...args: unknown[]) =>
+    mockUploadPptxSlideImages(...args),
+  assertPptxImagesRenderable: () => {},
+}));
+
+vi.mock("../server/handlers/import/pptx-parser.js", () => ({
+  parsePptx: (...args: unknown[]) => mockParsePptx(...args),
+}));
+
+vi.mock("../server/handlers/import/html-converter.js", () => ({
+  convertToSlideHtml: (...args: unknown[]) => mockConvertToSlideHtml(...args),
+  convertSectionsToSlides: (...args: unknown[]) =>
+    mockConvertSectionsToSlides(...args),
+}));
+
+vi.mock("./_uploaded-files.js", () => ({
+  readUserUploadedFile: (...args: unknown[]) =>
+    mockReadUserUploadedFile(...args),
+}));
+
+vi.mock("../server/db/index.js", () => ({
+  getDb: (...args: unknown[]) => mockGetDb(...args),
+  schema: { decks: {} },
+}));
+
+vi.mock("drizzle-orm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("drizzle-orm")>();
+  return {
+    ...actual,
+    eq: (...args: unknown[]) => mockEq(...args),
+  };
+});
+
+vi.mock("../server/handlers/decks.js", () => ({
+  notifyClients: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  writeAppState: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/file-upload", () => ({
+  uploadFile: (...args: unknown[]) => mockUploadFile(...args),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  startBuilderDesignSystemIndex: (...args: unknown[]) =>
+    mockStartBuilderDesignSystemIndex(...args),
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: (...args: unknown[]) => mockGetRequestUserEmail(...args),
+  getRequestOrgId: (...args: unknown[]) => mockGetRequestOrgId(...args),
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: vi.fn(),
+}));
+
+vi.mock("../server/lib/builder-design-system-proxy.js", () => ({
+  upsertBuilderProxyDesignSystem: (...args: unknown[]) =>
+    mockUpsertBuilderProxyDesignSystem(...args),
+}));
+
+vi.mock("./patch-deck.js", () => ({
+  withDeckLock: (_deckId: string, fn: () => unknown) => fn(),
+}));
+
+import action from "./import-file";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockPdfParseOptions.mockReset();
+  mockPdfSetWorker.mockReset();
+  mockPdfDestroy.mockClear();
+  mockPdfScreenshot.mockReset();
+  mockPdfGetImage.mockReset();
+  mockPdfLoad.mockReset();
+  mockParsePdfFidelity.mockReset();
+  mockUploadPptxSlideImages.mockReset();
+  mockConvertToSlideHtml.mockReset();
+  mockConvertSectionsToSlides.mockReset();
+  mockGetPdfWorkerData.mockClear();
+  mockGetDb.mockReset();
+  mockUploadFile.mockReset();
+  mockPdfGetImage.mockResolvedValue({ pages: [] });
+  mockPdfLoad.mockResolvedValue({});
+  mockUploadPptxSlideImages.mockResolvedValue({
+    urls: { img1: "https://files.example/source-page.png" },
+    imageSkippedCount: 0,
+  });
+  mockConvertToSlideHtml.mockReturnValue(
+    '<div class="fmd-slide" data-fidelity="1"></div>',
+  );
+  mockConvertSectionsToSlides.mockImplementation(
+    (sections: { heading: string; content: string }[]) =>
+      sections.map((s) => `<div class="fmd-slide">${s.heading}</div>`),
+  );
+  mockReadUserUploadedFile.mockImplementation(async (filePath: string) => ({
+    data: Buffer.from("%PDF-1.7\n"),
+    filename: filePath,
+  }));
+  mockStartBuilderDesignSystemIndex.mockResolvedValue({
+    ok: true,
+    source: "builder",
+    projectId: "project-1",
+    jobId: "job-1",
+    designSystemId: "ds-1",
+    suggestedTitle: "brand",
+    builderUrl: "https://builder.io/app/design-system-intelligence/ds-1",
+    status: "in-progress",
+  });
+  mockGetRequestUserEmail.mockReturnValue("owner@example.com");
+  mockGetRequestOrgId.mockReturnValue("org-1");
+  mockUpsertBuilderProxyDesignSystem.mockResolvedValue({
+    localDesignSystemId: "builder-ds-1",
+    instructions: "Builder design-system indexing has started.",
+  });
+  mockUploadFile.mockResolvedValue({
+    url: "https://files.example/source-page.png",
+  });
+});
+
+describe("import-file PDF source extraction", () => {
+  it("reopens a private raster reference as a vision tool result", async () => {
+    const image = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: image,
+      filename: "reference.png",
+    });
+
+    const result = (await action.run({
+      filePath: "private-reference.png",
+      format: "image",
+    })) as any;
+
+    expect(result).toMatchObject({
+      format: "image",
+      filename: "reference.png",
+      contentType: "image/png",
+      byteLength: image.length,
+      deckId: undefined,
+      _agentImages: [
+        {
+          data: image.toString("base64"),
+          mediaType: "image/png",
+          label: "reference.png",
+        },
+      ],
+    });
+  });
+
+  it("fails clearly when a private raster exceeds the vision tool limit", async () => {
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: Buffer.alloc(1_500_001),
+      filename: "large-reference.png",
+    });
+
+    await expect(
+      action.run({
+        filePath: "large-reference.png",
+        format: "image",
+      }),
+    ).rejects.toThrow("vision tool limit");
+  });
+
+  it("returns full page text, not only previews", async () => {
+    const fullText = "A".repeat(650);
+    mockPdfText.mockResolvedValue({
+      pages: [{ num: 3, text: fullText }],
+    });
+
+    const result = (await action.run({
+      filePath: "deck.pdf",
+      format: "pdf",
+    })) as any;
+
+    expect(result).toMatchObject({
+      format: "pdf",
+      pageCount: 1,
+      textPageCount: 1,
+    });
+    expect(result.pages[0].pageNum).toBe(3);
+    expect(result.pages[0].text).toBe(fullText);
+    expect(result.pages[0].textPreview).toBe(fullText.slice(0, 500));
+    expect(result.truncated).toBe(false);
+    expect(mockPdfParseOptions).toHaveBeenCalledWith({
+      data: expect.any(Uint8Array),
+      CanvasFactory: mockCanvasFactory,
+    });
+    expect(mockGetPdfWorkerData).toHaveBeenCalledOnce();
+    expect(mockPdfSetWorker).toHaveBeenCalledWith(
+      "data:text/javascript;base64,d29ya2Vy",
+    );
+    expect(mockPdfDestroy).toHaveBeenCalledOnce();
+  });
+
+  it("caps large PDF extraction output by default", async () => {
+    const firstPage = "A".repeat(40_000);
+    const secondPage = "B".repeat(40_000);
+    mockPdfText.mockResolvedValue({
+      pages: [
+        { num: 1, text: firstPage },
+        { num: 2, text: secondPage },
+      ],
+    });
+
+    const result = (await action.run({
+      filePath: "large-deck.pdf",
+      format: "pdf",
+    })) as any;
+
+    expect(result.totalTextLength).toBe(80_000);
+    expect(result.truncated).toBe(true);
+    expect(result.note).toContain("first 60000 extracted characters");
+    expect(result.pages).toHaveLength(2);
+    expect(result.pages[0].text).toHaveLength(40_000);
+    expect(result.pages[0].truncated).toBe(false);
+    expect(result.pages[1].text).toHaveLength(20_000);
+    expect(result.pages[1].truncated).toBe(true);
+  });
+
+  it("fails clearly when no PDF text can be extracted", async () => {
+    mockPdfText.mockResolvedValue({
+      pages: [{ num: 1, text: "   " }],
+    });
+
+    await expect(
+      action.run({
+        filePath: "scanned.pdf",
+        format: "pdf",
+      }),
+    ).rejects.toThrow("No importable text found in this PDF");
+  });
+
+  it("fails clearly instead of importing a scanned PDF as blank placeholder slides", async () => {
+    mockPdfText.mockResolvedValue({ pages: [{ num: 1, text: "" }] });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        widthEmu: 9144000,
+        heightEmu: 5143500,
+        backgroundColor: undefined,
+        elements: [],
+      },
+    ]);
+
+    await expect(
+      action.run({
+        filePath: "scanned-no-canvas.pdf",
+        format: "pdf",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toThrow("No importable text or images found in this PDF");
+  });
+
+  it("imports PDF pages using positioned text/image fidelity parsing instead of flattening their layout", async () => {
+    mockPdfText.mockResolvedValue({
+      pages: [{ num: 1, text: "Source title\nSource body" }],
+    });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        widthEmu: 9144000,
+        heightEmu: 5143500,
+        backgroundColor: "#000000",
+        elements: [{ kind: "text", content: "Source title" }],
+      },
+    ]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Imported deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                data: JSON.stringify({ slides: [] }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: Buffer.from("%PDF-1.7\n"),
+      filename: "Untitled scene.pdf",
+    });
+
+    const result = (await action.run({
+      filePath: "source.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(mockParsePdfFidelity).toHaveBeenCalledWith({}, []);
+    expect(mockUploadPptxSlideImages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slide: expect.objectContaining({
+          elements: [{ kind: "text", content: "Source title" }],
+        }),
+      }),
+    );
+    expect(mockConvertToSlideHtml).toHaveBeenCalledWith(
+      expect.objectContaining({
+        elements: [{ kind: "text", content: "Source title" }],
+        backgroundColor: "#000000",
+      }),
+      { img1: "https://files.example/source-page.png" },
+    );
+    expect(result).toMatchObject({
+      imported: true,
+      slideCount: 1,
+      aspectRatio: "16:9",
+      title: "Source title",
+    });
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.title).toBe("Source title");
+    const importedSlide = updatedDeck.slides[0];
+    expect(importedSlide.content).toBe(
+      '<div class="fmd-slide" data-fidelity="1"></div>',
+    );
+    expect(importedSlide.notes).toBe("Source title\nSource body");
+    expect(updatedDeck.sourceImport).toMatchObject({
+      mode: "source-preserving",
+      format: "pdf",
+      fidelity: "source-faithful",
+      slideCount: 1,
+      slideIds: [importedSlide.id],
+    });
+    expect(updatedDeck.sourceImport.slides[0].imageUrls).toEqual([
+      "https://files.example/source-page.png",
+    ]);
+    expect(updatedDeck.sourceImport.slides[0].editableText).toBe(true);
+  });
+
+  it("keeps scanned or image-only PDF pages instead of dropping them", async () => {
+    mockPdfText.mockResolvedValue({ pages: [{ num: 1, text: "" }] });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        widthEmu: 6096000,
+        heightEmu: 8128000,
+        backgroundColor: undefined,
+        elements: [{ kind: "image" }],
+      },
+    ]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Scanned deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                data: JSON.stringify({ slides: [] }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+
+    const result = (await action.run({
+      filePath: "scanned.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(result).toMatchObject({
+      imported: true,
+      slideCount: 1,
+      aspectRatio: "4:5",
+    });
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.slides).toHaveLength(1);
+    expect(updatedDeck.slides[0].notes).toBe("");
+    expect(updatedDeck.sourceImport.fidelity).toBe("source-faithful");
+  });
+
+  it("resolves a classic 4:3 PowerPoint page size to 4:3, not 1:1", async () => {
+    mockPdfText.mockResolvedValue({ pages: [{ num: 1, text: "" }] });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        // 10in x 7.5in in EMU (914400 EMU/in) — the standard 4:3 PPTX page.
+        widthEmu: 9144000,
+        heightEmu: 6858000,
+        backgroundColor: undefined,
+        elements: [{ kind: "image" }],
+      },
+    ]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "4:3 deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                data: JSON.stringify({ slides: [] }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+
+    const result = (await action.run({
+      filePath: "classic.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(result).toMatchObject({
+      imported: true,
+      slideCount: 1,
+      aspectRatio: "4:3",
+    });
+  });
+
+  it("retains source provenance when appending to a nonempty deck", async () => {
+    mockPdfText.mockResolvedValue({
+      pages: [{ num: 1, text: "Appended source page" }],
+    });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        widthEmu: 9144000,
+        heightEmu: 5143500,
+        backgroundColor: "#ffffff",
+        elements: [{ kind: "text", content: "Appended source page" }],
+      },
+    ]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Existing deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                data: JSON.stringify({
+                  slides: [{ id: "existing", content: "Existing" }],
+                }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+
+    await action.run({
+      filePath: "append.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    });
+
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.slides).toHaveLength(2);
+    expect(updatedDeck.sourceImport).toMatchObject({
+      format: "pdf",
+      slideCount: 1,
+      slideIds: [updatedDeck.slides[1].id],
+    });
+  });
+
+  /**
+   * The deck's own theme palette/fonts are what `export-pptx` writes back
+   * into a generated PPTX's `ppt/theme/theme1.xml`. `parsePptx` returns it,
+   * but nothing used to persist it onto `decks.data`, so every imported deck
+   * exported with the stock Office palette instead of its own.
+   */
+  function pptxDeckHarness(existingSlides: unknown[], existingData = {}) {
+    mockParsePptx.mockResolvedValue({
+      title: "Themed deck",
+      slides: [
+        {
+          texts: [{ content: "Slide one" }],
+          images: [],
+          elements: [],
+          widthEmu: 12192000,
+          heightEmu: 6858000,
+        },
+      ],
+      theme: {
+        colors: ["#FFAB40"],
+        colorsByName: { accent1: "#FFAB40", accent5: "#0097A7" },
+        fonts: ["Arial"],
+      },
+    });
+    mockUploadPptxSlideImages.mockResolvedValue({
+      urls: {},
+      imageSkippedCount: 0,
+    });
+    mockConvertToSlideHtml.mockReturnValue("<div>Slide one</div>");
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Themed deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                data: JSON.stringify({
+                  slides: existingSlides,
+                  ...existingData,
+                }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+    return db;
+  }
+
+  it("persists the source deck's theme palette so exports keep it", async () => {
+    const db = pptxDeckHarness([]);
+
+    await action.run({
+      filePath: "themed.pptx",
+      format: "pptx",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    });
+
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.theme).toMatchObject({
+      colorsByName: { accent1: "#FFAB40", accent5: "#0097A7" },
+      fonts: ["Arial"],
+    });
+  });
+
+  it("does not restyle an existing deck's theme when appending slides onto it", async () => {
+    const db = pptxDeckHarness([{ id: "existing", content: "Existing" }], {
+      theme: {
+        colors: [],
+        colorsByName: { accent1: "#123456" },
+        fonts: ["Georgia"],
+      },
+    });
+
+    await action.run({
+      filePath: "themed.pptx",
+      format: "pptx",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    });
+
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.theme).toMatchObject({
+      colorsByName: { accent1: "#123456" },
+      fonts: ["Georgia"],
+    });
+  });
+
+  it("starts Builder indexing for .fig files", async () => {
+    const figBuffer = Buffer.from([
+      0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69, 0, 0, 0, 0,
+    ]);
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: figBuffer,
+      filename: "brand.fig",
+    });
+
+    const result = (await action.run({
+      filePath: "brand.fig",
+      format: "auto",
+    })) as any;
+
+    expect(mockStartBuilderDesignSystemIndex).toHaveBeenCalledWith({
+      projectName: "brand",
+      files: [
+        {
+          name: "brand.fig",
+          data: figBuffer,
+          mimeType: "application/octet-stream",
+        },
+      ],
+    });
+    expect(result).toMatchObject({
+      format: "fig",
+      title: "brand",
+      source: "builder",
+      projectId: "project-1",
+      jobId: "job-1",
+      designSystemId: "ds-1",
+      localDesignSystemId: "builder-ds-1",
+      builderUrl: "https://builder.io/app/design-system-intelligence/ds-1",
+      status: "in-progress",
+    });
+    expect(result.instructions).toContain(
+      "Builder design-system indexing has started",
+    );
+    expect(mockUpsertBuilderProxyDesignSystem).toHaveBeenCalledWith({
+      result: expect.objectContaining({
+        designSystemId: "ds-1",
+        jobId: "job-1",
+      }),
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      projectName: "brand",
+      sourceKind: "figma",
+    });
+  });
+});

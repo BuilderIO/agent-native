@@ -1,0 +1,116 @@
+---
+title: "앱 간 SSO"
+description: "Desktop 워크스페이스 SSO와 서버 측 조직 페더레이션의 남은 계약을 설명합니다. 브라우저의 Agent-Native 로그인은 제거되었습니다."
+---
+
+# 앱 간 SSO
+
+브라우저용 "Sign in with Agent-Native" 옵션과 자동 브라우저 전환은 제거되었습니다.
+웹 사용자의 기본 동작은 계속 앱별 일반 로그인입니다. 이 페이지는 남아 있는
+Desktop 및 서버 측 페더레이션 계약만 설명합니다.
+
+## 남아 있는 기능
+
+### Desktop 워크스페이스
+
+워크스페이스 로그인은 Desktop 설정에서 명시적으로 실행합니다. 활성화하면
+Desktop은 전용 broker를 통해 조건을 충족하는 등록 앱을 프로비저닝할 수 있습니다.
+각 대상 앱은 자체 사용자 저장소, 세션, 접근 검사를 계속 소유합니다. Desktop은
+브라우저가 앱 로그인 페이지로 이동하는 익명 탐색을 가로채지 않습니다.
+
+앱이 대상이 되려면 다음 조건을 모두 충족해야 합니다.
+
+- Desktop이 해당 앱의 워크스페이스 SSO를 활성화합니다.
+- 프로덕션 URL이 정확한 HTTPS입니다.
+- Dispatch에 해당 앱의 정확한 서버 등록이 있습니다.
+- <code>desktop.workspace-sso</code> 롤아웃 플래그가 활성화되어 있습니다.
+
+기기별 <code>desktopSsoEnabled</code> 기본 설정은 활성화되어 있습니다. 명시적인
+false는 계속 옵트아웃입니다. 플래그, 기본 설정, 등록 또는 자격 검사를 사용할 수
+없으면 일반 앱별 로그인을 계속 사용할 수 있습니다.
+
+### 서버 측 페더레이션
+
+남은 broker와 서버 측 호출자는 짧은 시간 동안만 유효하고 서버가 검증하는
+프로토콜을 사용합니다. 브라우저 로그인 컨트롤로 노출되지 않습니다.
+
+1. 호출자가 등록된 앱에 대한 정확한 바인딩을 요청합니다.
+2. Dispatch가 워크스페이스 ID를 인증하고 짧은 일회용 권한 코드를 반환합니다.
+3. 대상 앱 서버가 PKCE 검증자로 코드를 교환합니다.
+4. 대상 앱이 서명된 assertion, 정확한 앱 바인딩, callback, scope, nonce, 만료를
+   검증합니다.
+5. 대상 앱이 검증된 이메일로 로컬 사용자를 연결하거나 생성하고 정상 로컬 세션을
+   발급합니다.
+
+assertion은 서버 간 교환으로만 반환됩니다. 브라우저 URL에 나타나지 않으며
+재사용 가능한 bearer token도 아닙니다.
+
+## 조직 페더레이션
+
+<code>organization.cross-app-federation</code> 플래그는 기본적으로 꺼져
+있습니다. 활성화하면 소스 앱이 Dispatch에 로컬 조직을 등록하고 정확한
+<code>(identity_authority, identity_id)</code> 매핑을 저장합니다. 대상 앱은
+서버가 검증한 assertion에서 나온 표준 조직 ID, 이름, 검증된 멤버 역할만
+허용합니다.
+
+조직 이름, 이메일 도메인, 브라우저 쿠키는 조인 키가 아닙니다. 매핑이 없는 로컬
+조직은 명시적인 마이그레이션 전까지 변경되지 않습니다. 연결된 멤버십은 대상 앱의
+일반 접근 검사를 계속 사용합니다.
+
+조직 페더레이션은 등록된 소스 앱마다 별도 자격 증명을 사용합니다.
+
+- 소스 앱에 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code>를 설정합니다.
+- Dispatch에 일치하는
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>
+  를 설정합니다.
+- 이 권한 경계에 <code>A2A_SECRET</code>를 재사용하지 않습니다.
+
+앱 ID 접미사는 영숫자가 아닌 각 연속 문자를 밑줄로 바꾸고 결과를 대문자로
+변환합니다. 예를 들어 앱 ID <code>workspace-reports</code>에는
+
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>를
+사용합니다.
+
+ID와 조직 쓰기는 추가만 수행합니다. 같은 이메일을 가진 기존 사용자는 수정 없이
+재사용됩니다. 새로운 검증 이메일은 로컬 사용자를 생성합니다. 페더레이션을
+비활성화해도 데이터는 삭제되지 않습니다.
+
+## 설정
+
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code>는 자체 호스팅 앱에 명시적인 Dispatch
+배포가 필요할 때 남은 서버 및 Desktop 경로에서만 사용합니다. 브라우저 로그인
+옵션이나 자동 브라우저 전환을 추가하지 않습니다.
+
+자체 호스팅 Dispatch에서는 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code>을 사용해
+각 사용자 지정 앱의 정확한 앱 ID, 클라이언트 ID, HTTPS origin, callback 경로,
+
+<code>identity-sso</code> 기능을 등록합니다.
+
+프로덕션 등록은 HTTPS와 정확한 callback 경로를 사용해야 합니다. Localhost는 로컬
+개발에만 허용됩니다. 알 수 없는 하위 도메인, 일치하지 않는 앱 ID, 임의 경로,
+교차 출처 callback은 거부됩니다.
+
+## 검증과 롤백
+
+배포 후:
+
+1. 브라우저에서 이메일, 비밀번호, 매직 링크 및 설정된 제공자 로그인이 계속
+   작동하는지 확인합니다.
+2. 브라우저 인증 화면에 Agent-Native 로그인 옵션이 없는지 확인합니다.
+3. Desktop SSO를 활성화했다면 Desktop 설정의 명시적 작업으로 정확히 등록된 앱
+   하나를 확인합니다.
+4. 조직 페더레이션을 활성화했다면 대상 앱에서 정확한 조직 ID와 멤버 역할을
+   확인합니다.
+
+남은 경로를 롤백하려면 관련 기능 플래그를 끄고 자체 호스팅 배포에서
+
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code>를 제거한 뒤 다시 배포합니다. 추가된
+ID 및 조직 기록은 일반 로컬 인증에 계속 사용할 수 있습니다.
+
+## 관련 문서
+
+- [인증](/docs/authentication)
+- [A2A 프로토콜](/docs/a2a-protocol)
+- [Dispatch](/docs/dispatch)
+- [보안 및 데이터 범위](/docs/security)
+- [멀티 앱 워크스페이스](/docs/multi-app-workspace)

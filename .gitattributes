@@ -1,0 +1,5 @@
+# TypeScript sources are text. Declared explicitly because a stray NUL byte in
+# one file makes git call the whole diff binary, and every diff-scoped guard
+# then reports "could not run" instead of checking the branch's added lines.
+*.ts diff
+*.tsx diff

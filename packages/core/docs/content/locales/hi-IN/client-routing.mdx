@@ -1,0 +1,121 @@
+---
+title: "रूटिंग"
+description: "React Router v8 के साथ एजेंट-नेटिव ऐप्स के लिए फ़ाइल-आधारित रूटिंग: पेज, डायनामिक पैरामीटर, और नेविगेशन।"
+---
+
+# रूटिंग
+
+एजेंट-नेटिव ऐप्स `@react-router/fs-routes` से `flatRoutes()` के माध्यम से फ़ाइल-आधारित रूटिंग के साथ **React Router v8** का उपयोग करते हैं। `app/routes/` में हर फ़ाइल एक URL बन जाती है। टेम्पलेट डॉट-नोटेशन कन्वेंशन का उपयोग करते हैं। डॉट्स एक ही फ़ाइलनेम के भीतर URL सेगमेंट को अलग करते हैं।
+
+यह पेज क्लाइंट रूट्स को कवर करता है, वे पेज जो `app/routes/` से ब्राउज़र में रेंडर होते हैं। सर्वर रूट्स एक अलग सिस्टम हैं: `server/routes/` के अंतर्गत Nitro फ़ाइल रूट्स, प्लस फ्रेमवर्क के अपने `/_agent-native/*` एंडपॉइंट। वे [Routes](/docs/server-routes) पेज पर रहते हैं। दोनों कोई डायरेक्टरी, कोई नामकरण कन्वेंशन, या कोई राउटर साझा नहीं करते, इसलिए `server/routes/` की कोई फ़ाइल यहां कभी पेज नहीं बनती और `app/routes/` की कोई फ़ाइल कभी सर्वर एंडपॉइंट नहीं बनती।
+
+<Diagram id="doc-block-client-routing-1" title="फ़ाइल नाम → URL" summary="app/routes/ में हर फ़ाइल एक URL बन जाती है। डॉट्स स्लैश बन जाते हैं, और एक $ सेगमेंट एक डायनामिक पैरामीटर बन जाता है।">
+
+```html
+<div class="diagram-filemap">
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">_index.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard_.$ticketId.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard/:ticketId</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-filemap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-filemap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-filemap-row .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## फ़ाइल-आधारित रूटिंग {#file-based-routing}
+
+### फ़ाइल → URL मैपिंग
+
+| फ़ाइल                      | URL                    | नोट्स                                                                              |
+| -------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
+| `_index.tsx`               | `/`                    | इंडेक्स रूट                                                                        |
+| `dashboard.tsx`            | `/dashboard`           | सरल पेज                                                                            |
+| `extensions.$id.tsx`       | `/extensions/:id`      | `extensions.tsx` के `<Outlet/>` के भीतर नेस्ट होता है। `$` एक डायनामिक पैरामीटर है |
+| `dashboard_.$ticketId.tsx` | `/dashboard/:ticketId` | ट्रेलिंग `_` नेस्टिंग को स्किप करता है, इसलिए यह अपना खुद का पेज है                |
+| `_app.tsx`                 | (कोई URL सेगमेंट नहीं) | पाथलेस लेआउट। `_` के साथ प्रीफ़िक्स करें                                           |
+| `inbox/route.tsx`          | `/inbox`               | फ़ोल्डर फॉर्म। `route.tsx` इंडेक्स है                                              |
+
+डायनामिक पैरामीटर के लिए किसी सेगमेंट को `$` से प्रीफ़िक्स करें। इसे पाथलेस लेआउट रूट (कोई URL सेगमेंट नहीं) बनाने के लिए `_` से प्रीफ़िक्स करें, या नेस्टेड-दिखने वाले पथ को उसके पैरेंट के लेआउट के अंतर्गत नेस्टिंग से बाहर करने के लिए किसी डॉट से पहले ट्रेलिंग `_` जोड़ें। टेम्पलेट `flatRoutes()` का उपयोग करते हैं। ऊपर दिया डॉट-नोटेशन फ़ाइल फॉर्म प्राइमरी है। नेस्टेड-फ़ोल्डर फॉर्म `inbox/route.tsx` भी काम करता है।
+
+## एक नया पेज जोड़ना {#adding-a-page}
+
+फ़ाइल बनाएं और एक डिफ़ॉल्ट घटक एक्सपोर्ट करें:
+
+```tsx filename="app/routes/settings.tsx"
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+बस इतना ही। dev server शुरू होने पर route files पढ़ता है। अगर `pnpm dev` पहले से चल रहा है, तो file जोड़ने के बाद उसे restart करें। Registration की आवश्यकता नहीं है।
+
+## डायनामिक पैरामीटर {#dynamic-params}
+
+```tsx filename="app/routes/dashboard_.$ticketId.tsx"
+import { useParams } from "react-router";
+
+export default function TicketDetailPage() {
+  const { ticketId } = useParams();
+  return <div>Ticket: {ticketId}</div>;
+}
+```
+
+डॉट से पहले ट्रेलिंग `_` इस पेज को `dashboard.tsx` के `<Outlet/>` के भीतर नेस्ट होने से रोकता है, इसलिए यह टिकट क्यू के लेआउट के भीतर दिखने के बजाय `/dashboard/:ticketId` पर अपने खुद के पूरे पेज के रूप में रेंडर होता है।
+
+## नेविगेशन {#navigation}
+
+क्लाइंट-साइड नेविगेशन के लिए `<Link>` और प्रोग्रामेटिक नेविगेशन के लिए `useNavigate()` का उपयोग करें:
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/dashboard">Dashboard</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/dashboard/${ticketId}`);
+```
+
+इनमें से कोई भी अपने आप एजेंट को यह नहीं बताता कि उपयोगकर्ता क्या देख रहा है। वह एक अलग चिंता है, जिसे `useAgentRouteState()` द्वारा वर्तमान रूट को एप्लिकेशन स्टेट में लिखकर संभाला जाता है। देखें [Context Awareness](/docs/context-awareness)।
+
+## आगे क्या
+
+- [**अवलोकन**](/docs/client-overview) - `app/routes/` `app/` और `public/` के बाकी हिस्सों में कहां फिट होता है
+- [**डेटा और सिंक**](/docs/client-data) - किसी रूट के भीतर से डेटा पढ़ना और लिखना
+- [**एजेंट चैट**](/docs/client-agent-chat) - किसी रूट से प्रॉम्प्ट भेजना और कॉन्टेक्स्ट स्टेज करना
+- [**Routes**](/docs/server-routes) - अलग सर्वर-रूटिंग सिस्टम: `server/routes/` के अंतर्गत फ़ाइल रूट्स और फ्रेमवर्क का `/_agent-native/` नेमस्पेस
+- [**Context Awareness**](/docs/context-awareness) - एजेंट वर्तमान रूट और सिलेक्शन को कैसे जानता है

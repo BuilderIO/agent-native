@@ -1,0 +1,47 @@
+---
+title: "Netlify"
+description: "Netlify Nitro preset के साथ एक agent-native ऐप को Netlify पर तैनात करें, और scale-to-zero डेटाबेस के लिए keep-warm configure करें।"
+---
+
+# Netlify
+
+Nitro का `netlify` preset अच्छी तरह काम करता है और, व्यवहार में, external Postgres (Neon) से बात करने वाले templates के लिए इसने हमें Cloudflare Pages (~200ms TTFB बनाम ~9s) से कहीं तेज़ cold starts दिए हैं। या तो preset को `vite.config.ts` में सेट करें:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+…या build time पर `NITRO_PRESET=netlify` सेट करें।
+
+एक कार्यस्थान के लिए, यह चलाकर एक ही Netlify site से हर ऐप तैनात करें:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+कार्यस्थान build `dist/_workspace_static/` के तहत static assets लिखता है और हर ऐप को बिना forced asset redirects के उसके अपने Netlify function पर route करता है, इसलिए `/mail/assets/...` जैसी फ़ाइलें server function के ऐप routes handle करने से पहले statically serve हो जाती हैं।
+
+## Keep-warm और scale-to-zero डेटाबेस {#netlify-keep-warm}
+
+Enable होने पर, Netlify build एक scheduled function emit करता है जो **हर मिनट** `/_agent-native/health` पर request भेजता है। इससे server function और उसका डेटाबेस गर्म रहते हैं ताकि idle period के बाद अगले visitor को cold start (Neon पर 1–5s) न चुकानी पड़े।
+
+Keep-warm **डिफ़ॉल्ट रूप से disabled** है क्योंकि हर मिनट जगाना metered scale-to-zero डेटाबेस पर autosuspend को रोक देता है। एक free-tier Neon पर यह compute quota खत्म कर सकता है, और फिर डेटाबेस session के बीच में **सभी** reads reject कर देता है। लक्षण एक dead ऐप है, धीमा नहीं। जब कम next-visitor latency डेटाबेस के जागे रहने के समय के लायक हो, तब `AGENT_NATIVE_ENABLE_KEEP_WARM=1` सेट करें।
+
+Keep-warm schedule और background-function warm मुख्य keep-warm flag enable होने के बाद ही लागू होते हैं:
+
+| Variable                                    | प्रभाव                                                                                                                                                                                                |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Scheduled server/database warm में opt in करता है। डिफ़ॉल्ट रूप से unset है।                                                                                                                          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | एक compatibility kill switch जो सेट होने पर opt-in flag पर भारी पड़ता है।                                                                                                                             |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Cadence को एक 5-field cron expression से override करता है, जैसे `*/5 * * * *`। Enable होने पर डिफ़ॉल्ट cadence `* * * * *` है। एक unparseable value **build को fail कर देता है**।                     |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | सिर्फ़ background-function warm हटाता है, server को गर्म रखते हुए। `server` को गर्म रखना एक request है। `-background` को गर्म रखना एक ताज़ा container शुरू करता है जो schema को फिर से probe करता है। |
+
+अगर आप free या किसी और तरह quota-limited डेटाबेस tier पर हैं, तो `AGENT_NATIVE_ENABLE_KEEP_WARM` unset छोड़ दें। अगर आप opt in करते हैं, तो धीमी cadence उपयोग करें या ज़्यादा महंगे background warm को हटाने के लिए `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` सेट करें।
+
+## आगे क्या है
+
+- [**तैनाती**](/docs/deployment) — पहले production deploy से पहले एक स्थायी डेटाबेस और एक preset चुनें
+- [**SSR कैशिंग**](/docs/ssr-caching) — डिफ़ॉल्ट cache policy और Netlify का अलग `netlify-cdn-cache-control` व्यवहार
+- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Vercel**](/docs/vercel), [**Cloudflare**](/docs/cloudflare), और [**अन्य प्लेटफ़ॉर्म**](/docs/other-platforms) — बाकी Nitro presets

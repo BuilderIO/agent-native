@@ -1,0 +1,180 @@
+---
+title: "Run Context"
+description: "The ctx second argument passed to run(): the full ActionRunContext signature and the caller union, for tracking, automation attribution, and cross-cutting concerns."
+---
+
+# Run Context
+
+`run` receives an optional second argument, `ctx`, carrying the resolved request identity and the surface that invoked the action. Read it instead of calling `getRequestUserEmail()` / `getRequestOrgId()` by hand, and pass the whole `ctx` to tracking:
+
+```ts
+export default defineAction({
+  description: "Log an audit entry for the current request.",
+  schema: z.object({ event: z.string() }),
+  run: async (args, ctx) => {
+    // ctx is undefined-safe: a 1-arg `run(args)` is still valid.
+    const actor = ctx?.userEmail ?? "system";
+    if (ctx?.caller === "frontend") {
+      // tighter rules for browser-initiated calls, looser for "tool"/"cli"
+    }
+    await db.insert(audit).values({
+      actor,
+      orgId: ctx?.orgId ?? null,
+      source: ctx?.caller ?? "unknown",
+      event: args.event,
+    });
+    return { ok: true };
+  },
+});
+```
+
+Most actions only ever read `ctx?.userEmail` and `ctx?.orgId`, the [access-control scoping](/docs/actions-access-control#access-control) used in nearly every real action. The rest of this page covers cross-cutting concerns like tracking and automation attribution, which fewer actions need.
+
+## The `ctx` argument {#ctx}
+
+`ctx` carries two kinds of information: the resolved request identity (`userEmail`, `orgId`) that's present on nearly every call, and metadata about the surface that invoked the action (`caller`, plus surface-specific fields like `threadId` or `automation` that are only populated for certain callers). The full shape, as the second argument to `run()`:
+
+<Signature
+  id="doc-block-actions-run-context-1"
+  name="run"
+  params={[
+    {
+      name: "args",
+      type: "TInput",
+      description: "The validated input, parsed from `schema`.",
+    },
+    {
+      name: "ctx",
+      type: "ActionRunContext",
+      optional: true,
+      description:
+        "The resolved request identity and the surface that invoked the action. Undefined-safe: a 1-argument `run(args)` handler is still valid.",
+      fields: [
+        {
+          name: "userEmail",
+          type: "string",
+          optional: true,
+          description:
+            "Resolved request user. **Never defaulted to a dev identity**: `undefined` when the request has no authenticated user. Apply your own fallback if you need one.",
+        },
+        {
+          name: "orgId",
+          type: "string | null",
+          description:
+            "Resolved org id, or `null` when the request has no org.",
+        },
+        {
+          name: "caller",
+          type: "ActionCaller",
+          description:
+            "How the action was invoked. See [the caller union](#caller) below.",
+        },
+        {
+          name: "send",
+          type: "(event) => void",
+          optional: true,
+          description:
+            'Emits an SSE event to the client. Only present inside the agent tool loop (`caller: "tool"`). `undefined` elsewhere.',
+        },
+        {
+          name: "attachments",
+          type: "AgentChatAttachment[]",
+          optional: true,
+          description:
+            'Files, images, and pasted text blocks submitted with the current agent turn. Populated only when `caller: "tool"`. `undefined` on all other surfaces.',
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description:
+            'Aborts when the run is soft-timed-out, cancelled, or the server shuts down. Populated only when `caller: "tool"`. Long-running actions can observe it to cancel early instead of waiting for the per-tool 60s hard timeout.',
+        },
+        {
+          name: "actionName",
+          type: "string",
+          optional: true,
+          description:
+            "The registry key of the action being called (e.g. `delete-recording`), set at each dispatch site so cross-cutting concerns like the audit log can attribute the call. `undefined` for direct programmatic `run()` calls that bypass the dispatcher.",
+        },
+        {
+          name: "threadId",
+          type: "string",
+          optional: true,
+          description:
+            'The agent conversation thread that triggered this call. Populated only when `caller: "tool"`, so the audit log can link a mutation back to the exact agent run.',
+        },
+        {
+          name: "runId",
+          type: "string",
+          optional: true,
+          description:
+            'The agent run attempt that triggered this call. Populated only when `caller: "tool"`.',
+        },
+        {
+          name: "turnId",
+          type: "string",
+          optional: true,
+          description:
+            'The specific turn within that run that triggered this call. Populated only when `caller: "tool"`.',
+        },
+        {
+          name: "automation",
+          type: "ActionAutomationContext",
+          optional: true,
+          description:
+            'Present only when `caller: "automation"`. Carries `triggerId`, `triggerName`, and an optional `policyId` for the event-triggered automation that dispatched this call.',
+        },
+        {
+          name: "networkProtocol",
+          type: '"a2a" | "mcp" | "provider-api"',
+          optional: true,
+          description:
+            "Which delegated-call protocol this request arrived over. Set only for those direct-dispatch paths.",
+        },
+        {
+          name: "networkId",
+          type: "string",
+          optional: true,
+          description:
+            "A correlation id for that delegated call, e.g. the A2A delegation JWT id.",
+        },
+        {
+          name: "networkPeer",
+          type: "string",
+          optional: true,
+          description: "The calling peer's identity for that delegated call.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TReturn> | TReturn",
+    description:
+      "The action's result, validated against `outputSchema` if one is set.",
+  }}
+/>
+
+`run()` stays backward compatible: existing 1-argument handlers and handlers that only destructure `{ send }` continue to work unchanged.
+
+### The `caller` union {#caller}
+
+`caller` is the union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`:
+
+| `caller`       | Set when…                                                                                                                                                                                                |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | The in-app agent loop, a sub-agent or agent team, or natural-language cross-app A2A delegation, which drives the same agent loop, so its tool calls are `"tool"`.                                        |
+| `"frontend"`   | A browser call via `useActionMutation()`, `useActionQuery()`, or `callAction()` (tagged with the `X-Agent-Native-Frontend: 1` header).                                                                   |
+| `"http"`       | A bare programmatic `POST` or `GET` to `/_agent-native/actions/<name>` without the frontend marker.                                                                                                      |
+| `"cli"`        | `pnpm action <name>` (the CLI runner).                                                                                                                                                                   |
+| `"mcp"`        | An external agent over the MCP `tools/call` endpoint.                                                                                                                                                    |
+| `"a2a"`        | A direct HTTP call to `/_agent-native/actions/<name>` carrying a signed A2A delegation token. This is an explicitly exposed, cross-app dispatch, distinct from the natural-language `"tool"` path above. |
+| `"automation"` | An event-triggered automation dispatched from a stored workspace trigger. `ctx.automation` carries the trigger lineage. See [Automations](/docs/automations).                                            |
+
+## What's next
+
+- [**Access & Authorization**](/docs/actions-access-control) — the `ctx.userEmail`/`ctx.orgId` scoping pattern this context enables
+- [**Defining Actions**](/docs/actions-defining) — `defineAction()` anatomy and HTTP config
+- [**Other Surfaces**](/docs/actions-other-surfaces) — how CLI, A2A, MCP, and automation callers set `caller`
+- [**Audit Log**](/docs/audit-log) — how `threadId`/`runId`/`turnId` link a mutation back to its agent run
+- [**Automations**](/docs/automations) — the `ctx.automation` trigger lineage

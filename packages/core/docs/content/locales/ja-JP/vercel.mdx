@@ -1,0 +1,38 @@
+---
+title: "Vercel"
+description: "Vercel Nitro プリセットを使って、agent-native アプリをスタンドアロンでも、ワークスペースとしても Vercel にデプロイします。"
+---
+
+# Vercel
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Vercel CLI または git push でデプロイします。
+
+```bash
+vercel deploy
+```
+
+ワークスペースの場合、すべてのアプリを 1 つの Vercel Build Output API バンドルにビルドします。
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+Vercel の Git デプロイでは、ビルドコマンドを次のように設定します。
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+このワークスペースビルドは、各アプリの Nitro `vercel` 出力をルートの `.vercel/output` にコピーし、各関数に固有のマウントパス環境を与え、アプリを `/<app-id>` で配信するルート設定を書き出します。
+
+## 次は何ですか
+
+- [**デプロイ**](/docs/deployment) — 初回の本番デプロイの前に、永続的なデータベースとプリセットを選ぶ
+- [**ワークスペースのデプロイ**](/docs/workspace-deployment) — `deploy --preset vercel` ワークスペースビルドの詳細
+- [Node.js](/docs/node-js), [Docker](/docs/docker)、[**Netlify**](/docs/netlify)、[**Cloudflare**](/docs/cloudflare)、[**その他のプラットフォーム**](/docs/other-platforms) — その他の Nitro プリセット

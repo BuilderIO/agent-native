@@ -1,0 +1,194 @@
+---
+title: "カレンダー: Agent との対話"
+description: "カレンダーを使っているときにエージェントが見ているもの、タスク別に整理されたプロンプト、そして既定のアクションではなく生の Google Calendar API に直接手を伸ばすタイミング。"
+---
+
+# Agent との対話
+
+カレンダーのすべての機能は、UI が使うのと同じ actions を通じてエージェントも
+利用できるので、クリックできることは何でも、平易な言葉で頼むこともできます。
+このページでは、エージェントがあなたの画面をどう見ているか、タスク別の便利な
+プロンプト、そして組み込みの actions を超えてエスカレーションする場面について
+説明します。概要は [カレンダー](/docs/template-calendar) を参照してください。
+
+## エージェントがあなたの画面をどう見ているか
+
+エージェントは常に、現在のカレンダー ビュー、あなたが見ている日付範囲、そして
+選択しているイベントを把握しています。そのため、「これを予定変更して」や
+「この通話には誰が参加している?」と言うだけで、イベント名を挙げなくても正しく
+解決されます。エージェントはすでに「これ」が何を指すか分かっています。
+
+## タスク別の便利なプロンプト
+
+以下のプロンプトはすべて、UI が読み書きしているのと同じ、あなたの実際の
+カレンダーに対する本物の action になります。まずは 1 つの実例を見てみましょう。
+
+<Comparison>
+
+### :blue: あなたが尋ねる
+
+「木曜日の午後は空いていますか?」
+
+### :green: 何が起こるか
+
+これは読み取り専用の質問です。エージェントは実際のカレンダーと空き状況ルールを
+確認し、チャット内で直接返答します。例えば「午後 1 時から 4 時まで空いています」
+のようにです。何も作成・移動されないため、画面上には何も変化がありません。
+
+</Comparison>
+
+<Cards columns={2}>
+
+### スケジュール
+
+- **「明日の午後 2 時に Alex との 30 分間の通話をスケジュールして。」** イベントは
+  作成された瞬間にカレンダーに表示されます。ダイアログは不要です。
+- **「木曜日の 10 時にデザインチームとの Zoom ミーティングを作成して。」** 上と
+  同様で、Zoom リンクが自動的に添付されます。
+- **「金曜日は外出中に設定して。」** 終日の外出中イベントがすぐにカレンダーに
+  表示されます。
+
+### 時間を見つける
+
+- **「来週、Sam と Priya との 1 時間のスロットを見つけて、そこに『Planning』を
+  予約して。」** エージェントは全員の実際の空き状況を確認し、新しいイベントが
+  すぐにカレンダーに表示されます。ダイアログは不要です。
+
+### イベントの管理
+
+_イベントを選択していれば、「これ」や「このミーティング」は自動的に解決されます。_
+
+- **「このイベントを金曜日の午後 2 時に移動して。」** イベントはカレンダー
+  グリッド上でリアルタイムに移動します。
+- **「Jordan をこのミーティングに任意参加のゲストとして追加して。」** Jordan が
+  すぐに出席者リストに表示されます。
+- **「この招待を承認して。」 / 「その日は不在だという注釈をつけて辞退して。」**
+  あなたの出欠回答がすぐにイベントに反映されます。
+- **「このミーティングを自分だけ削除して。主催者ではないので。」** ミーティングは
+  あなたのカレンダーから消えます。他の出席者のカレンダーにはそのまま表示されます。
+
+### 予約リンク
+
+- **「名前フィールドを含む 15 分の紹介予約リンクを作成して。」** 新しい
+  ミーティングタイプが予約リンクの一覧にすぐに表示されます。
+- **「『Steve + Brent』リンクに Brent を必須の共同ホストとして追加して。」**
+  Brent がすぐに共同ホストとして表示され、今後のスロットは 2 人とも空いている
+  ときにしか開かれなくなります。
+- **「『30 分デモ』リンクを一時停止して。」** リンクはすぐに一時停止として表示
+  され、新しい予約の受付を停止します。
+- **「今週の予約を見せて。」** 読み取り専用の質問です。エージェントがチャット内
+  でリストを回答します。
+
+### 人物とビュー
+
+- 「acme.com の jane って誰?」
+- 「Priya のカレンダーを自分のビューに追加して。」
+- 「日表示に切り替えて、次の月曜日にジャンプして。」
+
+</Cards>
+
+## グループと共同ホストの予約リンク
+
+予約リンクに必須の共同ホストが設定されている場合、エージェント (および UI) は、
+所有者 _と_ すべての共同ホストが空いているときにのみスロットを提示します。所有者
+だけでなく、全員のカレンダーを確認します。誰かが予約すると、エージェントは訪問者と
+一緒にすべての共同ホストを、作成された Google Calendar のイベントに招待します。
+
+<Diagram id="doc-block-calendar5" title="スケジューリング リクエストがどのように流れるか" summary="カレンダー内をクリックするか、エージェントに依頼するかにかかわらず、同じ actions が Google Calendar からライブで読み込み、同じビューに書き戻します。Zoom と人物検索も同じフローに組み込まれています。">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      クリックする<br /><small class="diagram-muted"
+        >ドラッグ、ツールバー、ショートカット</small
+      >
+    </div>
+    <div class="diagram-node">
+      エージェントに依頼する<br /><small class="diagram-muted"
+        >「来週、1 時間のスロットを見つけて」</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-events · find-a-time · search-people · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted"
+        >ライブ、複数アカウント</small
+      >
+    </div>
+    <div class="diagram-box">
+      Zoom<br /><small class="diagram-muted"
+        >予約時にミーティングが作成される</small
+      >
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">予約 · 空き状況</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">カレンダー ビューがライブで更新される</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## エージェントが直接 Google Calendar API に向かうとき
+
+組み込みの actions (`list-events`、`search-events`、`find-a-time` など) は
+日常のスケジューリングをカバーします。レポートのために 6 か月分のすべてのイベント
+をスキャンする場合や、特殊なカレンダー一覧クエリなど、actions が公開していない
+正確な Google Calendar のエンドポイント、フィルタ、ページネーション モードが
+必要になるリクエストもあります。そうした場合、エージェントは狭い action に無理に
+答えを押し込む代わりに、実際の Google Calendar API を直接呼び出せます。大規模な
+スキャンの場合は、結果をスクラッチ データセットに保存し、何千件のイベントを
+会話にそのまま流し込む代わりに、コンパクトな要約を使って作業します。通常の
+スケジュールに関する質問を超えるリクエストでは、「Google Calendar から直接
+取得させてください」というような動きとして表れます。
+
+## 拡張機能
+
+カレンダーは拡張機能をサポートしています。あなたやエージェントが作成し、アプリに
+組み込める小さなサンドボックス化されたウィジェットです。イベントの詳細パネルには
+下部に拡張機能がレンダリングできるスロットがあり、そのイベントの id、タイトル、
+時刻、タイムゾーン、場所、出席者、アカウントがすでに利用可能な状態で渡されます。
+作り方については [拡張機能](/docs/extensions) を参照してください。
+
+## 次は何ですか
+
+- [**カレンダー**](/docs/template-calendar) — 概要と使い始めの手順
+- [**機能**](/docs/template-calendar-features) — ビュー、空き状況、時間の検索、予約リンクと、それぞれの設定手順
+- [**マルチアプリ ワークスペースでのカレンダーのクロスアプリ利用**](/docs/template-calendar-integrations) — 連携戦略と Dispatch への接続
+- [**開発者ガイド**](/docs/template-calendar-developers) — すべての action、データモデル、アプリを拡張する方法
+- [**拡張機能**](/docs/extensions) — イベント詳細スロット向けのウィジェットを作る

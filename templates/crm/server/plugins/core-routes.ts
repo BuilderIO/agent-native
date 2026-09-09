@@ -1,0 +1,18 @@
+import { createCoreRoutesPlugin } from "@agent-native/core/server";
+
+const VIEW_PATHS: Record<string, string> = {
+  overview: "/home",
+  records: "/records",
+  record: "/records",
+  tasks: "/tasks",
+  proposals: "/proposals",
+  settings: "/settings",
+};
+
+export default createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
+  resolveOpenPath: ({ view, params }) => {
+    if (params.recordId) return `/records/${params.recordId}`;
+    return view ? (VIEW_PATHS[view] ?? null) : null;
+  },
+});

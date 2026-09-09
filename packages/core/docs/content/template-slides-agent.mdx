@@ -1,0 +1,102 @@
+---
+title: "Slides: Talking to the Agent & Creative Context"
+description: "What the agent sees in Slides, useful prompts by task, how it reuses existing brand assets before generating something new, and adding a custom widget."
+---
+
+# Talking to the Agent & Creative Context
+
+Slides' agent creates, edits, imports, exports, and styles decks through the same actions the UI uses, so anything you can click, you can also ask for. This page covers what it sees automatically, prompts organized by task, and how it decides whether to reuse existing work before generating something new — useful whether you're a day-to-day user or building on top of Slides.
+
+## How the agent sees your screen
+
+The agent always knows which deck is open, which slide you're on, and the full list of slides in that deck — you don't have to say "slide 4," it already knows what's there. When you're mid-edit in the visual editor, it also sees your active selection: the specific element you clicked, the tool you're using, and computed style details, so "make this bigger" acts on the thing you actually selected rather than guessing.
+
+The chat lives in the sidebar for quick back-and-forth; Slides also has a full-page Agent view for longer sessions with more room to work.
+
+### Selection-aware edits
+
+Select text (or an element) on a slide and hit `Cmd+I` to focus the agent on exactly what you highlighted. "Make this punchier" or "translate just this" then operates on your selection only, not the whole slide.
+
+## Useful prompts by task
+
+**Generate**
+
+- "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
+- "Summarize this PDF as a 6-slide deck." (attach the PDF)
+- "Turn this Google Doc into a deck."
+
+**Edit and restyle**
+
+- "Add a pricing slide after slide 3."
+- "Make the title on this slide bigger and change the accent color to green."
+- "Replace the word 'customers' with 'members' everywhere in this deck."
+
+**Images and logos**
+
+- "Generate a hero image for the current slide — dark, minimal, cinematic."
+- "Find the logo for stripe.com and add it to slide 2."
+- "Make that image darker, more navy."
+
+**Import and export**
+
+- "Import this PPTX and turn each slide into an editable slide here."
+- "Export this deck as PowerPoint."
+- "Get this ready to open in Google Slides."
+
+## The Creative Context reuse ladder
+
+Before generating something new, the agent works down a fixed list — it stops at the first option that genuinely fits, rather than jumping straight to generating from scratch:
+
+<Diagram id="doc-block-slides6" title="The reuse ladder" summary="The agent stops at the first rung that fits instead of defaulting to net-new generation.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-box">1. Reuse an approved slide or asset unchanged</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box">2. Compose a couple of approved pieces together</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box">
+    3. Duplicate and lightly adapt a real approved example
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box">
+    4. Generate new content grounded in a few specific references
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box">
+    5. Generate net-new — only when nothing relevant exists yet
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+```
+
+</Diagram>
+
+In practice: ask for a "metrics slide" and the agent looks for one it's already used successfully before drafting a new layout. If you turn this off for a deck ("ignore the library for this version"), the agent won't quietly turn it back on later — you have to opt back in.
+
+## Submitting a deck to the shared Library
+
+Once a deck is in good shape, submit its current version to the shared Creative Context Library from the deck's Context tab so other decks — and other apps — can reuse its slides later. Each submission freezes one exact version; further edits to your working deck don't retroactively change what other decks already reused.
+
+## When the agent needs the real Google Drive API
+
+The built-in import and export actions cover Google Docs and Slides' common cases. For an unusual Google Drive request — an exact file metadata field, an export format the canned actions don't expose, or scanning a large number of files at once — the agent can call the real Google Drive API directly using your connected Google Docs account, and stage large results instead of pasting them into the conversation. See the [Developer Guide](/docs/template-slides-developers) for the action names behind this.
+
+## Extensions: adding a custom widget to Slides
+
+Slides supports the same sandboxed extension widgets as other Agent-Native apps — small mini-apps with access to your deck data and actions. Install or build one from **Settings → Extensions**; see the [extensions](/docs/extensions) docs for how to write one.
+
+## What's next
+
+- [**Design Systems & Media**](/docs/template-slides-design-and-media) — what the reuse ladder draws on
+- [**Generating & Editing Decks**](/docs/template-slides-editing) — the editor itself
+- [**Developer Guide**](/docs/template-slides-developers) — every action referenced above
+- [**Slides overview**](/docs/template-slides) — back to the app summary
