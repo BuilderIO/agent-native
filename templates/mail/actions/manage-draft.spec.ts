@@ -34,6 +34,13 @@ describe("manage-draft MCP App", () => {
     expect(source).toContain(
       "draft.accountEmail = savedGmailDraft.accountEmail",
     );
+    expect(source).toContain(
+      "savedGmailDraft?.accountEmail ?? args.accountEmail",
+    );
+    expect(source).toContain(
+      "draft.savedDraftId ? draft.accountEmail : undefined",
+    );
+    expect(source).toContain("delete draft.accountEmail");
   });
 });
 

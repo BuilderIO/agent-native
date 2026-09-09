@@ -25,8 +25,10 @@ function hasGmailScope(tokens: Record<string, unknown>): boolean {
     !scope.trim() ||
     scope
       .split(/[\s,]+/)
-      .some((value) =>
-        value.startsWith("https://www.googleapis.com/auth/gmail."),
+      .some(
+        (value) =>
+          value === "https://mail.google.com/" ||
+          value.startsWith("https://www.googleapis.com/auth/gmail."),
       )
   );
 }

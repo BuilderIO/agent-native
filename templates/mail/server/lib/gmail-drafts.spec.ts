@@ -52,7 +52,7 @@ describe("saveGmailDraft", () => {
         displayName: null,
         tokens: {
           access_token: "token",
-          scope: "https://www.googleapis.com/auth/gmail.modify",
+          scope: "https://mail.google.com/",
         },
       },
     ]);
