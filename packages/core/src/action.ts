@@ -2035,7 +2035,13 @@ function wrapWithValidation(
       ctx && typeof ctx === "object"
         ? preValidatedForContext.get(ctx)
         : undefined;
-    if (cached && cached.schema === schema && cached.value === args) {
+    // Object.is, not ===, so a schema that legitimately validates down to
+    // NaN is still recognized (NaN !== NaN, but Object.is(NaN, NaN) is true)
+    // and doesn't fall through to a second, potentially non-idempotent pass.
+    // Object.is, not ===, so a schema that legitimately validates down to
+    // NaN is still recognized (NaN !== NaN, but Object.is(NaN, NaN) is true)
+    // and doesn't fall through to a second, potentially non-idempotent pass.
+    if (cached && cached.schema === schema && Object.is(cached.value, args)) {
       return run(args, ctx);
     }
     return run(await validateActionArgs(schema, args, toolParameters), ctx);

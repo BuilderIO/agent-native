@@ -885,6 +885,30 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     // exact value a `needsApproval` predicate would have decided against.
     expect(received).toBe("a!");
   });
+
+  it("recognizes a cached NaN result via Object.is instead of ===", async () => {
+    // NaN !== NaN, so a `===` comparison would miss the cache entry and
+    // silently re-invoke a schema transform a caller already validated
+    // against — reopening the same non-idempotent-transform gap for any
+    // schema that legitimately validates down to NaN.
+    let transformCalls = 0;
+    const schema = z.preprocess(() => {
+      transformCalls += 1;
+      return NaN;
+    }, z.any());
+    const action = defineAction({
+      description: "nan schema",
+      schema,
+      run: async () => "ok",
+    });
+
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(schema, {}, undefined, ctx);
+    expect(Number.isNaN(validated)).toBe(true);
+    expect(transformCalls).toBe(1);
+    await action.run(validated, ctx);
+    expect(transformCalls).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
