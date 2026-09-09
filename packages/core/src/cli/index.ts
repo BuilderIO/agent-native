@@ -34,8 +34,11 @@ try {
 // error that `handleScaffoldImportError` misreports as a corrupt npx cache.
 const REQUIRED_NODE_MAJOR = 22;
 const REQUIRED_NODE_MINOR = 22;
-const [_nodeMajor, _nodeMinor] = process.versions.node.split(".").map(Number);
+const _nodeVersion = process.versions.node;
+const _nodeIsStable = /^\d+\.\d+\.\d+$/.test(_nodeVersion);
+const [_nodeMajor, _nodeMinor] = _nodeVersion.split(".").map(Number);
 const _unsupportedNode =
+  !_nodeIsStable ||
   _nodeMajor < REQUIRED_NODE_MAJOR ||
   (_nodeMajor === REQUIRED_NODE_MAJOR && _nodeMinor < REQUIRED_NODE_MINOR);
 if (_unsupportedNode) {
