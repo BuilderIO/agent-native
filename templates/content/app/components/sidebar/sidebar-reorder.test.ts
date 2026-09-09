@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   constrainedSidebarTransform,
@@ -8,6 +10,8 @@ import {
   isPointerSidebarDrag,
   reorderedSidebarItemIds,
   sidebarReorderAnnouncement,
+  SidebarReorderProvider,
+  useSidebarReorderItem,
 } from "./sidebar-reorder";
 
 const items = [
@@ -16,6 +20,99 @@ const items = [
   { id: "two", label: "Two", parentId: null },
   { id: "child-b", label: "Child B", parentId: "one" },
 ];
+
+describe("sidebar keyboard activation", () => {
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+  it.each([
+    ["link", "Enter", "Enter", false],
+    ["link", " ", "Space", true],
+    ["control", "Enter", "Enter", true],
+    ["nested-control", "Enter", "Enter", false],
+  ] as const)(
+    "preserves %s activation with %s",
+    async (origin, key, code, startsDrag) => {
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      function Row() {
+        const reorder = useSidebarReorderItem("one");
+        return createElement(
+          origin === "link" ? "a" : origin === "control" ? "button" : "div",
+          {
+            ...reorder.attributes,
+            ...reorder.listeners,
+            ref: reorder.setNodeRef,
+            role: origin === "link" ? "link" : "button",
+            href: origin === "link" ? "/page/one" : undefined,
+            "data-dragging": String(reorder.isDragging),
+          },
+          origin === "nested-control"
+            ? createElement("button", { type: "button" }, "Menu")
+            : "One",
+        );
+      }
+      try {
+        await act(async () => {
+          root.render(
+            createElement(SidebarReorderProvider, {
+              items: [items[0]],
+              labels: {
+                drag: (label: string) => `Drag ${label}`,
+                moveUp: "Move up",
+                moveDown: "Move down",
+                moveTo: "Move to",
+                moveToPosition: (position: number) => `Position ${position}`,
+              },
+              onReorder: vi.fn(),
+              children: createElement(Row),
+            }),
+          );
+        });
+        const row = container.querySelector<HTMLElement>("[data-dragging]")!;
+        const target =
+          origin === "nested-control" ? row.querySelector("button")! : row;
+        target.focus();
+        const enter = new KeyboardEvent("keydown", {
+          key,
+          code,
+          bubbles: true,
+          cancelable: true,
+        });
+        await act(async () => {
+          target.dispatchEvent(enter);
+        });
+        expect(enter.defaultPrevented).toBe(startsDrag);
+        expect(row.dataset.dragging).toBe(String(startsDrag));
+        if (startsDrag) {
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          });
+          await act(async () => {
+            document.dispatchEvent(
+              new KeyboardEvent("keydown", {
+                key: "Escape",
+                code: "Escape",
+                bubbles: true,
+                cancelable: true,
+              }),
+            );
+          });
+          expect(row.dataset.dragging).toBe("false");
+        }
+      } finally {
+        await act(async () => {
+          root.unmount();
+        });
+        container.remove();
+      }
+    },
+  );
+});
 
 describe("reorderedSidebarItemIds", () => {
   it("reorders references within one sibling set", () => {

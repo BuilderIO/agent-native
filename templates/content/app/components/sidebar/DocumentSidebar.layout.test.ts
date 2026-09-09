@@ -502,21 +502,28 @@ describe("document sidebar layout", () => {
 
   it("renders Pinned through exact database memberships with accessible reordering", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
 
-    expect(sidebar).toContain("{showFavorites && (");
-    expect(sidebar).toContain('toggleSection("favorites")');
-    expect(sidebar).toContain("!collapsedSections.favorites &&");
-    expect(sidebar).toContain("aria-expanded={!collapsedSections.favorites}");
-    expect(sidebar).toContain("<IconPin");
-    expect(sidebar).toContain("group-hover/favorites:opacity-0");
-    expect(sidebar).toContain("group-hover/favorites:opacity-100");
-    expect(sidebar).toContain('!collapsedSections.favorites && "rotate-90"');
-    expect(sidebar).toContain('"mb-2 min-w-0 px-2"');
-    expect(sidebar).toContain("favoritesDocumentId");
-    expect(sidebar).toContain("`/page/${favoritesDocumentId}`");
-    expect(sidebar).toContain("data={favoritesDatabase.data}");
+    expect(sidebar).toContain("<PersonalSidebarSections");
+    expect(sidebar).toContain("renderWorkspaces={renderWorkspaceNavigation}");
+    expect(sidebar).toContain("renderPinned={(limit) =>");
+    expect(sections).toContain("sections[id].visible");
+    expect(sections).toContain("expanded={sections[id].expanded}");
+    expect(sections).toContain(
+      "onToggle={() => change(id, { expanded: !sections[id].expanded })}",
+    );
+    expect(sections).toContain("aria-expanded={expanded}");
+    expect(sections).toContain('expanded && "rotate-90"');
+    expect(sections).toContain("renderPinned(sections.pinned.limit)");
+    expect(sidebar).toContain("useContentDatabaseById(favoritesDatabaseId)");
+    expect(sidebar).toContain("favoritesData.items,");
+    expect(sidebar).toContain(").slice(0, limit)");
+    expect(sidebar).toContain(
+      "overrides={favoritesPersonalView.data?.overrides}",
+    );
+    expect(sidebar).toContain("sidebarOrder={favoritesOrder.order}");
     expect(sidebar).toContain("handlePinnedReorder");
-    expect(sidebar).toContain("movePinnedItem.isPending");
+    expect(sidebar).not.toContain("updateFavoritesPersonalView.isPending");
     expect(sidebar).toContain("onReorder: handlePinnedReorder");
     expect(sidebar).toContain(
       "flex h-7 w-full min-w-0 items-center rounded-md px-1",

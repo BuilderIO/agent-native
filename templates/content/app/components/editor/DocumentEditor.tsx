@@ -65,6 +65,7 @@ import {
   useDeleteContentDatabase,
   useProcessBuilderBodyHydration,
 } from "@/hooks/use-content-database";
+import { useRecordContentVisit } from "@/hooks/use-content-recent";
 import {
   useContentSpaces,
   type ContentSpaceSummary,
@@ -186,6 +187,8 @@ interface DocumentEditorProps {
   documentId: string;
   databaseId?: string | null;
   databaseDocumentId?: string | null;
+  requestedViewId?: string | null;
+  foreground?: boolean;
 }
 
 export interface PageEditorSession {
@@ -344,12 +347,16 @@ export function DocumentEditor({
   documentId,
   databaseId,
   databaseDocumentId,
+  requestedViewId,
+  foreground = false,
 }: DocumentEditorProps) {
   return (
     <PageEditorSurface
       documentId={documentId}
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
+      requestedViewId={requestedViewId}
+      foreground={foreground}
       host="page"
     />
   );
@@ -370,6 +377,8 @@ export function PageEditorSurface({
   documentId,
   databaseId,
   databaseDocumentId,
+  requestedViewId,
+  foreground = false,
   host,
   onSessionChange,
   onDelete,
@@ -425,6 +434,18 @@ export function PageEditorSurface({
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
 
+  useRecordContentVisit(
+    { documentId },
+    foreground &&
+      host === "page" &&
+      !requestedViewId &&
+      !!document &&
+      !document.database &&
+      !isError &&
+      isFetchedAfterMount &&
+      loadState.view === "editor",
+  );
+
   async function retryDocumentQuery() {
     setManualRetryDocumentId(documentId);
     try {
@@ -465,6 +486,18 @@ export function PageEditorSurface({
     );
   }
 
+  if (
+    requestedViewId &&
+    document &&
+    (!document.database || document.database.id !== databaseId)
+  ) {
+    return (
+      <DocumentUnavailable
+        onOpenHome={host === "page" ? () => navigate("/home") : undefined}
+      />
+    );
+  }
+
   // If we have a doc (real or optimistic from create) render the editor —
   // an `isError` blip during a just-fired create shouldn't flash "not found".
   // A database/list snapshot can optimistically seed the document cache with a
@@ -487,6 +520,10 @@ export function PageEditorSurface({
         })}
         documentId={documentId}
         document={document}
+        requestedViewId={requestedViewId}
+        foreground={
+          foreground && host === "page" && !isError && isFetchedAfterMount
+        }
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
         host={host}
@@ -703,6 +740,8 @@ interface DocumentEditorBodyProps {
   onDelete?: () => Promise<void>;
   focusTitle: boolean;
   onTitleFocused?: () => void;
+  requestedViewId?: string | null;
+  foreground?: boolean;
 }
 
 type PendingDocumentSave = {
@@ -1112,6 +1151,8 @@ function PageEditorSessionBody({
   onDelete,
   focusTitle,
   onTitleFocused,
+  requestedViewId,
+  foreground = false,
 }: DocumentEditorBodyProps) {
   const acknowledgedDocumentRef = useRef<Document | null>(null);
   const resolvedDocument = resolveAcknowledgedDocumentSnapshot({
@@ -3902,6 +3943,8 @@ function PageEditorSessionBody({
                   <div className={documentEditorDatabaseRegionClassName()}>
                     <DocumentDatabase
                       document={document}
+                      requestedViewId={requestedViewId}
+                      foreground={foreground}
                       canEdit={canEdit}
                       onExportContextChange={handleDatabaseExportContextChange}
                     />

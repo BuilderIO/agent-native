@@ -2,6 +2,31 @@ import type { ParityRow } from "./matrix.types";
 
 export const parityMatrix: ParityRow[] = [
   {
+    id: "sidebar.personal-recent-visits",
+    surface: "sidebar",
+    label: "Read personal Recent entries and record foreground visits",
+    uiEntrypoints: [
+      "app/components/sidebar/PersonalSidebarSections.tsx",
+      "app/hooks/use-content-recent.ts",
+    ],
+    durableEffect:
+      "Per-user Recent stores bounded Page and exact View identities with visit timestamps and resolves current labels under current access.",
+    uiImplementation:
+      "Recent reads use the shared Action; successful foreground navigation records a visit through the UI-only Action.",
+    status: "action-backed",
+    actions: ["get-content-recent", "record-content-visit"],
+    exception:
+      "record-content-visit is hidden with agentTool: false so agent reads and edits cannot manufacture human visit history.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-recent.test.ts",
+      "shared/content-personal-navigation.test.ts",
+    ],
+  },
+  {
     id: "sidebar.document-tree-crud",
     surface: "sidebar",
     label: "Create, delete, move, favorite, list, search, and open pages",
