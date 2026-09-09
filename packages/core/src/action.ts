@@ -1925,6 +1925,78 @@ export function describeToolParameterSignature(
 }
 
 /**
+ * Validate + coerce raw args against a Standard Schema, returning the same
+ * parsed value `run()` would receive. Shared by `wrapWithValidation` and any
+ * caller — such as a `needsApproval` predicate — that must decide against the
+ * normalized value the action will actually execute with (defaults applied,
+ * "false" coerced to `false`, …) rather than the raw wire shape a predicate
+ * evaluated on unparsed JSON would misread. Throws the same "Invalid action
+ * parameters" error `run()` would on invalid input.
+ */
+export async function validateActionArgs(
+  schema: StandardSchemaV1,
+  args: unknown,
+  toolParameters?: ActionTool["parameters"],
+): Promise<any> {
+  args = coerceGatewayStringifiedArgs(args, toolParameters);
+  const result = await schema["~standard"].validate(args);
+  if (result.issues) {
+    // Split issues into "missing required field" vs other validation errors
+    // so the error message reads naturally rather than as "fieldName: Required".
+    const missing: string[] = [];
+    const other: string[] = [];
+    for (const issue of result.issues) {
+      const pathStr = issue.path
+        ? issue.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
+        : "";
+      const msg = String(issue.message ?? "");
+      // Zod emits "Required" for missing fields; other libraries may use
+      // similar wording. Treat any variant as "missing".
+      if (
+        pathStr &&
+        (msg === "Required" ||
+          /invalid.*undefined/i.test(msg) ||
+          /expected.*received undefined/i.test(msg))
+      ) {
+        missing.push(pathStr);
+      } else {
+        other.push(pathStr ? `${pathStr}: ${msg}` : msg);
+      }
+    }
+
+    const parts: string[] = [];
+    if (missing.length > 0) {
+      parts.push(
+        `Missing required parameter${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
+      );
+    }
+    if (other.length > 0) {
+      parts.push(other.join("; "));
+    }
+
+    // Echo the args that were actually passed so the caller (usually an
+    // agent) can see exactly what it sent and fix its next call.
+    let received: string;
+    try {
+      received = JSON.stringify(args);
+      if (received.length > 500) received = received.slice(0, 500) + "…";
+    } catch {
+      received = String(args);
+    }
+
+    const signature = describeToolParameterSignature(toolParameters);
+    const expected = signature
+      ? ` Expected: ${signature} (where * = required, ? = optional).`
+      : "";
+
+    throw new Error(
+      `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
+    );
+  }
+  return (result as StandardSchemaV1.SuccessResult<any>).value;
+}
+
+/**
  * Wrap an action's run function with schema validation.
  * Invalid inputs get a clear error message (including what was actually passed)
  * so the agent can see its own mistake and correct it on the next turn.
@@ -1934,64 +2006,8 @@ function wrapWithValidation(
   run: Function,
   toolParameters?: ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
-  return async (args: any, ctx?: ActionRunContext) => {
-    args = coerceGatewayStringifiedArgs(args, toolParameters);
-    const result = await schema["~standard"].validate(args);
-    if (result.issues) {
-      // Split issues into "missing required field" vs other validation errors
-      // so the error message reads naturally rather than as "fieldName: Required".
-      const missing: string[] = [];
-      const other: string[] = [];
-      for (const issue of result.issues) {
-        const pathStr = issue.path
-          ? issue.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
-          : "";
-        const msg = String(issue.message ?? "");
-        // Zod emits "Required" for missing fields; other libraries may use
-        // similar wording. Treat any variant as "missing".
-        if (
-          pathStr &&
-          (msg === "Required" ||
-            /invalid.*undefined/i.test(msg) ||
-            /expected.*received undefined/i.test(msg))
-        ) {
-          missing.push(pathStr);
-        } else {
-          other.push(pathStr ? `${pathStr}: ${msg}` : msg);
-        }
-      }
-
-      const parts: string[] = [];
-      if (missing.length > 0) {
-        parts.push(
-          `Missing required parameter${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
-        );
-      }
-      if (other.length > 0) {
-        parts.push(other.join("; "));
-      }
-
-      // Echo the args that were actually passed so the caller (usually an
-      // agent) can see exactly what it sent and fix its next call.
-      let received: string;
-      try {
-        received = JSON.stringify(args);
-        if (received.length > 500) received = received.slice(0, 500) + "…";
-      } catch {
-        received = String(args);
-      }
-
-      const signature = describeToolParameterSignature(toolParameters);
-      const expected = signature
-        ? ` Expected: ${signature} (where * = required, ? = optional).`
-        : "";
-
-      throw new Error(
-        `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
-      );
-    }
-    return run((result as StandardSchemaV1.SuccessResult<any>).value, ctx);
-  };
+  return async (args: any, ctx?: ActionRunContext) =>
+    run(await validateActionArgs(schema, args, toolParameters), ctx);
 }
 
 /**

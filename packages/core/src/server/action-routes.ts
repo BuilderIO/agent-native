@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   createError,
   defineEventHandler,
@@ -15,6 +16,7 @@ import {
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
+  validateActionArgs,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isTransientDatabaseError } from "../db/client.js";
@@ -786,6 +788,28 @@ function mountActionRoutesInternal(
               // rejection: a WebMCP caller has no approval UI of its own, so
               // the message tells it to get the human's confirmation in chat.
               if (caller === "webmcp" && entry.needsApproval !== undefined) {
+                // Decide against the same normalized value `run()` will
+                // actually execute with, not the raw wire JSON: a default
+                // (e.g. `dryRun` defaulting to true) or a coercion (string
+                // "false" → `false`) only exists after schema validation, so
+                // a predicate reading raw `params` can approve a call it
+                // would have gated had it seen what `run()` sees. When a
+                // schema is declared, validate once here and reuse that same
+                // value for `run()` below instead of re-deriving it — an
+                // invalid call throws `validateActionArgs`'s own "Invalid
+                // action parameters" error, which the catch block below
+                // already renders as a 400.
+                if (
+                  entry.schema &&
+                  typeof entry.schema === "object" &&
+                  "~standard" in entry.schema
+                ) {
+                  params = await validateActionArgs(
+                    entry.schema as StandardSchemaV1,
+                    params,
+                    entry.tool.parameters,
+                  );
+                }
                 let mustApprove = false;
                 try {
                   mustApprove =

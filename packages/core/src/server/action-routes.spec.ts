@@ -2694,6 +2694,64 @@ describe("mountWebMcpActionRoutes", () => {
     });
   });
 
+  it("evaluates needsApproval against schema-validated args, not raw JSON", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const { z } = await import("zod");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async (args) => ({ ranWith: args }));
+    // `dryRun` defaults true and coerces the string "false" a client might
+    // send; only the validated value reflects that. A predicate reading raw
+    // JSON would see `undefined` (not the default) or the string "false" (not
+    // `false`) and approve calls it should have gated.
+    const schema = z.object({
+      dryRun: z.preprocess(
+        (v) => (v === "false" ? false : v),
+        z.boolean().default(true),
+      ),
+    });
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        remediate: {
+          tool: { description: "Remediate", parameters: { type: "object" } },
+          schema,
+          run,
+          needsApproval: (args: { dryRun: boolean }) => args.dryRun === false,
+        } as any,
+      },
+      { getOwnerFromEvent: vi.fn(async () => "owner@example.com") },
+    );
+
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/remediate",
+    );
+
+    // Omitted entirely: the schema default (true) applies, so this must run.
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ ranWith: { dryRun: true } });
+
+    // Sent as the string "false": raw JSON is truthy, but the coerced value
+    // is `false`, so this must be refused rather than silently executed.
+    const coercedResult = await invocationRoute?.handler({
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({ dryRun: "false" }) },
+    });
+    expect(coercedResult).toMatchObject({ errorCode: "approval_required" });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
   it("filters manifest.keyToolNames to tools this manifest actually lists", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
