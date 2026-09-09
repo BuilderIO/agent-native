@@ -59,6 +59,8 @@ export interface ImportedReference {
   source: "pptx" | "pdf" | "docx" | "google-slides";
 }
 
+type FileImportSource = Exclude<ImportedReference["source"], "google-slides">;
+
 interface DesignSystemOption {
   id: string;
   title: string;
@@ -123,6 +125,8 @@ export function NewDeckReferenceStep({
     useState<NewDeckReferenceSelection["referenceSource"]>(null);
   const [referenceDeckSearchOpen, setReferenceDeckSearchOpen] = useState(false);
   const [continuing, setContinuing] = useState(false);
+  const [importingSource, setImportingSource] =
+    useState<FileImportSource | null>(null);
   const busy = importing || continuing;
 
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
@@ -144,12 +148,20 @@ export function NewDeckReferenceStep({
     if (open) setContinuing(false);
   }, [open]);
 
-  const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleImport = async (
+    event: ChangeEvent<HTMLInputElement>,
+    source: FileImportSource,
+  ) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0) return;
-    const imported = await onImport(files);
-    if (imported) applyImportedReference(imported);
+    setImportingSource(source);
+    try {
+      const imported = await onImport(files);
+      if (imported) applyImportedReference(imported);
+    } finally {
+      setImportingSource(null);
+    }
   };
 
   const applyImportedReference = (imported: ImportedReference) => {
@@ -405,10 +417,10 @@ export function NewDeckReferenceStep({
                   label="PPT"
                   imported={importedReference?.source === "pptx"}
                   importedLabel={t("home.imported")}
-                  importing={importing}
+                  importing={importing && importingSource === "pptx"}
                   importingLabel={importingLabel}
                   disabled={busy}
-                  onChange={handleImport}
+                  onChange={(event) => void handleImport(event, "pptx")}
                 />
                 <FileImportOption
                   accept=".pdf"
@@ -416,10 +428,10 @@ export function NewDeckReferenceStep({
                   label="PDF"
                   imported={importedReference?.source === "pdf"}
                   importedLabel={t("home.imported")}
-                  importing={importing}
+                  importing={importing && importingSource === "pdf"}
                   importingLabel={importingLabel}
                   disabled={busy}
-                  onChange={handleImport}
+                  onChange={(event) => void handleImport(event, "pdf")}
                 />
                 <FileImportOption
                   accept=".docx"
@@ -427,10 +439,10 @@ export function NewDeckReferenceStep({
                   label="DOCX"
                   imported={importedReference?.source === "docx"}
                   importedLabel={t("home.imported")}
-                  importing={importing}
+                  importing={importing && importingSource === "docx"}
                   importingLabel={importingLabel}
                   disabled={busy}
-                  onChange={handleImport}
+                  onChange={(event) => void handleImport(event, "docx")}
                 />
                 <ImportOption
                   icon={<IconBrandGoogle className="size-4" />}

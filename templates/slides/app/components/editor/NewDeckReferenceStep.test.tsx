@@ -159,6 +159,41 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Reference PDF");
   });
 
+  it("only labels the selected file option while importing", async () => {
+    let resolveImport!: (reference: ImportedReference) => void;
+    const { onImport } = renderStep({ importing: true });
+    onImport.mockReturnValue(
+      new Promise((resolve) => {
+        resolveImport = resolve;
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.change(document.querySelector('input[accept=".pdf"]')!, {
+        target: {
+          files: [
+            new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+          ],
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      document.querySelector('label[aria-label="PDF"]')?.textContent,
+    ).toContain("Importing...");
+    expect(
+      document.querySelector('label[aria-label="PPT"]')?.textContent,
+    ).toContain("PPT");
+    expect(
+      document.querySelector('label[aria-label="DOCX"]')?.textContent,
+    ).toContain("DOCX");
+
+    await act(async () => {
+      resolveImport({ id: "deck-pdf", title: "Reference PDF", source: "pdf" });
+    });
+  });
+
   it("confirms a DOCX import as the selected reference deck", async () => {
     const imported: ImportedReference = {
       id: "deck-docx",
