@@ -66,6 +66,11 @@ import {
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import {
+  isCanonicalIdentitySsoClientRequest,
+  isCanonicalIdentitySsoClientConfigured,
+  isIdentitySsoAvailableForRequest,
+} from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 function hasGoogleOAuth(): boolean {
@@ -1265,20 +1270,34 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     opts.signupLegalNotice === false
       ? undefined
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
+  const identitySsoRequestHost =
+    opts.identitySsoRequestHost ?? opts.requestHost;
+  const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
+  const identitySsoEnabled = isIdentitySsoAvailableForRequest({
+    requestHost: identitySsoRequestHost,
+    requestProtocol: identitySsoRequestProtocol,
+  });
+  const identitySsoAuto =
+    identitySsoEnabled &&
+    (isCanonicalIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      identitySsoRequestProtocol,
+    ) ||
+      (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
   const marketingStyles = hasMarketing
     ? `
   body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
-  #starfield {
+  [data-agent-native-starfield] {
     position: fixed;
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.35;
+    opacity: 0.15;
     pointer-events: none;
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    #starfield { opacity: 0.18; }
+    [data-agent-native-starfield] { opacity: 0.15; }
   }
   .split {
     position: relative;
@@ -1634,6 +1653,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     docsAuthUrl: docsUrl("authentication", {
       hash: "local-development-sign-in",
     }),
+    identitySsoEnabled,
+    identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -2290,8 +2311,8 @@ ${marketingStyles}
     height: 100%;
     max-width: none;
     max-height: none;
-    filter: blur(18px);
-    opacity: 0.8;
+    filter: none;
+    opacity: 0.15;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
     position: fixed;
@@ -2310,7 +2331,7 @@ ${marketingStyles}
     margin-block: auto;
   }
   .auth-marketing-home .form-panel { min-width: 0; }
-  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
+  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; transform: translateY(-5vh); }
   @media (max-width: 900px) {
     body.has-marketing {
       align-items: flex-start;

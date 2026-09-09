@@ -12,7 +12,10 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
-import { Layout as AppLayout } from "@agent-native/dispatch/components";
+import {
+  Layout as AppLayout,
+  RequireDispatchAccess,
+} from "@agent-native/dispatch/components";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -184,6 +187,14 @@ function AppContent() {
 }
 
 function PrivateAppContent() {
+  return (
+    <RequireDispatchAccess>
+      <PrivateAppShell />
+    </RequireDispatchAccess>
+  );
+}
+
+function PrivateAppShell() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();

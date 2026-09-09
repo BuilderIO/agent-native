@@ -447,11 +447,28 @@ export interface AgentNativeWebMcpClientOptions {
   maxManifestChars?: number;
 }
 
+interface NativeToolBinding {
+  context: NativeModelContext;
+  tool: NativeRegisteredTool;
+  fromOrigins?: string[];
+}
+
+const webMcpClientContextGetters = new WeakMap<
+  AgentNativeWebMcpClient,
+  () => NativeModelContext | undefined
+>();
+const webMcpClientListingContexts = new WeakMap<
+  AgentNativeWebMcpClient,
+  NativeModelContext
+>();
+
 export function createAgentNativeWebMcpClient(
   options: AgentNativeWebMcpClientOptions = {},
 ): AgentNativeWebMcpClient {
   if (!options.document) initializeAgentNativeWebMcp();
-  const modelContext = getModelContext(options.document);
+  // Hosts can replace the page adapter when an in-app browser reconnects.
+  const getCurrentModelContext = () => getModelContext(options.document);
+  const initialModelContext = getCurrentModelContext();
   const defaultFromOrigins = options.fromOrigins;
   const limits = {
     maxInputChars: options.maxInputChars ?? DEFAULT_INPUT_CHARS,
@@ -463,55 +480,92 @@ export function createAgentNativeWebMcpClient(
     maxManifestChars: options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
   };
   // Keep bindings for in-flight approvals; each descriptor is a listing capability.
-  const listedNativeTools = new WeakMap<object, NativeRegisteredTool>();
+  const listedNativeTools = new WeakMap<object, NativeToolBinding>();
+  type ToolChangeSubscription = {
+    context: NativeModelContext | undefined;
+    handler: EventListener;
+  };
+  const toolChangeSubscriptions = new Set<ToolChangeSubscription>();
+
+  function syncToolChangeListeners(): void {
+    const currentContext = getCurrentModelContext();
+    for (const subscription of toolChangeSubscriptions) {
+      if (subscription.context === currentContext) continue;
+      subscription.context?.removeEventListener?.(
+        "toolchange",
+        subscription.handler,
+      );
+      currentContext?.addEventListener?.("toolchange", subscription.handler);
+      subscription.context = currentContext;
+    }
+  }
 
   function requireModelContext(): NativeModelContext {
-    if (!modelContext) throw new AgentNativeWebMcpUnsupportedError();
-    return modelContext;
+    const context = getCurrentModelContext();
+    if (!context) throw new AgentNativeWebMcpUnsupportedError();
+    return context;
   }
 
   async function listTools(
     listOptions: { fromOrigins?: string[] } = {},
   ): Promise<AgentNativeWebMcpTool[]> {
-    const context = requireModelContext();
-    const fromOrigins = listOptions.fromOrigins ?? defaultFromOrigins;
-    const result = fromOrigins
-      ? await context.getTools({ fromOrigins })
-      : await context.getTools();
-    if (!Array.isArray(result)) {
-      throw new Error("WebMCP returned an invalid tool list");
-    }
-    if (result.length > limits.maxToolCount) {
-      throw new Error(
-        `WebMCP returned more than the ${limits.maxToolCount}-tool limit`,
-      );
-    }
-    const normalizedTools = result.map((tool) => normalizeTool(tool, limits));
-    jsonLength(
-      normalizedTools,
-      "WebMCP tool manifest",
-      limits.maxManifestChars,
-    );
-    const seenKeys = new Set<string>();
-    normalizedTools.forEach((tool) => {
-      const key = toolKey(tool);
-      if (seenKeys.has(key)) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const context = requireModelContext();
+      syncToolChangeListeners();
+      const fromOrigins = listOptions.fromOrigins ?? defaultFromOrigins;
+      let result: NativeRegisteredTool[];
+      try {
+        result = fromOrigins
+          ? await context.getTools({ fromOrigins })
+          : await context.getTools();
+      } catch (error) {
+        if (context !== getCurrentModelContext()) continue;
+        throw error;
+      }
+      // A browser reconnect can replace the page adapter while getTools is
+      // awaiting the old one. Never publish that old registry as current.
+      if (context !== getCurrentModelContext()) continue;
+      if (!Array.isArray(result)) {
+        throw new Error("WebMCP returned an invalid tool list");
+      }
+      if (result.length > limits.maxToolCount) {
         throw new Error(
-          `WebMCP returned duplicate tool "${tool.name}" for origin "${tool.origin ?? ""}"`,
+          `WebMCP returned more than the ${limits.maxToolCount}-tool limit`,
         );
       }
-      seenKeys.add(key);
-    });
-    normalizedTools.forEach((tool, index) => {
-      listedNativeTools.set(tool, result[index]);
-    });
-    return normalizedTools;
+      const normalizedTools = result.map((tool) => normalizeTool(tool, limits));
+      jsonLength(
+        normalizedTools,
+        "WebMCP tool manifest",
+        limits.maxManifestChars,
+      );
+      const seenKeys = new Set<string>();
+      normalizedTools.forEach((tool) => {
+        const key = toolKey(tool);
+        if (seenKeys.has(key)) {
+          throw new Error(
+            `WebMCP returned duplicate tool "${tool.name}" for origin "${tool.origin ?? ""}"`,
+          );
+        }
+        seenKeys.add(key);
+      });
+      normalizedTools.forEach((tool, index) => {
+        listedNativeTools.set(tool, {
+          context,
+          tool: result[index],
+          ...(fromOrigins ? { fromOrigins: [...fromOrigins] } : {}),
+        });
+      });
+      webMcpClientListingContexts.set(client, context);
+      return normalizedTools;
+    }
+    throw new Error("WebMCP page context changed during tool listing");
   }
 
   function findListedNativeTool(
     tools: AgentNativeWebMcpTool[],
     tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
-  ): NativeRegisteredTool | undefined {
+  ): NativeToolBinding | undefined {
     const matches = tools.filter(
       (candidate) =>
         candidate.name === tool.name &&
@@ -528,7 +582,7 @@ export function createAgentNativeWebMcpClient(
 
   async function executeNativeTool(
     tool: Pick<AgentNativeWebMcpTool, "name">,
-    nativeTool: NativeRegisteredTool,
+    binding: NativeToolBinding,
     input: unknown,
     executionOptions: AgentNativeWebMcpToolExecutionOptions,
   ): Promise<AgentNativeWebMcpToolResult> {
@@ -536,7 +590,7 @@ export function createAgentNativeWebMcpClient(
       throw new Error(`WebMCP tool "${tool.name}" input must be an object`);
     }
     jsonLength(input, `WebMCP tool "${tool.name}" input`, limits.maxInputChars);
-    const context = requireModelContext();
+    const { context, tool: nativeTool } = binding;
     const usesCodexPageAdapter =
       typeof context.codexExecuteTool === "function" ||
       typeof context.codexGetTools === "function";
@@ -556,18 +610,24 @@ export function createAgentNativeWebMcpClient(
     tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
     input: unknown = {},
     executionOptions: AgentNativeWebMcpToolExecutionOptions = {},
+    listOptions: { fromOrigins?: string[] } = {},
   ): Promise<AgentNativeWebMcpToolResult> {
     requireModelContext();
     if (!tool || typeof tool.name !== "string" || !tool.name.trim()) {
       throw new Error("A WebMCP tool name is required");
     }
 
-    const listedTools = await listTools();
-    const nativeTool = findListedNativeTool(listedTools, tool);
-    if (!nativeTool) {
-      throw new Error(`WebMCP tool "${tool.name}" is no longer available`);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const listedTools = await listTools(listOptions);
+      const binding = findListedNativeTool(listedTools, tool);
+      if (!binding) {
+        throw new Error(`WebMCP tool "${tool.name}" is no longer available`);
+      }
+      if (binding.context === requireModelContext()) {
+        return executeNativeTool(tool, binding, input, executionOptions);
+      }
     }
-    return executeNativeTool(tool, nativeTool, input, executionOptions);
+    throw new Error("WebMCP page context changed during tool execution");
   }
 
   async function executeListedTool(
@@ -578,31 +638,50 @@ export function createAgentNativeWebMcpClient(
     if (!tool || typeof tool.name !== "string" || !tool.name.trim()) {
       throw new Error("A WebMCP tool name is required");
     }
-    const nativeTool = listedNativeTools.get(tool);
-    if (!nativeTool) {
+    const binding = listedNativeTools.get(tool);
+    if (!binding) {
       throw new Error(
         `WebMCP tool "${tool.name}" was not returned by a live listing`,
       );
     }
-    return executeNativeTool(tool, nativeTool, input, executionOptions);
+    if (binding.context !== getCurrentModelContext()) {
+      return executeTool(tool, input, executionOptions, {
+        fromOrigins: binding.fromOrigins,
+      });
+    }
+    return executeNativeTool(tool, binding, input, executionOptions);
   }
 
   const client: AgentNativeWebMcpClient = {
-    supported: Boolean(modelContext),
+    get supported() {
+      return Boolean(getCurrentModelContext());
+    },
     listTools,
     executeTool,
     executeListedTool,
-    ...(modelContext?.addEventListener
+    ...(initialModelContext?.addEventListener
       ? {
           onToolChange(listener) {
             const handler: EventListener = () => listener();
-            modelContext.addEventListener?.("toolchange", handler);
-            return () =>
-              modelContext?.removeEventListener?.("toolchange", handler);
+            const subscription: ToolChangeSubscription = {
+              context: undefined,
+              handler,
+            };
+            toolChangeSubscriptions.add(subscription);
+            syncToolChangeListeners();
+            return () => {
+              if (!toolChangeSubscriptions.delete(subscription)) return;
+              subscription.context?.removeEventListener?.(
+                "toolchange",
+                subscription.handler,
+              );
+              subscription.context = undefined;
+            };
           },
         }
       : {}),
   };
+  webMcpClientContextGetters.set(client, getCurrentModelContext);
   return client;
 }
 
@@ -796,6 +875,8 @@ export function createAgentNativeWebMcpPageHelper(options?: {
   let inflight: Promise<AgentNativeWebMcpTool[]> | undefined;
   let listingGeneration = 0;
   const cacheable = typeof client.onToolChange === "function";
+  const getClientModelContext = webMcpClientContextGetters.get(client);
+  let listingContext = getClientModelContext?.();
   const invalidateListing = () => {
     listing = undefined;
     inflight = undefined;
@@ -807,6 +888,8 @@ export function createAgentNativeWebMcpPageHelper(options?: {
   const pageOrigin =
     getDocument(targetDocument)?.defaultView?.location?.origin ??
     (typeof location === "undefined" ? undefined : location.origin);
+  const supportsToolChange = () =>
+    typeof getClientModelContext?.()?.addEventListener === "function";
   async function list(origin?: string): Promise<AgentNativeWebMcpTool[]> {
     // Discovery defaults to the page's own origin; a different origin needs
     // its own allow-listed listing, which is never cached. The page's own
@@ -815,20 +898,39 @@ export function createAgentNativeWebMcpPageHelper(options?: {
     if (origin && origin !== pageOrigin) {
       return client.listTools({ fromOrigins: [origin] });
     }
-    if (!cacheable) return client.listTools();
+    const currentContext = getClientModelContext?.();
+    if (currentContext !== listingContext) {
+      listingContext = currentContext;
+      invalidateListing();
+    }
+    if (!cacheable || !supportsToolChange()) return client.listTools();
     if (listing) return listing;
     if (inflight) return inflight;
     // A toolchange during the await outdates this listing before it lands;
     // the generation check keeps a stale result out of the cache. Callers that
     // arrive mid-flight share the request instead of paying another wake-up.
-    const generation = listingGeneration;
-    const request = client.listTools().then((tools) => {
-      if (generation === listingGeneration) {
-        listing = tools;
-        inflight = undefined;
+    let request!: Promise<AgentNativeWebMcpTool[]>;
+    request = (async () => {
+      let generation = listingGeneration;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const tools = await client.listTools();
+        const listedContext = webMcpClientListingContexts.get(client);
+        const currentContext = getClientModelContext?.();
+        if (listedContext !== currentContext) {
+          listingContext = currentContext;
+          listing = undefined;
+          listingGeneration += 1;
+          generation = listingGeneration;
+          continue;
+        }
+        listingContext = currentContext;
+        if (generation === listingGeneration) listing = tools;
+        if (inflight === request) inflight = undefined;
+        return tools;
       }
-      return tools;
-    });
+      if (inflight === request) inflight = undefined;
+      throw new Error("WebMCP page context changed during tool listing");
+    })();
     request.catch(() => {
       if (inflight === request) inflight = undefined;
     });

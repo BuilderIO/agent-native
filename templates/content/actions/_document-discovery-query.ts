@@ -1,3 +1,4 @@
+import { alias } from "@agent-native/core/db/schema";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -8,6 +9,7 @@ import {
   notExists,
   or,
   type SQL,
+  type SQLWrapper,
 } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -26,6 +28,45 @@ export interface DocumentDiscoveryFilters {
   spaceId?: string;
   documentType?: DocumentDiscoveryType;
   additional?: SQL;
+}
+
+export function softDeletedDatabaseDocumentExclusions(documentId: SQLWrapper) {
+  const db = getDb();
+  const deletedDatabases = alias(
+    schema.contentDatabases,
+    "deleted_database_document_exclusions",
+  );
+  const deletedDatabaseItems = alias(
+    schema.contentDatabaseItems,
+    "deleted_database_membership_exclusions",
+  );
+  const deletedDatabaseDocument = db
+    .select({ id: deletedDatabases.id })
+    .from(deletedDatabases)
+    .where(
+      and(
+        eq(deletedDatabases.documentId, documentId),
+        isNotNull(deletedDatabases.deletedAt),
+      ),
+    );
+  const deletedDatabaseMembership = db
+    .select({ id: deletedDatabaseItems.id })
+    .from(deletedDatabaseItems)
+    .innerJoin(
+      deletedDatabases,
+      eq(deletedDatabases.id, deletedDatabaseItems.databaseId),
+    )
+    .where(
+      and(
+        eq(deletedDatabaseItems.documentId, documentId),
+        isNotNull(deletedDatabases.deletedAt),
+      ),
+    );
+
+  return [
+    notExists(deletedDatabaseDocument),
+    notExists(deletedDatabaseMembership),
+  ] as const;
 }
 
 export function documentDiscoveryWhere({
@@ -54,29 +95,6 @@ export function documentDiscoveryWhere({
         isNull(schema.contentDatabases.deletedAt),
       ),
     );
-  const deletedDatabaseDocument = db
-    .select({ id: schema.contentDatabases.id })
-    .from(schema.contentDatabases)
-    .where(
-      and(
-        eq(schema.contentDatabases.documentId, schema.documents.id),
-        isNotNull(schema.contentDatabases.deletedAt),
-      ),
-    );
-  const deletedDatabaseMembership = db
-    .select({ id: schema.contentDatabaseItems.id })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.contentDatabases,
-      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.documentId, schema.documents.id),
-        isNotNull(schema.contentDatabases.deletedAt),
-      ),
-    );
-
   return and(
     or(
       ...accessContexts.map((context) =>
@@ -88,8 +106,7 @@ export function documentDiscoveryWhere({
       userEmail,
       orgIds: authorizedOrgIds,
     }),
-    notExists(deletedDatabaseDocument),
-    notExists(deletedDatabaseMembership),
+    ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
     exactTitle === undefined
       ? undefined
       : eq(schema.documents.title, exactTitle),

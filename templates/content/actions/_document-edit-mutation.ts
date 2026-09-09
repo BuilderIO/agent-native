@@ -7,10 +7,8 @@ import type { CreativeContextReuseLabel } from "@agent-native/creative-context/t
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  documentVersionChatContextFromAction,
-  serializeDocumentVersionChatContext,
-} from "../server/lib/document-version-context.js";
+import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
   resolveDocumentTextEdits,
   type DocumentTextEdit,
@@ -246,24 +244,13 @@ export async function mutateDocumentBody(args: {
         ? document.bodyRevision + 1
         : document.bodyRevision;
       const afterHash = documentContentHash(resolved.content);
-      const now = new Date().toISOString();
+      const now = nextDocumentUpdatedAt(document.updatedAt);
       const receiptId = crypto.randomUUID();
       if (changed) {
         const primaryBlocksFields = await lockPrimaryBlocksFields(
           tx,
           args.documentId,
         );
-        await tx.insert(schema.documentVersions).values({
-          id: crypto.randomUUID(),
-          ownerEmail: document.ownerEmail,
-          documentId: document.id,
-          title: document.title,
-          content: beforeContent,
-          chatContext: serializeDocumentVersionChatContext(
-            documentVersionChatContextFromAction(args.ctx),
-          ),
-          createdAt: now,
-        });
         const updated = await tx
           .update(schema.documents)
           .set({
@@ -299,6 +286,15 @@ export async function mutateDocumentBody(args: {
             now,
           });
         }
+        await recordDocumentHistoryTransition({
+          db: tx,
+          ownerEmail: document.ownerEmail,
+          documentId: document.id,
+          before: { title: document.title, content: beforeContent },
+          after: { title: document.title, content: resolved.content },
+          cause: { ctx: args.ctx, operation: "edit-document" },
+          now,
+        });
         if (creativeContext) {
           await recordGenerationCreativeContext(
             {
@@ -377,7 +373,11 @@ export async function mutateDocumentBody(args: {
         readback.bodyRevision !== afterRevision ||
         documentContentHash(readback.content) !== afterHash
       ) {
-        throw new Error("Document edit readback verification failed.");
+        conflict(
+          "STALE_BASE_REVISION",
+          "The document changed while the edit was being verified.",
+          { expectedRevision: args.baseRevision },
+        );
       }
       return result;
     });
