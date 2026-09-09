@@ -513,9 +513,15 @@ export function createAgentNativeWebMcpClient(
       const context = requireModelContext();
       syncToolChangeListeners();
       const fromOrigins = listOptions.fromOrigins ?? defaultFromOrigins;
-      const result = fromOrigins
-        ? await context.getTools({ fromOrigins })
-        : await context.getTools();
+      let result: NativeRegisteredTool[];
+      try {
+        result = fromOrigins
+          ? await context.getTools({ fromOrigins })
+          : await context.getTools();
+      } catch (error) {
+        if (context !== getCurrentModelContext()) continue;
+        throw error;
+      }
       // A browser reconnect can replace the page adapter while getTools is
       // awaiting the old one. Never publish that old registry as current.
       if (context !== getCurrentModelContext()) continue;

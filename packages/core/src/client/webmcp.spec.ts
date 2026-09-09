@@ -144,6 +144,45 @@ describe("WebMCP client", () => {
     expect(secondContext.getTools).toHaveBeenCalledOnce();
   });
 
+  it("retries a listing when the replaced context rejects", async () => {
+    const firstTool = {
+      name: "get-order",
+      title: "First order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const secondTool = { ...firstTool, title: "Second order" };
+    let rejectFirstList!: (reason?: unknown) => void;
+    const firstContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(
+        () =>
+          new Promise<unknown[]>((_, reject) => {
+            rejectFirstList = reject;
+          }),
+      ),
+      executeTool: vi.fn(async () => "first"),
+    };
+    const secondContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [secondTool]),
+      executeTool: vi.fn(async () => "second"),
+    };
+    const doc = documentWithModelContext(firstContext);
+    const client = createAgentNativeWebMcpClient({ document: doc });
+    const listing = client.listTools();
+
+    (doc as Document & { modelContext?: unknown }).modelContext = secondContext;
+    rejectFirstList(new Error("old context disconnected"));
+
+    await expect(listing).resolves.toEqual([
+      expect.objectContaining({ title: "Second order" }),
+    ]);
+    expect(firstContext.getTools).toHaveBeenCalledOnce();
+    expect(secondContext.getTools).toHaveBeenCalledOnce();
+  });
+
   it("preserves origin filters when relisting after a context replacement", async () => {
     const origin = "https://shop.example";
     const firstTool = {
