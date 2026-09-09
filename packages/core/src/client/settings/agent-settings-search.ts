@@ -1,4 +1,4 @@
-import { MCP_SETTINGS_MESSAGES } from "../../localization/mcp-settings-messages.js";
+import { mcpSettingsMessagesForLocale } from "../../localization/mcp-settings-messages.js";
 import type { LocaleCode } from "../../localization/shared.js";
 import type { SettingsSearchEntry } from "./SettingsTabsPage.js";
 
@@ -193,7 +193,7 @@ export interface AgentSettingsSearchTab {
 export function getAgentSettingsSearchTabs(
   locale: LocaleCode = "en-US",
 ): AgentSettingsSearchTab[] {
-  const mcpMessages = MCP_SETTINGS_MESSAGES[locale];
+  const mcpMessages = mcpSettingsMessagesForLocale(locale);
   return [
     {
       id: "agent",

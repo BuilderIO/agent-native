@@ -23,8 +23,8 @@ import { renameFactoryActionMentions } from "../lib/factory-action-names.js";
 import {
   applyAutomationConfigFrontmatter,
   buildGuardrailsText,
+  canonicalSeedLeafName,
   defaultAutomationConfig,
-  inferAutomationSource,
   readFactoryAutomationConfig,
   replaceUserPrompt,
   scheduleCron,
@@ -506,11 +506,23 @@ export async function ensureFactoryAutomations(
   _options?: { enabled?: boolean; enabledNames?: ReadonlySet<string> },
 ): Promise<void> {
   const owner = organizationResourceOwner(orgId);
+  const listed = await listFactoryAutomationDefinitions(orgId, factoryId);
+  const paths = new Set([
+    ...AUTOMATION_SEEDS.map((seed) =>
+      factoryAutomationJobPath(factoryId, seed.name),
+    ),
+    ...listed.map((entry) => entry.resource.path),
+  ]);
   await Promise.all(
-    AUTOMATION_SEEDS.map(async (seed) => {
-      const path = factoryAutomationJobPath(factoryId, seed.name);
+    [...paths].map(async (path) => {
       const existing = await resourceGetByPath(owner, path);
       if (!existing) {
+        return;
+      }
+      const leafName = factoryAutomationLeafName(path);
+      const seedName = canonicalSeedLeafName(leafName);
+      const seed = AUTOMATION_SEEDS.find((entry) => entry.name === seedName);
+      if (!seed) {
         return;
       }
 
@@ -549,6 +561,9 @@ export async function ensureFactoryAutomations(
       ) {
         repaired = setFrontmatterField(repaired, "schedule", seed.schedule);
       }
+      // Keyed by the seed, not the leaf: a copy like `factory-pr-babysit-2`
+      // runs the same review contract, and an unrecognized name would silently
+      // skip the alignment block instead of syncing it.
       repaired = syncManagedReviewSkillAlignment(
         repaired,
         seed.name as FactoryAutomationName,
@@ -560,15 +575,14 @@ export async function ensureFactoryAutomations(
         repaired = repairPrBabysitPrompt(repaired);
       }
       repaired = repairAutomationFactoryScopeInstruction(repaired, factoryId);
-      const inferredSource =
-        inferAutomationSource(seed.name, repaired) ?? "slack";
-      const existingConfig = readFactoryAutomationConfig(repaired, seed.name);
+      // Every row here matched a seed, so the leaf resolves a definite source.
+      // Nothing in this loop may fall back to a guess.
+      const existingConfig = readFactoryAutomationConfig(repaired, leafName);
       repaired = applyAutomationConfigFrontmatter(repaired, {
         ...existingConfig,
-        source: existingConfig.source || inferredSource,
         template:
           existingConfig.template === "blank"
-            ? templateIdForSeedName(seed.name)
+            ? templateIdForSeedName(leafName)
             : existingConfig.template,
       });
       repaired = replaceUserPrompt(

@@ -81,7 +81,11 @@ import {
 } from "@/hooks/use-overlay-people";
 import { useSettings } from "@/hooks/use-settings";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
-import { CALENDAR_COLORS } from "@/lib/calendar-view-preferences";
+import {
+  CALENDAR_COLORS,
+  type CalendarColorMode,
+} from "@/lib/calendar-view-preferences";
+import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import { cn } from "@/lib/utils";
 
@@ -371,6 +375,22 @@ function GoogleConnectSidebarButton() {
   );
 }
 
+/** A conic-gradient dot indicating "multiple colors" (by-type mode). */
+function MultiColorDot({ className }: { className?: string }) {
+  const colors = Object.values(EVENT_CATEGORY_COLORS).slice(0, 4);
+  const pct = 100 / colors.length;
+  const stops = colors
+    .map((color, index) => `${color} ${index * pct}% ${(index + 1) * pct}%`)
+    .join(", ");
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("inline-block shrink-0 rounded-full", className)}
+      style={{ background: `conic-gradient(${stops})` }}
+    />
+  );
+}
+
 /** Popover color picker for a single-color selection */
 function ColorPickerPopover({
   color,
@@ -417,7 +437,15 @@ function GoogleCalendarsSections({
   const [showAllCalendars, setShowAllCalendars] = useState(false);
   const { data: calendars, enabled } = useGoogleCalendars();
   const {
-    prefs: { googleCalendarColors, googleCalendarVisibility },
+    prefs: {
+      accountColorModes,
+      accountColors,
+      colorMode,
+      googleCalendarColors,
+      googleCalendarVisibility,
+      singleColor,
+    },
+    updateAccountColorMode,
     updateGoogleCalendarColor,
     updateGoogleCalendarVisibility,
   } = useViewPreferences();
@@ -443,10 +471,16 @@ function GoogleCalendarsSections({
     const visible =
       googleCalendarVisibility[preferenceKey] ??
       (calendar.primary || calendar.selected);
+    const sourceColor = googleCalendarColors[preferenceKey];
+    const mode: CalendarColorMode | undefined = calendar.primary
+      ? (accountColorModes[calendar.accountEmail] ?? colorMode)
+      : undefined;
     const color =
-      googleCalendarColors[preferenceKey] ??
-      calendar.color ??
-      CALENDAR_COLORS[6];
+      sourceColor ??
+      (mode === "single"
+        ? (accountColors[calendar.accountEmail] ?? singleColor)
+        : (calendar.color ?? CALENDAR_COLORS[6]));
+    const isDefault = !sourceColor && mode !== "multi";
     return (
       <div
         key={preferenceKey}
@@ -474,6 +508,32 @@ function GoogleCalendarsSections({
               {t("eventForm.color")}
             </div>
             <div className="flex max-w-[132px] flex-wrap gap-1.5">
+              {calendar.primary && (
+                <Tooltip delayDuration={700}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateAccountColorMode(
+                          calendar.accountEmail,
+                          "multi",
+                          preferenceKey,
+                        )
+                      }
+                      aria-label={t("sidebar.colorByMeetingType")}
+                      className="relative flex size-5 items-center justify-center rounded-full"
+                    >
+                      <MultiColorDot className="size-5" />
+                      {mode === "multi" && !sourceColor && (
+                        <IconCheck className="absolute inset-0 m-auto size-3 text-primary-foreground drop-shadow" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[160px] text-xs">
+                    {t("sidebar.colorByMeetingType")}
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <button
                 type="button"
                 onClick={() => updateGoogleCalendarColor(preferenceKey, null)}
@@ -483,7 +543,7 @@ function GoogleCalendarsSections({
                   backgroundColor: calendar.color || CALENDAR_COLORS[6],
                 }}
               >
-                {!googleCalendarColors[preferenceKey] && (
+                {isDefault && (
                   <IconCheck className="absolute inset-0 m-auto size-3 text-primary-foreground drop-shadow" />
                 )}
               </button>

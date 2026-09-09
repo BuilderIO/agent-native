@@ -6,7 +6,6 @@ import { BuilderImage } from "../components/builder-image";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
-import { TemplateDocsLink } from "../components/template-docs";
 import {
   TemplateComparisonTable,
   TemplateHero,
@@ -178,7 +177,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
       <div className="w-full text-start">
         <div
           ref={sliderRef}
-          className="flex snap-x snap-mandatory overflow-x-auto border border-[var(--docs-border)] bg-[var(--bg-secondary)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex snap-x snap-mandatory overflow-x-auto border-t border-[var(--docs-border)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {CLIP_PREVIEWS.map((clip, index) => (
             <a
@@ -186,7 +185,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
               href={clip.href}
               target="_blank"
               rel="noopener noreferrer"
-              className={`group flex basis-[82%] shrink-0 snap-start flex-col bg-[var(--bg-secondary)] text-[var(--fg)] no-underline transition hover:no-underline sm:basis-[46%] lg:basis-[33.3333%] ${
+              className={`group flex basis-[82%] shrink-0 snap-start flex-col text-[var(--fg)] no-underline transition hover:no-underline sm:basis-[46%] lg:basis-[33.3333%] ${
                 index > 0 ? "border-s border-[var(--docs-border)]" : ""
               }`}
               onClick={() =>
@@ -201,10 +200,10 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
                 alt=""
                 loading="lazy"
                 decoding="async"
-                className="aspect-video w-full border-b border-[var(--docs-border)] object-cover object-bottom"
+                className="aspect-video w-full border-b border-[var(--docs-border)] object-contain object-center"
               />
-              <div className="flex w-full flex-1 flex-col gap-2">
-                <h3 className="m-0 max-w-[328px] text-[1.4375rem] font-medium leading-[1.15] tracking-[-0.46px] text-[var(--fg)]">
+              <div className="flex w-full flex-1 flex-col gap-2 p-6 sm:p-8">
+                <h3 className="m-0 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[var(--fg)]">
                   {clip.title}
                 </h3>
                 <div className="flex flex-1 items-end">
@@ -374,7 +373,7 @@ export default function ClipsTemplate() {
             <div
               key={stat.title}
               className={`flex min-h-[220px] flex-col justify-center gap-3 border-[var(--docs-border)] p-8 sm:min-h-[260px] sm:p-10 ${
-                index === 1 ? "bg-[var(--bg-secondary)]" : ""
+                index === 1 ? "bg-[var(--bg-subtle)]" : ""
               } ${index > 0 ? "border-t sm:border-t-0 sm:border-s" : ""}`}
             >
               <div className="text-3xl font-medium tracking-tight text-[var(--fg)] sm:text-4xl">
@@ -392,21 +391,14 @@ export default function ClipsTemplate() {
 
       {/* Core capabilities */}
       <section className="border-t border-[var(--docs-border)]">
-        <div className="flex flex-col border-y border-[var(--docs-border)] lg:flex-row lg:items-stretch">
-          <div className="flex shrink-0 flex-col gap-6 border-b border-[var(--docs-border)] bg-[var(--bg-secondary)] py-2 ps-2 pe-4 sm:py-4 sm:ps-4 sm:pe-8 lg:w-1/3 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
+        <div className="flex flex-col border border-[var(--docs-border)] lg:flex-row lg:items-stretch">
+          <div className="flex shrink-0 flex-col gap-6 border-b border-[var(--docs-border)] bg-[var(--bg-subtle)] py-2 ps-2 pe-4 sm:py-4 sm:ps-4 sm:pe-8 lg:w-1/3 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
             <h2 className="text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
               {t("templateLanding.clips.s010")}
             </h2>
             <p className="max-w-[320px] text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[var(--fg-secondary)]">
               {t("templateLanding.clips.s011")}
             </p>
-            <TemplateDocsLink
-              template={template}
-              location="landing_page_capabilities"
-              className="inline-flex h-10 w-fit items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[var(--fg)] no-underline transition-[border-color,color] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)] hover:no-underline"
-            >
-              {t("templateLanding.clips.s061")}
-            </TemplateDocsLink>
           </div>
 
           <div className="grid flex-1 grid-cols-1 border-t border-[var(--docs-border)] sm:grid-cols-2 lg:border-t-0">
@@ -422,7 +414,7 @@ export default function ClipsTemplate() {
                   >
                     <path
                       d="M7.99972 14.6672C11.6819 14.6672 14.6669 11.6822 14.6669 8.00002C14.6669 4.31783 11.6819 1.33282 7.99972 1.33282C4.31753 1.33282 1.33252 4.31783 1.33252 8.00002C1.33252 11.6822 4.31753 14.6672 7.99972 14.6672Z"
-                      stroke="#01C8F1"
+                      stroke="currentColor"
                       strokeWidth="1.33333"
                       strokeLinecap="round"
                     />
@@ -442,7 +434,7 @@ export default function ClipsTemplate() {
                   >
                     <path
                       d="M9.33299 1.33283H4.00019C3.64661 1.33283 3.3075 1.47331 3.05748 1.72338C2.80745 1.97345 2.66699 2.31262 2.66699 2.66627V13.3338C2.66699 13.6874 2.80745 14.0266 3.05748 14.2767C3.3075 14.5267 3.64661 14.6672 4.00019 14.6672H11.9994C12.353 14.6672 12.6921 14.5267 12.9421 14.2767C13.1921 14.0266 13.3326 13.6874 13.3326 13.3338V5.33315M9.33299 1.33283C9.54401 1.33248 9.753 1.3739 9.94795 1.45468C10.1429 1.53547 10.3199 1.65403 10.4689 1.80353L12.8606 4.19572C13.0105 4.34474 13.1294 4.52198 13.2104 4.7172C13.2914 4.91243 13.3329 5.12178 13.3326 5.33315M9.33299 1.33283V4.66642C9.33299 4.84325 9.40322 5.01283 9.52823 5.13787C9.65324 5.2629 9.8228 5.33314 9.99959 5.33314L13.3326 5.33315M6.66659 5.99986H5.33339M10.6662 8.66674H5.33339M10.6662 11.3336H5.33339"
-                      stroke="#01C8F1"
+                      stroke="currentColor"
                       strokeWidth="1.33333"
                       strokeLinecap="round"
                     />
@@ -462,7 +454,7 @@ export default function ClipsTemplate() {
                   >
                     <path
                       d="M8.00028 12.6672H13.3331M2.66748 11.3337L6.66708 7.33325L2.66748 3.33279"
-                      stroke="#01C8F1"
+                      stroke="currentColor"
                       strokeWidth="1.33333"
                       strokeLinecap="round"
                     />
@@ -482,7 +474,7 @@ export default function ClipsTemplate() {
                   >
                     <path
                       d="M14.2769 12.2762C14.5269 12.0261 14.6674 11.687 14.6674 11.3334V3.33334C14.6674 2.97972 14.5269 2.64058 14.2769 2.39053C14.0268 2.14048 13.6876 2 13.334 2H2.66645C2.3128 2 1.97363 2.14048 1.72356 2.39053C1.47349 2.64058 1.33301 2.97972 1.33301 3.33334V14.1907C1.33302 14.2843 1.36079 14.3758 1.4128 14.4537C1.46482 14.5315 1.53875 14.5922 1.62524 14.628C1.71173 14.6638 1.8069 14.6732 1.89871 14.6549C1.99053 14.6367 2.07487 14.5916 2.14107 14.5254L3.60919 13.0574C3.8592 12.8073 4.19831 12.6668 4.55193 12.6667H13.334C13.6876 12.6667 14.0268 12.5262 14.2769 12.2762Z"
-                      stroke="#01C8F1"
+                      stroke="currentColor"
                       strokeWidth="1.33333"
                       strokeLinecap="round"
                     />
@@ -496,7 +488,7 @@ export default function ClipsTemplate() {
                 key={card.title}
                 className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:odd:border-e sm:even:border-e-0 lg:[&:nth-child(3)]:border-b-0 lg:[&:nth-child(4)]:border-b-0"
               >
-                <div className="flex size-[34px] items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
+                <div className="flex size-[34px] items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] text-[var(--fg-secondary)]">
                   {card.icon}
                 </div>
                 <div className="flex flex-col gap-2">
@@ -528,7 +520,7 @@ export default function ClipsTemplate() {
             <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[var(--fg)] sm:px-8 lg:mt-auto lg:px-10">
               <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="shrink-0"
+                  className="shrink-0 text-[var(--fg-secondary)]"
                   width="20"
                   height="20"
                   viewBox="0 0 20 20"
@@ -537,7 +529,7 @@ export default function ClipsTemplate() {
                 >
                   <path
                     d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
-                    stroke="#01C8F1"
+                    stroke="currentColor"
                     strokeWidth="2.85714"
                     strokeLinecap="round"
                   />
@@ -546,7 +538,7 @@ export default function ClipsTemplate() {
               </li>
               <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="shrink-0"
+                  className="shrink-0 text-[var(--fg-secondary)]"
                   width="20"
                   height="20"
                   viewBox="0 0 20 20"
@@ -555,7 +547,7 @@ export default function ClipsTemplate() {
                 >
                   <path
                     d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
-                    stroke="#01C8F1"
+                    stroke="currentColor"
                     strokeWidth="2.85714"
                     strokeLinecap="round"
                   />
@@ -564,7 +556,7 @@ export default function ClipsTemplate() {
               </li>
               <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="shrink-0"
+                  className="shrink-0 text-[var(--fg-secondary)]"
                   width="20"
                   height="20"
                   viewBox="0 0 20 20"
@@ -573,7 +565,7 @@ export default function ClipsTemplate() {
                 >
                   <path
                     d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
-                    stroke="#01C8F1"
+                    stroke="currentColor"
                     strokeWidth="2.85714"
                     strokeLinecap="round"
                   />
@@ -582,7 +574,7 @@ export default function ClipsTemplate() {
               </li>
             </ul>
           </div>
-          <div className="flex flex-col bg-[var(--bg-secondary)]">
+          <div className="flex flex-col bg-[var(--bg-subtle)]">
             <h3 className="m-0 px-6 pt-10 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)] sm:px-8 lg:px-10 lg:pt-16">
               {t("templateLanding.clips.s021")}
             </h3>
@@ -592,7 +584,7 @@ export default function ClipsTemplate() {
             <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[var(--fg)] sm:px-8 lg:mt-auto lg:px-10">
               <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="shrink-0"
+                  className="shrink-0 text-[var(--fg-secondary)]"
                   width="20"
                   height="20"
                   viewBox="0 0 20 20"
@@ -601,7 +593,7 @@ export default function ClipsTemplate() {
                 >
                   <path
                     d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
-                    stroke="#01C8F1"
+                    stroke="currentColor"
                     strokeWidth="2.85714"
                     strokeLinecap="round"
                   />
@@ -610,7 +602,7 @@ export default function ClipsTemplate() {
               </li>
               <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="shrink-0"
+                  className="shrink-0 text-[var(--fg-secondary)]"
                   width="20"
                   height="20"
                   viewBox="0 0 20 20"
@@ -619,7 +611,7 @@ export default function ClipsTemplate() {
                 >
                   <path
                     d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
-                    stroke="#01C8F1"
+                    stroke="currentColor"
                     strokeWidth="2.85714"
                     strokeLinecap="round"
                   />
@@ -628,7 +620,7 @@ export default function ClipsTemplate() {
               </li>
               <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="shrink-0"
+                  className="shrink-0 text-[var(--fg-secondary)]"
                   width="20"
                   height="20"
                   viewBox="0 0 20 20"
@@ -637,7 +629,7 @@ export default function ClipsTemplate() {
                 >
                   <path
                     d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
-                    stroke="#01C8F1"
+                    stroke="currentColor"
                     strokeWidth="2.85714"
                     strokeLinecap="round"
                   />
@@ -653,7 +645,7 @@ export default function ClipsTemplate() {
 
       {/* Agent actions */}
       <section className="border-t border-[var(--docs-border)]">
-        <div className="flex flex-col lg:flex-row lg:items-stretch">
+        <div className="flex flex-col border-x border-[var(--docs-border)] lg:flex-row lg:items-stretch">
           <div className="flex flex-col justify-center gap-4 border-b border-[var(--docs-border)] px-6 py-10 sm:px-10 lg:w-1/3 lg:shrink-0 lg:border-b-0 lg:border-e lg:py-16 lg:ps-8 lg:pe-16">
             <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
               {t("templateLanding.clips.s026")}
@@ -693,7 +685,7 @@ export default function ClipsTemplate() {
               id: "clips",
               className: "w-[30%]",
               emphasized: true,
-              agentNative: { color: template.color, name: template.name },
+              agentNative: { name: template.name },
             },
             { id: "loom", className: "w-[20%]", header: "Loom" },
             {
@@ -744,11 +736,11 @@ export default function ClipsTemplate() {
       {/* CTA */}
       <section
         id="start-now"
-        className="scroll-mt-24 border-t border-[var(--docs-border)] lg:bg-[linear-gradient(to_right,var(--docs-border)_1px,transparent_1px),linear-gradient(to_bottom,var(--docs-border)_1px,transparent_1px)] lg:bg-[size:32px_32px]"
+        className="scroll-mt-24 border-t border-[var(--docs-border)]"
       >
         <div className="flex flex-col gap-6 border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:flex-row sm:items-end sm:justify-between sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
           <div>
-            <p className="m-0 mb-2 font-mono text-sm font-semibold uppercase tracking-[0.28px] text-[#01c8f1]">
+            <p className="m-0 mb-2 font-mono text-sm font-semibold uppercase tracking-[0.28px] text-[var(--fg-secondary)]">
               Learn more
             </p>
             <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[var(--fg)] sm:text-4xl lg:text-[2.875rem] lg:tracking-[-0.92px]">
@@ -797,11 +789,11 @@ export default function ClipsTemplate() {
           </div>
         </div>
 
-        <div className="border-x border-[var(--docs-border)] pb-16">
+        <div className="border-x border-[var(--docs-border)]">
           <ClipPreviewSlider ref={sliderHandleRef} />
         </div>
 
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[var(--docs-border)] px-6 py-10 sm:flex-row sm:items-center sm:gap-[120px] sm:px-8">
+        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-y border-[var(--docs-border)] px-6 py-10 sm:flex-row sm:items-center sm:gap-4 sm:px-8">
           <TemplateLandingActions template={template} />
         </div>
       </section>
@@ -812,7 +804,7 @@ export default function ClipsTemplate() {
       <TemplateLandingFaq
         idPrefix="clips-faq"
         eyebrow={
-          <span className="text-[var(--docs-accent)]">
+          <span className="text-[var(--fg-secondary)]">
             {t("templateLanding.faq.eyebrow")}
           </span>
         }

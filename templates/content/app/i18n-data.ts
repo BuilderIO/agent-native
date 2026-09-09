@@ -1,4 +1,4 @@
-import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/i18n";
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
@@ -3201,6 +3201,11 @@ const enUS = {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
+    experiments: "Experiments",
+    experimentsIntro: "Preview experimental features before they ship.",
+    experimentCreativeContext: "Creative Context",
+    experimentCreativeContextDescription:
+      "Connect and reuse governed reference context in Content.",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -10147,6 +10152,11 @@ export const messagesByLocale = {
       agentTitle: "管理代理",
       agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
       openAgentSettings: "管理代理",
+      experiments: "实验功能",
+      experimentsIntro: "在正式发布前预览实验性功能。",
+      experimentCreativeContext: "创意上下文",
+      experimentCreativeContextDescription:
+        "在 Content 中连接并复用受管控的参考上下文。",
     },
     chat: {
       publicEmptyState: "向我询问有关此文档的任何问题",
@@ -10346,6 +10356,12 @@ export const messagesByLocale = {
       agentDescription:
         "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
       openAgentSettings: "Gestionar agente",
+      experiments: "Experimentos",
+      experimentsIntro:
+        "Prueba funciones experimentales antes de su lanzamiento.",
+      experimentCreativeContext: "Contexto creativo",
+      experimentCreativeContextDescription:
+        "Conecta y reutiliza contexto de referencia regulado en Content.",
     },
     chat: {
       publicEmptyState: "Pregúntame cualquier cosa sobre este documento",
@@ -10549,6 +10565,12 @@ export const messagesByLocale = {
       agentDescription:
         "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
       openAgentSettings: "Gérer l’agent",
+      experiments: "Expériences",
+      experimentsIntro:
+        "Prévisualisez les fonctionnalités expérimentales avant leur déploiement.",
+      experimentCreativeContext: "Contexte créatif",
+      experimentCreativeContextDescription:
+        "Connectez et réutilisez un contexte de référence gouverné dans Content.",
     },
     chat: {
       publicEmptyState: "Posez-moi une question sur ce document",
@@ -10750,6 +10772,12 @@ export const messagesByLocale = {
       agentDescription:
         "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
       openAgentSettings: "Agent verwalten",
+      experiments: "Experimente",
+      experimentsIntro:
+        "Testen Sie experimentelle Funktionen vor ihrer Veröffentlichung.",
+      experimentCreativeContext: "Kreativer Kontext",
+      experimentCreativeContextDescription:
+        "Verbinden und Wiederverwenden von geregeltem Referenzkontext in Content.",
     },
     chat: {
       publicEmptyState: "Frag mich alles zu diesem Dokument",
@@ -10950,6 +10978,11 @@ export const messagesByLocale = {
       agentDescription:
         "エージェントのモデル、API キー、自動化、音声などを管理します。",
       openAgentSettings: "エージェントを管理",
+      experiments: "実験機能",
+      experimentsIntro: "正式リリース前の試験的な機能をお試しいただけます。",
+      experimentCreativeContext: "クリエイティブコンテキスト",
+      experimentCreativeContextDescription:
+        "Content 内で管理された参照コンテキストを接続して再利用します。",
     },
     chat: {
       publicEmptyState: "このドキュメントについて何でも聞いてください",
@@ -11141,6 +11174,11 @@ export const messagesByLocale = {
       agentDescription:
         "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
       openAgentSettings: "에이전트 관리",
+      experiments: "실험 기능",
+      experimentsIntro: "출시 전 실험적인 기능을 미리 사용해 보세요.",
+      experimentCreativeContext: "크리에이티브 컨텍스트",
+      experimentCreativeContextDescription:
+        "Content에서 제어된 참조 컨텍스트를 연결하고 재사용합니다.",
     },
     chat: {
       publicEmptyState: "이 문서에 대해 무엇이든 물어보세요",
@@ -11340,6 +11378,12 @@ export const messagesByLocale = {
       agentDescription:
         "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
       openAgentSettings: "Gerenciar agente",
+      experiments: "Experimentos",
+      experimentsIntro:
+        "Experimente recursos experimentais antes do lançamento.",
+      experimentCreativeContext: "Contexto criativo",
+      experimentCreativeContextDescription:
+        "Conecte e reutilize contexto de referência regulado no Content.",
     },
     chat: {
       publicEmptyState: "Pergunte qualquer coisa sobre este documento",
@@ -11529,6 +11573,11 @@ export const messagesByLocale = {
       agentDescription:
         "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
       openAgentSettings: "एजेंट प्रबंधित करें",
+      experiments: "प्रयोग",
+      experimentsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
+      experimentCreativeContext: "क्रिएटिव संदर्भ",
+      experimentCreativeContextDescription:
+        "Content में प्रबंधित संदर्भ संदर्भ को कनेक्ट और पुन: उपयोग करें।",
     },
     chat: {
       publicEmptyState: "इस document के बारे में कुछ भी पूछें",
@@ -11719,6 +11768,11 @@ export const messagesByLocale = {
       agentDescription:
         "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
       openAgentSettings: "إدارة الوكيل",
+      experiments: "التجارب",
+      experimentsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
+      experimentCreativeContext: "السياق الإبداعي",
+      experimentCreativeContextDescription:
+        "ربط سياق المرجع الخاضع للإدارة وإعادة استخدامه في Content.",
     },
     chat: {
       publicEmptyState: "اسألني أي شيء عن هذا المستند",

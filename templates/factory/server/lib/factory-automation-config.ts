@@ -52,6 +52,58 @@ const LEAF_SOURCE: Record<string, FactoryAutomationSource> = {
   "factory-pr-governance": "github",
   "factory-pr-babysit": "github",
 };
+const TEMPLATE_SOURCE: Record<
+  Exclude<FactoryAutomationTemplateId, "blank">,
+  FactoryAutomationSource
+> = {
+  "slack-feedback": "slack",
+  "github-issues": "github",
+  "pr-governance": "github",
+  "pr-babysit": "github",
+  "sentry-errors": "sentry",
+};
+const NUMERIC_LEAF_SUFFIX = /-\d+$/;
+const SLUG_SOURCE_PREFIX = /^factory-(slack|github|sentry)-/;
+
+function asAutomationSource(
+  value: string | undefined,
+): FactoryAutomationSource | null {
+  if (value === "slack" || value === "github" || value === "sentry") {
+    return value;
+  }
+  return null;
+}
+
+/** Seed leaf, including create copies like `factory-pr-babysit-2`. */
+export function canonicalSeedLeafName(nameOrPath: string): string | null {
+  const leaf = factoryAutomationLeafName(nameOrPath);
+  if (LEAF_SOURCE[leaf]) return leaf;
+  const stripped = leaf.replace(NUMERIC_LEAF_SUFFIX, "");
+  if (stripped !== leaf && LEAF_SOURCE[stripped]) return stripped;
+  return null;
+}
+
+function sourceFromLeaf(nameOrPath: string): FactoryAutomationSource | null {
+  const leaf = factoryAutomationLeafName(nameOrPath);
+  const seed = canonicalSeedLeafName(leaf);
+  if (seed) return LEAF_SOURCE[seed] ?? null;
+  const slug = leaf.match(SLUG_SOURCE_PREFIX);
+  return slug ? asAutomationSource(slug[1]) : null;
+}
+
+function sourceFromDestination(
+  content: string,
+): FactoryAutomationSource | null {
+  if (readFrontmatterValue(content, "repository")) return "github";
+  if (
+    readFrontmatterValue(content, "sentryOrgSlug") &&
+    readFrontmatterValue(content, "sentryProjectSlug")
+  ) {
+    return "sentry";
+  }
+  if (readFrontmatterValue(content, "slackChannelId")) return "slack";
+  return null;
+}
 
 export function defaultWorkLimit(source: FactoryAutomationSource): number {
   return source === "slack" ? 5 : 3;
@@ -144,17 +196,29 @@ export function inferAutomationSource(
   nameOrPath: string,
   content?: string,
 ): FactoryAutomationSource | null {
-  const fromContent = content
-    ? (readFrontmatterValue(content, "source") as FactoryAutomationSource)
-    : null;
+  // Template, seed leaf, and destination outrank YAML `source`. A Save that
+  // defaulted a GitHub copy to Slack must not keep winning on the next read.
+  const templateRaw = content
+    ? readFrontmatterValue(content, "template")
+    : undefined;
   if (
-    fromContent === "slack" ||
-    fromContent === "github" ||
-    fromContent === "sentry"
+    templateRaw &&
+    templateRaw !== "blank" &&
+    templateRaw in TEMPLATE_SOURCE
   ) {
-    return fromContent;
+    return TEMPLATE_SOURCE[
+      templateRaw as Exclude<FactoryAutomationTemplateId, "blank">
+    ];
   }
-  return LEAF_SOURCE[factoryAutomationLeafName(nameOrPath)] ?? null;
+  const leafSource = sourceFromLeaf(nameOrPath);
+  if (leafSource) return leafSource;
+  if (content) {
+    const destSource = sourceFromDestination(content);
+    if (destSource) return destSource;
+  }
+  return content
+    ? asAutomationSource(readFrontmatterValue(content, "source"))
+    : null;
 }
 
 export function defaultAutomationConfig(
@@ -287,10 +351,7 @@ export function readFactoryAutomationConfig(
   content: string,
   nameOrPath?: string,
 ): FactoryAutomationConfig {
-  const source =
-    inferAutomationSource(nameOrPath ?? "", content) ??
-    (readFrontmatterValue(content, "source") as FactoryAutomationSource) ??
-    "slack";
+  const source = inferAutomationSource(nameOrPath ?? "", content) ?? "slack";
   const templateRaw = readFrontmatterValue(content, "template");
   const template = (
     templateRaw === "slack-feedback" ||
@@ -490,7 +551,7 @@ export function replaceUserPrompt(content: string, prompt: string): string {
 export function templateIdForSeedName(
   name: string,
 ): FactoryAutomationTemplateId {
-  switch (factoryAutomationLeafName(name)) {
+  switch (canonicalSeedLeafName(name) ?? factoryAutomationLeafName(name)) {
     case "factory-slack-feedback":
       return "slack-feedback";
     case "factory-github-issues":
@@ -528,18 +589,8 @@ export function seedNameForTemplate(
 export function sourceForTemplate(
   template: FactoryAutomationTemplateId,
 ): FactoryAutomationSource | null {
-  switch (template) {
-    case "slack-feedback":
-      return "slack";
-    case "github-issues":
-    case "pr-governance":
-    case "pr-babysit":
-      return "github";
-    case "sentry-errors":
-      return "sentry";
-    default:
-      return null;
-  }
+  if (template === "blank") return null;
+  return TEMPLATE_SOURCE[template];
 }
 
 export function slugifyAutomationLeaf(

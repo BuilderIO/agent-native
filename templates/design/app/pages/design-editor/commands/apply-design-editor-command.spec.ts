@@ -10,6 +10,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
+import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import {
@@ -49,12 +50,20 @@ const screenFile: DesignFile = {
   id: "file-1",
   filename: "index.html",
 } as DesignFile;
+const overviewScreen: OverviewScreen = {
+  id: "file-1",
+  filename: "index.html",
+  content: "",
+  updatedAt: "",
+  heightPinned: false,
+};
 
 describe("runApplyDesignEditorCommand: overview camera fit", () => {
   it("fits the camera to a named screen's real geometry", () => {
     const requestCameraFit = vi.fn();
     const args = makeArgs({
       files: [screenFile],
+      overviewScreens: [overviewScreen],
       canvasFrameGeometryById: {
         "file-1": { x: 100, y: 200, width: 1440, height: 1024 },
       },
@@ -80,22 +89,64 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
     });
   });
 
-  it("does not fit when the screen's geometry is not known yet", () => {
+  it("fits using the canvas fallback when geometry is not persisted yet", () => {
     const requestCameraFit = vi.fn();
     const args = makeArgs({
       files: [screenFile],
+      overviewScreens: [overviewScreen],
       canvasFrameGeometryById: {},
       requestCameraFit,
     });
 
-    runApplyDesignEditorCommand(args, {
+    const applied = runApplyDesignEditorCommand(args, {
       designId: "design-1",
       issuedAt: 0,
       editorView: "overview",
       screen: "file-1",
     });
 
-    expect(requestCameraFit).not.toHaveBeenCalled();
+    expect(applied).toBe(true);
+    expect(requestCameraFit).toHaveBeenCalledTimes(1);
+    expect(requestCameraFit.mock.calls[0]![0].fitBounds).toMatchObject({
+      left: 0,
+      top: 0,
+      right: 320,
+    });
+  });
+
+  it("fits the rendered responsive layout-group fallback", () => {
+    const requestCameraFit = vi.fn();
+    const args = makeArgs({
+      files: [screenFile, { ...screenFile, id: "file-2" }],
+      overviewScreens: [
+        {
+          ...overviewScreen,
+          layoutGroupId: "group-1",
+          breakpointWidths: [390],
+        },
+        {
+          ...overviewScreen,
+          id: "file-2",
+          layoutGroupId: "group-1",
+          breakpointWidths: [390],
+        },
+      ],
+      requestCameraFit,
+    });
+
+    const applied = runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      editorView: "overview",
+      screen: "file-2",
+    });
+
+    expect(applied).toBe(true);
+    expect(requestCameraFit).toHaveBeenCalledTimes(1);
+    expect(requestCameraFit.mock.calls[0]![0].fitBounds.left).toBeCloseTo(
+      497.5,
+      2,
+    );
   });
 
   it("does not fit when the command names no screen", () => {
