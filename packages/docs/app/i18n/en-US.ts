@@ -909,6 +909,56 @@ const enUS = {
     },
     clips: {
       s001: "Clips app screenshot",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "Screen recordings your AI agent can see and hear",
+      heroDescription:
+        "Clips is a free and open-source screen recorder for sharing bugs, feedback, and walkthroughs with AI agents.",
+      heroCta: "Record a clip",
+      useCasesHeading: "What can you do with Clips?",
+      useCasesBody:
+        "Start with a clip you recorded or one someone shared with you. Give your AI agent the context and tell it what you need.",
+      useCase1Title: "Act on recorded feedback",
+      useCase1Body:
+        "Give your AI agent recorded feedback to turn into a plan or help implement the requested changes.",
+      useCase2Title: "Investigate a reported bug",
+      useCase2Body:
+        "Share a bug recording with your AI agent to investigate what went wrong and work out the next steps.",
+      useCase3Title: "Create from a recorded brief",
+      useCase3Body:
+        "Use a recorded brief to guide your AI agent in creating a presentation, design, content, or app change.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading:
+        "Everything you need to record, transcribe, and share",
+      feature1Title: "Agent-readable recordings",
+      feature1Body:
+        "Share a clip's transcript and timestamped images with your AI agent through one agent-readable link.",
+      feature2Title: "Automatic transcripts",
+      feature2Body:
+        "Get transcripts of recordings, meetings, and dictations. Click any transcript line to replay that moment.",
+      feature3Title: "Browser debug logs",
+      feature3Body:
+        "Capture console errors and failed requests alongside your recording with the Clips Chrome extension.",
+      feature4Title: "Built-in AI agent",
+      feature4Body:
+        "Ask the built-in AI agent about one clip or your whole library, and have it edit transcripts in chat.",
+      feature5Title: "Searchable recording library",
+      feature5Body:
+        "Find clips by searching their transcripts. Organize your recordings with folders, tags, and team spaces.",
+      feature6Title: "Push-to-talk dictation",
+      feature6Body:
+        "Hold Fn in the desktop app to dictate into other apps. Revisit transcripts and cleaned-up text in your history.",
+      teammatesLine:
+        "Your teammates can watch the same recording in the player.",
+      teammatesLinkLabel: "Read the agent-sharing guide",
+      seeInActionHeading: "See Clips in action",
+      seeInActionBody:
+        "Watch Clips in use, from recording a browser workflow to showing an AI agent how to perform a task.",
+      watchClipLabel: "Watch the clip",
+      finalCtaHeading: "Put your next clip to work",
+      finalCtaBody:
+        "Record an explanation or bring a shared clip to your AI agent.",
+      finalCtaButton: "Open Clips",
       s002: "Screen Record",
       s003: "Browser Debug Logs",
       s004: "Dictate",
@@ -974,23 +1024,21 @@ const enUS = {
       s061: "View more apps",
       s062: "View all apps",
       faq: {
-        question1: "Is Clips free?",
-        answer1: "Yes. Clips is free and open source.",
-        question2: "Can AI read a screen recording?",
+        question1: "Is Clips free and open source?",
+        answer1:
+          "Yes. Clips is free and open-source software. You can use the app or customize and self-host your own version.",
+        question2: "Can I share recordings with Claude, ChatGPT, or Cursor?",
         answer2:
-          "Yes. Every clip ships with a transcript, summary, and timestamped frames an agent can read directly.",
-        question3: "How is Clips different from Loom?",
+          "Clips provides an agent-readable link with a transcript and timestamped images. Your agent needs to be able to open the linked content and read images to use both. Some chat modes can read the transcript but need you to upload an image separately.",
+        question3: "Do I need the Chrome extension to record my screen?",
         answer3:
-          "Clips is open source, you own the data, and every share link is readable by AI agents, not just people.",
-        question4: "Can a screen recording capture console errors?",
+          "No. You can record in the Clips web app. Use the Chrome extension when you also want console messages and network diagnostics from the tab you're demonstrating.",
+        question4: "Can AI agents watch my screen recordings?",
         answer4:
-          "Yes. Clips captures browser console errors and failed network requests alongside the recording. They attach themselves to the same share link as the transcript and frames. An agent can debug from a clip, not just watch it.",
-        question5: "Does Clips work with Claude, ChatGPT, or Cursor?",
+          "With Clips, compatible AI agents can understand your recording through a transcript and timestamped images. They use the text and images rather than playing the video, so you can ask questions about what happened or give your AI agent a task based on the recording.",
+        question5: "Who can access a shared recording?",
         answer5:
-          "Yes! No plugin or API key required. Paste a Clips share link into any agent and it can read the transcript, summary, and frames directly.",
-        question6: "Where do my recordings live?",
-        answer6:
-          "Wherever you deploy them. Self-hosted Clips keeps your video, transcripts, and analytics in your own infrastructure.",
+          "Recordings use public links by default unless your organization changes that setting. Anyone with the link can access them. Private and organization access options are available, and private clips can be shared with agents through temporary links without making the recording public.",
       },
       quickStart: {
         recordingMode: "Recording mode",
