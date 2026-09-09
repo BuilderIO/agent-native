@@ -3359,6 +3359,23 @@ function loginHtmlResponse(
   });
 }
 
+function resolveWorkspaceAccessAppId(): string {
+  const app = getAppConfig().app;
+  const workspaceId = app.workspaceId?.trim();
+  if (workspaceId) return workspaceId;
+
+  const isDispatch = [
+    app.id,
+    app.legacyId,
+    app.name,
+    app.template,
+    app.sourceTemplate,
+    app.slug,
+    app.packageName,
+  ].some((value) => value?.trim().toLowerCase() === "dispatch");
+  return isDispatch ? "dispatch" : "";
+}
+
 function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
   if (!isReadMethod(event)) return false;
   if (pathname.endsWith(".data")) return false;
@@ -3809,7 +3826,7 @@ function createAuthGuardFn(
 
     const session = await getSession(event);
     if (session) {
-      const workspaceAppId = getAppConfig().app.workspaceId?.trim() || "";
+      const workspaceAppId = resolveWorkspaceAccessAppId();
       const sharedWorkspaceAccessPath =
         p === "/_agent-native/org/me" ||
         p === "/_agent-native/actions/list-workspace-apps";

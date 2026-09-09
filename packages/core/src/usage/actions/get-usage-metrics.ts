@@ -21,7 +21,7 @@ export default defineAction({
       {
         ownerEmail: ctx.userEmail,
         orgId: ctx.orgId,
-        app: resolveUsageAppKey(ctx.appId ?? appId),
+        app: resolveUsageAppKey(appId),
       },
     );
   },
