@@ -371,13 +371,9 @@ export default defineAction({
       );
       const rawData = designSystemAccess?.resource?.data;
       if (typeof rawData === "string") {
-        try {
-          const parsed = JSON.parse(rawData);
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            designSystem = parsed as DesignSystemData;
-          }
-        } catch {
-          // Malformed optional style data keeps the export on its fallback tokens.
+        const parsed = JSON.parse(rawData);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          designSystem = parsed as DesignSystemData;
         }
       }
     }
