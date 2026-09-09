@@ -582,7 +582,6 @@ function PeopleTab({
   onOpenEmbed: () => void;
 }) {
   const t = useT();
-  const sharesLoaded = visibility !== null;
 
   if (viewerReshareOnly) {
     return (
