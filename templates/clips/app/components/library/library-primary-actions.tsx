@@ -4,32 +4,23 @@ import { NavLink } from "react-router";
 
 import { ImportMenu } from "@/components/import-menu";
 
+import {
+  buildLibraryActionHrefs,
+  type LibraryActionScope,
+} from "./library-action-hrefs";
 import { PageHeaderActionGroup, PageHeaderPrimaryAction } from "./page-header";
 
-interface LibraryPrimaryActionsProps {
-  folderId?: string | null;
-  spaceId?: string | null;
-}
-
-function scopedPath(pathname: string, params: URLSearchParams) {
-  const query = params.toString();
-  return query ? `${pathname}?${query}` : pathname;
-}
+type LibraryPrimaryActionsProps = LibraryActionScope;
 
 export function LibraryPrimaryActions({
   folderId,
   spaceId,
 }: LibraryPrimaryActionsProps) {
   const t = useT();
-  const scope = new URLSearchParams();
-  if (spaceId) scope.set("spaceId", spaceId);
-  if (folderId) scope.set("folderId", folderId);
-
-  const recordHref = scopedPath("/record", scope);
-  const uploadParams = new URLSearchParams(scope);
-  uploadParams.set("autoUpload", "1");
-  const uploadHref = scopedPath("/record", uploadParams);
-  const importLoomHref = scopedPath("/import", scope);
+  const { recordHref, uploadHref, importLoomHref } = buildLibraryActionHrefs({
+    folderId,
+    spaceId,
+  });
 
   return (
     <PageHeaderActionGroup>
