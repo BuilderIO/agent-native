@@ -4492,7 +4492,8 @@ export default function SlideEditor({
       if (dragSized) box.style.height = `${geometry.height}px`;
       box.style.fontSize = "24px";
       box.style.color = getSlideTextBoxDefaultColor(target, positioningLayer);
-      box.style.fontFamily = "'Poppins', sans-serif";
+      box.style.fontFamily =
+        designSystem?.typography.bodyFont ?? "Inter, sans-serif";
       box.style.lineHeight = "1.3";
       if (text !== ZERO_WIDTH_SPACE) {
         box.style.whiteSpace = "pre-wrap";
@@ -4505,7 +4506,7 @@ export default function SlideEditor({
       enterInlineEdit(box);
       return box;
     },
-    [enterInlineEdit],
+    [designSystem?.typography.bodyFont, enterInlineEdit],
   );
 
   const pastePlainTextAsTextBox = useCallback(
