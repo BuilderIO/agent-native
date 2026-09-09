@@ -26,7 +26,11 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  type QueryClient,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -383,6 +387,14 @@ export function PageEditorSurface({
   } = documentQuery;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const documentQueryKeyValue = documentQueryKey(documentId, {
+    databaseId,
+    databaseDocumentId,
+  });
+  const authoritativeSuccess = useAuthoritativeQuerySuccess(
+    queryClient,
+    documentQueryKeyValue,
+  );
   const [manualRetryDocumentId, setManualRetryDocumentId] = useState<
     string | null
   >(null);
@@ -397,8 +409,8 @@ export function PageEditorSurface({
     dataUpdatedAt,
     errorUpdateCount,
     errorUpdatedAt,
-    isFetching,
     isError,
+    authoritativeSuccess,
   });
   loadFailureRef.current = loadFailure;
   const loadState = documentEditorLoadState({
@@ -429,8 +441,9 @@ export function PageEditorSurface({
       });
       loadFailureRef.current = {
         documentId,
+        queryIdentity: authoritativeSuccess.queryIdentity,
         baselineErrorUpdateCount: errorUpdateCount,
-        recoveryFetchStarted: false,
+        baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
         failed: false,
       };
       await documentQuery.refetch();
@@ -593,10 +606,68 @@ export function documentEditorLoadState({
 
 type DocumentLoadFailureState = {
   documentId: string;
+  queryIdentity: string;
   baselineErrorUpdateCount: number;
-  recoveryFetchStarted: boolean;
+  baselineAuthoritativeSuccessGeneration: number;
   failed: boolean;
 };
+
+export type AuthoritativeQuerySuccess = {
+  queryIdentity: string;
+  generation: number;
+  errorUpdateCount: number;
+};
+
+export function subscribeToAuthoritativeQuerySuccess(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+  onSuccess: (errorUpdateCount: number) => void,
+) {
+  const queryHash = hashKey(queryKey);
+  return queryClient.getQueryCache().subscribe((event) => {
+    if (
+      event.type === "updated" &&
+      event.query.queryHash === queryHash &&
+      event.action.type === "success" &&
+      event.action.manual !== true
+    ) {
+      onSuccess(event.query.state.errorUpdateCount);
+    }
+  });
+}
+
+function useAuthoritativeQuerySuccess(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+): AuthoritativeQuerySuccess {
+  const queryHash = hashKey(queryKey);
+  const [success, setSuccess] = useState({
+    queryHash,
+    generation: 0,
+    errorUpdateCount: 0,
+  });
+
+  useEffect(
+    () =>
+      subscribeToAuthoritativeQuerySuccess(
+        queryClient,
+        queryKey,
+        (errorUpdateCount) => {
+          setSuccess((current) => ({
+            queryHash,
+            generation:
+              current.queryHash === queryHash ? current.generation + 1 : 1,
+            errorUpdateCount,
+          }));
+        },
+      ),
+    [queryClient, queryHash],
+  );
+
+  return success.queryHash === queryHash
+    ? { ...success, queryIdentity: queryHash }
+    : { queryIdentity: queryHash, generation: 0, errorUpdateCount: 0 };
+}
 
 export function updateDocumentLoadFailureState({
   previous,
@@ -605,8 +676,8 @@ export function updateDocumentLoadFailureState({
   dataUpdatedAt,
   errorUpdateCount,
   errorUpdatedAt,
-  isFetching,
   isError,
+  authoritativeSuccess,
 }: {
   previous: DocumentLoadFailureState | null;
   documentId: string;
@@ -614,35 +685,40 @@ export function updateDocumentLoadFailureState({
   dataUpdatedAt: number;
   errorUpdateCount: number;
   errorUpdatedAt: number;
-  isFetching: boolean;
   isError: boolean;
+  authoritativeSuccess: AuthoritativeQuerySuccess;
 }): DocumentLoadFailureState {
-  if (previous?.documentId !== documentId) {
+  if (
+    previous?.documentId !== documentId ||
+    previous.queryIdentity !== authoritativeSuccess.queryIdentity
+  ) {
     return {
       documentId,
+      queryIdentity: authoritativeSuccess.queryIdentity,
       baselineErrorUpdateCount: errorUpdateCount,
-      recoveryFetchStarted: !isError && isFetching && errorUpdateCount > 0,
+      baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
       failed:
         isError || (errorUpdateCount > 0 && errorUpdatedAt > dataUpdatedAt),
     };
   }
-  if (previous.failed && isFetching && !previous.recoveryFetchStarted) {
-    return { ...previous, recoveryFetchStarted: true };
-  }
   if (
-    previous.failed &&
-    previous.recoveryFetchStarted &&
-    !isFetching &&
     !isError &&
-    dataUpdatedAt > errorUpdatedAt
+    authoritativeSuccess.generation >
+      previous.baselineAuthoritativeSuccessGeneration &&
+    authoritativeSuccess.errorUpdateCount >= errorUpdateCount
   ) {
-    return { ...previous, recoveryFetchStarted: false, failed: false };
+    return {
+      ...previous,
+      baselineErrorUpdateCount: errorUpdateCount,
+      baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
+      failed: false,
+    };
   }
   if (admitted || previous.failed) return previous;
   return errorUpdateCount > previous.baselineErrorUpdateCount
     ? {
         ...previous,
-        recoveryFetchStarted: !isError && isFetching,
+        baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
         failed: true,
       }
     : previous;

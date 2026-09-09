@@ -26,6 +26,7 @@ import {
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
   shouldShowNewDocumentTypeChooser,
+  subscribeToAuthoritativeQuerySuccess,
   titleMatchConfirmsSave,
   updateAdditionalBlockContents,
   updateDocumentLoadFailureState,
@@ -314,8 +315,12 @@ describe("document editor layout", () => {
       dataUpdatedAt: initial.dataUpdatedAt,
       errorUpdateCount: initial.errorUpdateCount,
       errorUpdatedAt: initial.errorUpdatedAt,
-      isFetching: initial.isFetching,
       isError: initial.isError,
+      authoritativeSuccess: {
+        queryIdentity: "document-a",
+        generation: 0,
+        errorUpdateCount: 0,
+      },
     });
     const unsubscribe = observer.subscribe(() => {});
 
@@ -340,8 +345,12 @@ describe("document editor layout", () => {
       dataUpdatedAt: replacement.dataUpdatedAt,
       errorUpdateCount: replacement.errorUpdateCount,
       errorUpdatedAt: replacement.errorUpdatedAt,
-      isFetching: replacement.isFetching,
       isError: replacement.isError,
+      authoritativeSuccess: {
+        queryIdentity: "document-a",
+        generation: 0,
+        errorUpdateCount: 0,
+      },
     });
     expect(failure.failed).toBe(true);
     expect(
@@ -352,8 +361,12 @@ describe("document editor layout", () => {
         dataUpdatedAt: replacement.dataUpdatedAt,
         errorUpdateCount: replacement.errorUpdateCount,
         errorUpdatedAt: replacement.errorUpdatedAt,
-        isFetching: replacement.isFetching,
         isError: replacement.isError,
+        authoritativeSuccess: {
+          queryIdentity: "document-a",
+          generation: 0,
+          errorUpdateCount: 0,
+        },
       }).failed,
     ).toBe(true);
 
@@ -364,11 +377,12 @@ describe("document editor layout", () => {
     });
   });
 
-  it("clears a latched load failure only after an observed refetch succeeds", () => {
+  it("clears a latched load failure only after an authoritative fetch succeeds", () => {
     const failed = {
       documentId: "document-a",
+      queryIdentity: "document-a",
       baselineErrorUpdateCount: 1,
-      recoveryFetchStarted: false,
+      baselineAuthoritativeSuccessGeneration: 0,
       failed: true,
     };
     expect(
@@ -379,39 +393,97 @@ describe("document editor layout", () => {
         dataUpdatedAt: 200,
         errorUpdateCount: 1,
         errorUpdatedAt: 100,
-        isFetching: false,
         isError: false,
+        authoritativeSuccess: {
+          queryIdentity: "document-a",
+          generation: 0,
+          errorUpdateCount: 0,
+        },
       }),
     ).toBe(failed);
 
-    const refetching = updateDocumentLoadFailureState({
-      previous: failed,
-      documentId: "document-a",
-      admitted: false,
-      dataUpdatedAt: 200,
-      errorUpdateCount: 1,
-      errorUpdatedAt: 100,
-      isFetching: true,
-      isError: false,
-    });
-    expect(refetching).toEqual({ ...failed, recoveryFetchStarted: true });
-
     expect(
       updateDocumentLoadFailureState({
-        previous: refetching,
+        previous: failed,
         documentId: "document-a",
         admitted: false,
         dataUpdatedAt: 300,
         errorUpdateCount: 1,
         errorUpdatedAt: 100,
-        isFetching: false,
         isError: false,
+        authoritativeSuccess: {
+          queryIdentity: "document-a",
+          generation: 1,
+          errorUpdateCount: 1,
+        },
       }),
     ).toEqual({
       ...failed,
-      recoveryFetchStarted: false,
+      baselineAuthoritativeSuccessGeneration: 1,
       failed: false,
     });
+  });
+
+  it("resets the load-failure baseline when the document query context changes", () => {
+    expect(
+      updateDocumentLoadFailureState({
+        previous: {
+          documentId: "document-a",
+          queryIdentity: "context-a",
+          baselineErrorUpdateCount: 2,
+          baselineAuthoritativeSuccessGeneration: 3,
+          failed: true,
+        },
+        documentId: "document-a",
+        admitted: false,
+        dataUpdatedAt: 0,
+        errorUpdateCount: 0,
+        errorUpdatedAt: 0,
+        isError: false,
+        authoritativeSuccess: {
+          queryIdentity: "context-b",
+          generation: 0,
+          errorUpdateCount: 0,
+        },
+      }),
+    ).toEqual({
+      documentId: "document-a",
+      queryIdentity: "context-b",
+      baselineErrorUpdateCount: 0,
+      baselineAuthoritativeSuccessGeneration: 0,
+      failed: false,
+    });
+  });
+
+  it("distinguishes authoritative fetch success from manual cache writes", async () => {
+    const queryClient = new QueryClient();
+    const queryKey = ["action", "get-document", { id: "document-a" }];
+    const successes: number[] = [];
+    const unsubscribe = subscribeToAuthoritativeQuerySuccess(
+      queryClient,
+      queryKey,
+      (errorUpdateCount) => successes.push(errorUpdateCount),
+    );
+
+    await expect(
+      queryClient.fetchQuery({
+        queryKey,
+        queryFn: async () => {
+          throw new Error("unavailable");
+        },
+      }),
+    ).rejects.toThrow("unavailable");
+    expect(successes).toEqual([]);
+
+    queryClient.setQueryData(queryKey, { id: "document-a", title: "cached" });
+    expect(successes).toEqual([]);
+
+    await queryClient.fetchQuery({
+      queryKey,
+      queryFn: async () => ({ id: "document-a", title: "fetched" }),
+    });
+    expect(successes).toEqual([1]);
+    unsubscribe();
   });
 
   it("does not admit settled cache-shaped data over a latched failure", () => {
