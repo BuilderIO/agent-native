@@ -422,6 +422,10 @@
     border-end-start-radius: var(--agent-native-raised-radius);
     box-shadow: none;
   }
+
+  .agent-layout-main-surface[data-agent-chat-canvas="true"] {
+    border-radius: 0;
+  }
 }
 
 /* Shared agent sidebar entry/exit transitions.
@@ -703,6 +707,69 @@
   height: var(--agent-kit-page-header-height);
   z-index: var(--agent-kit-layer-page-header);
   background: var(--agent-kit-recessed-surface);
+}
+
+.agent-kit-chat-canvas-toolbar {
+  height: var(--agent-kit-page-header-height);
+  z-index: var(--agent-kit-layer-page-header);
+}
+
+[data-agent-chat-workspace-state] .agent-kit-page-header {
+  border-bottom-width: 0;
+}
+
+.agent-kit-chat-canvas-body {
+  width: 100%;
+  overflow: clip;
+}
+
+.agent-kit-workspace-panel {
+  top: var(--agent-kit-page-header-height);
+  bottom: 0;
+  z-index: var(--agent-kit-layer-workspace-panel);
+  width: min(
+    var(--agent-kit-workspace-panel-max-width),
+    calc(100% - var(--agent-kit-workspace-panel-viewport-gutter))
+  );
+}
+
+.agent-kit-workspace-panel[data-state="closed"] {
+  transform: translateX(100%);
+  pointer-events: none;
+}
+
+.agent-kit-workspace-panel[data-state="open"] {
+  transform: translateX(0);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agent-kit-chat-canvas-body,
+  .agent-kit-workspace-panel {
+    transition-duration: var(--agent-kit-workspace-panel-transition-duration);
+    transition-timing-function: var(--ease-drawer);
+  }
+
+  .agent-kit-chat-canvas-body {
+    transition-property: width;
+  }
+
+  .agent-kit-workspace-panel {
+    transition-property: transform;
+  }
+}
+
+.agent-kit-workspace-panel__header {
+  height: var(--agent-kit-page-header-height);
+}
+
+@media (min-width: 48rem) {
+  .agent-kit-chat-canvas-body--workspace-open {
+    width: calc(100% - var(--agent-kit-workspace-panel-width));
+  }
+
+  .agent-kit-workspace-panel {
+    width: var(--agent-kit-workspace-panel-width);
+  }
 }
 
 /* Whole-surface loading treatment. The muted selectors keep hand-rolled

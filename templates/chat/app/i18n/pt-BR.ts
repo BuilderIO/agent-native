@@ -32,6 +32,8 @@ const messages = {
     newChat: "Novo chat",
     optionsFor: "Opções para",
     pinChat: "Fixar chat",
+    pinned: "Fixados",
+    recents: "Recentes",
     renameChat: "Renomear chat",
     renameFailed: "Falha ao renomear",
     renameThread: "Renomear conversa",
@@ -39,6 +41,7 @@ const messages = {
     suggestionCapabilities: "O que este app pode fazer?",
     suggestionCustomize: "Ajude-me a personalizar este app",
     unpinChat: "Desafixar chat",
+    untitledChat: "Chat sem título",
   },
   navigation: {
     chat: "Chat",

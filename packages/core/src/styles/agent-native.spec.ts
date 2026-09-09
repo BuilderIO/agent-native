@@ -145,6 +145,33 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
+  it("keeps the dedicated Chat canvas square against its navigation rail", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-layout-main-surface\[data-agent-chat-canvas="true"\] \{[^}]*border-radius: 0;/s,
+    );
+  });
+
+  it("coordinates the AgentKit workspace reveal with the remaining chat canvas", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-kit-chat-canvas-body--workspace-open \{[^}]*width: calc\(100% - var\(--agent-kit-workspace-panel-width\)\);/s,
+    );
+    expect(css).toMatch(
+      /\.agent-kit-chat-canvas-body \{[^}]*transition-property: width;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-kit-workspace-panel \{[^}]*transition-property: transform;/s,
+    );
+    expect(css).not.toContain("--agent-kit-workspace-panel-opacity-duration");
+  });
+
   it("removes shell transitions while the agent sidebar is being resized", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",

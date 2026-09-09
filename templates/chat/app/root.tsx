@@ -10,7 +10,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
-import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/theme";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -176,4 +176,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/core/client/error-boundary";

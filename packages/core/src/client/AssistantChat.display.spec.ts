@@ -1740,6 +1740,16 @@ describe("tool approval continuation", () => {
 });
 
 describe("chat connection suggestion alignment", () => {
+  it("does not promote integrations from composer text", () => {
+    const chatSource = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(chatSource).not.toContain(
+      "<McpConnectionSuggestion text={composerText}",
+    );
+  });
+
   it("uses the fullscreen composer width contract and removes page-only insets", () => {
     const panelSource = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",

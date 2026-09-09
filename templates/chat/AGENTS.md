@@ -51,6 +51,10 @@ brand. Its `app.name` is used in transactional emails, and its optional
 - `navigate` moves the UI when the app supports it.
 - `view-screen` is the first tool to call when the user's visible context
   matters.
+- `provider-api-request` calls Slack through the shared workspace connection.
+  Use `provider: "slack"` and an exact Web API path such as `/auth.test`.
+  Missing access pauses the run and opens the contextual connection card; do
+  not ask the user to paste credentials or replace the request with prose.
 
 ## Source Changes
 

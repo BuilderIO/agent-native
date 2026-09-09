@@ -31,6 +31,8 @@ const messages = {
     newChat: "新しいチャット",
     optionsFor: "オプション:",
     pinChat: "チャットをピン留め",
+    pinned: "ピン留め",
+    recents: "最近",
     renameChat: "チャット名を変更",
     renameFailed: "名前の変更に失敗しました",
     renameThread: "スレッド名を変更",
@@ -38,6 +40,7 @@ const messages = {
     suggestionCapabilities: "このアプリで何ができますか？",
     suggestionCustomize: "このアプリのカスタマイズを手伝って",
     unpinChat: "チャットのピン留めを解除",
+    untitledChat: "無題のチャット",
   },
   navigation: {
     chat: "チャット",

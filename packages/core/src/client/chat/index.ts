@@ -103,6 +103,25 @@ export {
 } from "./message-components.js";
 export * from "./runtime.js";
 export {
+  createAgentKitProtocolAdapter,
+  type AgentKitProtocolAdapter,
+  type CreateAgentKitProtocolAdapterOptions,
+} from "./agentkit-protocol.js";
+export {
+  createAgentNativeAgentKitTransport,
+  type CreateAgentNativeAgentKitTransportOptions,
+} from "./agentkit-agent-native.js";
+export {
+  AGENT_CHAT_RUNNING_EVENT,
+  dispatchAgentChatRunning,
+  resolveAgentChatRunningThreadId,
+  useAgentChatRunningThreads,
+  type AgentChatPresentationPhase,
+  type AgentChatRunningEventDetail,
+  type AgentChatRunningThreadsState,
+  type UseAgentChatRunningThreadsOptions,
+} from "../use-agent-chat-running-threads.js";
+export {
   sendToAgentChat,
   sendToAgentChatAndConfirm,
   reportAgentChatSubmitResult,

@@ -54,6 +54,13 @@ function appCoreVersion(appDir: string): string {
   return pkg.dependencies["@agent-native/core"];
 }
 
+function appDependencyVersion(appDir: string, name: string): string {
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(appDir, "package.json"), "utf-8"),
+  );
+  return pkg.dependencies[name];
+}
+
 describe("workspacifyApp core pinning", () => {
   it("inherits the version the workspace root already pins", () => {
     const { root, appDir } = makeWorkspace("0.120.3");
@@ -84,6 +91,82 @@ describe("workspacifyApp core pinning", () => {
       });
       expect(appCoreVersion(appDir)).toBe("0.131.4");
     }
+  });
+
+  it("resolves AgentKit as a framework dependency", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    const pkgPath = path.join(appDir, "package.json");
+    fs.writeFileSync(
+      pkgPath,
+      JSON.stringify(
+        {
+          name: "chat",
+          dependencies: {
+            "@agent-native/core": "workspace:*",
+            "@agent-native/agentkit": "workspace:*",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "chat",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+      coreDependencyVersion: "0.131.4",
+      agentKitDependencyVersion: "0.1.0",
+    });
+
+    expect(appDependencyVersion(appDir, "@agent-native/agentkit")).toBe(
+      "0.1.0",
+    );
+  });
+
+  it("inherits the AgentKit version already pinned by the workspace root", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    const rootPackagePath = path.join(root, "package.json");
+    fs.writeFileSync(
+      rootPackagePath,
+      JSON.stringify(
+        {
+          name: "ws",
+          dependencies: { "@agent-native/agentkit": "^0.2.1" },
+        },
+        null,
+        2,
+      ),
+    );
+    const appPackagePath = path.join(appDir, "package.json");
+    fs.writeFileSync(
+      appPackagePath,
+      JSON.stringify(
+        {
+          name: "chat",
+          dependencies: {
+            "@agent-native/core": "workspace:*",
+            "@agent-native/agentkit": "workspace:*",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "chat",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+      coreDependencyVersion: "0.131.4",
+      agentKitDependencyVersion: "^0.3.0",
+    });
+
+    expect(appDependencyVersion(appDir, "@agent-native/agentkit")).toBe(
+      "^0.2.1",
+    );
   });
 
   it("links inherited skills and removes template copies while preserving app skills", () => {

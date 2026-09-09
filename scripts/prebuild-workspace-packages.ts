@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
-type PrebuildMode = "dev" | "postinstall";
+type PrebuildMode = "agentkit-acceptance" | "dev" | "postinstall";
 
 interface PackageTarget {
   id: string;
@@ -242,6 +242,16 @@ const targets: PackageTarget[] = [
 ];
 
 const modeTargets: Record<PrebuildMode, string[]> = {
+  "agentkit-acceptance": [
+    "agentkit-protocol",
+    "agentkit-client",
+    "agentkit-adapters",
+    "agentkit-conformance",
+    "agentkit-react",
+    "agentkit",
+    "toolkit",
+    "core",
+  ],
   dev: [
     "agentkit-protocol",
     "agentkit-client",
@@ -282,9 +292,11 @@ const modeTargets: Record<PrebuildMode, string[]> = {
 
 function readMode(): PrebuildMode {
   const raw = process.argv[2] ?? "dev";
-  if (raw === "dev" || raw === "postinstall") return raw;
+  if (raw === "agentkit-acceptance" || raw === "dev" || raw === "postinstall") {
+    return raw;
+  }
   console.error(
-    `[prebuild-workspace-packages] Unknown mode "${raw}". Use dev or postinstall.`,
+    `[prebuild-workspace-packages] Unknown mode "${raw}". Use agentkit-acceptance, dev, or postinstall.`,
   );
   process.exit(1);
 }
@@ -300,9 +312,12 @@ function firstMissingOutput(target: PackageTarget): string | null {
   return null;
 }
 
-function clearStaleBuildInfo(target: PackageTarget): void {
+function clearStaleBuildInfo(
+  target: PackageTarget,
+  options: { force: boolean },
+): void {
   const missingOutput = firstMissingOutput(target);
-  if (!missingOutput) return;
+  if (!missingOutput && !options.force) return;
 
   const removed: string[] = [];
   for (const buildInfo of target.tsBuildInfoFiles ?? []) {
@@ -314,10 +329,12 @@ function clearStaleBuildInfo(target: PackageTarget): void {
 
   if (removed.length > 0) {
     console.log(
-      `[prebuild-workspace-packages] ${target.name}: ${path.join(
-        target.dir,
-        missingOutput,
-      )} is missing; removed stale ${removed.join(", ")}`,
+      options.force
+        ? `[prebuild-workspace-packages] ${target.name}: removed incremental state for a deterministic acceptance build: ${removed.join(", ")}`
+        : `[prebuild-workspace-packages] ${target.name}: ${path.join(
+            target.dir,
+            missingOutput!,
+          )} is missing; removed stale ${removed.join(", ")}`,
     );
   }
 }
@@ -330,7 +347,7 @@ const selectedTargets = modeTargets[mode].map((id) => {
 });
 
 for (const target of selectedTargets) {
-  clearStaleBuildInfo(target);
+  clearStaleBuildInfo(target, { force: mode === "agentkit-acceptance" });
 }
 
 const filters = selectedTargets.flatMap((target) => ["--filter", target.name]);

@@ -15,6 +15,8 @@
     "test": "vitest --run --passWithNoTests"
   },
   "dependencies": {
+    "@agent-native/agentkit": "workspace:*",
+    "@agent-native/agentkit-react": "workspace:*",
     "@agent-native/core": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@ai-sdk/anthropic": "^3.0.71",
@@ -31,7 +33,9 @@
     "h3": "catalog:",
     "isbot": "^5",
     "node-pty": "^1.1.0",
-    "zod": "^4.4.3"
+    "use-sync-external-store": "^1.6.0",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@radix-ui/react-accordion": "^1.2.12",

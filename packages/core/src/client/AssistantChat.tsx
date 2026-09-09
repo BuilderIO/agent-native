@@ -217,7 +217,6 @@ import {
   consumeMcpConnectionResume,
   type McpConnectionResumeRequest,
 } from "./resources/mcp-connection-resume.js";
-import { McpConnectionSuggestion } from "./resources/McpConnectionSuggestion.js";
 import {
   claimRunStream,
   createRunStreamToken,
@@ -2681,16 +2680,13 @@ const AssistantChatInner = forwardRef<
     () => readAssistantChatComposerDraft(composerDraftScope),
     [composerDraftScope],
   );
-  const [composerText, setComposerText] = useState(initialComposerText ?? "");
   useEffect(() => {
     const restoredText = initialComposerText ?? "";
-    setComposerText(restoredText);
     if (!isActiveComposer) return;
     onComposerTextChange?.(restoredText);
   }, [initialComposerText, isActiveComposer, onComposerTextChange]);
   const handleComposerTextChange = useCallback(
     (text: string) => {
-      setComposerText(text);
       writeAssistantChatComposerDraft(composerDraftScope, text);
       onComposerTextChange?.(text);
     },
@@ -6780,9 +6776,6 @@ const AssistantChatInner = forwardRef<
                           </MessageScrollerProvider>
 
                           {showComposerSlot ? composerSlot : null}
-                          {isActiveComposer && (
-                            <McpConnectionSuggestion text={composerText} />
-                          )}
                           {showCenteredEmptyThreadFooterSlot ? (
                             <div className="agent-thread-footer-slot agent-thread-footer-slot--centered-empty">
                               {resolvedThreadFooterSlot}
