@@ -268,6 +268,17 @@ production deployment:
 | `ALLOW_DRIZZLE_PUSH_ON_NEON` / `AN_*` / `AUTO_CREATE_DEFAULT_ORG` / `DO_NOT_TRACK` / `ENABLE_*` / `PI_*`                                                                              | Explicitly opt-in local or maintainer controls. Read the owning source before setting them.                                                                                        |
 | `CLAUDE_PROJECT_DIR` / `CODE_AGENTS_PROJECT_ROOT` / `LANES` / `FORCE_COLOR` / `LC_ALL` / `LC_CTYPE` / `NO_COLOR` / `PNPM_HOME`                                                        | Local coding-agent, shell, package-manager, and test-lane tooling.                                                                                                                 |
 
+The AgentKit package acceptance harness (`scripts/qa-agentkit-packages.ts`)
+also accepts these maintainer-only controls:
+
+- `AGENTKIT_PACKAGING_PNPM`: package-manager executable; defaults to `pnpm`.
+- `AGENTKIT_PACKAGING_PNPM_CLI`: optional pnpm CLI script path. When set, the
+  harness runs this script with Node instead of the package-manager executable.
+- `AGENTKIT_PACKAGING_NODE`: Node executable used with `AGENTKIT_PACKAGING_PNPM_CLI`;
+  defaults to the current Node executable and is unused without the CLI override.
+- `AGENTKIT_PACKAGING_TIMEOUT_MS`: per-command timeout in milliseconds; defaults
+  to `300000`.
+
 ## CI-only variables
 
 | Variable                      | Purpose                                                                                                                                                                                 |
