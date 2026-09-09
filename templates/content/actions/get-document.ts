@@ -4,7 +4,6 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { roleSatisfies } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { documentTrashedError } from "./_document-lifecycle.js";
 import { getDb } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
@@ -21,6 +20,7 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
+import { documentTrashedError } from "./_document-lifecycle.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getDatabaseById,

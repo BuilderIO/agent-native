@@ -133,32 +133,26 @@ describe("property writes respect document lifecycle and existing grants", () =>
     const db = getDb();
     const rowId = `lifecycle-row-${database.databaseId}`;
     const propertyId = `lifecycle-property-${database.databaseId}`;
-    await db
-      .insert(schema.documents)
-      .values({
-        id: rowId,
-        ownerEmail: OWNER,
-        title: "Example row",
-        content: "original",
-      });
-    await db
-      .insert(schema.contentDatabaseItems)
-      .values({
-        id: `lifecycle-item-${database.databaseId}`,
-        ownerEmail: OWNER,
-        databaseId: database.databaseId,
-        documentId: rowId,
-      });
-    await db
-      .insert(schema.documentPropertyDefinitions)
-      .values({
-        id: propertyId,
-        ownerEmail: OWNER,
-        databaseId: database.databaseId,
-        name: "Example field",
-        type,
-        optionsJson: JSON.stringify({ blocks: { primary } }),
-      });
+    await db.insert(schema.documents).values({
+      id: rowId,
+      ownerEmail: OWNER,
+      title: "Example row",
+      content: "original",
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `lifecycle-item-${database.databaseId}`,
+      ownerEmail: OWNER,
+      databaseId: database.databaseId,
+      documentId: rowId,
+    });
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId: database.databaseId,
+      name: "Example field",
+      type,
+      optionsJson: JSON.stringify({ blocks: { primary } }),
+    });
     if (primary)
       await db
         .update(schema.contentDatabases)
