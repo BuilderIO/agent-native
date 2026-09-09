@@ -634,6 +634,13 @@ function headingKeys(view: AuthView): { heading: string; subtitle: string } {
   return { heading: "welcomeTitle", subtitle: "createAccountSubtitle" };
 }
 
+export function shouldHideAuthSubtitle(
+  view: AuthView,
+  localDevAvailable: boolean,
+): boolean {
+  return view === "signup" && localDevAvailable;
+}
+
 export function AuthPage(props: AuthPageProps) {
   const {
     authMode,
@@ -2294,7 +2301,12 @@ export function AuthPage(props: AuthPageProps) {
       <h1 id="heading" data-i18n={keys.heading}>
         {t(keys.heading)}
       </h1>
-      <p id="subtitle" className="subtitle" data-i18n={keys.subtitle}>
+      <p
+        id="subtitle"
+        className="subtitle"
+        data-i18n={keys.subtitle}
+        hidden={shouldHideAuthSubtitle(view, localDevAvailable)}
+      >
         {t(keys.subtitle)}
       </p>
       <p

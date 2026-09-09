@@ -48,7 +48,6 @@ if (_unsupportedNode) {
   );
   process.exit(1);
 }
-
 /**
  * Build a redacted "command" tag from process.argv. Strips the value that
  * follows any --token / --key / --secret / --password / --api-key flag so

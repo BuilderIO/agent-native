@@ -30,6 +30,8 @@ Shared login के साथ कई apps को एक origin के पीछ�
 
 Standalone app को stable `BETTER_AUTH_SECRET` चाहिए। Signed cross-app requests वाले workspace को `A2A_SECRET` चाहिए।
 
+इन values को केवल local `.env` में नहीं, hosting provider की environment settings में सेट करें। Auth secret `openssl rand -hex 32` से बनाएं। Agent-Native में email delivery account शामिल नहीं है; Resend या SendGrid को अलग से connect करें।
+
 ## ईमेल डिलीवरी वैकल्पिक है, लेकिन इसकी सलाह दी जाती है {#email-provider}
 
 ईमेल और पासवर्ड वाले authentication के लिए ईमेल provider आवश्यक नहीं है। इसके बिना deployed apps ईमेल और पासवर्ड से signup और login करती हैं, signup email verification छोड़ देती हैं और magic-link authentication उपलब्ध नहीं कराती हैं।

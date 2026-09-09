@@ -1,6 +1,56 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // We test the pure functions that don't require database initialization.
+
+describe("PGlite dev reloads", () => {
+  const processState = process as NodeJS.Process & {
+    __agentNativePgliteClients?: Map<string, Promise<unknown>>;
+    __agentNativePgliteProcessLocks?: Map<string, unknown>;
+    __agentNativePgliteProcessExitCleanupRegistered?: boolean;
+  };
+  let dataDir = "";
+
+  afterEach(async () => {
+    const { closePgliteClients } = await import("./client.js");
+    await closePgliteClients();
+    delete processState.__agentNativePgliteClients;
+    delete processState.__agentNativePgliteProcessLocks;
+    delete processState.__agentNativePgliteProcessExitCleanupRegistered;
+    vi.doUnmock("@electric-sql/pglite");
+    vi.resetModules();
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it("reuses one client when a Vite reload gets a fresh global realm", async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "agent-native-pglite-reload-"));
+    const client = { close: vi.fn(async () => {}) };
+    const create = vi.fn(async () => client);
+    vi.doMock("@electric-sql/pglite", () => ({ PGlite: { create } }));
+
+    const firstModule = await import("./client.js");
+    const first = await firstModule.getPgliteClient(`pglite:${dataDir}`);
+
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__agentNativePgliteClients",
+    );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__agentNativePgliteProcessLocks",
+    );
+    vi.resetModules();
+
+    const reloadedModule = await import("./client.js");
+    const reloaded = await reloadedModule.getPgliteClient(`pglite:${dataDir}`);
+
+    expect(reloaded).toBe(first);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("db/client Postgres URL handling", () => {
   let originalEnv: NodeJS.ProcessEnv;
