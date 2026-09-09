@@ -183,6 +183,19 @@ describe("Clips page agent discovery", () => {
     );
   });
 
+  it("does not publish discovery for expired recordings in the anonymous shell", async () => {
+    mockRecording.value = recording({
+      expiresAt: "2020-01-01T00:00:00.000Z",
+    });
+
+    const response = (await (handler as any)({
+      url: "https://clips.example.com/share/rec-1",
+      query: {},
+    })) as Response;
+
+    expect(await response.text()).not.toContain("agent-context.json");
+  });
+
   it("treats t as playback state rather than an access token", async () => {
     const response = (await (handler as any)({
       url: "https://clips.example.com/share/rec-1?t=1500",

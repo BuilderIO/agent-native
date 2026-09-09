@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -266,10 +266,18 @@ export default defineAction({
   }),
   run: async ({ deckId }) => {
     const userEmail = getRequestUserEmail();
-    if (!userEmail) throw new Error("no authenticated user");
+    if (!userEmail)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
 
     const access = await resolveAccess("deck", deckId);
-    if (!access) throw new Error(`Deck not found: ${deckId}`);
+    if (!access)
+      fail(`Deck not found: ${deckId}`, {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      });
 
     const row = access.resource;
     const deckData = JSON.parse(row.data);
@@ -282,7 +290,10 @@ export default defineAction({
       : undefined;
 
     if (slides.length === 0) {
-      return { error: "Cannot export empty deck" };
+      fail("Cannot export empty deck", {
+        errorCode: "empty_deck",
+        statusCode: 400,
+      });
     }
 
     const html = buildStandaloneHtml(row.title, slides, aspectRatio);

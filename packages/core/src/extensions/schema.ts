@@ -82,7 +82,8 @@ export const EXTENSION_SHARES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_shar
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT now()
+  created_at TEXT NOT NULL DEFAULT now(),
+  notified_at TEXT
 )`;
 
 export const extensionData = table("tool_data", {

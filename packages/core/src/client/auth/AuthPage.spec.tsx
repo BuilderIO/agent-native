@@ -73,7 +73,7 @@ describe("AuthPage", () => {
     expect(html).not.toContain("onclick");
   });
 
-  it("composes the shared marketing home and product screenshot for branded auth", () => {
+  it("composes the shared marketing home and animated background for branded auth", () => {
     const onboardingHtml = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
     });
@@ -81,15 +81,14 @@ describe("AuthPage", () => {
     const html = renderToString(<AuthPage {...props} />);
 
     expect(html).toContain('data-agent-native-marketing-home="true"');
-    expect(html).toContain('class="auth-marketing-screenshot"');
-    expect(html).toContain("/auth-marketing/slides.webp");
+    expect(html).toContain("auth-marketing-screenshot");
+    expect(html).not.toContain('<img class="auth-marketing-screenshot"');
     expect(html).toContain("New to Slides?");
     expect(html).toContain('href="https://agent-native.com/apps/slides"');
     expect(html).toContain('class="auth-marketing-learn-more"');
     expect(onboardingHtml).toContain(
       "bottom: max(1rem, env(safe-area-inset-bottom));\n    inset-inline-end: max(1rem, env(safe-area-inset-right));",
     );
-    expect(html).not.toContain('data-agent-native-starfield="true"');
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
     expect(html).toContain('class="form-panel');
@@ -101,8 +100,8 @@ describe("AuthPage", () => {
       "position: fixed;\n    inset: 0;\n    z-index: 0;",
     );
     expect(onboardingHtml).toContain("max-height: none;");
-    expect(onboardingHtml).toContain("filter: blur(18px)");
-    expect(onboardingHtml).toContain("opacity: 0.8");
+    expect(onboardingHtml).toContain("filter: none");
+    expect(onboardingHtml).toContain("opacity: 0.15");
     expect(onboardingHtml).toContain("object-fit: cover");
     expect(onboardingHtml).toContain(
       "box-shadow: 0 12px 36px rgba(0,0,0,0.38)",
@@ -149,7 +148,7 @@ describe("AuthPage", () => {
     const html = getOnboardingHtml({ requestHost });
 
     expect(html).toContain(`style="aspect-ratio:${ratio}"`);
-    expect(html).toContain('class="auth-marketing-screenshot"');
+    expect(html).toContain("auth-marketing-screenshot");
   });
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {

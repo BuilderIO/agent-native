@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, eq, gte, isNull } from "drizzle-orm";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
 
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec } from "../db/client.js";
@@ -248,6 +248,11 @@ export interface ExtensionRow {
   ownerEmail: string;
   orgId: string | null;
   visibility: "private" | "org" | "public";
+  /**
+   * Present when listed without loading the content blob. Callers should
+   * prefer this over `content.length` when `content` may be an empty stub.
+   */
+  contentLength?: number;
 }
 
 export type ExtensionHistoryOperation =
@@ -742,6 +747,11 @@ export interface ListExtensionsOptions {
    * Off by default so globally-hidden extensions disappear for everyone.
    */
   includeGloballyHidden?: boolean;
+  /**
+   * Include the Alpine/HTML `content` blob. Off by default so listing stays
+   * cheap — use `getExtension` / `includeContent: true` when the body is needed.
+   */
+  includeContent?: boolean;
 }
 
 export async function listExtensions(
@@ -757,10 +767,40 @@ export async function listExtensions(
   const where = options.includeGloballyHidden
     ? visible
     : and(visible, isNull(extensions.hiddenAt));
-  const rows = (await db
-    .select()
-    .from(extensions)
-    .where(where)) as ExtensionRow[];
+
+  const includeContent = options.includeContent === true;
+  let rows: ExtensionRow[];
+  if (includeContent) {
+    rows = (await db.select().from(extensions).where(where)) as ExtensionRow[];
+  } else {
+    // Omit the large content blob; project length in SQL instead of loading it.
+    const projected = await db
+      .select({
+        id: extensions.id,
+        name: extensions.name,
+        description: extensions.description,
+        icon: extensions.icon,
+        createdAt: extensions.createdAt,
+        updatedAt: extensions.updatedAt,
+        archivedAt: extensions.archivedAt,
+        hiddenAt: extensions.hiddenAt,
+        hiddenBy: extensions.hiddenBy,
+        ownerEmail: extensions.ownerEmail,
+        orgId: extensions.orgId,
+        visibility: extensions.visibility,
+        contentLength: sql<number>`length(${extensions.content})`.as(
+          "contentLength",
+        ),
+      })
+      .from(extensions)
+      .where(where);
+    rows = projected.map((row) => ({
+      ...row,
+      visibility: row.visibility as ExtensionRow["visibility"],
+      content: "",
+      contentLength: Number(row.contentLength) || 0,
+    }));
+  }
 
   if (options.includeHidden) return rows;
 

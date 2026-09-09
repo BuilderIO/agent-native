@@ -773,6 +773,20 @@ async function waitForTextPrimitive(
   return primitive;
 }
 
+async function liveTextPrimitiveTexts(page: Page): Promise<string[]> {
+  return page
+    .locator("iframe[data-design-preview-iframe]")
+    .evaluateAll((iframes) =>
+      iframes.flatMap((iframe) =>
+        Array.from(
+          (iframe as HTMLIFrameElement).contentDocument?.querySelectorAll(
+            '[data-an-primitive="text"]',
+          ) ?? [],
+        ).map((element) => element.textContent ?? ""),
+      ),
+    );
+}
+
 async function waitForTextEditing(page: Page): Promise<void> {
   await expect
     .poll(
@@ -1715,6 +1729,40 @@ test("click text creates auto-width text and survives reload", async ({
   await expect
     .poll(async () => fileContent(page, "index.html"), { timeout: 20_000 })
     .toContain(text);
+});
+
+test("typing into a new text layer and clicking out renders it once, in order", async ({
+  page,
+}) => {
+  const card = await homeScreenCard(page);
+  const box = await card.boundingBox();
+  if (!box) throw new Error("no home screen card box");
+
+  await toolButton(page, "Text").click();
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.mouse.click(box.x + box.width * 0.3, box.y + 120);
+  // No wait and no select-all: typing straight into the new layer races
+  // text-edit activation, which is when the host flushes its buffered keys.
+  await page.keyboard.type("my page", { delay: 40 });
+  await page.waitForTimeout(400);
+  // Clicking out commits through blur, which Escape does not exercise.
+  await page.mouse.click(box.x + box.width * 0.75, box.y + box.height - 60);
+
+  await expect
+    .poll(async () => liveTextPrimitiveTexts(page), { timeout: 15_000 })
+    .toEqual(["my page"]);
+  await expect
+    .poll(
+      async () =>
+        countOccurrences(await fileContent(page, "index.html"), "my page"),
+      {
+        timeout: 20_000,
+      },
+    )
+    .toBe(1);
 });
 
 test("new empty text is one atomic undo step and cancel leaves the frame intact", async ({

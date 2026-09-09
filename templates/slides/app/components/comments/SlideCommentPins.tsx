@@ -67,10 +67,7 @@ function CommentAvatar({
   const avatarUrl = useAvatarUrl(email);
   return (
     <Avatar
-      className={cn(
-        "size-8 border-2 border-background shadow-sm ring-1 ring-border/60",
-        className,
-      )}
+      className={cn("size-8 border border-background shadow-sm", className)}
       title={name || email}
     >
       {avatarUrl ? <AvatarImage src={avatarUrl} alt={name || email} /> : null}

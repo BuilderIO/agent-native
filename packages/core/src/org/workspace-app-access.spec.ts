@@ -43,6 +43,31 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(true);
   });
 
+  it.each(["owner", "admin"] as const)(
+    "allows organization %s members to access Dispatch",
+    async (role) => {
+      mocks.execute.mockResolvedValueOnce({ rows: [{ role }] });
+
+      await expect(
+        isWorkspaceAppAccessAllowed("dispatch", {
+          email: `${role}@example.com`,
+          orgId: "org-1",
+        }),
+      ).resolves.toBe(true);
+    },
+  );
+
+  it("denies organization members access to Dispatch", async () => {
+    mocks.execute.mockResolvedValueOnce({ rows: [{ role: "member" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("dispatch", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("allows organization members for org-visible apps", async () => {
     mocks.execute
       .mockResolvedValueOnce({
@@ -197,6 +222,9 @@ describe("isWorkspaceAppAccessAllowed", () => {
 
   it("uses the authoritative Dispatch registry when configured", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-vercel-bypass");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", "dispatch.example.test");
     vi.stubEnv(
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
@@ -233,6 +261,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
         headers: expect.objectContaining({
           accept: "application/json",
           Authorization: expect.stringMatching(/^Bearer /),
+          "x-vercel-protection-bypass": "test-vercel-bypass",
         }),
       }),
     );

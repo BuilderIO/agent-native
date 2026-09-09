@@ -114,6 +114,7 @@ import { cn } from "@/lib/utils";
 
 import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
+import { isRecordingExpired } from "../../server/lib/recording-page-access";
 import {
   buildAgentApiUrls,
   buildAgentDiscoveryPayload,
@@ -269,11 +270,8 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
 
   if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
 
-  if (rec.expiresAt) {
-    const expires = new Date(rec.expiresAt).getTime();
-    if (Number.isFinite(expires) && expires < Date.now()) {
-      return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
-    }
+  if (isRecordingExpired(rec.expiresAt)) {
+    return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
   }
 
   if (rec.visibility !== "public" && !tokenGrantsAgentAccess) {

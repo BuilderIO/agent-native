@@ -53,7 +53,7 @@ export interface PresenceBarProps {
 
 const AVATAR_SIZE = 28;
 const OVERLAP = -8;
-const BORDER_WIDTH = 2;
+const BORDER_WIDTH = 1;
 const FONT_SIZE = 12;
 const AGENT_COLOR = "#00B5FF";
 
@@ -121,9 +121,8 @@ function UserAvatar({
             backgroundColor: color,
             marginLeft: isFirst ? 0 : OVERLAP,
             cursor: onClick ? "pointer" : "default",
-            boxShadow: isFollowing
-              ? `0 0 0 2px #3b82f6, 0 0 0 4px #fff`
-              : `0 0 0 2px #fff`,
+            // guard:allow-raw-color -- existing follow-mode ring color
+            boxShadow: isFollowing ? `0 0 0 1px #3b82f6` : undefined,
           }}
           aria-label={`${name} (${user.email})${isFollowing ? " — following" : ""}`}
           tabIndex={onClick ? 0 : undefined}
@@ -195,7 +194,7 @@ function AgentAvatar({
               cursor: onClick ? "pointer" : "default",
               boxShadow: isFollowing
                 ? // guard:allow-raw-color -- existing follow-mode ring color
-                  `0 0 0 2px #3b82f6, 0 0 0 4px #fff`
+                  `0 0 0 1px #3b82f6`
                 : undefined,
             }}
             aria-label={tooltipLabel}

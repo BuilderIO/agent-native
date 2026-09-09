@@ -121,6 +121,7 @@ export interface DocumentCreateRequest {
 export interface DocumentUpdateRequest {
   title?: string;
   content?: string;
+  historySessionId?: string;
   description?: string;
   icon?: string | null;
   isFavorite?: boolean;
