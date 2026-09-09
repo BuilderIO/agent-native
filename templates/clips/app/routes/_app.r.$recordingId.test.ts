@@ -132,7 +132,7 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("<ViewerTabsList");
     expect(route).toContain('<ViewerTabsTrigger value="comments">');
     expect(route).toContain('<ViewerTabsTrigger value="transcript">');
-    expect(route).toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
     expect(route).toContain('<ViewerTabsTrigger value="debug">');
     expect(route).toContain('<ViewerTabsTrigger value="settings">');
     expect(route).toContain("isFullBrowserDiagnostics");
@@ -148,7 +148,9 @@ describe("direct recording route shell cue", () => {
     expect(route).not.toContain("IconLayoutSidebarRightExpand");
     expect(route).not.toContain("closeSidePanel");
     expect(route).not.toContain("lastToolbarPanelRef");
-    expect(route).toContain("!editing && !isCompactLayout && panel");
+    expect(route).toContain(
+      "!editing && !isCompactLayout && !globalAgentSidebarOpen && panel",
+    );
     const mobilePanelStart = route.indexOf('id="clip-activity-panel"');
     const mobilePanel = route.slice(
       mobilePanelStart,
@@ -211,20 +213,28 @@ describe("direct recording route shell cue", () => {
     expect(viewerControls).not.toContain("hover:bg-muted/50");
   });
 
-  it("embeds Agent in the recording panel without mounting a second rail", () => {
+  it("uses the global Agent sidebar for recording context", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
+    const appRoute = readRoute("_app.tsx");
     const layout = readFileSync(
       resolve(process.cwd(), "app/components/library/library-layout.tsx"),
       "utf8",
     );
+    const commandMenu = readFileSync(
+      resolve(process.cwd(), "app/components/clips-command-menu.tsx"),
+      "utf8",
+    );
 
-    expect(route).toContain('<ViewerTabsTrigger value="agent">');
-    expect(route).toContain('value="agent"');
-    expect(route).toContain("<AgentPanel");
-    expect(route).toContain('scope={{ type: "recording", id: recording.id }}');
+    expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).not.toContain("<AgentPanel");
+    expect(route).toContain("requestAgentSidebarOpen");
+    expect(route).toContain("SIDEBAR_STATE_CHANGE_EVENT");
+    expect(route).toContain("useGlobalAgentSidebarOpen");
+    expect(route).toContain("!globalAgentSidebarOpen");
     expect(route).toContain("openAgentPanel");
-    expect(route).not.toContain("openGlobalAgentPanel");
     expect(route).not.toContain("<LibraryLayout");
+    expect(appRoute).toContain("<LibraryLayout>");
+    expect(appRoute).not.toContain("showAgentSidebar");
     expect(layout).toContain("<AgentSidebar");
     expect(layout).toContain(
       'className="agent-layout-main-surface flex min-h-0 min-w-0 flex-1 flex-col"',
@@ -236,8 +246,12 @@ describe("direct recording route shell cue", () => {
     expect(layout).toContain("<ClipsAgentToggleButton />");
     expect(layout).toContain("[--agent-native-viewport-height:100%]");
     expect(layout).not.toContain("[&>.agent-sidebar-shell]:h-full");
-    expect(layout).toContain("showAgentSidebar = true");
-    expect(layout).toContain("{showAgentSidebar ? (");
+    expect(layout).not.toContain("showAgentSidebar");
+    expect(layout).toContain("scope={recordingScope}");
+    expect(layout).toContain('t("recordingPage.askAboutClip")');
+    expect(layout).toContain('t("recordingPage.summarizeClip")');
+    expect(commandMenu).toContain("AGENT_SIDEBAR_QUERY_PARAM");
+    expect(commandMenu).toContain("AGENT_SIDEBAR_QUERY_VALUE_OPEN");
     expect(route).toContain("<PageHeader>");
     expect(route).toContain("<PageBreadcrumb items={recordingBreadcrumbItems}");
     expect(route).not.toContain('from "@/components/ui/breadcrumb"');

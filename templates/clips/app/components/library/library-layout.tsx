@@ -81,8 +81,6 @@ import { SpaceDialogs } from "./space-dialogs";
 
 interface LibraryLayoutProps {
   children: ReactNode;
-  /** Disable the workspace Agent rail when a route embeds Agent in its own panel. */
-  showAgentSidebar?: boolean;
 }
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "clips:left-sidebar-collapsed";
@@ -190,10 +188,7 @@ function ExpandedSidebarNavGroup({
   );
 }
 
-export function LibraryLayout({
-  children,
-  showAgentSidebar = true,
-}: LibraryLayoutProps) {
+export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
@@ -876,34 +871,41 @@ export function LibraryLayout({
               ref={setHeaderSlot}
               className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
             />
-            {showAgentSidebar ? (
-              <div className="ms-1 flex items-center border-s border-border ps-2">
-                <ClipsAgentToggleButton />
-              </div>
-            ) : null}
+            <div className="ms-1 flex items-center border-s border-border ps-2">
+              <ClipsAgentToggleButton />
+            </div>
           </header>
         )}
         <div className="flex min-h-0 flex-1 overflow-hidden [--agent-native-viewport-height:100%]">
-          {showAgentSidebar ? (
-            <AgentSidebar
-              position="right"
-              defaultOpen={false}
-              showCollapseButton={isMobile}
-              emptyStateText={t("navigation.agentEmptyState")}
-              suggestions={[
-                t("navigation.agentSuggestionSummary"),
-                t("navigation.agentSuggestionPricing"),
-                t("navigation.agentSuggestionFiller"),
-              ]}
-              agentPageHref="/settings/agent"
-              scope={recordingScope}
-              browserTabId={getBrowserTabId()}
-            >
-              {pageContent}
-            </AgentSidebar>
-          ) : (
-            pageContent
-          )}
+          <AgentSidebar
+            position="right"
+            defaultOpen={false}
+            showCollapseButton={isMobile}
+            emptyStateText={
+              recordingScope
+                ? t("recordingPage.askAboutClip")
+                : t("navigation.agentEmptyState")
+            }
+            suggestions={
+              recordingScope
+                ? [
+                    t("recordingPage.summarizeClip"),
+                    t("recordingPage.findKeyMoments"),
+                    t("recordingPage.listFollowUpActions"),
+                    t("recordingPage.draftQuestions"),
+                  ]
+                : [
+                    t("navigation.agentSuggestionSummary"),
+                    t("navigation.agentSuggestionPricing"),
+                    t("navigation.agentSuggestionFiller"),
+                  ]
+            }
+            agentPageHref="/settings/agent"
+            scope={recordingScope}
+            browserTabId={getBrowserTabId()}
+          >
+            {pageContent}
+          </AgentSidebar>
         </div>
       </div>
 

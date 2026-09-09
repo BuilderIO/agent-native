@@ -1,4 +1,8 @@
-import { AgentPanel } from "@agent-native/core/client/agent-chat";
+import {
+  requestAgentSidebarOpen,
+  SIDEBAR_STATE_CHANGE_EVENT,
+  type AgentSidebarStateChangeDetail,
+} from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
   appBasePath,
@@ -414,8 +418,34 @@ export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
 
-type SidePanel = "transcript" | "comments" | "agent" | "debug" | "settings";
+type SidePanel = "transcript" | "comments" | "debug" | "settings";
 type ToolbarPanel = Exclude<SidePanel, "comments">;
+
+function useGlobalAgentSidebarOpen() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const handleStateChange = (event: Event) => {
+      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
+        .detail;
+      if (detail && typeof detail.open === "boolean") {
+        setOpen(detail.open);
+      }
+    };
+
+    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, handleStateChange);
+    const mountedPanel = document.querySelector<HTMLElement>(
+      ".agent-sidebar-panel[data-agent-sidebar-state='open']",
+    );
+    setOpen(Boolean(mountedPanel));
+
+    return () => {
+      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handleStateChange);
+    };
+  }, []);
+
+  return open;
+}
 
 const WORKFLOW_MENU_ITEMS: Array<{
   kind: WorkflowKind;
@@ -531,6 +561,7 @@ export default function RecordingPage() {
   const commentsSectionRef = useRef<HTMLElement | null>(null);
 
   const [panel, setPanel] = useState<SidePanel | null>("transcript");
+  const globalAgentSidebarOpen = useGlobalAgentSidebarOpen();
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(startMs);
@@ -578,8 +609,8 @@ export default function RecordingPage() {
     }
   }, [isCompactLayout, searchParams, setSearchParams]);
   const openAgentPanel = useCallback(() => {
-    openSidePanel("agent");
-  }, [openSidePanel]);
+    requestAgentSidebarOpen();
+  }, []);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -926,6 +957,11 @@ export default function RecordingPage() {
   }, [browserDiagnostics, canEdit, panel]);
 
   useEffect(() => {
+    if (panelParam === "agent") {
+      setPanel("transcript");
+      requestAgentSidebarOpen();
+      return;
+    }
     if (panelParam === "comments") {
       setPanel(recording?.enableComments ? "comments" : "transcript");
       if (isCompactLayout) {
@@ -938,7 +974,6 @@ export default function RecordingPage() {
     if (
       (panelParam === "transcript" ||
         panelParam === "insights" ||
-        panelParam === "agent" ||
         panelParam === "debug" ||
         panelParam === "settings") &&
       (panelParam !== "settings" || canEdit) &&
@@ -1913,9 +1948,6 @@ export default function RecordingPage() {
       <ViewerTabsTrigger value="transcript">
         {t("recordingPage.transcript")}
       </ViewerTabsTrigger>
-      <ViewerTabsTrigger value="agent">
-        {t("recordingPage.agent")}
-      </ViewerTabsTrigger>
       {browserDiagnostics ? (
         <ViewerTabsTrigger value="debug">
           <span className="flex items-center justify-center gap-1.5">
@@ -2022,26 +2054,6 @@ export default function RecordingPage() {
                 : undefined
             }
             isRegenerating={requestTranscript.isPending}
-          />
-        </TabsContent>
-        <TabsContent
-          value="agent"
-          className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto data-[state=inactive]:hidden"
-        >
-          <AgentPanel
-            emptyStateText={t("recordingPage.askAboutClip")}
-            dynamicSuggestions={false}
-            scope={{ type: "recording", id: recording.id }}
-            missingApiKeySetupLayout="sidebar"
-            suggestions={[
-              t("recordingPage.summarizeClip"),
-              t("recordingPage.findKeyMoments"),
-              t("recordingPage.listFollowUpActions"),
-              t("recordingPage.draftQuestions"),
-            ]}
-            browserTabId={browserTabId}
-            showHeader={false}
-            showTabBar={false}
           />
         </TabsContent>
         {browserDiagnostics ? (
@@ -2381,7 +2393,7 @@ export default function RecordingPage() {
           }
           openSidePanel(value as ToolbarPanel);
         }}
-        className="clips-recording-view grid h-full min-h-0 w-full max-w-full grid-cols-1 overflow-x-hidden bg-background lg:grid-cols-[minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden [&_.agent-composer-root]:!border-0 [&_.agent-composer-root]:!bg-background"
+        className="clips-recording-view grid h-full min-h-0 w-full max-w-full grid-cols-1 overflow-x-hidden bg-background lg:grid-cols-[minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden"
       >
         {/* Main video column */}
         <div className="contents">
@@ -2577,7 +2589,7 @@ export default function RecordingPage() {
                   </div>
                 </div>
 
-                {isCompactLayout ? (
+                {isCompactLayout && !globalAgentSidebarOpen ? (
                   <RecordingSidePanel
                     id="clip-activity-panel"
                     className="mt-2 lg:hidden"
@@ -2592,7 +2604,7 @@ export default function RecordingPage() {
         </div>
 
         {/* Side panel */}
-        {!editing && !isCompactLayout && panel ? (
+        {!editing && !isCompactLayout && !globalAgentSidebarOpen && panel ? (
           <RecordingSidePanel
             className="hidden lg:col-start-2 lg:row-start-1 lg:flex lg:w-[360px] xl:w-[420px] 2xl:w-[440px]"
             tabs={renderPanelTabs()}
