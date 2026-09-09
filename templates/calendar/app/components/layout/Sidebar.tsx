@@ -513,9 +513,10 @@ function GoogleCalendarsSections({
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={() =>
-                        updateAccountColorMode(calendar.accountEmail, "multi")
-                      }
+                      onClick={() => {
+                        updateGoogleCalendarColor(preferenceKey, null);
+                        updateAccountColorMode(calendar.accountEmail, "multi");
+                      }}
                       aria-label={t("sidebar.colorByMeetingType")}
                       className="relative flex size-5 items-center justify-center rounded-full"
                     >
