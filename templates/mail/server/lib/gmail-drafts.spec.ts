@@ -93,7 +93,7 @@ describe("saveGmailDraft", () => {
         displayName: null,
         tokens: {
           access_token: "token",
-          scope: "https://www.googleapis.com/auth/gmail.modify",
+          scope: "https://www.googleapis.com/auth/gmail.compose",
         },
       },
     ]);
@@ -110,6 +110,31 @@ describe("saveGmailDraft", () => {
       "google",
       "gmail@example.com",
     );
+  });
+
+  it("does not use a compose-only account for reply drafts", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "gmail@example.com",
+        displayName: null,
+        tokens: {
+          access_token: "token",
+          scope: "https://www.googleapis.com/auth/gmail.compose",
+        },
+      },
+    ]);
+
+    const result = await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      to: "recipient@example.com",
+      subject: "Re: Hello",
+      body: "Reply",
+      replyToId: "message-1",
+    });
+
+    expect(result).toBeNull();
+    expect(mocks.getOAuthTokens).not.toHaveBeenCalled();
+    expect(mocks.gmailGetMessage).not.toHaveBeenCalled();
   });
 
   it("skips a non-Gmail owner account when choosing a default", async () => {

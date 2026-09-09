@@ -18,19 +18,26 @@ interface StoredTokens {
   expiry_date?: number;
 }
 
-function hasGmailScope(tokens: Record<string, unknown>): boolean {
+function hasGmailScope(
+  tokens: Record<string, unknown>,
+  requiresMessageRead = false,
+): boolean {
   const scope = tokens.scope;
-  return (
-    typeof scope !== "string" ||
-    !scope.trim() ||
-    scope
-      .split(/[\s,]+/)
-      .some(
-        (value) =>
-          value === "https://mail.google.com/" ||
-          value === "https://www.googleapis.com/auth/gmail.compose" ||
-          value === "https://www.googleapis.com/auth/gmail.modify",
-      )
+  if (typeof scope !== "string" || !scope.trim()) return true;
+  const scopes = scope.split(/[\s,]+/);
+  const canWrite = scopes.some(
+    (value) =>
+      value === "https://mail.google.com/" ||
+      value === "https://www.googleapis.com/auth/gmail.compose" ||
+      value === "https://www.googleapis.com/auth/gmail.modify",
+  );
+  if (!canWrite || !requiresMessageRead) return canWrite;
+  return scopes.some(
+    (value) =>
+      value === "https://mail.google.com/" ||
+      value === "https://www.googleapis.com/auth/gmail.metadata" ||
+      value === "https://www.googleapis.com/auth/gmail.modify" ||
+      value === "https://www.googleapis.com/auth/gmail.readonly",
   );
 }
 
@@ -68,10 +75,11 @@ async function getAccessToken(
 async function resolveAccountEmail(
   requested: string | undefined,
   ownerEmail: string,
+  requiresMessageRead = false,
 ): Promise<string | null> {
   const accounts = (
     await listOAuthAccountsByOwner("google", ownerEmail)
-  ).filter((account) => hasGmailScope(account.tokens));
+  ).filter((account) => hasGmailScope(account.tokens, requiresMessageRead));
   if (requested) {
     if (!accounts.some((account) => account.accountId === requested)) {
       throw new Error("Account not owned by current user");
@@ -105,6 +113,7 @@ export async function saveGmailDraft(args: {
   const accountEmail = await resolveAccountEmail(
     args.accountEmail,
     args.ownerEmail,
+    Boolean(args.replyToId),
   );
   if (!accountEmail) return null;
   const accessToken = await getAccessToken(accountEmail, args.ownerEmail);
