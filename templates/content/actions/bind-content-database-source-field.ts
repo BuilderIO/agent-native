@@ -13,6 +13,7 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
+import { assertNotCanonicalRelationProjection } from "./_canonical-relation-guard.js";
 import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid } from "./_property-utils.js";
@@ -104,6 +105,26 @@ export default defineAction({
           );
         }
         if (lockedField.propertyId) {
+          const [lockedProperty] = await tx
+            .select({
+              optionsJson: schema.documentPropertyDefinitions.optionsJson,
+            })
+            .from(schema.documentPropertyDefinitions)
+            .where(
+              and(
+                eq(
+                  schema.documentPropertyDefinitions.id,
+                  lockedField.propertyId,
+                ),
+                eq(schema.documentPropertyDefinitions.databaseId, database.id),
+              ),
+            );
+          if (lockedProperty) {
+            assertNotCanonicalRelationProjection(
+              lockedProperty,
+              "Canonical relationship projections cannot be unbound from source fields. Use the relationship actions instead.",
+            );
+          }
           const sourceRows = await tx
             .select({
               documentId: schema.contentDatabaseSourceRows.documentId,
@@ -176,6 +197,10 @@ export default defineAction({
     if (!property) {
       throw new Error("Target column does not belong to this database.");
     }
+    assertNotCanonicalRelationProjection(
+      property,
+      "Canonical relationship projections cannot be bound to source fields. Use the relationship actions instead.",
+    );
     if (property.systemRole) {
       throw new Error("System properties cannot be bound to source fields.");
     }
@@ -291,6 +316,10 @@ export default defineAction({
           "Target column changed or was deleted before the source field could be bound.",
         );
       }
+      assertNotCanonicalRelationProjection(
+        lockedProperty,
+        "Canonical relationship projections cannot be bound to source fields. Use the relationship actions instead.",
+      );
 
       const [lockedField] = await tx
         .select()

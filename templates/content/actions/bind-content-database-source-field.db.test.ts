@@ -329,6 +329,55 @@ async function seedStaleBuilderTopicsSnapshot(rowCount = 2) {
 }
 
 describe("bind-content-database-source-field (row-union)", () => {
+  it("rejects canonical relationship projections before bind or unbind value writes", async () => {
+    const f = await seedRowUnion();
+    const db = getDb();
+    const canonicalOptionsJson = JSON.stringify({
+      relation: { relationshipTypeId: "relationship-type" },
+    });
+    await db
+      .update(schema.documentPropertyDefinitions)
+      .set({ optionsJson: canonicalOptionsJson })
+      .where(eq(schema.documentPropertyDefinitions.id, f.tagPropertyId));
+
+    await expect(
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: f.tagPropertyId,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "USE_RELATIONSHIP_MUTATION" });
+
+    await db
+      .update(schema.documentPropertyDefinitions)
+      .set({ optionsJson: "{}" })
+      .where(eq(schema.documentPropertyDefinitions.id, f.tagPropertyId));
+    await asOwner(() =>
+      bindAction.run({
+        databaseId: f.databaseId,
+        sourceFieldId: f.fields.fieldACat,
+        propertyId: f.tagPropertyId,
+      }),
+    );
+    await db
+      .update(schema.documentPropertyDefinitions)
+      .set({ optionsJson: canonicalOptionsJson })
+      .where(eq(schema.documentPropertyDefinitions.id, f.tagPropertyId));
+
+    await expect(
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: null,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "USE_RELATIONSHIP_MUTATION" });
+    await expect(tagValue(f.docs.a1, f.tagPropertyId)).resolves.toBe("Alpha");
+  });
+
   it("fails closed when the source field disappears before the bind update", async () => {
     const f = await seedRowUnion();
     const triggerName = `delete_bound_field_${counter}`;

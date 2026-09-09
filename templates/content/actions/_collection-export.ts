@@ -36,6 +36,7 @@ import {
   computedPropertyValue,
   listPropertiesForDatabase,
   parseDatabaseViewConfig,
+  parseLegacyRelationValue,
 } from "./_property-utils.js";
 
 export interface CollectionExportRequest {
@@ -244,6 +245,7 @@ function propertyKey(documentId: string, propertyId: string) {
 async function loadStoredValues(
   documentIds: readonly string[],
   propertyIds: readonly string[],
+  relationPropertyIds: ReadonlySet<string> = new Set(),
 ) {
   const values = new Map<string, DocumentPropertyValue>();
   for (const documentIdChunk of chunks([...documentIds], 180)) {
@@ -264,7 +266,9 @@ async function loadStoredValues(
       for (const row of rows) {
         values.set(
           propertyKey(row.documentId, row.propertyId),
-          parsePropertyValue(row.valueJson),
+          relationPropertyIds.has(row.propertyId)
+            ? parseLegacyRelationValue(row.valueJson)
+            : parsePropertyValue(row.valueJson),
         );
       }
     }
@@ -539,7 +543,15 @@ export async function buildCollectionExportProjection(
           !isComputedPropertyType(property.definition.type),
       )
       .map((property) => property.definition.id);
-    const storedValues = await loadStoredValues(documentIds, storedPropertyIds);
+    const storedValues = await loadStoredValues(
+      documentIds,
+      storedPropertyIds,
+      new Set(
+        requiredProperties
+          .filter((property) => property.definition.type === "relation")
+          .map((property) => property.definition.id),
+      ),
+    );
     const additionalBlockIds = requiredBlocks
       .filter((property) => !isPrimaryBlocksField(property.definition.options))
       .map((property) => property.definition.id);
@@ -558,6 +570,19 @@ export async function buildCollectionExportProjection(
     const requiredRelations = requiredProperties.filter(
       (property) => property.definition.type === "relation",
     );
+    if (
+      requiredRelations.some(
+        (property) => property.definition.options.relation?.relationshipTypeId,
+      )
+    ) {
+      const { readCanonicalRelationPropertyValues } =
+        await import("./_relationship-compatibility.js");
+      const canonical = await readCanonicalRelationPropertyValues({
+        databaseId: database.id,
+        pageIds: documentIds,
+      });
+      for (const [key, value] of canonical) storedValues.set(key, value);
+    }
     const linkedIds = new Set<string>();
     for (const relation of requiredRelations) {
       for (const documentId of documentIds) {
@@ -636,11 +661,12 @@ export async function buildCollectionExportProjection(
       const target = propertyById.get(config.targetPropertyId);
       if (
         target &&
-        (isComputedPropertyType(target.definition.type) ||
+        (target.definition.options.relation?.relationshipTypeId ||
+          isComputedPropertyType(target.definition.type) ||
           isBlocksPropertyType(target.definition.type))
       ) {
         fail(
-          `Rollup "${rollup.definition.name}" targets a computed or Blocks property that this bounded export cannot hydrate safely.`,
+          `Rollup "${rollup.definition.name}" targets a Relation, computed, or Blocks property that this bounded export cannot hydrate safely.`,
           {
             errorCode: "collection_export_rollup_target_unsupported",
             statusCode: 422,

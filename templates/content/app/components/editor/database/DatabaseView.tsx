@@ -236,6 +236,10 @@ import {
   shouldPumpBuilderBodyHydration,
 } from "../builder-body-hydration-pump";
 import {
+  RelationBulkValueEditor,
+  RelationValueSummary,
+} from "../ContentRelationships";
+import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
@@ -15495,13 +15499,16 @@ function DatabaseBulkEditPopover({
           Edit
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[28rem] p-2">
+      <PopoverContent
+        align="start"
+        className="max-h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] max-w-[28rem] overflow-y-auto p-2"
+      >
         <div className="grid gap-2">
           <div className="px-1 text-xs font-medium text-muted-foreground">
             Edit {selectedCount} selected row{selectedCount === 1 ? "" : "s"}
           </div>
-          <div className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)] gap-2">
-            <div className="max-h-64 overflow-auto border-r border-border pr-1">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,11rem)_minmax(0,1fr)]">
+            <div className="max-h-40 overflow-auto border-b border-border pb-1 sm:max-h-64 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-1">
               {properties.map((property) => {
                 const Icon = TYPE_ICONS[property.definition.type];
                 const selected =
@@ -15560,6 +15567,17 @@ function DatabaseBulkPropertyValueEditor({
   onCancel: () => void;
 }) {
   const type = property.definition.type;
+
+  if (type === "relation") {
+    return (
+      <RelationBulkValueEditor
+        property={property}
+        selectedItems={selectedItems}
+        disabled={disabled}
+        onDone={onCancel}
+      />
+    );
+  }
 
   if (type === "checkbox") {
     return (
@@ -18115,7 +18133,19 @@ function DatabaseTableRow({
                 "text-transparent",
             )}
           >
-            {databaseTableCellDisplayValue(itemProperty, item, wrapCells)}
+            {itemProperty.definition.type === "relation" ? (
+              <RelationValueSummary
+                property={itemProperty}
+                pageId={item.document.id}
+                fallback={databaseTableCellDisplayValue(
+                  itemProperty,
+                  item,
+                  wrapCells,
+                )}
+              />
+            ) : (
+              databaseTableCellDisplayValue(itemProperty, item, wrapCells)
+            )}
           </div>
         );
         const isEditableCheckbox =

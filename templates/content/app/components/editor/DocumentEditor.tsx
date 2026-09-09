@@ -2843,11 +2843,11 @@ function PageEditorSessionBody({
 
   const dismissCommentFocus = useCallback(() => {
     clearCommentFocus();
-    if (!hasUtilityRailSpace) {
+    if (!hasUtilityRailSpace && utilityPanel === "comments") {
       setCommentsBrowseOpen(false);
       setUtilityPanel(null);
     }
-  }, [clearCommentFocus, hasUtilityRailSpace]);
+  }, [clearCommentFocus, hasUtilityRailSpace, utilityPanel]);
 
   const activateCommentThread = useCallback(
     (threadId: string, preserveBrowseContext = false) => {
@@ -3352,6 +3352,7 @@ function PageEditorSessionBody({
             databaseId={databaseId}
             databaseDocumentId={databaseDocumentId}
             canEdit={editorCanEdit}
+            popoversPortalled={!inSheet}
             onSaveDescription={(description) =>
               persistDocumentUpdates({ description })
             }

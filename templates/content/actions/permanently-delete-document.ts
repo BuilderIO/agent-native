@@ -17,7 +17,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Trashed root document ID"),
   }),
-  run: async ({ id }) => {
+  run: async ({ id }, context) => {
     const access = await assertAccess("document", id, "admin");
     const db = getDb();
     let deleted: string[] | undefined;
@@ -28,6 +28,7 @@ export default defineAction({
             tx as unknown as ReturnType<typeof getDb>,
             id,
             access.resource.ownerEmail as string,
+            context,
           ),
         );
         break;

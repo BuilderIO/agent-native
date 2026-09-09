@@ -25,6 +25,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { assertNotCanonicalRelationProjection } from "./_canonical-relation-guard.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -283,6 +284,13 @@ export default defineAction({
         .filter((question) => question.key !== "name")
         .map((question) => question.key),
     );
+    for (const definition of definitions) {
+      if (!enabledPropertyIds.has(definition.id)) continue;
+      assertNotCanonicalRelationProjection(
+        definition,
+        "Forms cannot submit canonical relationship projections. Create the row, then use the relationship actions instead.",
+      );
+    }
     const values = resolveSubmittedProperties(
       definitions,
       enabledPropertyIds,
@@ -363,6 +371,13 @@ export default defineAction({
             ),
           ),
         );
+      for (const definition of lockedDefinitions) {
+        if (!enabledPropertyIds.has(definition.id)) continue;
+        assertNotCanonicalRelationProjection(
+          definition,
+          "Forms cannot submit canonical relationship projections. Create the row, then use the relationship actions instead.",
+        );
+      }
       if (
         propertyDefinitionFingerprint(lockedDefinitions) !==
         definitionsFingerprint

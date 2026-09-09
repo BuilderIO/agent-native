@@ -30,6 +30,19 @@ import {
 } from "./properties";
 
 describe("document properties", () => {
+  it("preserves canonical relation identity and inverse policy through option serialization", () => {
+    const relation = {
+      databaseId: "team-database",
+      relationshipTypeId: "contributor-type",
+      direction: "inverse" as const,
+      editable: false,
+    };
+    expect(
+      parsePropertyOptions(serializePropertyOptions({ relation })).relation,
+    ).toEqual(relation);
+    expect(CREATABLE_DOCUMENT_PROPERTY_TYPES).toContain("relation");
+  });
+
   it("normalizes editable values by property type", () => {
     expect(normalizePropertyValue("text", "Draft")).toBe("Draft");
     expect(normalizePropertyValue("person", "Alice Moore")).toEqual([

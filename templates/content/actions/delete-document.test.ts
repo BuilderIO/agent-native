@@ -119,6 +119,15 @@ const { schema } = vi.hoisted(() => ({
   },
 }));
 
+vi.mock("./_relationship-lifecycle.js", () => ({
+  applyRelationshipDocumentLifecycleInsideTransaction: vi.fn(async () => ({
+    revisionId: null,
+    eventIds: [],
+    incidentTypeIds: [],
+    incidentPageIds: [],
+  })),
+}));
+
 vi.mock("../server/db/index.js", () => ({
   getDb: vi.fn(),
   schema,

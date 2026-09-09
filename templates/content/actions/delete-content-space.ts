@@ -11,8 +11,8 @@ export default defineAction({
   schema: z.object({
     spaceId: z.string().trim().min(1),
   }),
-  run: async ({ spaceId }) => {
-    const result = await deleteUserContentSpace(getDb(), spaceId);
+  run: async ({ spaceId }, context) => {
+    const result = await deleteUserContentSpace(getDb(), spaceId, context);
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { success: true, ...result };
   },

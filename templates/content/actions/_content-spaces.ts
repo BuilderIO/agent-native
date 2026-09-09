@@ -7,6 +7,7 @@ import {
   isComputedPropertyType,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { assertNotCanonicalRelationProjection } from "./_canonical-relation-guard.js";
 import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
@@ -751,8 +752,13 @@ async function provisionOwnedContentSpace(
         );
         for (const [propertyId, value] of initialPropertyValues) {
           const definition = definitionById.get(propertyId);
-          const type = definition?.type as DocumentPropertyType | undefined;
-          if (!type || isComputedPropertyType(type)) continue;
+          if (!definition) continue;
+          const type = definition.type as DocumentPropertyType;
+          if (isComputedPropertyType(type)) continue;
+          assertNotCanonicalRelationProjection(
+            definition,
+            "Content space provisioning cannot write canonical relationship projections. Use the relationship actions instead.",
+          );
           await tx
             .insert(schema.documentPropertyValues)
             .values({

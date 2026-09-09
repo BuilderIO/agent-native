@@ -1087,6 +1087,245 @@ export const runContentMigrations = runMigrations(
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS submission_source TEXT;
         ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS submission_run_id TEXT`,
     },
+    {
+      version: 89,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS document_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
+    {
+      version: 90,
+      name: "content-canonical-typed-relationships",
+      sql: `CREATE TABLE IF NOT EXISTS content_relationship_types (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        current_version_id TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'active',
+        provenance TEXT NOT NULL DEFAULT 'local',
+        created_by TEXT NOT NULL,
+        archived_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS content_relationship_types_space_state_idx ON content_relationship_types (space_id, state);
+      CREATE INDEX IF NOT EXISTS content_relationship_types_owner_space_idx ON content_relationship_types (owner_email, space_id);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_type_versions (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        relationship_type_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        forward_label TEXT NOT NULL,
+        inverse_label TEXT NOT NULL,
+        forward_cardinality TEXT NOT NULL,
+        inverse_cardinality TEXT NOT NULL DEFAULT 'many',
+        source_database_id TEXT NOT NULL,
+        target_database_id TEXT NOT NULL,
+        directional_kind TEXT NOT NULL DEFAULT 'directional',
+        allow_self INTEGER NOT NULL DEFAULT 0,
+        selector_kind TEXT NOT NULL DEFAULT 'database',
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_relationship_versions_type_version_unique ON content_relationship_type_versions (relationship_type_id, version);
+      CREATE INDEX IF NOT EXISTS content_relationship_versions_source_database_idx ON content_relationship_type_versions (source_database_id);
+      CREATE INDEX IF NOT EXISTS content_relationship_versions_target_database_idx ON content_relationship_type_versions (target_database_id);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_projections (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        database_id TEXT NOT NULL,
+        relationship_type_id TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        editable INTEGER NOT NULL DEFAULT 0,
+        alias TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL,
+        archived_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_relationship_projections_property_unique ON content_relationship_projections (property_id);
+      CREATE INDEX IF NOT EXISTS content_relationship_projections_database_idx ON content_relationship_projections (database_id);
+      CREATE INDEX IF NOT EXISTS content_relationship_projections_type_direction_idx ON content_relationship_projections (relationship_type_id, direction);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_lineages (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        relationship_type_id TEXT NOT NULL,
+        source_page_id TEXT NOT NULL,
+        target_page_id TEXT NOT NULL,
+        provenance TEXT NOT NULL DEFAULT 'local',
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_relationship_lineages_tuple_unique ON content_relationship_lineages (relationship_type_id, source_page_id, target_page_id);
+      CREATE INDEX IF NOT EXISTS content_relationship_lineages_type_source_idx ON content_relationship_lineages (relationship_type_id, source_page_id);
+      CREATE INDEX IF NOT EXISTS content_relationship_lineages_type_target_idx ON content_relationship_lineages (relationship_type_id, target_page_id);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_activations (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        lineage_id TEXT NOT NULL,
+        added_event_id TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS content_relationship_activations_lineage_idx ON content_relationship_activations (lineage_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_relationship_activations_event_unique ON content_relationship_activations (added_event_id, lineage_id);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_activation_retirements (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        activation_id TEXT NOT NULL,
+        removed_event_id TEXT NOT NULL,
+        removed_by TEXT NOT NULL,
+        removed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_relationship_retirements_activation_unique ON content_relationship_activation_retirements (activation_id);
+      CREATE INDEX IF NOT EXISTS content_relationship_retirements_event_idx ON content_relationship_activation_retirements (removed_event_id);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_cardinality_slots (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        relationship_type_id TEXT NOT NULL,
+        source_page_id TEXT NOT NULL,
+        lineage_id TEXT,
+        target_page_id TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_relationship_slots_type_source_unique ON content_relationship_cardinality_slots (relationship_type_id, source_page_id);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_revisions (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        actor_json TEXT NOT NULL DEFAULT '{}',
+        authorizing_principal_json TEXT NOT NULL DEFAULT '{}',
+        origin TEXT NOT NULL,
+        recovery_token TEXT NOT NULL,
+        diff_json TEXT NOT NULL DEFAULT '{}',
+        compensates_revision_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS content_relationship_revisions_space_created_idx ON content_relationship_revisions (space_id, created_at);
+      CREATE INDEX IF NOT EXISTS content_relationship_revisions_operation_idx ON content_relationship_revisions (operation_id);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_events (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        revision_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL DEFAULT 0,
+        relationship_type_id TEXT,
+        relationship_type_version_id TEXT,
+        kind TEXT NOT NULL,
+        actor_json TEXT NOT NULL DEFAULT '{}',
+        authorizing_principal_json TEXT NOT NULL DEFAULT '{}',
+        origin TEXT NOT NULL,
+        run_id TEXT,
+        route_json TEXT NOT NULL DEFAULT '{}',
+        targets_json TEXT NOT NULL DEFAULT '{}',
+        diff_json TEXT NOT NULL DEFAULT '{}',
+        outcome TEXT NOT NULL DEFAULT 'committed',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS content_relationship_events_revision_idx ON content_relationship_events (revision_id);
+      CREATE INDEX IF NOT EXISTS content_relationship_events_type_created_idx ON content_relationship_events (relationship_type_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_receipts (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        caller_scope TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        revision_id TEXT NOT NULL,
+        result_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_relationship_receipts_scoped_operation_unique ON content_relationship_receipts (space_id, caller_scope, operation_id);
+      CREATE INDEX IF NOT EXISTS content_relationship_receipts_revision_idx ON content_relationship_receipts (revision_id);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_operation_locks (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        caller_scope TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_relationship_operation_locks_scope_unique ON content_relationship_operation_locks (space_id, caller_scope, operation_id);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_observations (
+        token TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        caller_scope TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        edge_id TEXT,
+        relationship_type_id TEXT NOT NULL,
+        source_page_id TEXT NOT NULL,
+        activation_ids_json TEXT NOT NULL DEFAULT '[]',
+        observed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS content_relationship_observations_scope_expiry_idx ON content_relationship_observations (caller_scope, expires_at);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_removal_selections (
+        token TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        caller_scope TEXT NOT NULL,
+        property_id TEXT,
+        selection_json TEXT NOT NULL DEFAULT '[]',
+        recovery_token TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS content_relationship_selections_scope_expiry_idx ON content_relationship_removal_selections (caller_scope, expires_at);
+
+      CREATE TABLE IF NOT EXISTS content_relationship_endpoint_states (
+        page_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        permanently_deleted_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS content_relationship_endpoint_states_space_idx ON content_relationship_endpoint_states (space_id)`,
+    },
+    {
+      version: 91,
+      name: "content-relationship-event-order",
+      sql: `ALTER TABLE content_relationship_events ADD COLUMN IF NOT EXISTS sequence INTEGER NOT NULL DEFAULT 0`,
+    },
   ],
   { table: "content_migrations" },
 );

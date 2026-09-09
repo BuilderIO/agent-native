@@ -16,8 +16,8 @@ This index summarizes the atomic product contracts beneath the public roadmap. E
 | Verified         |     4 |
 | Failing          |     1 |
 | Stale            |     0 |
-| In Progress      |    18 |
-| Approved Shape   |    89 |
+| In Progress      |    19 |
+| Approved Shape   |    88 |
 | Exploring        |     8 |
 | Deferred         |     0 |
 | Superseded       |     5 |
@@ -430,9 +430,9 @@ graph LR
 
 ## Relationship
 
-| Capability                                                       | State          | User promise                                                                                                                         |
-| ---------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| [Typed Relationships](capabilities/content.relationship.edge.md) | Approved Shape | One typed edge substrate powers relation Properties, inline typed Page references, backlinks, Info, graph queries, and Graph editing |
+| Capability                                                       | State       | User promise                                                                                                                         |
+| ---------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [Typed Relationships](capabilities/content.relationship.edge.md) | In Progress | One typed edge substrate powers relation Properties, inline typed Page references, backlinks, Info, graph queries, and Graph editing |
 
 ## Renderer
 

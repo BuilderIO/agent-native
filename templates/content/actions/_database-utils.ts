@@ -61,6 +61,7 @@ import {
 } from "./_files-system-properties.js";
 import {
   listPropertiesForDatabaseDocuments,
+  readRelationProjectionValues,
   listPropertiesForDatabase,
   serializeDatabase,
 } from "./_property-utils.js";
@@ -806,6 +807,18 @@ export async function getContentDatabasePageResponse(
     const queryProperties = databaseProperties.filter((property) =>
       boundedProjectionPropertyIds.has(property.definition.id),
     );
+    const relationValues = await readRelationProjectionValues(
+      databaseId,
+      candidateDocuments.map((document) => document.id),
+      queryProperties.map((property) => ({
+        id: property.definition.id,
+        type: property.definition.type,
+        optionsJson: JSON.stringify(property.definition.options),
+      })),
+      candidateValues,
+    );
+    for (const [key, value] of relationValues)
+      candidateValueByDocumentAndProperty.set(key, value);
     const additionalBlocksPropertyIds = queryProperties.flatMap((property) =>
       isBlocksPropertyType(property.definition.type) &&
       !isPrimaryBlocksField(property.definition.options)

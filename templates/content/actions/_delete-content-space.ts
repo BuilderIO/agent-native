@@ -1,3 +1,4 @@
+import type { ActionRunContext } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -10,7 +11,11 @@ import {
 type Db = ReturnType<typeof getDb>;
 const MAX_DELETE_SCOPE_ATTEMPTS = 3;
 
-async function deleteUserContentSpaceOnce(db: Db, spaceId: string) {
+async function deleteUserContentSpaceOnce(
+  db: Db,
+  spaceId: string,
+  context?: ActionRunContext,
+) {
   return db.transaction(async (tx) => {
     const scopedDb = tx as unknown as Db;
     const access = await resolveContentSpaceAccess(spaceId, "editor", {
@@ -53,6 +58,7 @@ async function deleteUserContentSpaceOnce(db: Db, spaceId: string) {
       scopedDb,
       [mapping.documentId, filesDatabase.documentId],
       access.space.ownerEmail,
+      context,
     );
 
     const remainingDocuments = await scopedDb
@@ -81,10 +87,14 @@ async function deleteUserContentSpaceOnce(db: Db, spaceId: string) {
   });
 }
 
-export async function deleteUserContentSpace(db: Db, spaceId: string) {
+export async function deleteUserContentSpace(
+  db: Db,
+  spaceId: string,
+  context?: ActionRunContext,
+) {
   for (let attempt = 1; attempt <= MAX_DELETE_SCOPE_ATTEMPTS; attempt += 1) {
     try {
-      return await deleteUserContentSpaceOnce(db, spaceId);
+      return await deleteUserContentSpaceOnce(db, spaceId, context);
     } catch (error) {
       if (
         !(error instanceof PermanentDeleteScopeChangedError) ||

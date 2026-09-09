@@ -975,6 +975,41 @@ describe("migrate-content-database-rows", () => {
     ).rejects.toThrow("drifted");
   });
 
+  it("rejects canonical relationship projections in legacy and protected migration values", async () => {
+    const db = getDb();
+    const canonicalOptionsJson = JSON.stringify({
+      relation: { relationshipTypeId: "relationship-type" },
+    });
+    const legacySeed = await fixture();
+    await db
+      .update(schema.documentPropertyDefinitions)
+      .set({ optionsJson: canonicalOptionsJson })
+      .where(
+        eq(schema.documentPropertyDefinitions.id, legacySeed.definitions[1].id),
+      );
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "validate", plan: plan(legacySeed) }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "USE_RELATIONSHIP_MUTATION" });
+
+    const protectedSeed = await fixture();
+    await db
+      .update(schema.documentPropertyDefinitions)
+      .set({ optionsJson: canonicalOptionsJson })
+      .where(
+        eq(
+          schema.documentPropertyDefinitions.id,
+          protectedSeed.definitions[0].id,
+        ),
+      );
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "validate", plan: plan(protectedSeed) }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "USE_RELATIONSHIP_MUTATION" });
+  });
+
   it("requires current editor access to every row before legacy cleanup", async () => {
     const seed = await fixture();
     const input = plan(seed);

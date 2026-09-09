@@ -6,7 +6,7 @@ name: "Typed Relationships"
 user_promise: "One typed edge substrate powers relation Properties, inline typed Page references, backlinks, Info, graph queries, and Graph editing"
 primary_user_job: "Connect two Pages once, give that connection a useful meaning, and manage it consistently from any Content surface."
 kind: "primitive"
-state: "approved_shape"
+state: "in_progress"
 publicness: "public"
 availability: "universal"
 dependencies:
@@ -35,7 +35,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-09"
 ---
 
 # Typed Relationships
@@ -164,7 +164,11 @@ Given an authorized Page related to an endpoint the viewer cannot access, when t
 
 ## Current evidence
 
-Current code can model and display some relation values, which is useful donor substrate. Relation is not yet a generally user-creatable Property, and the current Notion path treats relations as unsupported. No evidence currently proves the shared type identity, universal Connections editor, bulk/deletion semantics, cardinality, access closure, source policy, or causal concurrency contract. This Capability therefore remains `approved_shape`.
+The first implementation slice adds local directional types within one Content space, forward one/many and inverse many cardinality, Database admission constraints, canonical Relation Property projections, Connections, bounded atomic Actions, and relationship-scoped history and recovery. It is work in progress, not verification of this entire Capability.
+
+Focused local integration tests cover canonical projection hydration, access-filtered export, legacy write rejection, and Page lifecycle behavior. `actions/relationship-concurrency.postgres.test.ts` exercises separate PostgreSQL connections for duplicate additions, observed removals, operation replay/conflict, and max-one replacement. Technical tests do not establish real-interface acceptance or deployed availability.
+
+The narrower slice still requires completed access/recovery review and real UI/internal-agent/external-MCP workflow evidence before acceptance. Governed definitions, symmetric/self-enabled types, Query-backed candidate selection, inline semantic references, Graph/Canvas, and source/import/Rule adapters remain outside this slice and retain the proof requirements below. Existing source relation payloads are not automatically migrated into canonical edges.
 
 ## Proof plan
 

@@ -181,6 +181,29 @@ async function seedFormDatabase() {
 }
 
 describe("submit-content-database-form", () => {
+  it("rejects enabled canonical relationship projections before creating a row", async () => {
+    const seeded = await seedFormDatabase();
+    await getDb()
+      .update(schema.documentPropertyDefinitions)
+      .set({
+        optionsJson: JSON.stringify({
+          relation: { relationshipTypeId: "relationship-type" },
+        }),
+      })
+      .where(eq(schema.documentPropertyDefinitions.id, seeded.priorityId));
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Relationship form attempt",
+          propertyValues: { Priority: "P1 — High" },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "USE_RELATIONSHIP_MUTATION" });
+  });
+
   it("atomically writes title, primary/additional Blocks, safe options, and an exact link", async () => {
     const seeded = await seedFormDatabase();
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>

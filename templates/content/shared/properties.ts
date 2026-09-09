@@ -49,6 +49,7 @@ export const CREATABLE_DOCUMENT_PROPERTY_TYPES = [
   "url",
   "email",
   "phone",
+  "relation",
   "blocks",
   "id",
   "created_time",
@@ -98,6 +99,9 @@ export interface DocumentPropertyOptions {
   formula?: string;
   relation?: {
     databaseId?: string | null;
+    relationshipTypeId?: string;
+    direction?: "forward" | "inverse";
+    editable?: boolean;
   };
   // Set on the default/primary "Content" Blocks field. The primary field is the
   // one whose content is backed by `documents.content` (the page body editor).
@@ -319,6 +323,16 @@ export function parsePropertyOptions(
       relation:
         parsed.relation && typeof parsed.relation === "object"
           ? {
+              ...(typeof parsed.relation.editable === "boolean"
+                ? { editable: parsed.relation.editable }
+                : {}),
+              ...(typeof parsed.relation.relationshipTypeId === "string"
+                ? { relationshipTypeId: parsed.relation.relationshipTypeId }
+                : {}),
+              ...(parsed.relation.direction === "forward" ||
+              parsed.relation.direction === "inverse"
+                ? { direction: parsed.relation.direction }
+                : {}),
               databaseId:
                 typeof parsed.relation.databaseId === "string"
                   ? parsed.relation.databaseId

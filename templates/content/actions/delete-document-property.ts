@@ -17,6 +17,7 @@ import {
   deleteBlocksFieldIdentity,
   lockPrimaryBlocksFieldsForDocuments,
 } from "./_blocks-field-identity.js";
+import { assertNotCanonicalRelationDefinition } from "./_canonical-relation-guard.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
@@ -64,6 +65,7 @@ export default defineAction({
         ),
       );
     if (!definition) throw new Error(`Property "${propertyId}" not found`);
+    await assertNotCanonicalRelationDefinition(db, definition);
     if (definition.systemRole) {
       throw new Error("System properties cannot be deleted.");
     }
@@ -97,6 +99,10 @@ export default defineAction({
         );
       if (!lockedDefinition)
         throw new Error(`Property "${propertyId}" not found`);
+      await assertNotCanonicalRelationDefinition(
+        tx as unknown as ReturnType<typeof getDb>,
+        lockedDefinition,
+      );
       if (lockedDefinition.systemRole) {
         throw new Error("System properties cannot be deleted.");
       }

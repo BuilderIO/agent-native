@@ -574,6 +574,368 @@ export const documentEditReceipts = table(
   ],
 );
 
+export const contentRelationshipTypes = table(
+  "content_relationship_types",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    currentVersionId: text("current_version_id").notNull(),
+    state: text("state").notNull().default("active"),
+    provenance: text("provenance").notNull().default("local"),
+    createdBy: text("created_by").notNull(),
+    archivedAt: text("archived_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (relationshipType) => [
+    index("content_relationship_types_space_state_idx").on(
+      relationshipType.spaceId,
+      relationshipType.state,
+    ),
+    index("content_relationship_types_owner_space_idx").on(
+      relationshipType.ownerEmail,
+      relationshipType.spaceId,
+    ),
+  ],
+);
+
+export const contentRelationshipTypeVersions = table(
+  "content_relationship_type_versions",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    relationshipTypeId: text("relationship_type_id").notNull(),
+    version: integer("version").notNull(),
+    forwardLabel: text("forward_label").notNull(),
+    inverseLabel: text("inverse_label").notNull(),
+    forwardCardinality: text("forward_cardinality").notNull(),
+    inverseCardinality: text("inverse_cardinality").notNull().default("many"),
+    sourceDatabaseId: text("source_database_id").notNull(),
+    targetDatabaseId: text("target_database_id").notNull(),
+    directionalKind: text("directional_kind").notNull().default("directional"),
+    allowSelf: integer("allow_self").notNull().default(0),
+    selectorKind: text("selector_kind").notNull().default("database"),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (version) => [
+    uniqueIndex("content_relationship_versions_type_version_unique").on(
+      version.relationshipTypeId,
+      version.version,
+    ),
+    index("content_relationship_versions_source_database_idx").on(
+      version.sourceDatabaseId,
+    ),
+    index("content_relationship_versions_target_database_idx").on(
+      version.targetDatabaseId,
+    ),
+  ],
+);
+
+export const contentRelationshipProjections = table(
+  "content_relationship_projections",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    propertyId: text("property_id").notNull(),
+    databaseId: text("database_id").notNull(),
+    relationshipTypeId: text("relationship_type_id").notNull(),
+    direction: text("direction").notNull(),
+    editable: integer("editable").notNull().default(0),
+    alias: text("alias").notNull(),
+    description: text("description").notNull().default(""),
+    createdBy: text("created_by").notNull(),
+    archivedAt: text("archived_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (projection) => [
+    uniqueIndex("content_relationship_projections_property_unique").on(
+      projection.propertyId,
+    ),
+    index("content_relationship_projections_database_idx").on(
+      projection.databaseId,
+    ),
+    index("content_relationship_projections_type_direction_idx").on(
+      projection.relationshipTypeId,
+      projection.direction,
+    ),
+  ],
+);
+
+export const contentRelationshipLineages = table(
+  "content_relationship_lineages",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    relationshipTypeId: text("relationship_type_id").notNull(),
+    sourcePageId: text("source_page_id").notNull(),
+    targetPageId: text("target_page_id").notNull(),
+    provenance: text("provenance").notNull().default("local"),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (lineage) => [
+    uniqueIndex("content_relationship_lineages_tuple_unique").on(
+      lineage.relationshipTypeId,
+      lineage.sourcePageId,
+      lineage.targetPageId,
+    ),
+    index("content_relationship_lineages_type_source_idx").on(
+      lineage.relationshipTypeId,
+      lineage.sourcePageId,
+    ),
+    index("content_relationship_lineages_type_target_idx").on(
+      lineage.relationshipTypeId,
+      lineage.targetPageId,
+    ),
+  ],
+);
+
+export const contentRelationshipActivations = table(
+  "content_relationship_activations",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    lineageId: text("lineage_id").notNull(),
+    addedEventId: text("added_event_id").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (activation) => [
+    index("content_relationship_activations_lineage_idx").on(
+      activation.lineageId,
+    ),
+    uniqueIndex("content_relationship_activations_event_unique").on(
+      activation.addedEventId,
+      activation.lineageId,
+    ),
+  ],
+);
+
+export const contentRelationshipActivationRetirements = table(
+  "content_relationship_activation_retirements",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    activationId: text("activation_id").notNull(),
+    removedEventId: text("removed_event_id").notNull(),
+    removedBy: text("removed_by").notNull(),
+    removedAt: text("removed_at").notNull().default(now()),
+  },
+  (retirement) => [
+    uniqueIndex("content_relationship_retirements_activation_unique").on(
+      retirement.activationId,
+    ),
+    index("content_relationship_retirements_event_idx").on(
+      retirement.removedEventId,
+    ),
+  ],
+);
+
+export const contentRelationshipCardinalitySlots = table(
+  "content_relationship_cardinality_slots",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    relationshipTypeId: text("relationship_type_id").notNull(),
+    sourcePageId: text("source_page_id").notNull(),
+    lineageId: text("lineage_id"),
+    targetPageId: text("target_page_id"),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (slot) => [
+    uniqueIndex("content_relationship_slots_type_source_unique").on(
+      slot.relationshipTypeId,
+      slot.sourcePageId,
+    ),
+  ],
+);
+
+export const contentRelationshipRevisions = table(
+  "content_relationship_revisions",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    operationId: text("operation_id").notNull(),
+    operation: text("operation").notNull(),
+    actorJson: text("actor_json").notNull().default("{}"),
+    authorizingPrincipalJson: text("authorizing_principal_json")
+      .notNull()
+      .default("{}"),
+    origin: text("origin").notNull(),
+    recoveryToken: text("recovery_token").notNull(),
+    diffJson: text("diff_json").notNull().default("{}"),
+    compensatesRevisionId: text("compensates_revision_id"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (revision) => [
+    index("content_relationship_revisions_space_created_idx").on(
+      revision.spaceId,
+      revision.createdAt,
+    ),
+    index("content_relationship_revisions_operation_idx").on(
+      revision.operationId,
+    ),
+  ],
+);
+
+export const contentRelationshipEvents = table(
+  "content_relationship_events",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    revisionId: text("revision_id").notNull(),
+    sequence: integer("sequence").notNull().default(0),
+    relationshipTypeId: text("relationship_type_id"),
+    relationshipTypeVersionId: text("relationship_type_version_id"),
+    kind: text("kind").notNull(),
+    actorJson: text("actor_json").notNull().default("{}"),
+    authorizingPrincipalJson: text("authorizing_principal_json")
+      .notNull()
+      .default("{}"),
+    origin: text("origin").notNull(),
+    runId: text("run_id"),
+    routeJson: text("route_json").notNull().default("{}"),
+    targetsJson: text("targets_json").notNull().default("{}"),
+    diffJson: text("diff_json").notNull().default("{}"),
+    outcome: text("outcome").notNull().default("committed"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (event) => [
+    index("content_relationship_events_revision_idx").on(event.revisionId),
+    index("content_relationship_events_type_created_idx").on(
+      event.relationshipTypeId,
+      event.createdAt,
+    ),
+  ],
+);
+
+export const contentRelationshipReceipts = table(
+  "content_relationship_receipts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    callerScope: text("caller_scope").notNull(),
+    operationId: text("operation_id").notNull(),
+    requestHash: text("request_hash").notNull(),
+    revisionId: text("revision_id").notNull(),
+    resultJson: text("result_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (receipt) => [
+    uniqueIndex("content_relationship_receipts_scoped_operation_unique").on(
+      receipt.spaceId,
+      receipt.callerScope,
+      receipt.operationId,
+    ),
+    index("content_relationship_receipts_revision_idx").on(receipt.revisionId),
+  ],
+);
+
+export const contentRelationshipOperationLocks = table(
+  "content_relationship_operation_locks",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    callerScope: text("caller_scope").notNull(),
+    operationId: text("operation_id").notNull(),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (lock) => [
+    uniqueIndex("content_relationship_operation_locks_scope_unique").on(
+      lock.spaceId,
+      lock.callerScope,
+      lock.operationId,
+    ),
+  ],
+);
+
+export const contentRelationshipObservations = table(
+  "content_relationship_observations",
+  {
+    token: text("token").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    callerScope: text("caller_scope").notNull(),
+    kind: text("kind").notNull(),
+    edgeId: text("edge_id"),
+    relationshipTypeId: text("relationship_type_id").notNull(),
+    sourcePageId: text("source_page_id").notNull(),
+    activationIdsJson: text("activation_ids_json").notNull().default("[]"),
+    observedAt: text("observed_at").notNull().default(now()),
+    expiresAt: text("expires_at").notNull(),
+  },
+  (observation) => [
+    index("content_relationship_observations_scope_expiry_idx").on(
+      observation.callerScope,
+      observation.expiresAt,
+    ),
+  ],
+);
+
+export const contentRelationshipRemovalSelections = table(
+  "content_relationship_removal_selections",
+  {
+    token: text("token").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    callerScope: text("caller_scope").notNull(),
+    propertyId: text("property_id"),
+    selectionJson: text("selection_json").notNull().default("[]"),
+    recoveryToken: text("recovery_token").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    usedAt: text("used_at"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (selection) => [
+    index("content_relationship_selections_scope_expiry_idx").on(
+      selection.callerScope,
+      selection.expiresAt,
+    ),
+  ],
+);
+
+export const contentRelationshipEndpointStates = table(
+  "content_relationship_endpoint_states",
+  {
+    pageId: text("page_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    permanentlyDeletedAt: text("permanently_deleted_at"),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (state) => [
+    index("content_relationship_endpoint_states_space_idx").on(state.spaceId),
+  ],
+);
+
 export const documentPropertyValues = table("document_property_values", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),

@@ -21,6 +21,7 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { BUILDER_CMS_FIXTURE_ROW_PROVENANCE } from "./_builder-cms-source-adapter.js";
+import { assertNotCanonicalRelationProjection } from "./_canonical-relation-guard.js";
 import {
   DATABASE_ROW_BATCH_LIMIT,
   resolveDatabaseRowsForBatch,
@@ -338,6 +339,12 @@ async function stageBuilderSourceBulkUpdateWithDeps(
     : null;
   if (field.propertyId && !definition) {
     throw new Error("Mapped database property not found.");
+  }
+  if (definition) {
+    assertNotCanonicalRelationProjection(
+      definition,
+      "Builder bulk updates cannot write canonical relationship projections. Use the relationship actions instead.",
+    );
   }
   const propertyType = definition?.type as DocumentPropertyType | undefined;
   const propertyBlocker =

@@ -4,6 +4,7 @@ import { mcpToolInputSchema } from "../../../packages/core/src/mcp/tool-input-sc
 import addComment from "./add-comment.js";
 import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
 import addDatabaseItem from "./add-database-item.js";
+import configureContentRelationProperty from "./configure-content-relation-property.js";
 import connectNotionStatus from "./connect-notion-status.js";
 import createDocument from "./create-document.js";
 import deleteContentDatabase from "./delete-content-database.js";
@@ -14,12 +15,20 @@ import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
 import listComments from "./list-comments.js";
 import listContentDatabases from "./list-content-databases.js";
+import listContentRelationCandidates from "./list-content-relation-candidates.js";
+import listContentRelationshipHistory from "./list-content-relationship-history.js";
+import listContentRelationshipTypes from "./list-content-relationship-types.js";
+import listContentRelationships from "./list-content-relationships.js";
 import listDocuments from "./list-documents.js";
 import manageContentDatabaseMigration from "./manage-content-database-migration.js";
 import migrateContentDatabaseRows from "./migrate-content-database-rows.js";
+import mutateContentRelationships from "./mutate-content-relationships.js";
 import navigate from "./navigate.js";
+import prepareContentRelationshipRemoval from "./prepare-content-relationship-removal.js";
 import refreshList from "./refresh-list.js";
+import removeContentRelationProperty from "./remove-content-relation-property.js";
 import searchDocuments from "./search-documents.js";
+import undoContentRelationshipRevision from "./undo-content-relationship-revision.js";
 import updateComment from "./update-comment.js";
 import updateDatabaseItem from "./update-database-item.js";
 import updateDatabaseItems from "./update-database-items.js";
@@ -29,6 +38,15 @@ import viewScreen from "./view-screen.js";
 
 describe("Content action-owned agent catalogs", () => {
   const directMcpActions = {
+    "configure-content-relation-property": configureContentRelationProperty,
+    "list-content-relationship-types": listContentRelationshipTypes,
+    "list-content-relation-candidates": listContentRelationCandidates,
+    "list-content-relationships": listContentRelationships,
+    "mutate-content-relationships": mutateContentRelationships,
+    "prepare-content-relationship-removal": prepareContentRelationshipRemoval,
+    "remove-content-relation-property": removeContentRelationProperty,
+    "list-content-relationship-history": listContentRelationshipHistory,
+    "undo-content-relationship-revision": undoContentRelationshipRevision,
     "list-documents": listDocuments,
     "search-documents": searchDocuments,
     "get-document": getDocument,
