@@ -1,5 +1,6 @@
 import { isReconcileLeadClient } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
+import { DEFAULT_SLIDE_BACKGROUND } from "@shared/slide-background";
 import { Extension } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
@@ -59,7 +60,7 @@ function resolveBackground(bg?: string): {
   if (!bg)
     return {
       bgClass: "",
-      bgStyle: { background: "#F5F2EA" }, // guard:allow-raw-color - default slide canvas fallback
+      bgStyle: { background: DEFAULT_SLIDE_BACKGROUND },
     };
   if (bg.startsWith("bg-")) return { bgClass: bg };
   return { bgClass: "", bgStyle: { background: bg } };
@@ -503,22 +504,22 @@ function SlideEditorCanvas({
   slide: Slide;
 }) {
   const layoutPadding: Record<string, string> = {
-    title: "px-[110px] py-[80px]", // i18n-ignore Tailwind class list
-    content: "px-[110px] py-[80px]", // i18n-ignore Tailwind class list
-    "two-column": "px-[70px] py-[50px]",
-    section: "px-[110px] py-[80px]", // i18n-ignore Tailwind class list
-    statement: "px-[110px] py-[60px]", // i18n-ignore Tailwind class list
-    image: "px-[80px] py-[60px]",
+    title: "px-[80px] py-[64px]", // i18n-ignore Tailwind class list
+    content: "px-[80px] py-[64px]", // i18n-ignore Tailwind class list
+    "two-column": "px-[80px] py-[64px]",
+    section: "px-[80px] py-[64px]", // i18n-ignore Tailwind class list
+    statement: "px-[80px] py-[64px]", // i18n-ignore Tailwind class list
+    image: "px-[80px] py-[64px]",
     "full-image": "p-0",
     blank: "p-8",
   };
 
-  const padding = layoutPadding[slide.layout] ?? "px-[110px] py-[80px]"; // i18n-ignore Tailwind class list
+  const padding = layoutPadding[slide.layout] ?? "px-[80px] py-[64px]"; // i18n-ignore Tailwind class list
 
   return (
     <div
       className={`w-[960px] h-[540px] relative flex flex-col justify-center ${padding}`}
-      style={{ fontFamily: "'Poppins', sans-serif" }}
+      style={{ fontFamily: "var(--ds-body-font, Inter, sans-serif)" }}
     >
       <EditorContent
         editor={editor}

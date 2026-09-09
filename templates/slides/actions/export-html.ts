@@ -7,15 +7,21 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { sanitizeCssValue } from "../app/lib/sanitize-slide-html.js";
 import {
   safeGeneratedFilename,
   tenantExportDir,
 } from "../server/lib/tenant-files.js";
+import type { DesignSystemData } from "../shared/api.js";
 import {
   type AspectRatio,
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+import {
+  backgroundCssValue,
+  DEFAULT_SLIDE_BACKGROUND,
+} from "../shared/slide-background.js";
 
 /**
  * Minimal server-side HTML sanitizer for exported slide content.
@@ -37,16 +43,54 @@ function sanitizeSlideContent(html: string): string {
     .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 }
 
+function safeCssToken(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  const sanitized = sanitizeCssValue(value);
+  if (!sanitized) return fallback;
+  return sanitized.replace(/[{}<>;]/g, "").slice(0, 240) || fallback;
+}
+
+function standaloneDesignSystemVars(designSystem?: DesignSystemData): string {
+  const colors = designSystem?.colors;
+  const typography = designSystem?.typography;
+  const borders = designSystem?.borders;
+  return [
+    `--ds-bg: ${safeCssToken(colors?.background, DEFAULT_SLIDE_BACKGROUND)}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    `--ds-text: ${safeCssToken(colors?.text, "#1F2933")}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    `--ds-text-muted: ${safeCssToken(colors?.textMuted, "#667085")}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    `--ds-accent: ${safeCssToken(colors?.accent, "#2457D6")}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    `--ds-primary: ${safeCssToken(colors?.primary, "#2457D6")}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    `--ds-secondary: ${safeCssToken(colors?.secondary, "#C85C3A")}`,
+    // guard:allow-raw-color - standalone export fallback palette
+    `--ds-surface: ${safeCssToken(colors?.surface, "#FFFFFF")}`,
+    `--ds-heading-font: ${safeCssToken(typography?.headingFont, "Inter, sans-serif")}`,
+    `--ds-body-font: ${safeCssToken(typography?.bodyFont, "Inter, sans-serif")}`,
+    `--ds-radius: ${safeCssToken(borders?.radius, "14px")}`,
+  ].join("; ");
+}
+
 function buildStandaloneHtml(
   title: string,
-  slides: Array<{ id: string; content: string; notes?: string }>,
+  slides: Array<{
+    id: string;
+    content: string;
+    notes?: string;
+    background?: string;
+  }>,
   aspectRatio?: AspectRatio,
+  designSystem?: DesignSystemData,
 ): string {
   const dims = getAspectRatioDims(aspectRatio);
+  const designSystemVars = standaloneDesignSystemVars(designSystem);
   const slideHtmlSections = slides
     .map(
       (slide, i) =>
-        `<section class="slide" data-index="${i}" style="display: ${i === 0 ? "flex" : "none"};">${sanitizeSlideContent(slide.content)}</section>`,
+        `<section class="slide" data-index="${i}" style="display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(backgroundCssValue(slide.background), DEFAULT_SLIDE_BACKGROUND)}; ${designSystemVars}">${sanitizeSlideContent(slide.content)}</section>`,
     )
     .join("\n");
 
@@ -56,9 +100,6 @@ function buildStandaloneHtml(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)}</title>
-  <!-- Self-hosted Poppins via Bunny Fonts CDN (privacy-respecting, no tracking) -->
-  <link rel="preconnect" href="https://fonts.bunny.net">
-  <link href="https://fonts.bunny.net/css?family=poppins:400,600,700,800,900&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -66,7 +107,7 @@ function buildStandaloneHtml(
       width: 100%; height: 100%;
       background: #111;
       overflow: hidden;
-      font-family: 'Poppins', sans-serif;
+      font-family: 'Inter', sans-serif;
     }
 
     .viewport {
@@ -88,7 +129,9 @@ function buildStandaloneHtml(
     .slide {
       width: ${dims.width}px;
       height: ${dims.height}px;
-      background: #000;
+      background: var(--ds-bg);
+      color: var(--ds-text);
+      font-family: var(--ds-body-font);
       overflow: hidden;
       position: absolute;
       top: 0;
@@ -106,6 +149,29 @@ function buildStandaloneHtml(
       width: 100%;
       height: 100%;
       box-sizing: border-box;
+      padding: 64px 80px;
+      display: flex;
+      flex-direction: column;
+      color: var(--ds-text);
+      background: var(--ds-bg);
+      font-family: var(--ds-body-font);
+    }
+
+    .fmd-slide h1, .fmd-slide h2, .fmd-slide h3 {
+      color: var(--ds-text);
+      font-family: var(--ds-heading-font);
+    }
+
+    .fmd-slide h1 { font-size: 56px; line-height: 1.05; }
+    .fmd-slide h2 { font-size: 34px; line-height: 1.12; }
+    .fmd-slide h3 { font-size: 24px; line-height: 1.2; }
+    .fmd-slide p, .fmd-slide li { color: var(--ds-text-muted); }
+    .fmd-slide strong { color: var(--ds-text); }
+    .fmd-slide hr { border-color: var(--ds-accent); }
+
+    .fmd-slide .fmd-img-placeholder {
+      border-radius: var(--ds-radius);
+      background: var(--ds-surface);
     }
 
     .bottom-bar {
@@ -120,7 +186,7 @@ function buildStandaloneHtml(
       align-items: center;
       justify-content: space-between;
       padding: 0 20px;
-      font-family: 'Poppins', sans-serif;
+      font-family: 'Inter', sans-serif;
       font-size: 13px;
       color: rgba(255, 255, 255, 0.5);
       z-index: 100;
@@ -296,7 +362,32 @@ export default defineAction({
       });
     }
 
-    const html = buildStandaloneHtml(row.title, slides, aspectRatio);
+    const designSystemId = row.designSystemId ?? deckData.designSystemId;
+    let designSystem: DesignSystemData | undefined;
+    if (typeof designSystemId === "string" && designSystemId.trim()) {
+      const designSystemAccess = await resolveAccess(
+        "design-system",
+        designSystemId,
+      );
+      const rawData = designSystemAccess?.resource?.data;
+      if (typeof rawData === "string") {
+        try {
+          const parsed = JSON.parse(rawData);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            designSystem = parsed as DesignSystemData;
+          }
+        } catch {
+          // Malformed optional style data keeps the export on its fallback tokens.
+        }
+      }
+    }
+
+    const html = buildStandaloneHtml(
+      row.title,
+      slides,
+      aspectRatio,
+      designSystem,
+    );
     const filename = safeGeneratedFilename(row.title, ".html");
 
     // Disk write is only useful when the same process can later serve the

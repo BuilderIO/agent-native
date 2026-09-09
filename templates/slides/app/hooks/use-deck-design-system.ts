@@ -4,13 +4,14 @@ import {
   normalizeReferenceUrls,
   type DesignSystemData,
 } from "../../shared/api";
+import { DEFAULT_SLIDE_BACKGROUND } from "../../shared/slide-background";
 
 const DEFAULT_DESIGN_SYSTEM: DesignSystemData = {
   colors: {
     primary: "#2457D6", // guard:allow-raw-color - default slide design-system palette
     secondary: "#C85C3A", // guard:allow-raw-color - default slide design-system palette
     accent: "#2457D6", // guard:allow-raw-color - default slide design-system palette
-    background: "#F5F2EA", // guard:allow-raw-color - default slide design-system palette
+    background: DEFAULT_SLIDE_BACKGROUND,
     surface: "#FFFFFF", // guard:allow-raw-color - default slide design-system palette
     text: "#1F2933", // guard:allow-raw-color - default slide design-system palette
     textMuted: "#667085", // guard:allow-raw-color - default slide design-system palette
@@ -25,7 +26,7 @@ const DEFAULT_DESIGN_SYSTEM: DesignSystemData = {
   spacing: { slidePadding: "64px 80px", elementGap: "18px" },
   borders: { radius: "14px", accentWidth: "3px" },
   slideDefaults: {
-    background: "#F5F2EA", // guard:allow-raw-color - default slide design-system palette
+    background: DEFAULT_SLIDE_BACKGROUND,
     labelStyle: "capitalize",
   },
   logos: [],

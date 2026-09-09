@@ -23,6 +23,7 @@ import {
 } from "@/lib/sanitize-slide-html";
 
 import type { DesignSystemData } from "../../../shared/api";
+import { DEFAULT_SLIDE_BACKGROUND } from "../../../shared/slide-background";
 import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
 import { MermaidRenderer } from "./MermaidRenderer";
 
@@ -966,7 +967,7 @@ export function SlideInner({
     slide.background ??
     designSystem?.slideDefaults.background ??
     designSystem?.colors.background ??
-    "#F5F2EA"; // guard:allow-raw-color - default slide canvas fallback
+    DEFAULT_SLIDE_BACKGROUND;
   const isGradientClass = bg.startsWith("bg-");
   const safeBackground = !isGradientClass ? sanitizeCssValue(bg) : null;
   const bgStyle = safeBackground ? { background: safeBackground } : undefined;
@@ -1125,7 +1126,7 @@ export function SlideInner({
           canvasWidth={dims.width}
           canvasHeight={dims.height}
           fitKey={`${slide.layoutFitRevision ?? ""}:${left}`}
-          className="slide-content text-white/90"
+          className="slide-content"
           {...(slideDeclaresTextColor(left)
             ? { contentScope: AUTHORED_COLOR_SCOPE }
             : {})}
@@ -1143,7 +1144,7 @@ export function SlideInner({
           canvasWidth={dims.width}
           canvasHeight={dims.height}
           fitKey={`${slide.layoutFitRevision ?? ""}:${right}`}
-          className="slide-content text-white/90"
+          className="slide-content"
           {...(slideDeclaresTextColor(right)
             ? { contentScope: AUTHORED_COLOR_SCOPE }
             : {})}
@@ -1198,7 +1199,7 @@ export function SlideInner({
         canvasWidth={dims.width}
         canvasHeight={dims.height}
         fitKey={`${slide.layoutFitRevision ?? ""}:${content}`}
-        className="slide-content text-white/90 w-full"
+        className="slide-content w-full"
         {...(slideDeclaresTextColor(content)
           ? { contentScope: AUTHORED_COLOR_SCOPE }
           : {})}

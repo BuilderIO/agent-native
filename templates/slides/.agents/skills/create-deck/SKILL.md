@@ -157,7 +157,7 @@ pnpm action add-slide --deckId=<id> --layout content --content "..."
 Every slide's `content` must use this exact outer div:
 
 ```html
-<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--ds-body-font, Inter, sans-serif); background: var(--ds-bg, #F5F2EA); color: var(--ds-text, #1F2933);">
+<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--ds-body-font, Inter, sans-serif);">
   <!-- slide content here -->
 </div>
 ```
@@ -209,7 +209,7 @@ tokens with the hydrated design-system values when available.
 ### Title Slide
 
 ```html
-<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 18px; font-family: var(--ds-body-font, Inter, sans-serif); background: var(--ds-bg, #F5F2EA); color: var(--ds-text, #1F2933);">
+<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 18px; font-family: var(--ds-body-font, Inter, sans-serif);">
   <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ds-accent, #2457D6);">[LABEL OR DATE]</div>
   <h1 style="font-size: 56px; font-weight: 750; color: var(--ds-text, #1F2933); line-height: 1.05; letter-spacing: -0.04em; margin: 0; max-width: 760px;">[TITLE]</h1>
   <p style="font-size: 20px; color: var(--ds-text-muted, #667085); margin: 4px 0 0;">[SUBTITLE OR PRESENTER]</p>
@@ -219,7 +219,7 @@ tokens with the hydrated design-system values when available.
 ### Content or Two-Column Slide
 
 ```html
-<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; gap: 18px; font-family: var(--ds-body-font, Inter, sans-serif); background: var(--ds-bg, #F5F2EA); color: var(--ds-text, #1F2933);">
+<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; gap: 18px; font-family: var(--ds-body-font, Inter, sans-serif);">
   <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ds-accent, #2457D6);">[SECTION LABEL]</div>
   <h2 style="font-size: 34px; font-weight: 750; color: var(--ds-text, #1F2933); line-height: 1.12; letter-spacing: -0.03em; margin: 0 0 18px;">[SLIDE HEADING]</h2>
   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">
