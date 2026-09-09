@@ -117,4 +117,69 @@ describe("useUpdateContentDatabaseView", () => {
       ],
     });
   });
+
+  it("writes a legacy canonical response to both caches and invalidates its database id", async () => {
+    const queryClient = {
+      cancelQueries: vi.fn(),
+      setQueryData: vi.fn(),
+      setQueriesData: vi.fn(),
+      invalidateQueries: vi.fn(),
+    };
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+
+    useUpdateContentDatabaseView("database-page");
+    const options = useActionMutation.mock.calls[0][1];
+    const context = await options.onMutate();
+    const legacyResponse = {
+      database: {
+        id: "legacy-database",
+        documentId: "database-page",
+        title: "Legacy database",
+        systemRole: "files",
+        viewConfig: {
+          activeViewId: "calendar",
+          views: [
+            {
+              id: "calendar",
+              name: "Calendar",
+              type: "calendar",
+              datePropertyId: "publish-date",
+            },
+          ],
+        },
+        createdAt: "2026-09-09T00:00:00.000Z",
+        updatedAt: "2026-09-09T00:00:01.000Z",
+      },
+      properties: [],
+      items: [],
+      source: null,
+      sources: [],
+    };
+    const variables = {
+      databaseId: "legacy-database",
+      viewConfig: legacyResponse.database.viewConfig,
+    };
+
+    options.onSuccess(legacyResponse, variables, context);
+    expect(queryClient.setQueriesData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryKey: ["action", "get-content-database"],
+      }),
+      legacyResponse,
+    );
+    expect(queryClient.setQueryData).toHaveBeenCalledWith(
+      ["action", "get-content-database", { databaseId: "legacy-database" }],
+      legacyResponse,
+    );
+
+    options.onSettled(legacyResponse, undefined, variables, context);
+    expect(queryClient.invalidateQueries).toHaveBeenLastCalledWith({
+      queryKey: [
+        "action",
+        "get-content-database",
+        { databaseId: "legacy-database" },
+      ],
+    });
+  });
 });

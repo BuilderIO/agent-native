@@ -1074,12 +1074,9 @@ export function useMoveDatabaseItem(documentId: string) {
   );
 }
 
-export function useUpdateContentDatabaseView(documentId: string) {
-  const queryClient = useQueryClient();
-  const mutationSequences =
-    contentDatabaseViewMutationSequencesFor(queryClient);
-  return useActionMutation<
-    {
+export type ContentDatabaseViewSaveResponse =
+  | ContentDatabaseResponse
+  | {
       receipt: {
         revisions: {
           schemaAfter: string;
@@ -1087,8 +1084,10 @@ export function useUpdateContentDatabaseView(documentId: string) {
         };
       };
       value: ContentDatabaseResponse["database"]["viewConfig"];
-    },
-    {
+    };
+
+export type ContentDatabaseViewSaveRequest =
+  | {
       operation: "replace";
       target: {
         spaceId: string;
@@ -1100,6 +1099,18 @@ export function useUpdateContentDatabaseView(documentId: string) {
       idempotencyKey: string;
       viewConfig: ContentDatabaseResponse["database"]["viewConfig"];
     }
+  | {
+      databaseId: string;
+      viewConfig: ContentDatabaseResponse["database"]["viewConfig"];
+    };
+
+export function useUpdateContentDatabaseView(documentId: string) {
+  const queryClient = useQueryClient();
+  const mutationSequences =
+    contentDatabaseViewMutationSequencesFor(queryClient);
+  return useActionMutation<
+    ContentDatabaseViewSaveResponse,
+    ContentDatabaseViewSaveRequest
   >("update-content-database-view", {
     skipActionQueryInvalidation: true,
     scope: { id: `content-database-view:${documentId}` },
@@ -1114,6 +1125,14 @@ export function useUpdateContentDatabaseView(documentId: string) {
         (context as { sequence?: number } | undefined)?.sequence !==
         mutationSequences.get(documentId)
       ) {
+        return;
+      }
+      if (!("receipt" in data)) {
+        writeContentDatabaseResponseToCache(queryClient, documentId, data);
+        queryClient.setQueryData(
+          contentDatabaseByIdQueryKey(data.database.id),
+          data,
+        );
         return;
       }
       queryClient.setQueriesData<ContentDatabaseResponse>(
@@ -1148,8 +1167,12 @@ export function useUpdateContentDatabaseView(documentId: string) {
       void queryClient.invalidateQueries(
         contentDatabaseQueryFilter(documentId),
       );
+      const databaseId =
+        "target" in variables
+          ? variables.target.databaseId
+          : variables.databaseId;
       void queryClient.invalidateQueries({
-        queryKey: contentDatabaseByIdQueryKey(variables.target.databaseId),
+        queryKey: contentDatabaseByIdQueryKey(databaseId),
       });
     },
   });
