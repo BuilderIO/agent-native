@@ -49,6 +49,13 @@ describe("SlideEditor layout overflow warning", () => {
     expect(source).toContain("hashSlideContent(slide.content)");
   });
 
+  it("asks the agent to repair against complete current slide HTML", () => {
+    expect(source).toContain("use `view-screen` to confirm the overflow");
+    expect(source).toContain("call `get-deck` with slideId");
+    expect(source).toContain("`update-slide --fullContent`");
+    expect(source).toContain("`baseContentHash`");
+  });
+
   it("keeps its controls from triggering canvas interactions", () => {
     const onCanvasPointerDown = vi.fn();
     const onCanvasClick = vi.fn();

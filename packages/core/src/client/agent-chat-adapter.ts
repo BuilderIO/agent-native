@@ -965,13 +965,18 @@ function contentToStructuredMessages(
         continue;
       }
       const toolCallId = nextToolCallId();
+      // A pending approval must replay the exact authorized arguments. Normal
+      // history may truncate large tool inputs, but doing that here changes the
+      // approval key and turns every approval into a fresh approval request.
+      const preserveApprovalInput = Boolean(part.approval?.approvalKey);
       assistantParts.push({
         type: "tool-call",
         toolCallId,
         toolName: part.toolName,
-        args: truncate
-          ? truncateToolArgsForHistory(part.args ?? {}, part.toolName)
-          : (part.args ?? {}),
+        args:
+          truncate && !preserveApprovalInput
+            ? truncateToolArgsForHistory(part.args ?? {}, part.toolName)
+            : (part.args ?? {}),
       });
       if (part.result !== undefined) {
         const body = truncate
@@ -1018,7 +1023,7 @@ function contentToStructuredMessages(
   return messages;
 }
 
-function assistantUiMessagesToStructuredHistory(
+export function assistantUiMessagesToStructuredHistory(
   messages: readonly {
     role: string;
     content: readonly any[];
@@ -1084,6 +1089,7 @@ function assistantUiMessagesToStructuredHistory(
           ...(part.outcome === "unknown"
             ? { outcome: "unknown" as const }
             : {}),
+          ...(part.approval?.approvalKey ? { approval: part.approval } : {}),
         });
       }
     }

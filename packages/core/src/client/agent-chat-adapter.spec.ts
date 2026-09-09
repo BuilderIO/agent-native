@@ -14,6 +14,7 @@ import {
 } from "./active-run-state.js";
 import {
   activeRunLooksAlive,
+  assistantUiMessagesToStructuredHistory,
   BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
@@ -25,6 +26,32 @@ const analyticsMock = vi.hoisted(() => ({
 }));
 
 vi.mock("./analytics.js", () => analyticsMock);
+
+describe("approval history", () => {
+  it("preserves exact pending approval arguments", () => {
+    const body = "x".repeat(9_000);
+    const history = assistantUiMessagesToStructuredHistory([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call-1",
+            toolName: "send-email",
+            args: { body },
+            result: "Awaiting human approval. This action did NOT execute.",
+            approval: { approvalKey: "send-email:pending" },
+          },
+        ],
+      },
+    ]);
+
+    expect(history[0]?.content[0]).toMatchObject({
+      type: "tool-call",
+      args: { body },
+    });
+  });
+});
 
 function sseResponse(events: unknown[], runId = "run-qa"): Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`);
