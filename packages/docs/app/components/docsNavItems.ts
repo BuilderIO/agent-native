@@ -2,6 +2,7 @@ import enUS from "../i18n/en-US";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
+  docsLocaleFromSegment,
   type DocsLocale,
 } from "./docs-locale";
 
@@ -1134,14 +1135,15 @@ function toNavItem(
 }
 
 export function getDocsNavSections(
-  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
   t: Translate = enMessage,
 ): NavSection[] {
+  const docsLocale = docsLocaleFromSegment(locale) ?? DEFAULT_DOCS_LOCALE;
   return NAV_SECTION_CONFIG_IN_DISPLAY_ORDER.map((section) => ({
     id: section.id,
     title: navLabel(t, section.titleKey),
     items: section.items
-      .map((item) => toNavItem(item, locale, t))
+      .map((item) => toNavItem(item, docsLocale, t))
       .filter((item): item is NavItem => item !== null),
   })).filter((section) => section.items.length > 0);
 }
@@ -1162,7 +1164,7 @@ function flattenItems(items: NavItem[]): NavItem[] {
 }
 
 export function getDocsNavItems(
-  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
   t: Translate = enMessage,
 ): (NavItem & { to: string })[] {
   return getDocsNavSections(locale, t)

@@ -65,18 +65,18 @@ export const i18nCatalog = createAgentNativeI18nCatalog({
 區域設定。支援的區域設定代碼為 `en-US`、`zh-CN`、`zh-TW`、`es-ES`、
 `fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN` 和 `ar-SA`。
 
-這份清單是由框架固定的，並不只是這個範例剛好捆綁了哪些項目。
-`LocaleCode` 是一個恰好由這些代碼組成的 TypeScript 聯合型別，
-而 `set-localization-preference` 在執行時會拒絕任何其他值。每個
-區域設定也需要框架維護的中繼資料，例如右到左語言的文字方向。新增
-一個區域設定代表要擴充框架本身，而不是在應用程式裡加一個目錄檔案。
+框架提供內建區域設定。應用程式也可以使用自己的中繼資料，註冊其他
+規範的 BCP-47 區域設定，例如本地名稱、英文名稱與文字方向。對於可選的
+框架翻譯，請使用 `coreMessageOverrides`；缺少的金鑰會回退到英文。
 
 `createAgentNativeI18nCatalog` 也接受一個選用的 `sourceLocale`（預設為
 `en-US`）以及一個選用的 `supportedLocales` 陣列。當應用程式只為框架
 支援的十種區域設定中的一部分提供翻譯，而不是全部都提供時，就設定
 `supportedLocales`。它預設為框架支援的每一個區域設定。`LanguagePicker`
 只會列出這個集合中的區域設定，任何在此集合之外被偵測到或被要求的
-區域設定都會回退到 `sourceLocale`。
+區域設定都會回退到 `sourceLocale`。即使 `supportedLocales` 限制了內建區域
+設定，已在 `locales` 中註冊的區域設定也會加入此列表。`agent-native.json`
+中的 `translations.locales` 是應用程式的明確允許清單，優先於目錄註冊。
 
 ## UI
 
@@ -105,7 +105,7 @@ function Greeting({ name }: { name: string }) {
 - `get-localization-preference` — 讀取目前使用者的 `{ locale, timezone }`
 - `set-localization-preference` — 設定 `locale` 或 `timezone`，兩者皆為選填
 
-`locale` 是 `"system"` 或某個受支援的 BCP-47 區域設定。`timezone` 是
+`locale` 是 `"system"` 或應用程式註冊的有效 BCP-47 區域設定。`timezone` 是
 `"system"` 或一個 IANA 時區，例如 `America/New_York`。它的存在是為了
 讓排程與自動化工作在使用者的時區執行，而不是在主機的時區執行。只
 設定其中一個欄位時，另一個欄位會維持不變，因為
