@@ -18,41 +18,46 @@ export default defineAction({
     "Export one Design screen as a PNG image. Pass fileId, or pass designId " +
     "and filename, to choose the screen. Returns a durable image URL; the " +
     "screen is rendered at 1440px wide by default and full-page height.",
-  schema: z.object({
-    designId: z
-      .string()
-      .optional()
-      .describe("Design project id. Required unless fileId is provided."),
-    fileId: z
-      .string()
-      .optional()
-      .describe(
-        "Specific design_files.id to export. Takes priority over designId and filename.",
-      ),
-    filename: z
-      .string()
-      .optional()
-      .default("index.html")
-      .describe(
-        "Screen filename when fileId is not provided. Defaults to index.html.",
-      ),
-    width: z.coerce
-      .number()
-      .int()
-      .min(200)
-      .max(3840)
-      .optional()
-      .describe("Render viewport width in pixels. Defaults to 1440."),
-    height: z.coerce
-      .number()
-      .int()
-      .min(200)
-      .max(4096)
-      .optional()
-      .describe(
-        "Optional viewport height in pixels. Full-page export is not cropped to this height.",
-      ),
-  }),
+  schema: z
+    .object({
+      designId: z
+        .string()
+        .optional()
+        .describe("Design project id. Required unless fileId is provided."),
+      fileId: z
+        .string()
+        .optional()
+        .describe(
+          "Specific design_files.id to export. Takes priority over designId and filename.",
+        ),
+      filename: z
+        .string()
+        .optional()
+        .default("index.html")
+        .describe(
+          "Screen filename when fileId is not provided. Defaults to index.html.",
+        ),
+      width: z.coerce
+        .number()
+        .int()
+        .min(200)
+        .max(3840)
+        .optional()
+        .describe("Render viewport width in pixels. Defaults to 1440."),
+      height: z.coerce
+        .number()
+        .int()
+        .min(200)
+        .max(4096)
+        .optional()
+        .describe(
+          "Optional viewport height in pixels. Full-page export is not cropped to this height.",
+        ),
+    })
+    .refine(({ designId, fileId }) => Boolean(designId || fileId), {
+      message: "Provide designId or fileId to select a screen.",
+      path: ["designId"],
+    }),
   readOnly: true,
   http: { method: "POST" },
   run: async ({ designId, fileId, filename, width, height }, ctx) => {

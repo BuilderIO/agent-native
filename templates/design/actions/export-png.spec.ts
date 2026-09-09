@@ -9,6 +9,14 @@ vi.mock("./take-design-screenshot.js", () => ({
 import action from "./export-png.js";
 
 describe("export-png", () => {
+  it("requires a design or file target", () => {
+    expect(action.schema.safeParse({}).success).toBe(false);
+    expect(action.schema.safeParse({ designId: "design_1" }).success).toBe(
+      true,
+    );
+    expect(action.schema.safeParse({ fileId: "file_1" }).success).toBe(true);
+  });
+
   it("exports one selected screen through the screenshot renderer", async () => {
     const diagnostics = { horizontalOverflowPx: 0 };
     takeDesignScreenshotRun.mockResolvedValueOnce({
