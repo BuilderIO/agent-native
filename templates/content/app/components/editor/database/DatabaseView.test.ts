@@ -212,38 +212,14 @@ describe("database preview property saves", () => {
     });
   });
 
-  it("threads the containing database document through scalar and block property editors", () => {
+  it("passes membership context to the shared Page surface", () => {
     const source = readFileSync(
       new URL("./DatabaseView.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toMatch(
-      /<DocumentProperties[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
+      "utf8",
     );
     expect(source).toMatch(
-      /<DocumentBlockFields[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
+      /<PageEditorSurface[\s\S]*?documentId=\{item.document.id\}[\s\S]*?databaseId=\{item.databaseId\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
     );
-    expect(source).toMatch(
-      /<VisualEditor[\s\S]*?onChange=\{handleContentChange\}[\s\S]*?onSaveContent=\{handleContentSaveNow\}/,
-    );
-  });
-
-  it("does not refetch Content after the document mutation patches its caches", () => {
-    const source = readFileSync(
-      new URL("./DatabaseView.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-    const onSaved = source.match(
-      /onSaved: \(persistedPayload\) => \{([\s\S]*?)\n    \},\n    onError:/,
-    )?.[1];
-
-    expect(onSaved).toBeDefined();
-    expect(onSaved).not.toContain("invalidateQueries");
   });
 });
 

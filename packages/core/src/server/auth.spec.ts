@@ -1672,6 +1672,9 @@ describe("server/auth", () => {
       expect(new URL(result.url).searchParams.get("client_id")).toBe(
         "sign-in-client",
       );
+      expect(new URL(result.url).searchParams.get("scope")).toBe(
+        "openid email profile",
+      );
       expect(
         decodeOAuthState(
           new URL(result.url).searchParams.get("state") ?? undefined,
@@ -7845,6 +7848,7 @@ describe("server/auth", () => {
   describe("OAuth session creation", () => {
     it("uses cross-site cookie attributes for HTTPS Google sign-in sessions", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-auth-secret");
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
@@ -7874,6 +7878,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("COOKIE_DOMAIN", ".example.com");
       vi.stubEnv("APP_NAME", "slides");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-auth-secret");
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
@@ -7922,6 +7927,7 @@ describe("server/auth", () => {
       const trackSignupEvent = vi.fn(async () => {});
       const hasBetterAuthUserEmail = vi.fn(async () => false);
       vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
         hasBetterAuthUserEmail,
@@ -7993,6 +7999,7 @@ describe("server/auth", () => {
       const trackSignupEvent = vi.fn(async () => {});
       const hasBetterAuthUserEmail = vi.fn(async () => false);
       vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
         hasBetterAuthUserEmail,
@@ -8057,6 +8064,7 @@ describe("server/auth", () => {
       const trackSignupEvent = vi.fn(async () => {});
       const hasBetterAuthUserEmail = vi.fn(async () => false);
       vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
         hasBetterAuthUserEmail,
@@ -8084,6 +8092,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("COOKIE_DOMAIN", ".agent-native.com");
       vi.stubEnv("APP_NAME", "slides");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-auth-secret");
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
@@ -8360,21 +8369,22 @@ describe("server/auth", () => {
 
     it("mobile callback deep-links to the native app but falls back to the return URL, not the homepage", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        },
+        query: { state: "state-1" },
+      });
+      event.res.headers.append(
+        "set-cookie",
+        "an_session=mobile-session; Path=/; HttpOnly; SameSite=Lax",
+      );
       const response = await Promise.resolve(
-        oauthCallbackResponse(
-          createMockEvent({
-            headers: {
-              "user-agent":
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            },
-            query: { state: "state-1" },
-          }),
-          "steve@example.com",
-          {
-            sessionToken: "token-1",
-            returnUrl: "/recaps/recap-abc",
-          },
-        ),
+        oauthCallbackResponse(event, "steve@example.com", {
+          sessionToken: "token-1",
+          returnUrl: "/recaps/recap-abc",
+        }),
       );
 
       expect(response).toBeInstanceOf(Response);
@@ -8387,6 +8397,10 @@ describe("server/auth", () => {
       // original page the visitor opened — never the bare app root.
       expect(html).toContain('window.location.href="/recaps/recap-abc"');
       expect(html).not.toContain('window.location.href="/"');
+      const setCookie = (response as Response).headers.getSetCookie?.() ?? [
+        (response as Response).headers.get("set-cookie") ?? "",
+      ];
+      expect(setCookie.join("\n")).toContain("an_session=mobile-session");
     });
 
     it("mobile callback fallback defaults to the app root when there is no return URL", async () => {

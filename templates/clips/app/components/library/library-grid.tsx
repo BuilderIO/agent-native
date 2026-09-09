@@ -622,79 +622,86 @@ export function LibraryGrid({
                       )}
                       <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
                         {recordings.map((r: RecordingSummary) => (
-                          <RecordingCard
+                          <div
                             key={r.id}
-                            recording={r}
-                            selected={
-                              canManageRecordings
-                                ? selected.has(r.id)
-                                : undefined
-                            }
-                            selectionMode={canManageRecordings && selectionMode}
-                            onToggleSelect={
-                              canManageRecordings
-                                ? handleToggleSelect
-                                : undefined
-                            }
-                            onShare={(rec) => setSharingRec(rec)}
-                            moveTargets={moveTargets}
-                            onMove={canMoveSelection ? moveSingle : undefined}
-                            isMovePending={moveRecording.isPending}
-                            onRetry={
-                              canManageRecordings ? handleRetry : undefined
-                            }
-                            onCreateFolder={() => {
-                              setCreateFolderTarget({
-                                kind: "single",
-                                recording: r,
-                              });
-                            }}
-                            onTrash={
-                              canManageRecordings
-                                ? (rec) => {
-                                    trashRecording.mutate(
-                                      { id: rec.id },
-                                      {
-                                        onSuccess: () =>
-                                          toast.success(
-                                            t("libraryGrid.movedToTrash"),
-                                          ),
-                                      },
-                                    );
-                                  }
-                                : undefined
-                            }
-                            onArchive={
-                              canManageRecordings
-                                ? (rec) => {
-                                    if (rec.archivedAt) {
-                                      restoreRecording.mutate(
+                            className="min-w-0"
+                            onContextMenu={(event) => event.stopPropagation()}
+                          >
+                            <RecordingCard
+                              recording={r}
+                              selected={
+                                canManageRecordings
+                                  ? selected.has(r.id)
+                                  : undefined
+                              }
+                              selectionMode={
+                                canManageRecordings && selectionMode
+                              }
+                              onToggleSelect={
+                                canManageRecordings
+                                  ? handleToggleSelect
+                                  : undefined
+                              }
+                              onShare={(rec) => setSharingRec(rec)}
+                              moveTargets={moveTargets}
+                              onMove={canMoveSelection ? moveSingle : undefined}
+                              isMovePending={moveRecording.isPending}
+                              onRetry={
+                                canManageRecordings ? handleRetry : undefined
+                              }
+                              onCreateFolder={() => {
+                                setCreateFolderTarget({
+                                  kind: "single",
+                                  recording: r,
+                                });
+                              }}
+                              onTrash={
+                                canManageRecordings
+                                  ? (rec) => {
+                                      trashRecording.mutate(
                                         { id: rec.id },
                                         {
                                           onSuccess: () =>
                                             toast.success(
-                                              t(
-                                                "libraryGrid.restoredFromArchive",
-                                              ),
-                                            ),
-                                        },
-                                      );
-                                    } else {
-                                      archiveRecording.mutate(
-                                        { id: rec.id },
-                                        {
-                                          onSuccess: () =>
-                                            toast.success(
-                                              t("libraryGrid.archived"),
+                                              t("libraryGrid.movedToTrash"),
                                             ),
                                         },
                                       );
                                     }
-                                  }
-                                : undefined
-                            }
-                            readOnly={!canManageRecordings}
-                          />
+                                  : undefined
+                              }
+                              onArchive={
+                                canManageRecordings
+                                  ? (rec) => {
+                                      if (rec.archivedAt) {
+                                        restoreRecording.mutate(
+                                          { id: rec.id },
+                                          {
+                                            onSuccess: () =>
+                                              toast.success(
+                                                t(
+                                                  "libraryGrid.restoredFromArchive",
+                                                ),
+                                              ),
+                                          },
+                                        );
+                                      } else {
+                                        archiveRecording.mutate(
+                                          { id: rec.id },
+                                          {
+                                            onSuccess: () =>
+                                              toast.success(
+                                                t("libraryGrid.archived"),
+                                              ),
+                                          },
+                                        );
+                                      }
+                                    }
+                                  : undefined
+                              }
+                              readOnly={!canManageRecordings}
+                            />
+                          </div>
                         ))}
                       </div>
                     </section>

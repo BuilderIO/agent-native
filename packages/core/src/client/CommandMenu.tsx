@@ -424,6 +424,15 @@ export function CommandMenu({
       if (!React.isValidElement(child)) return child;
       const props = child.props as Record<string, unknown>;
 
+      if (child.type === React.Fragment) {
+        const fragmentChildren = filterChildren(props.children as ReactNode);
+        if (React.Children.count(fragmentChildren) === 0) return null;
+        return React.cloneElement(child, {
+          ...props,
+          children: fragmentChildren,
+        } as Record<string, unknown>);
+      }
+
       // If it's a CommandGroup, filter its children
       if (child.type === CommandGroup) {
         const groupChildren = filterChildren(props.children as ReactNode);

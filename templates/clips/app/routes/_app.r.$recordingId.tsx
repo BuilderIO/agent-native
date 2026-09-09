@@ -8,6 +8,7 @@ import {
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import { useExperiment } from "@agent-native/core/client/experiments";
 import {
   actionErrorMessage,
   useActionMutation,
@@ -32,6 +33,7 @@ import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
+import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/experiments";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
 import {
   isLoomEmbedBackedRecording,
@@ -70,6 +72,14 @@ import {
   PageHeader,
   type PageBreadcrumbItem,
 } from "@/components/library/page-header";
+import {
+  BrowserDiagnosticsPanel,
+  isFullBrowserDiagnostics,
+} from "@/components/player/browser-diagnostics-panel";
+import {
+  VIEWER_PREVIEW_BROWSER_DIAGNOSTICS,
+  VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS,
+} from "@/components/player/browser-diagnostics.fixture";
 import { useClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import {
@@ -408,7 +418,7 @@ export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
 
-type SidePanel = "transcript" | "comments" | "settings";
+type SidePanel = "transcript" | "comments" | "debug" | "settings";
 type ToolbarPanel = Exclude<SidePanel, "comments">;
 
 function useGlobalAgentSidebarOpen() {
@@ -545,6 +555,8 @@ export default function RecordingPage() {
   const routePlaybackParam = searchParams.get("at") ?? searchParams.get("t");
   const panelParam = searchParams.get("panel");
   const { session, isLoading: sessionLoading } = useSession();
+  const videoEditingExperimentEnabled = useExperiment(CLIPS_VIDEO_EDITING.key);
+  const meetingsExperimentEnabled = useExperiment(CLIPS_MEETINGS.key);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
 
@@ -913,15 +925,36 @@ export default function RecordingPage() {
   ]);
   const ctas = playerDataQ.data?.ctas ?? [];
   const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const browserDiagnosticsCandidate =
+    recordingId === VIEWER_REDESIGN_PREVIEW_ID
+      ? VIEWER_PREVIEW_BROWSER_DIAGNOSTICS
+      : playerDataQ.data?.browserDiagnostics;
+  const browserDiagnostics =
+    canEdit && isFullBrowserDiagnostics(browserDiagnosticsCandidate)
+      ? browserDiagnosticsCandidate
+      : null;
+  const browserDiagnosticsDurationMs =
+    recordingId === VIEWER_REDESIGN_PREVIEW_ID
+      ? VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS
+      : (recording?.durationMs ?? 0);
+  const hasBrowserDiagnosticFailures = Boolean(
+    browserDiagnostics &&
+    (browserDiagnostics.summary.consoleErrorCount > 0 ||
+      browserDiagnostics.summary.consoleWarnCount > 0 ||
+      browserDiagnostics.summary.networkFailureCount > 0),
+  );
   // Reaching this page already requires a signed-in session with at least
   // viewer access to the recording, so any resolved role qualifies to
   // comment/react — no separate "commenter" tier.
   const canComment = role != null;
   useEffect(() => {
-    if (!canEdit && panel === "settings") {
+    if (
+      (!canEdit && panel === "settings") ||
+      (!browserDiagnostics && panel === "debug")
+    ) {
       setPanel("transcript");
     }
-  }, [canEdit, panel]);
+  }, [browserDiagnostics, canEdit, panel]);
 
   useEffect(() => {
     if (panelParam === "agent") {
@@ -941,12 +974,20 @@ export default function RecordingPage() {
     if (
       (panelParam === "transcript" ||
         panelParam === "insights" ||
+        panelParam === "debug" ||
         panelParam === "settings") &&
-      (panelParam !== "settings" || canEdit)
+      (panelParam !== "settings" || canEdit) &&
+      (panelParam !== "debug" || browserDiagnostics)
     ) {
       setPanel(panelParam === "insights" ? "transcript" : panelParam);
     }
-  }, [canEdit, isCompactLayout, panelParam, recording?.enableComments]);
+  }, [
+    browserDiagnostics,
+    canEdit,
+    isCompactLayout,
+    panelParam,
+    recording?.enableComments,
+  ]);
 
   const builderCredits =
     (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
@@ -1158,7 +1199,8 @@ export default function RecordingPage() {
 
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const isLoomRecording = isLoomRecordingSource(recording);
-  const canUseNativeEditor = canEdit && !isLoomEmbedBacked;
+  const canUseNativeEditor =
+    canEdit && videoEditingExperimentEnabled && !isLoomEmbedBacked;
   const canDelete = role === "owner";
   const canDownloadRecording = Boolean(
     recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
@@ -1906,6 +1948,19 @@ export default function RecordingPage() {
       <ViewerTabsTrigger value="transcript">
         {t("recordingPage.transcript")}
       </ViewerTabsTrigger>
+      {browserDiagnostics ? (
+        <ViewerTabsTrigger value="debug">
+          <span className="flex items-center justify-center gap-1.5">
+            {t("browserDiagnostics.debug")}
+            {hasBrowserDiagnosticFailures ? (
+              <span
+                className="size-1.5 rounded-full bg-destructive"
+                aria-label={t("browserDiagnostics.failuresPresent")}
+              />
+            ) : null}
+          </span>
+        </ViewerTabsTrigger>
+      ) : null}
       {canEdit ? (
         <ViewerTabsTrigger value="settings">
           {t("recordingPage.settings")}
@@ -1949,15 +2004,16 @@ export default function RecordingPage() {
     </section>
   );
 
-  const renderSidePanel = () => {
+  const renderSidePanel = (compact = false) => {
     return (
       <>
         {recording.enableComments ? (
           <TabsContent
+            forceMount
             value="comments"
-            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
           >
-            {renderCommentsSection()}
+            {renderCommentsSection(compact)}
           </TabsContent>
         ) : null}
         <TabsContent
@@ -1968,6 +2024,7 @@ export default function RecordingPage() {
             segments={transcriptSegments}
             fullText={transcriptFullText}
             durationMs={recording.durationMs}
+            editsJson={recording.editsJson}
             currentMs={playbackMs}
             onSeek={(ms) => playerRef.current?.seek(ms)}
             status={
@@ -1999,6 +2056,18 @@ export default function RecordingPage() {
             isRegenerating={requestTranscript.isPending}
           />
         </TabsContent>
+        {browserDiagnostics ? (
+          <TabsContent
+            value="debug"
+            className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
+          >
+            <BrowserDiagnosticsPanel
+              diagnostics={browserDiagnostics}
+              durationMs={browserDiagnosticsDurationMs}
+              onSeek={(ms) => playerRef.current?.seek(ms)}
+            />
+          </TabsContent>
+        ) : null}
         {canEdit ? (
           <TabsContent
             value="settings"
@@ -2475,7 +2544,7 @@ export default function RecordingPage() {
                     </div>
                     {/* G9 — "From meeting" badge surfaced when this recording is
                       attached to a meeting (server fix 6 attaches `meeting`). */}
-                    {playerDataQ.data?.meeting ? (
+                    {meetingsExperimentEnabled && playerDataQ.data?.meeting ? (
                       <NavLink
                         to={`/meetings/${playerDataQ.data.meeting.id}`}
                         className="mb-2 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-accent/50 px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent"
@@ -2526,9 +2595,7 @@ export default function RecordingPage() {
                     className="mt-2 lg:hidden"
                     tabs={renderPanelTabs()}
                   >
-                    {panel === "comments"
-                      ? renderCommentsSection(true)
-                      : renderSidePanel()}
+                    {renderSidePanel(true)}
                   </RecordingSidePanel>
                 ) : null}
               </div>

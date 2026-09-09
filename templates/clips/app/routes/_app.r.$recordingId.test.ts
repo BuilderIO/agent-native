@@ -133,12 +133,17 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('<ViewerTabsTrigger value="comments">');
     expect(route).toContain('<ViewerTabsTrigger value="transcript">');
     expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).toContain('<ViewerTabsTrigger value="debug">');
     expect(route).toContain('<ViewerTabsTrigger value="settings">');
+    expect(route).toContain("isFullBrowserDiagnostics");
+    expect(route).toContain("<BrowserDiagnosticsPanel");
     expect(route).not.toContain("<ToggleGroup");
     expect(route).toContain('value={panel ?? "comments"}');
     expect(route).toContain('if (value === "comments")');
     expect(route).toContain("openCommentsPanel();");
     expect(route).toContain('value="comments"');
+    expect(route).toContain("forceMount");
+    expect(route).toContain("data-[state=inactive]:hidden");
     expect(route).not.toContain("IconLayoutSidebarRightCollapse");
     expect(route).not.toContain("IconLayoutSidebarRightExpand");
     expect(route).not.toContain("closeSidePanel");
@@ -153,12 +158,8 @@ describe("direct recording route shell cue", () => {
     );
     expect(mobilePanelStart).toBeGreaterThan(-1);
     expect(mobilePanel).toContain("RecordingSidePanel");
-    expect(mobilePanel).toContain('panel === "comments"');
-    expect(mobilePanel).toContain("renderCommentsSection(true)");
+    expect(mobilePanel).toContain("renderSidePanel(true)");
     expect(mobilePanel).toContain("{renderPanelTabs()}");
-    expect(mobilePanel.indexOf("{renderPanelTabs()}")).toBeLessThan(
-      mobilePanel.indexOf('panel === "comments"'),
-    );
     const sidePanelStart = route.indexOf("{/* Side panel */}");
     const sidePanel = route.slice(sidePanelStart, route.indexOf("</Tabs>"));
     expect(sidePanelStart).toBeGreaterThan(-1);
@@ -187,6 +188,10 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain(
       "overflow-x-hidden bg-background lg:grid-cols-[minmax(0,1fr)_auto]",
     );
+
+    const shareRoute = readRoute("share.$shareId.tsx");
+    expect(shareRoute).toContain("forceMount");
+    expect(shareRoute).toContain("data-[state=inactive]:hidden");
 
     const viewerControls = readFileSync(
       resolve(process.cwd(), "app/components/player/viewer-controls.tsx"),

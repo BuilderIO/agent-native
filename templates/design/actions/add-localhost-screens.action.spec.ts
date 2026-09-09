@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   },
   state: {
     connection: {} as Record<string, unknown>,
+    scopedConnections: [] as Array<Record<string, unknown>>,
     designData: {} as Record<string, unknown>,
     files: [] as Array<{
       id: string;
@@ -82,45 +83,35 @@ vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     select: () => {
       mocks.state.selectCount += 1;
-      if (mocks.state.selectCount === 1) {
-        return {
-          from: () => ({
-            where: () => ({
-              orderBy: () => ({
-                limit: () => Promise.resolve([mocks.state.connection]),
-              }),
-            }),
-          }),
-        };
-      }
-      if (mocks.state.selectCount === 2) {
-        return {
-          from: () => ({
-            where: () => ({
-              limit: () =>
-                Promise.resolve([
-                  { data: JSON.stringify(mocks.state.designData) },
-                ]),
-            }),
-          }),
-        };
-      }
-      if (mocks.state.selectCount === 3) {
-        return {
-          from: () => ({ where: () => Promise.resolve(mocks.state.files) }),
-        };
-      }
-      // 4th+ select: the conflict-recovery lookup for whichever row won a
-      // simulated concurrent insert race (see insertConflictOnce/winnerFile).
       return {
-        from: () => ({
-          where: () => ({
+        from: (table: unknown) => {
+          if (table === mocks.schema.designLocalhostConnections) {
+            const ordered = Object.assign(
+              Promise.resolve(mocks.state.scopedConnections),
+              {
+                limit: () => Promise.resolve([mocks.state.connection]),
+              },
+            );
+            return { where: () => ({ orderBy: () => ordered }) };
+          }
+          if (table === mocks.schema.designs) {
+            return {
+              where: () => ({
+                limit: () =>
+                  Promise.resolve([
+                    { data: JSON.stringify(mocks.state.designData) },
+                  ]),
+              }),
+            };
+          }
+          const rows = Object.assign(Promise.resolve(mocks.state.files), {
             limit: () =>
               Promise.resolve(
                 mocks.state.winnerFile ? [mocks.state.winnerFile] : [],
               ),
-          }),
-        }),
+          });
+          return { where: () => rows };
+        },
       };
     },
     insert: () => ({
@@ -159,6 +150,7 @@ vi.mock("../server/db/index.js", () => ({
   }),
 }));
 
+import { makeLocalhostRouteId } from "../shared/source-mode.js";
 import action from "./add-localhost-screens.js";
 
 describe("add-localhost-screens refresh behavior", () => {
@@ -221,6 +213,7 @@ describe("add-localhost-screens refresh behavior", () => {
         generatedAt: "2026-07-09T00:00:00.000Z",
       }),
     };
+    mocks.state.scopedConnections = [mocks.state.connection];
     mocks.state.designData = {};
     mocks.state.files = [];
   });
@@ -299,6 +292,36 @@ describe("add-localhost-screens refresh behavior", () => {
     ).file_1;
     expect(metadata.previewToken).toBe("example-preview-token");
     expect(metadata).not.toHaveProperty("bridgeToken");
+  });
+
+  it("refreshes a legacy primary screen when its URL content identifies the route", async () => {
+    mocks.state.files = [
+      {
+        id: "legacy_file",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings?old=1",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        legacy_file: { sourceType: "localhost", path: "/settings" },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/settings"],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(mocks.state.insertedFile).toBeNull();
+    expect(mocks.state.updatedFiles).toHaveLength(1);
+    expect(result.screens[0]?.id).toBe("legacy_file");
   });
 
   it("never overwrites an unrelated inline file that uses the generated localhost filename", async () => {
@@ -383,6 +406,407 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(result.screens).toHaveLength(2);
   });
 
+  it("deduplicates routes using their effective default viewport", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      defaultWidth: 1280,
+      defaultHeight: 900,
+      routes: [
+        { path: "/settings" },
+        { path: "/settings", width: 1280, height: 900 },
+      ],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(mocks.state.insertedFiles).toHaveLength(1);
+    expect(result.screens).toHaveLength(1);
+  });
+
+  it("routes an absolute URL to its registered loopback connection", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://localhost:4173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:4173",
+        routes: [],
+      }),
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ url: "http://localhost:4173/settings" }],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]).toMatchObject({
+      connectionId: "conn_2",
+      devServerUrl: "http://localhost:4173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      previewToken: "example-preview-token-2",
+      url: "http://localhost:4173/settings",
+    });
+    expect(mocks.state.insertedFile).toMatchObject({
+      filename: expect.stringMatching(
+        /^localhost-localhost-4173-settings-[a-z0-9]+\.html$/,
+      ),
+    });
+    expect(mocks.state.updatedDesignData).toMatchObject({
+      screenMetadata: {
+        [result.screens[0]!.id]: {
+          connectionId: "conn_2",
+          bridgeUrl: "http://127.0.0.1:7332",
+          previewToken: "example-preview-token-2",
+        },
+      },
+    });
+  });
+
+  it("lets an explicit absolute URL choose the connection before path inference", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://127.0.0.2:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://127.0.0.2:5173",
+        routes: [],
+      }),
+    });
+    mocks.state.connection.routeManifest = JSON.stringify({
+      version: 1,
+      sourceType: "localhost",
+      devServerUrl: "http://localhost:5173",
+      routes: [
+        {
+          id: "primary-settings",
+          connectionId: "conn_1",
+          path: "/settings",
+        },
+      ],
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [
+        {
+          path: "/settings",
+          url: "http://127.0.0.2:5173/settings",
+        },
+      ],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]).toMatchObject({
+      connectionId: "conn_2",
+      url: "http://127.0.0.2:5173/settings",
+    });
+  });
+
+  it("keeps placed ids connection-aware for same-origin secondary routes", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://localhost:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        routes: [],
+      }),
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ connectionId: "conn_2", path: "/settings" }],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.routeId).toBe(
+      makeLocalhostRouteId("conn_2:/settings"),
+    );
+    expect(result.screens[0]?.routeId).not.toBe(
+      makeLocalhostRouteId("/settings"),
+    );
+  });
+
+  it("rejects an ambiguous same-origin URL without route connection identity", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://localhost:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        routes: [],
+      }),
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
+        routes: [{ url: "http://localhost:5173/settings" }],
+        startX: 0,
+        startY: 0,
+        gap: 160,
+      }),
+    ).rejects.toThrow(/Multiple localhost connections/);
+  });
+
+  it("does not reuse a connectionless legacy screen across same-origin roots", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://localhost:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        routes: [],
+      }),
+    });
+    mocks.state.files = [
+      {
+        id: "legacy_file",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings?old=1",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        legacy_file: { sourceType: "localhost", path: "/settings" },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ connectionId: "conn_2", path: "/settings" }],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).not.toBe("legacy_file");
+    expect(mocks.state.insertedFile).toMatchObject({
+      filename: expect.stringMatching(
+        /^localhost-conn-2-settings-[a-z0-9]+\.html$/,
+      ),
+    });
+  });
+
+  it("normalizes loopback URL aliases before matching manifest routes", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://127.0.0.1:4173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://127.0.0.1:4173",
+        routes: [
+          {
+            id: "secondary-settings",
+            path: "/settings",
+            url: "http://127.0.0.1:4173/settings",
+          },
+        ],
+      }),
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ url: "http://localhost:4173/settings" }],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]).toMatchObject({
+      connectionId: "conn_2",
+      routeId: "secondary-settings",
+      url: "http://127.0.0.1:4173/settings",
+    });
+  });
+
+  it("does not reuse a legacy path-only screen from another connection", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://127.0.0.2:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://127.0.0.2:5173",
+        routes: [],
+      }),
+    });
+    mocks.state.files = [
+      {
+        id: "legacy_file",
+        designId: "design_1",
+        filename: "localhost-127-0-0-2-5173-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings?old=1",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        legacy_file: { sourceType: "localhost", path: "/settings" },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ url: "http://127.0.0.2:5173/settings" }],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).not.toBe("legacy_file");
+    expect(mocks.state.insertedFile).toMatchObject({
+      filename: expect.stringMatching(
+        /^localhost-127-0-0-2-5173-settings-[a-z0-9]+\.html$/,
+      ),
+    });
+  });
+
+  it("resolves a persisted secondary route before selecting its connection", async () => {
+    const secondaryConnection = {
+      id: "conn_2",
+      devServerUrl: "http://127.0.0.2:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://127.0.0.2:5173",
+        routes: [],
+      }),
+    };
+    mocks.state.scopedConnections.push(secondaryConnection);
+    mocks.state.connection.routeManifest = JSON.stringify({
+      version: 1,
+      sourceType: "localhost",
+      devServerUrl: "http://localhost:5173",
+      routes: [
+        {
+          id: "route-secondary",
+          connectionId: "conn_2",
+          path: "/settings",
+          url: "http://127.0.0.2:5173/settings",
+          title: "Secondary settings",
+        },
+      ],
+      generatedAt: "2026-07-09T00:00:00.000Z",
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ routeId: "route-secondary" }],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]).toMatchObject({
+      connectionId: "conn_2",
+      devServerUrl: "http://127.0.0.2:5173",
+      url: "http://127.0.0.2:5173/settings",
+    });
+    expect(mocks.state.insertedFile).toMatchObject({
+      content: "http://127.0.0.2:5173/settings",
+    });
+  });
+
+  it("does not inherit a primary route id for an explicit secondary connection", async () => {
+    mocks.state.scopedConnections.push({
+      id: "conn_2",
+      devServerUrl: "http://127.0.0.2:5173",
+      bridgeUrl: "http://127.0.0.1:7332",
+      bridgeToken: "example-bridge-token-2",
+      previewToken: "example-preview-token-2",
+      rootPath: "/tmp/example-app-2",
+      updatedAt: "2026-07-09T00:00:02.000Z",
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://127.0.0.2:5173",
+        routes: [],
+      }),
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [
+        {
+          connectionId: "conn_2",
+          url: "http://127.0.0.2:5173/settings",
+        },
+      ],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.routeId).not.toBe("route-settings");
+  });
+
   it("recovers when a concurrent request wins the insert race for the same route/filename", async () => {
     // Cross-request race: this request's `existingFiles` snapshot (taken once,
     // up front) found no match for /settings, but by the time its insert
@@ -415,6 +839,33 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(result.screens).toHaveLength(1);
     expect(result.screens[0]?.id).toBe("winner_file");
     expect(result.placedFrames[0]?.fileId).toBe("winner_file");
+  });
+
+  it("does not adopt a colliding filename winner for another route", async () => {
+    mocks.state.insertConflictOnce = true;
+    mocks.state.winnerFile = {
+      id: "winner_file",
+      designId: "design_1",
+      filename: "localhost-account-settings.html",
+      fileType: "html",
+      content: "http://localhost:5173/account-settings",
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/account/settings"],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).not.toBe("winner_file");
+    expect(mocks.state.updatedFiles).toHaveLength(0);
+    expect(mocks.state.insertedFile).toMatchObject({
+      filename: "localhost-account-settings-2.html",
+      content: "http://localhost:5173/account/settings",
+    });
   });
 
   it("rethrows a non-conflict insert error instead of silently swallowing it", async () => {

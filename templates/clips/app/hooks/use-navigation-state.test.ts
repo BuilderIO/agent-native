@@ -98,4 +98,31 @@ describe("Clips shared navigation", () => {
       view: "library",
     });
   });
+
+  it("keeps a query-selected dictation in shared navigation state", () => {
+    expect(stateFromLocation("/dictate", "?dictationId=dictation%2F1")).toEqual(
+      {
+        view: "dictate",
+        dictationId: "dictation/1",
+      },
+    );
+    expect(
+      pathFromCommand({ view: "dictate", dictationId: "dictation/1" }),
+    ).toBe("/dictate?dictationId=dictation%2F1");
+  });
+
+  it("describes and maps the browser diagnostics panel", () => {
+    expect(stateFromLocation("/r/recording-1", "?panel=debug")).toEqual({
+      view: "recording",
+      recordingId: "recording-1",
+      panel: "debug",
+    });
+    expect(
+      pathFromCommand({
+        view: "recording",
+        recordingId: "recording-1",
+        panel: "debug",
+      }),
+    ).toBe("/r/recording-1?panel=debug");
+  });
 });

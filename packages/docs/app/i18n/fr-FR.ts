@@ -438,21 +438,19 @@ const frFR = {
   },
   homepage: {
     hero: {
-      title: "Le framework pour les applications agentiques.",
-      bodyLine1:
-        "Un framework TypeScript open source pour des apps avec une interface et un agent.",
-      bodyLine2:
-        "Définissez chaque action une fois et appelez-la depuis n’importe où.",
+      title: "Le framework des applications agentic",
+      bodyLine1: "Créez des agents autonomes avec des interfaces intuitives.",
+      bodyLine2: "Apportez votre propre LLM. Déployez où vous voulez.",
       tryAnApp: "Essayer une app",
     },
     install: {
       copyCommand: "Copier la commande d'installation",
     },
     actions: {
-      title: "Appelez une action depuis n’importe où.",
-      bodyLine1: "Définissez une capacité avec defineAction().",
+      title: "Une action alimente chaque surface",
+      bodyLine1: "Définissez une capacité une seule fois avec defineAction().",
       bodyLine2:
-        "Votre UI React, votre agent, vos clients HTTP et vos intégrations utilisent tous le même code.",
+        "Votre agent, votre UI React, vos clients HTTP et vos intégrations utilisent tous le même code.",
       diagramAlt:
         "Une action alimente l'UI, MCP, le chat de l'agent, A2A, HTTP API et CLI",
     },
@@ -547,7 +545,7 @@ const frFR = {
         "Décrivez en langage courant ce que vous voulez créer et l’agent le fera pour vous.",
       stepThreeTitle: "Déployer",
       stepThreeBody:
-        "Quand vous êtes prêt, déployez votre application en un clic dans Builder.",
+        "Quand vous êtes prêt, déployez votre agent et son UI en un clic dans Builder.",
     },
   },
   templatesPage: {
@@ -573,6 +571,7 @@ const frFR = {
     tryCommunityDemo: "Essayer la démo",
     customizeDescription: "Utilisez cette app comme point de départ.",
     customizeOnline: "En ligne",
+    customizeOnlineBadge: "Rejoindre la liste d'attente",
     customizeLocally: "Local",
     communityNew: "Nouveau",
     communityComingSoon: "Bientôt disponible",
@@ -631,6 +630,18 @@ const frFR = {
     popoverTitle: "Créer dans le navigateur",
     popoverBody:
       "Générez rapidement des apps agent-native dans le cloud avec Builder.io.",
+    waitlistBody:
+      "Builder.io peut lancer et personnaliser une app agent-native dans le cloud — actions, auth, état SQL et chat agent inclus. Rejoignez la liste d'attente pour un accès anticipé.",
+    emailLabel: "E-mail",
+    emailPlaceholder: "vous@entreprise.com",
+    joinWaitlist: "Rejoindre la liste d'attente",
+    joining: "Inscription…",
+    joined:
+      "Vous êtes sur la liste d'attente. Nous vous enverrons un e-mail quand l'accès à la création en ligne ouvrira.",
+    invalidEmail: "Saisissez une adresse e-mail valide.",
+    submitError: "Impossible de rejoindre la liste d'attente. Réessayez.",
+    waitlistUnavailable:
+      "Les inscriptions à la liste d'attente ne sont pas encore disponibles dans cet environnement. Essayez plutôt le site de documentation hébergé.",
     launchBuilder: "Lancer Builder",
   },
   templateCard: {
@@ -1115,7 +1126,7 @@ const frFR = {
       s004: "Affiner",
       s005: "Tous les modèles",
       s006: "Le studio de prototypage open source AI HTML",
-      s007: "Générez des prototypes interactifs Alpine/Tailwind à partir d'une invite, comparez les variantes, affinez avec des contrôles d'ajustement et exportez les fichiers réels que vous possédez.",
+      s007: "Créez des designs et des prototypes interactifs. Affinez avec des outils familiers ou effectuez des modifications conversationnelles. Exportez où vous voulez.",
       s008: "Créez quelque chose",
       s009: "Comment ça marche",
       s010: "Tout ce dont vous avez besoin",
@@ -1169,6 +1180,7 @@ const frFR = {
       s058: "Partez du modèle et commencez à générer des prototypes interactifs avec un agent qui édite la source.",
       s059: "Lire la documentation",
       s060: "Afficher tous les modèles",
+      s061: "100 % gratuit, open source et personnalisable.",
     },
     dispatch: {
       faq: {
@@ -2127,6 +2139,9 @@ const frFR = {
     databaseProviders: "Fournisseurs de bases de données",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "Internationalisation",
     localFileMode: "Mode fichiers locaux",

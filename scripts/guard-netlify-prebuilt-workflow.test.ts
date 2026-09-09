@@ -203,11 +203,21 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("keeps automatic beta runs latest-main and source-keyed", () => {
+  it("coalesces pending beta runs and keeps the source latest-main", () => {
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
     );
-    assert.equal(beta.concurrency, undefined);
+    const betaConcurrency = beta.concurrency as Workflow;
+    assert.equal(betaConcurrency["cancel-in-progress"], false);
+    assert.match(String(betaConcurrency.group), /github\.event_name == 'push'/);
+    assert.match(
+      String(betaConcurrency.group),
+      /deploy-agent-native-beta-sites-prebuilt'/,
+    );
+    assert.match(
+      String(betaConcurrency.group),
+      /deploy-agent-native-beta-sites-prebuilt-manual'/,
+    );
     assert.equal((beta.permissions as Workflow).contents, "write");
     assert.equal(
       ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
@@ -333,7 +343,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
-      /format\('netlify-prebuilt-beta-\{0\}', inputs\.site\)/,
+      /inputs\.target == 'beta'\s+&&\s+format\('netlify-prebuilt-beta-\{0\}-\{1\}', inputs\.caller, inputs\.site\)/,
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
@@ -341,7 +351,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       reusableSource,
-      /Verify beta source is current before publish/,
+      /Verify beta source is current immediately before upload/,
     );
     assert.match(
       reusableSource,
@@ -353,6 +363,29 @@ describe("production Netlify site concurrency guard", () => {
       /core\.setOutput\('current', String\(current\)\)/,
     );
     assert.match(reusableSource, /inputs\.caller/);
+    const betaResolveSource = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    const betaResolveStep = (
+      ((betaResolveSource.jobs as Workflow)["resolve-source"] as Workflow)
+        .steps as Array<Workflow>
+    ).find((step) => step.id === "source");
+    assert.equal(
+      ((betaResolveSource.jobs as Workflow).deploy as Workflow).with?.caller,
+      "${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}",
+    );
+    assert.match(
+      String(betaResolveStep?.with?.script),
+      /context\.eventName === 'workflow_dispatch'/,
+    );
+    assert.match(
+      String(betaResolveStep?.with?.script),
+      /sourceSha\.toLowerCase\(\) !== mainSha\.toLowerCase\(\)/,
+    );
+    assert.match(
+      String(betaResolveStep?.with?.script),
+      /Manual beta source_ref must equal current main/,
+    );
     assert.match(
       reusableSource,
       /SOURCE_REF: \$\{\{ steps\.source\.outputs\.source_ref \}\}/,
@@ -517,6 +550,93 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       clipsNetlify,
       /agentNativePrebuiltBuild:-\}.*migrate:production/,
+    );
+  });
+
+  it("keeps Analytics migrations on its app-scoped database URL", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const analyticsNetlify = readFileSync(
+      "templates/analytics/netlify.toml",
+      "utf8",
+    );
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+
+    assert.match(
+      workflow,
+      /ANALYTICS_DATABASE_URL_SECRET: \$\{\{ inputs\.target == 'production' && steps\.target\.outputs\.source_template == 'analytics' && secrets\.ANALYTICS_DATABASE_URL \|\| '' \}\}/,
+    );
+    assert.match(build, /export ANALYTICS_DATABASE_URL_SECRET/);
+    assert.match(analyticsNetlify, /ANALYTICS_DATABASE_URL_SECRET/);
+    assert.match(
+      analyticsNetlify,
+      /unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED/,
+    );
+    assert.doesNotMatch(analyticsNetlify, /NETLIFY_DATABASE_URL:-/);
+
+    const rebind = analyticsNetlify.indexOf(
+      'export ANALYTICS_DATABASE_URL=\\"$ANALYTICS_DATABASE_URL_SECRET\\"',
+    );
+    const clearMaskedUrls = analyticsNetlify.indexOf(
+      "unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED",
+    );
+    const exportDatabaseUrl = analyticsNetlify.indexOf(
+      'export DATABASE_URL=\\"${ANALYTICS_DATABASE_URL:-$DATABASE_URL}\\"',
+    );
+    assert.ok(rebind >= 0 && rebind < clearMaskedUrls);
+    assert.ok(clearMaskedUrls < exportDatabaseUrl);
+
+    const rebindScript = [
+      'if [ -n "${ANALYTICS_DATABASE_URL_SECRET:-}" ]; then export ANALYTICS_DATABASE_URL="$ANALYTICS_DATABASE_URL_SECRET"; fi',
+      "unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED",
+      'export DATABASE_URL="${ANALYTICS_DATABASE_URL:-$DATABASE_URL}"',
+      'printf "%s\\n%s\\n" "$ANALYTICS_DATABASE_URL" "$DATABASE_URL"',
+    ].join("\n");
+    const runRebind = (env: NodeJS.ProcessEnv): string[] =>
+      execFileSync("bash", ["-c", rebindScript], {
+        env,
+        encoding: "utf8",
+      })
+        .trim()
+        .split("\n");
+
+    assert.deepEqual(
+      runRebind({
+        ANALYTICS_DATABASE_URL_SECRET: "",
+        ANALYTICS_DATABASE_URL: "postgres://beta.example/analytics",
+        DATABASE_URL: "postgres://beta.example/analytics",
+        NETLIFY_DATABASE_URL: "masked",
+        NETLIFY_DATABASE_URL_UNPOOLED: "masked",
+        DATABASE_URL_UNPOOLED: "masked",
+      }),
+      [
+        "postgres://beta.example/analytics",
+        "postgres://beta.example/analytics",
+      ],
+    );
+    assert.deepEqual(
+      runRebind({
+        ANALYTICS_DATABASE_URL_SECRET:
+          "postgres://production.example/analytics",
+        ANALYTICS_DATABASE_URL: "masked",
+        DATABASE_URL: "postgres://crm.example/database",
+        NETLIFY_DATABASE_URL: "masked",
+        NETLIFY_DATABASE_URL_UNPOOLED: "masked",
+        DATABASE_URL_UNPOOLED: "masked",
+      }),
+      [
+        "postgres://production.example/analytics",
+        "postgres://production.example/analytics",
+      ],
     );
   });
 

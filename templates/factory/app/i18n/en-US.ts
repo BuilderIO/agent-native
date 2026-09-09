@@ -103,14 +103,10 @@ const messages = {
     empty: "No observations yet.",
     risk: "Risk",
     status: "Status",
-    author: "Author",
     coverage: "Coverage",
     reason: "Reason",
     evidence: "Evidence",
-    evidenceDescription: "The source thread or report this item came from.",
     actionsTaken: "Log",
-    actionsTakenDescription:
-      "Shadow decisions, governance, and work already started for this item.",
     threadTruncated: "This Slack thread is truncated.",
     threadUnavailable: "Could not load this Slack thread.",
     noEvidence: "No source evidence is stored for this item.",
@@ -132,8 +128,6 @@ const messages = {
     noteLabel: "Feedback note",
     submitFeedback: "Record feedback",
     feedbackTitle: "Record feedback",
-    feedbackDescription:
-      "Mark whether the shadow decision was right. This is stored for review; it does not start a run.",
     feedbackError: "Could not record feedback.",
     noDecisions: "No decisions recorded yet.",
     rulesTitle: "Triage rules",

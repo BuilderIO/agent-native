@@ -23,6 +23,7 @@ describe("selected library actions layout", () => {
     );
     const primaryActionsSource = readSource("./library-primary-actions.tsx");
     const feedbackSource = readSource("./sidebar-feedback-button.tsx");
+    const globalStyles = readSource("../../global.css");
     const spacesRouteSource = readSource("../../routes/_app.spaces._index.tsx");
     const spaceRouteSource = readSource(
       "../../routes/_app.spaces.$spaceId.tsx",
@@ -64,6 +65,9 @@ describe("selected library actions layout", () => {
     expect(gridSource).toContain('aria-labelledby="library-folders-heading"');
     expect(gridSource).toContain('t("navigation.recordings")');
     expect(gridSource).toContain("LibraryCanvasContextMenu");
+    expect(gridSource).toContain(
+      "onContextMenu={(event) => event.stopPropagation()}",
+    );
     expect(gridSource).toContain('t("navigation.newFolder")');
     expect(folderRouteSource).toContain("<LibraryPrimaryActions folderId");
     expect(spaceRouteSource).toContain("<LibraryPrimaryActions spaceId");
@@ -154,6 +158,12 @@ describe("selected library actions layout", () => {
     expect(feedbackSource).toContain(
       "bg-transparent text-primary hover:bg-accent/60 hover:text-primary",
     );
+    expect(feedbackSource).toContain(
+      "h-auto w-full justify-start gap-2 bg-transparent px-2 py-1.5 text-xs font-normal",
+    );
+    expect(feedbackSource).toContain("IconMessageCircle");
+    expect(feedbackSource).not.toContain("clips-feedback-nudge");
+    expect(globalStyles).not.toContain("clips-feedback-nudge");
     expect(feedbackSource).not.toContain("bg-primary/5");
     expect(layoutSource).toContain('currentAppId="clips"');
     expect(feedbackSource).toContain("openBugReportDialog");

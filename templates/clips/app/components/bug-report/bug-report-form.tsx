@@ -105,10 +105,7 @@ export function BugReportForm({
           <IconBug size={20} />
         </div>
         <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-            {t("bugReportRoute.eyebrow")}
-          </p>
-          <h2 className="mt-1 text-xl font-semibold leading-tight">
+          <h2 className="text-xl font-semibold leading-tight">
             {t("bugReportRoute.title")}
           </h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">

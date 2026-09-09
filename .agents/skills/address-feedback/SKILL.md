@@ -19,8 +19,8 @@ sweep, only clear observable failures enter the reaction or reply ledger - do
 not react to general UX suggestions, product ideas, or merge/review requests.
 Design feedback routes to Sid unless the user separately assigns a concrete
 Design fix. If another agent or owner is already handling a report, leave it
-with that owner. If a previous run mistakenly reacted to a non-bug, remove the
-reaction when the connector supports it and do not add a compensating reply.
+with that owner. If a previous run mistakenly reacted to a non-bug, release the
+claim with `✅` when reactions are available and do not add a compensating reply.
 
 ## Choose the fix altitude
 

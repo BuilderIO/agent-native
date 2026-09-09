@@ -20,11 +20,14 @@ function isTrackingSuppressed(
   userId: string | undefined,
   properties?: Record<string, unknown>,
 ): boolean {
+  const requestContext = getRequestContext();
   return (
-    getRequestContext()?.isSyntheticTraffic === true ||
+    requestContext?.isSyntheticTraffic === true ||
+    isQaTestEmail(requestContext?.userEmail) ||
     isQaTestEmail(userId) ||
     isQaTestEmail(properties?.email) ||
-    isQaTestEmail(properties?.userEmail)
+    isQaTestEmail(properties?.userEmail) ||
+    isQaTestEmail(properties?.user_email)
   );
 }
 

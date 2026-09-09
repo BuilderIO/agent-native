@@ -118,6 +118,34 @@ describe("CommandMenu docs group", () => {
     );
   });
 
+  it("filters command items nested in fragments", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+        >
+          <CommandMenu.Group heading="Actions">
+            <>
+              <CommandMenu.Item onSelect={() => undefined}>
+                Open comments
+              </CommandMenu.Item>
+              <CommandMenu.Item onSelect={() => undefined}>
+                Open transcript
+              </CommandMenu.Item>
+            </>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    search("transcript");
+
+    expect(document.body.textContent).not.toContain("Open comments");
+    expect(document.body.textContent).toContain("Open transcript");
+  });
+
   it("offers the shared About Agent-Native surface and matches version searches", () => {
     act(() => {
       root.render(

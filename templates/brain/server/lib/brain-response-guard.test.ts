@@ -94,6 +94,19 @@ describe("Brain company-knowledge response guard", () => {
     expect(result).toBeNull();
   });
 
+  it("does not complete after ask-brain when the final response is empty", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What is Builder's mission statement?",
+        toolResults: [askBrainResult([{ id: "citation-1" }])],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("Call `ask-brain`"),
+    });
+  });
+
   it("does not let the model fill a no-citation result from memory", () => {
     const result = brainFinalResponseGuard(
       guardContext({
