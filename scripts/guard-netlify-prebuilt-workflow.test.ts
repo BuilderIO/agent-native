@@ -274,6 +274,11 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String(schemaGateStep?.run),
+      /pending_schema_files="\$\(schema_files_between "\$pending_base" "\$pending_sha"\)"/,
+    );
+    assert.match(String(schemaGateStep?.run), /\[\[ "\$status" -eq 0 \]\]/);
+    assert.match(
+      String(schemaGateStep?.run),
       /is_ancestor "\$latest_migrated_sha" "\$pending_sha"/,
     );
     assert.doesNotMatch(

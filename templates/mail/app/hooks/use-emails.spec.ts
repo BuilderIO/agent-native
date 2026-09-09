@@ -162,6 +162,18 @@ describe("useMarkRead", () => {
   });
 });
 
+describe("useMarkThreadRead", () => {
+  it("supersedes a cold thread fetch before the optimistic update", () => {
+    const source = emailsHookSource();
+    const hook = source.slice(
+      source.indexOf("export function useMarkThreadRead()"),
+      source.indexOf("export function useToggleStar()"),
+    );
+
+    expect(hook).toContain("supersedeCachedThreadFetch(threadId)");
+  });
+});
+
 describe("serializePinnedLabelsUpdate", () => {
   it("runs pinned-label writes in order", async () => {
     const { serializePinnedLabelsUpdate } = await import("./use-emails");

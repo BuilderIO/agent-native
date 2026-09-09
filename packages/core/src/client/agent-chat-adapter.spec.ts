@@ -72,6 +72,63 @@ describe("approval history", () => {
 
     expect((history[0]?.content[0] as any).args.body).not.toBe(body);
   });
+
+  it("prices preserved approval arguments at their serialized size", async () => {
+    const pendingBody = "p".repeat(50_000);
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-approval-budget",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "prepare it" }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-old",
+                toolName: "query-rows",
+                args: { sql: "x".repeat(8_000) },
+                result: "y".repeat(12_000),
+              },
+            ],
+          },
+          { role: "user", content: [{ type: "text", text: "send it" }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-pending",
+                toolName: "send-email",
+                args: { body: pendingBody },
+                result: "Awaiting human approval. This action did NOT execute.",
+                approval: { approvalKey: "send-email:pending" },
+              },
+            ],
+          },
+          { role: "user", content: [{ type: "text", text: "approve" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const request = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const toolCalls = request.structuredHistory.flatMap((message: any) =>
+      message.content.filter((part: any) => part.type === "tool-call"),
+    );
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolName: "send-email",
+      args: { body: pendingBody },
+    });
+  });
 });
 
 function sseResponse(events: unknown[], runId = "run-qa"): Response {

@@ -8,6 +8,7 @@ describe("EmailThread read state action", () => {
   it("shows the current read-state toggle in the thread toolbar", () => {
     expect(source).toContain("setCurrentEmailReadState(!email.isRead)");
     expect(source).toContain("keepUnreadThreadRef.current !== threadId");
+    expect(source).toContain("keepUnreadThreadRef.current = undefined");
     expect(source).toContain('? "mail.actions.markUnread"');
     expect(source).toContain(': "mail.actions.markRead"');
     expect(source).toContain('<IconMail className="h-4 w-4" />');

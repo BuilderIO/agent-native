@@ -876,6 +876,23 @@ function isToolCallContentPart(
   );
 }
 
+function shouldPreserveApprovalInput(
+  part: Pick<
+    Extract<ContentPart, { type: "tool-call" }>,
+    "approval" | "result"
+  >,
+): boolean {
+  const result =
+    typeof part.result === "string" ? part.result.toLowerCase() : undefined;
+  return Boolean(
+    part.approval?.approvalKey &&
+    part.approval.dismissed !== true &&
+    (part.result === undefined ||
+      result?.includes("awaiting human approval") ||
+      result?.includes("waiting for your approval")),
+  );
+}
+
 function isSuccessOnlyToolResult(value: Record<string, unknown>): boolean {
   const keys = Object.keys(value);
   if (keys.length === 0) return true;
@@ -968,14 +985,7 @@ function contentToStructuredMessages(
       // A pending approval must replay the exact authorized arguments. Normal
       // history may truncate large tool inputs, but doing that here changes the
       // approval key and turns every approval into a fresh approval request.
-      const approvalResult = part.result?.toLowerCase();
-      const preserveApprovalInput = Boolean(
-        part.approval?.approvalKey &&
-        part.approval.dismissed !== true &&
-        (part.result === undefined ||
-          approvalResult?.includes("awaiting human approval") ||
-          approvalResult?.includes("waiting for your approval")),
-      );
+      const preserveApprovalInput = shouldPreserveApprovalInput(part);
       assistantParts.push({
         type: "tool-call",
         toolCallId,
@@ -1133,8 +1143,15 @@ function estimateHistoryMessageCost(message: {
     const argsCap = LARGE_INPUT_TOOL_NAMES.has(tool.toolName ?? "")
       ? MAX_HISTORY_LARGE_TOOL_ARGS_CHARS
       : MAX_HISTORY_TOOL_ARGS_CHARS;
-    const argsText = tool.argsText ?? stableJson(tool.args ?? {});
-    cost += Math.min(argsText.length, argsCap);
+    const preserveApprovalInput = shouldPreserveApprovalInput(
+      tool as Extract<ContentPart, { type: "tool-call" }>,
+    );
+    const argsText = preserveApprovalInput
+      ? stableJson(tool.args ?? {})
+      : (tool.argsText ?? stableJson(tool.args ?? {}));
+    cost += preserveApprovalInput
+      ? argsText.length
+      : Math.min(argsText.length, argsCap);
     if (tool.result !== undefined) {
       cost += Math.min(
         // Price the string the request actually carries. `stringifyValue(result)` is

@@ -806,6 +806,8 @@ if (
   !betaSchemaGateStep.run.includes("schema_files_between") ||
   !betaSchemaGateStep.run.includes("Ignoring obsolete beta migration marker") ||
   !betaSchemaGateStep.run.includes("local changed_files") ||
+  !betaSchemaGateStep.run.includes('[[ "$status" -eq 0 ]]') ||
+  !betaSchemaGateStep.run.includes("pending_schema_files=") ||
   !betaSchemaGateStep.run.includes('latest_migrated_sha" "$pending_sha') ||
   betaSchemaGateStep.run.includes("packages/core/src/db/|") ||
   asRecord(betaSchemaGateCheckoutStep?.with)?.["fetch-depth"] !== 0 ||

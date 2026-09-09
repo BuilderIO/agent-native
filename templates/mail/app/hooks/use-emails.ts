@@ -796,6 +796,7 @@ export function useMarkThreadRead() {
         .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
         .map((e) => e.id);
       const previousThread = getCachedThread(threadId);
+      supersedeCachedThreadFetch(threadId);
       // Set overrides so refetches don't revert read state
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });

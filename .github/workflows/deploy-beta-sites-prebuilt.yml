@@ -209,7 +209,12 @@ jobs:
               if [[ -n "$latest_migrated_sha" ]] && is_ancestor "$latest_migrated_sha" "$pending_sha"; then
                 pending_base="$latest_migrated_sha"
               fi
-              if [[ -z "$(schema_files_between "$pending_base" "$pending_sha")" ]]; then
+              set +e
+              pending_schema_files="$(schema_files_between "$pending_base" "$pending_sha")"
+              status=$?
+              set -e
+              [[ "$status" -eq 0 ]] || exit "$status"
+              if [[ -z "$pending_schema_files" ]]; then
                 echo "::warning::Ignoring obsolete beta migration marker $pending_tag; its range since the latest production migration has no schema-dependent changes."
                 continue
               fi

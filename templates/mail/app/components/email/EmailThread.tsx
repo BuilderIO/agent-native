@@ -384,6 +384,9 @@ export function EmailThread({
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
   const keepUnreadThreadRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    keepUnreadThreadRef.current = undefined;
+  }, [threadId]);
   const setCurrentEmailReadState = useCallback(
     (isRead: boolean) => {
       if (!email) return;
