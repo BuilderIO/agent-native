@@ -25,6 +25,7 @@ import {
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
+import { clientBuildId } from "./build-compatibility.js";
 export {
   clearAnalyticsSessionId,
   setAnalyticsSessionId,
@@ -1017,6 +1018,15 @@ function resolveClientDeploymentEnvironment(): string {
   );
 }
 
+/**
+ * Must match `resolveSentryClientRelease()` in `vite/sentry-source-maps.ts`
+ * exactly — that's the release name uploaded source maps are attached to, so
+ * a mismatch here means captured events never resolve against them.
+ */
+function resolveClientRelease(): string {
+  return `agent-native-client@${clientBuildId() || "development"}`;
+}
+
 function captureWithSentry(
   module: typeof Sentry,
   error: unknown,
@@ -1060,6 +1070,7 @@ function ensureSentry(loadWithoutDsn = false): void {
       module.init({
         dsn,
         environment: resolveClientDeploymentEnvironment(),
+        release: resolveClientRelease(),
         beforeSend(event) {
           if (isSyntheticBrowserTraffic()) return null;
           event.tags = {
