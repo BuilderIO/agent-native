@@ -22,12 +22,6 @@ const RELATIONSHIP_MUTATIONS = new Set([
   "undo-content-relationship-revision",
 ]);
 
-const RELATIONSHIP_PROPERTY_MUTATIONS = new Set([
-  "configure-content-relation-property",
-  "remove-content-relation-property",
-  "undo-content-relationship-revision",
-]);
-
 const RELATIONSHIP_QUERIES = new Set([
   "list-content-relation-candidates",
   "list-content-relationship-history",
@@ -209,7 +203,7 @@ export function contentActionInvalidatePredicate(
           typeof event.key === "string" &&
           (CONTENT_MUTATIONS.has(event.key) ||
             (query.queryKey[1] === "list-document-properties" &&
-              RELATIONSHIP_PROPERTY_MUTATIONS.has(event.key))),
+              RELATIONSHIP_MUTATIONS.has(event.key))),
       );
     }
     if (queryTargetsDatabase(query, documentId)) {

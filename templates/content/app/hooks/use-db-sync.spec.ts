@@ -183,25 +183,29 @@ describe("contentActionInvalidatePredicate", () => {
 
   it.each([
     "configure-content-relation-property",
+    "mutate-content-relationships",
     "remove-content-relation-property",
     "undo-content-relationship-revision",
-  ])("refreshes relation Property definitions after agent action %s", (key) => {
-    const predicate = contentActionInvalidatePredicate("/page/database-page");
+  ])(
+    "refreshes relation Property values or definitions after agent action %s",
+    (key) => {
+      const predicate = contentActionInvalidatePredicate("/page/database-page");
 
-    expect(
-      predicate(
-        {
-          queryKey: [
-            "action",
-            "list-document-properties",
-            { documentId: "database-page", databaseId: "database" },
-          ],
-          isActive: () => true,
-        },
-        [{ source: "action", key }],
-      ),
-    ).toBe(true);
-  });
+      expect(
+        predicate(
+          {
+            queryKey: [
+              "action",
+              "list-document-properties",
+              { documentId: "database-page", databaseId: "database" },
+            ],
+            isActive: () => true,
+          },
+          [{ source: "action", key }],
+        ),
+      ).toBe(true);
+    },
+  );
 
   it("refreshes an active inline database mounted on another host page", () => {
     const predicate = contentActionInvalidatePredicate("/page/host-document");
