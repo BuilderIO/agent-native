@@ -95,18 +95,27 @@ export {
 } from "./auth.js";
 export {
   handleIdentitySso,
+  ensureIdentityUser,
   getIdentityHubUrl,
   isIdentitySsoEnabled,
   isIdentitySsoBypassPath,
   identitySsoLoginButtonHtml,
+  IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH,
+  IDENTITY_SSO_BOOTSTRAP_BINDING_COOKIE,
+  clearIdentitySsoBootstrapBindingCookie,
+  getIdentitySsoBootstrapBindingCookie,
+  setIdentitySsoBootstrapBindingCookie,
   IDENTITY_SSO_PROVIDER_ID,
   IDENTITY_SSO_SCOPE,
   IDENTITY_SSO_DESKTOP_COMPLETE_PATH,
 } from "./identity-sso.js";
 export {
+  createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
   hasGoogleAuthIdentity,
+  setBetterAuthSessionCookie,
 } from "./better-auth-instance.js";
+export { setIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {
   assertCurrentRequestUserIsOrgAdmin,

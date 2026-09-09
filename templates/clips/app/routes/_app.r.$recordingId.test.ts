@@ -133,7 +133,10 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('<ViewerTabsTrigger value="comments">');
     expect(route).toContain('<ViewerTabsTrigger value="transcript">');
     expect(route).toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).toContain('<ViewerTabsTrigger value="debug">');
     expect(route).toContain('<ViewerTabsTrigger value="settings">');
+    expect(route).toContain("isFullBrowserDiagnostics");
+    expect(route).toContain("<BrowserDiagnosticsPanel");
     expect(route).not.toContain("<ToggleGroup");
     expect(route).toContain('value={panel ?? "comments"}');
     expect(route).toContain('if (value === "comments")');

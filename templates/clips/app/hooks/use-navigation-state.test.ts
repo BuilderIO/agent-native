@@ -105,4 +105,19 @@ describe("Clips shared navigation", () => {
       pathFromCommand({ view: "dictate", dictationId: "dictation/1" }),
     ).toBe("/dictate?dictationId=dictation%2F1");
   });
+
+  it("describes and maps the browser diagnostics panel", () => {
+    expect(stateFromLocation("/r/recording-1", "?panel=debug")).toEqual({
+      view: "recording",
+      recordingId: "recording-1",
+      panel: "debug",
+    });
+    expect(
+      pathFromCommand({
+        view: "recording",
+        recordingId: "recording-1",
+        panel: "debug",
+      }),
+    ).toBe("/r/recording-1?panel=debug");
+  });
 });
