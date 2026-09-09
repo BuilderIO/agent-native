@@ -114,10 +114,14 @@ describe("syncA2ASecretHandler", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
   it("posts A2A secrets through the SSRF-safe fetch wrapper", async () => {
+    vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-vercel-bypass");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", "remote.example.test");
     const result = await syncA2ASecretHandler({} as any);
 
     expect(result).toMatchObject({
@@ -132,13 +136,14 @@ describe("syncA2ASecretHandler", () => {
         headers: expect.objectContaining({
           "Content-Type": "application/json",
           Authorization: "Bearer signed-jwt",
+          "x-vercel-protection-bypass": "test-vercel-bypass",
         }),
         body: JSON.stringify({
           secret: "local-secret",
           orgDomain: "example.test",
         }),
       }),
-      { maxRedirects: 3 },
+      { maxRedirects: 3, followRedirects: false },
     );
     expect(mockFetch).not.toHaveBeenCalled();
   });

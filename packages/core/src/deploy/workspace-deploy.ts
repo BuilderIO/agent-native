@@ -402,10 +402,14 @@ function copyVercelAppBuildIntoWorkspace(
     // Nitro's Vercel preset already nests assets under baseURL. The shared
     // deploy build also mirrors client assets under baseURL for other Nitro
     // presets, so mounted apps can contain a duplicate /<app>/<app> copy.
-    fs.rmSync(path.join(staticDest, app, app), {
-      recursive: true,
-      force: true,
-    });
+    // An app named "assets" collides with Vite's real default assets
+    // directory, so that path cannot be distinguished from the duplicate.
+    if (app !== "assets") {
+      fs.rmSync(path.join(staticDest, app, app), {
+        recursive: true,
+        force: true,
+      });
+    }
   }
 
   const functionSrc = path.join(src, "functions", "__server.func");
