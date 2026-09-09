@@ -1,6 +1,7 @@
 import { type LocaleCode } from "@agent-native/core/client/i18n";
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
+import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
 import zhTW from "./i18n/zh-TW";
 
 const databaseMessages = {
@@ -3273,6 +3274,12 @@ const enUS = {
     unsavedTextCopied: "Unsaved text copied",
     useDiskVersion: "Use disk version",
     keepLocalDraft: "Keep my version",
+    previewDraftRecovery: "Unsaved page draft",
+    restorePreviewDraft: "Restore draft",
+    pageSaveBeforeNavigationFailed:
+      "Your latest page edits could not be saved. Try again before leaving this page.",
+    discardPreviewDraft: "Discard draft",
+
     collabConnectingReadOnly:
       "Connecting live editor. Showing a read-only snapshot.",
     liveDocumentSaveBeforeSyncFailed:
@@ -3373,10 +3380,26 @@ const enUS = {
     untitledDatabase: "Untitled database",
   },
   comments: {
+    ...commentAttributionMessagesByLocale["en-US"],
     filter: "Filter",
     add: "Add a comment...",
     title: "Comments",
     empty: "No comments yet.",
+    selectTextToComment: "Select text to add a comment",
+    replyCount_zero: "{{count}} replies",
+    replyCount_one: "{{count}} reply",
+    replyCount_two: "{{count}} replies",
+    replyCount_few: "{{count}} replies",
+    replyCount_many: "{{count}} replies",
+    replyCount_other: "{{count}} replies",
+    commentActions: "Comment actions",
+    checkSaved: "Check saved comment",
+    edit: "Edit",
+    save: "Save",
+    saving: "Saving…",
+    saveUnconfirmed:
+      "Could not confirm saving. Check this thread before trying again.",
+    backToList: "Back to comments",
     cancel: "Cancel",
     submit: "Comment",
     askAi: "Ask AI",
@@ -3635,6 +3658,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "已复制未保存的文本",
       useDiskVersion: "使用磁盘版本",
       keepLocalDraft: "保留我的版本",
+      previewDraftRecovery: "未保存的页面草稿",
+      restorePreviewDraft: "恢复草稿",
+      pageSaveBeforeNavigationFailed:
+        "无法保存最新的页面编辑。请重试后再离开此页面。",
+      discardPreviewDraft: "放弃草稿",
+
       documentTitle: "文档标题",
       localFileSavedHistoryNotUpdated: "本地文件已保存，但历史记录未更新",
       title: "标题",
@@ -3871,6 +3900,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "Texto sin guardar copiado",
       useDiskVersion: "Usar la versión del disco",
       keepLocalDraft: "Conservar mi versión",
+      previewDraftRecovery: "Borrador de página sin guardar",
+      restorePreviewDraft: "Restaurar borrador",
+      pageSaveBeforeNavigationFailed:
+        "No se pudieron guardar los últimos cambios. Vuelve a intentarlo antes de salir de esta página.",
+      discardPreviewDraft: "Descartar borrador",
+
       documentTitle: "Título del documento",
       localFileSavedHistoryNotUpdated:
         "El archivo local se guardó, pero el historial no se actualizó",
@@ -4084,6 +4119,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "Texte non enregistré copié",
       useDiskVersion: "Utiliser la version du disque",
       keepLocalDraft: "Conserver ma version",
+      previewDraftRecovery: "Brouillon de page non enregistré",
+      restorePreviewDraft: "Restaurer le brouillon",
+      pageSaveBeforeNavigationFailed:
+        "Vos dernières modifications n’ont pas pu être enregistrées. Réessayez avant de quitter cette page.",
+      discardPreviewDraft: "Supprimer le brouillon",
+
       toolbar: { undo: "Annuler", redo: "Rétablir" },
     },
     sidebar: {
@@ -4129,6 +4170,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "Ungespeicherter Text kopiert",
       useDiskVersion: "Version vom Datenträger verwenden",
       keepLocalDraft: "Meine Version behalten",
+      previewDraftRecovery: "Ungespeicherter Seitenentwurf",
+      restorePreviewDraft: "Entwurf wiederherstellen",
+      pageSaveBeforeNavigationFailed:
+        "Die letzten Änderungen konnten nicht gespeichert werden. Versuche es erneut, bevor du diese Seite verlässt.",
+      discardPreviewDraft: "Entwurf verwerfen",
+
       toolbar: { undo: "Rückgängig", redo: "Wiederholen" },
     },
     sidebar: {
@@ -4173,6 +4220,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "未保存のテキストをコピーしました",
       useDiskVersion: "ディスク上の版を使用",
       keepLocalDraft: "自分のバージョンを保持",
+      previewDraftRecovery: "未保存のページ下書き",
+      restorePreviewDraft: "下書きを復元",
+      pageSaveBeforeNavigationFailed:
+        "最新の編集を保存できませんでした。このページを離れる前にもう一度お試しください。",
+      discardPreviewDraft: "下書きを破棄",
+
       toolbar: { undo: "元に戻す", redo: "やり直す" },
     },
     sidebar: {
@@ -4215,6 +4268,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "저장하지 않은 텍스트를 복사했습니다",
       useDiskVersion: "디스크 버전 사용",
       keepLocalDraft: "내 버전 유지",
+      previewDraftRecovery: "저장하지 않은 페이지 초안",
+      restorePreviewDraft: "초안 복원",
+      pageSaveBeforeNavigationFailed:
+        "최근 페이지 편집 내용을 저장하지 못했습니다. 이 페이지를 떠나기 전에 다시 시도하세요.",
+      discardPreviewDraft: "초안 삭제",
+
       toolbar: { undo: "실행 취소", redo: "다시 실행" },
     },
     sidebar: {
@@ -4256,6 +4315,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "Texto não salvo copiado",
       useDiskVersion: "Usar versão do disco",
       keepLocalDraft: "Manter minha versão",
+      previewDraftRecovery: "Rascunho de página não salvo",
+      restorePreviewDraft: "Restaurar rascunho",
+      pageSaveBeforeNavigationFailed:
+        "Não foi possível salvar as últimas alterações. Tente novamente antes de sair desta página.",
+      discardPreviewDraft: "Descartar rascunho",
+
       toolbar: { undo: "Desfazer", redo: "Refazer" },
     },
     sidebar: {
@@ -4299,6 +4364,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "सहेजा नहीं गया टेक्स्ट कॉपी किया गया",
       useDiskVersion: "डिस्क वाला संस्करण उपयोग करें",
       keepLocalDraft: "मेरा संस्करण रखें",
+      previewDraftRecovery: "पेज का सहेजा नहीं गया ड्राफ़्ट",
+      restorePreviewDraft: "ड्राफ़्ट बहाल करें",
+      pageSaveBeforeNavigationFailed:
+        "आपके नवीनतम पेज बदलाव सहेजे नहीं जा सके। इस पेज से जाने से पहले फिर से कोशिश करें।",
+      discardPreviewDraft: "ड्राफ़्ट हटाएँ",
+
       toolbar: { undo: "पूर्ववत करें", redo: "फिर से करें" },
     },
     sidebar: {
@@ -4340,6 +4411,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "تم نسخ النص غير المحفوظ",
       useDiskVersion: "استخدام نسخة القرص",
       keepLocalDraft: "الاحتفاظ بنسختي",
+      previewDraftRecovery: "مسودة صفحة غير محفوظة",
+      restorePreviewDraft: "استعادة المسودة",
+      pageSaveBeforeNavigationFailed:
+        "تعذر حفظ آخر تعديلات الصفحة. حاول مرة أخرى قبل مغادرة هذه الصفحة.",
+      discardPreviewDraft: "تجاهل المسودة",
+
       toolbar: { undo: "تراجع", redo: "إعادة" },
     },
     sidebar: {
@@ -9499,6 +9576,16 @@ const contentReferenceMessagesByLocale = {
 
 const commentMessagesByLocale = {
   "zh-CN": {
+    ...commentAttributionMessagesByLocale["zh-CN"],
+    selectTextToComment: "选择文本以添加评论",
+    replyCount_other: "{{count}} 条回复",
+    commentActions: "评论操作",
+    checkSaved: "检查已保存的评论",
+    edit: "编辑",
+    save: "保存",
+    saving: "正在保存…",
+    saveUnconfirmed: "无法确认是否已保存。请先检查此评论线程，然后再重试。",
+    backToList: "返回评论列表",
     filter: "筛选",
     hideIndicators: "隐藏评论和高亮",
     showIndicators: "显示评论和高亮",
@@ -9514,6 +9601,16 @@ const commentMessagesByLocale = {
     noFilteredComments: "没有匹配的评论。",
   },
   "zh-TW": {
+    ...commentAttributionMessagesByLocale["zh-TW"],
+    selectTextToComment: "選取文字以新增留言",
+    replyCount_other: "{{count}} 則回覆",
+    commentActions: "留言操作",
+    checkSaved: "檢查已儲存的留言",
+    edit: "編輯",
+    save: "儲存",
+    saving: "正在儲存…",
+    saveUnconfirmed: "無法確認是否已儲存。請先檢查此留言串，再重試。",
+    backToList: "返回留言列表",
     filter: "篩選",
     hideIndicators: "隱藏留言和醒目提示",
     showIndicators: "顯示留言和醒目提示",
@@ -9529,6 +9626,19 @@ const commentMessagesByLocale = {
     noFilteredComments: "沒有相符的留言。",
   },
   "es-ES": {
+    ...commentAttributionMessagesByLocale["es-ES"],
+    selectTextToComment: "Selecciona texto para añadir un comentario",
+    replyCount_one: "{{count}} respuesta",
+    replyCount_many: "{{count}} respuestas",
+    replyCount_other: "{{count}} respuestas",
+    commentActions: "Acciones del comentario",
+    checkSaved: "Comprobar comentario guardado",
+    edit: "Editar",
+    save: "Guardar",
+    saving: "Guardando…",
+    saveUnconfirmed:
+      "No se pudo confirmar el guardado. Comprueba este hilo antes de volver a intentarlo.",
+    backToList: "Volver a comentarios",
     filter: "Filtro",
     hideIndicators: "Ocultar comentarios y resaltados",
     showIndicators: "Mostrar comentarios y resaltados",
@@ -9544,6 +9654,19 @@ const commentMessagesByLocale = {
     noFilteredComments: "No hay comentarios coincidentes.",
   },
   "fr-FR": {
+    ...commentAttributionMessagesByLocale["fr-FR"],
+    selectTextToComment: "Sélectionnez du texte pour ajouter un commentaire",
+    replyCount_one: "{{count}} réponse",
+    replyCount_many: "{{count}} réponses",
+    replyCount_other: "{{count}} réponses",
+    commentActions: "Actions du commentaire",
+    checkSaved: "Vérifier le commentaire enregistré",
+    edit: "Modifier",
+    save: "Enregistrer",
+    saving: "Enregistrement…",
+    saveUnconfirmed:
+      "Impossible de confirmer l’enregistrement. Vérifiez ce fil avant de réessayer.",
+    backToList: "Retour aux commentaires",
     filter: "Filtrer",
     hideIndicators: "Masquer les commentaires et surlignages",
     showIndicators: "Afficher les commentaires et surlignages",
@@ -9559,6 +9682,18 @@ const commentMessagesByLocale = {
     noFilteredComments: "Aucun commentaire correspondant.",
   },
   "de-DE": {
+    ...commentAttributionMessagesByLocale["de-DE"],
+    selectTextToComment: "Text auswählen, um einen Kommentar hinzuzufügen",
+    replyCount_one: "{{count}} Antwort",
+    replyCount_other: "{{count}} Antworten",
+    commentActions: "Kommentaraktionen",
+    checkSaved: "Gespeicherten Kommentar prüfen",
+    edit: "Bearbeiten",
+    save: "Speichern",
+    saving: "Wird gespeichert…",
+    saveUnconfirmed:
+      "Das Speichern konnte nicht bestätigt werden. Prüfe diesen Thread, bevor du es erneut versuchst.",
+    backToList: "Zurück zu den Kommentaren",
     filter: "Filter",
     hideIndicators: "Kommentare und Hervorhebungen ausblenden",
     showIndicators: "Kommentare und Hervorhebungen anzeigen",
@@ -9574,6 +9709,17 @@ const commentMessagesByLocale = {
     noFilteredComments: "Keine passenden Kommentare.",
   },
   "ja-JP": {
+    ...commentAttributionMessagesByLocale["ja-JP"],
+    selectTextToComment: "コメントを追加するテキストを選択",
+    replyCount_other: "{{count}} 件の返信",
+    commentActions: "コメント操作",
+    checkSaved: "保存したコメントを確認",
+    edit: "編集",
+    save: "保存",
+    saving: "保存中…",
+    saveUnconfirmed:
+      "保存を確認できませんでした。再試行する前にこのスレッドを確認してください。",
+    backToList: "コメントに戻る",
     filter: "フィルター",
     hideIndicators: "コメントとハイライトを非表示",
     showIndicators: "コメントとハイライトを表示",
@@ -9589,6 +9735,17 @@ const commentMessagesByLocale = {
     noFilteredComments: "一致するコメントはありません。",
   },
   "ko-KR": {
+    ...commentAttributionMessagesByLocale["ko-KR"],
+    selectTextToComment: "댓글을 추가할 텍스트 선택",
+    replyCount_other: "답글 {{count}}개",
+    commentActions: "댓글 작업",
+    checkSaved: "저장된 댓글 확인",
+    edit: "수정",
+    save: "저장",
+    saving: "저장 중…",
+    saveUnconfirmed:
+      "저장 여부를 확인하지 못했습니다. 다시 시도하기 전에 이 스레드를 확인하세요.",
+    backToList: "댓글로 돌아가기",
     filter: "필터",
     hideIndicators: "댓글과 강조 표시 숨기기",
     showIndicators: "댓글과 강조 표시 보기",
@@ -9604,6 +9761,19 @@ const commentMessagesByLocale = {
     noFilteredComments: "일치하는 댓글이 없습니다.",
   },
   "pt-BR": {
+    ...commentAttributionMessagesByLocale["pt-BR"],
+    selectTextToComment: "Selecione um texto para adicionar um comentário",
+    replyCount_one: "{{count}} resposta",
+    replyCount_many: "{{count}} respostas",
+    replyCount_other: "{{count}} respostas",
+    commentActions: "Ações do comentário",
+    checkSaved: "Verificar comentário salvo",
+    edit: "Editar",
+    save: "Salvar",
+    saving: "Salvando…",
+    saveUnconfirmed:
+      "Não foi possível confirmar o salvamento. Verifique esta conversa antes de tentar novamente.",
+    backToList: "Voltar aos comentários",
     filter: "Filtro",
     hideIndicators: "Ocultar comentários e destaques",
     showIndicators: "Mostrar comentários e destaques",
@@ -9619,6 +9789,18 @@ const commentMessagesByLocale = {
     noFilteredComments: "Nenhum comentário correspondente.",
   },
   "hi-IN": {
+    ...commentAttributionMessagesByLocale["hi-IN"],
+    selectTextToComment: "टिप्पणी जोड़ने के लिए टेक्स्ट चुनें",
+    replyCount_one: "{{count}} जवाब",
+    replyCount_other: "{{count}} जवाब",
+    commentActions: "टिप्पणी की कार्रवाइयाँ",
+    checkSaved: "सहेजी गई टिप्पणी जाँचें",
+    edit: "संपादित करें",
+    save: "सहेजें",
+    saving: "सहेजा जा रहा है…",
+    saveUnconfirmed:
+      "सहेजने की पुष्टि नहीं हो सकी। दोबारा कोशिश करने से पहले इस थ्रेड को जाँचें।",
+    backToList: "टिप्पणियों पर वापस जाएँ",
     filter: "फ़िल्टर",
     hideIndicators: "टिप्पणियाँ और हाइलाइट छिपाएँ",
     showIndicators: "टिप्पणियाँ और हाइलाइट दिखाएँ",
@@ -9634,6 +9816,22 @@ const commentMessagesByLocale = {
     noFilteredComments: "कोई मेल खाती टिप्पणी नहीं।",
   },
   "ar-SA": {
+    ...commentAttributionMessagesByLocale["ar-SA"],
+    selectTextToComment: "حدد نصًا لإضافة تعليق",
+    replyCount_zero: "{{count}} ردود",
+    replyCount_one: "{{count}} رد",
+    replyCount_two: "{{count}} ردان",
+    replyCount_few: "{{count}} ردود",
+    replyCount_many: "{{count}} ردًا",
+    replyCount_other: "{{count}} رد",
+    commentActions: "إجراءات التعليق",
+    checkSaved: "التحقق من التعليق المحفوظ",
+    edit: "تعديل",
+    save: "حفظ",
+    saving: "جارٍ الحفظ…",
+    saveUnconfirmed:
+      "تعذر تأكيد الحفظ. تحقق من سلسلة التعليقات هذه قبل المحاولة مرة أخرى.",
+    backToList: "العودة إلى التعليقات",
     filter: "تصفية",
     hideIndicators: "إخفاء التعليقات والتمييزات",
     showIndicators: "إظهار التعليقات والتمييزات",

@@ -47,10 +47,11 @@ assertion은 서버 간 교환으로만 반환됩니다. 브라우저 URL에 나
 
 ## 조직 페더레이션
 
-<code>organization.cross-app-federation</code> 플래그는 기본적으로 꺼져 있습니다.
-활성화하면 소스 앱이 Dispatch에 로컬 조직을 등록하고 정확한
-<code>(identity_authority, identity_id)</code> 매핑을 저장합니다. 대상 앱은 서버가
-검증한 assertion에서 나온 표준 조직 ID, 이름, 검증된 멤버 역할만 허용합니다.
+<code>organization.cross-app-federation</code> 플래그는 기본적으로 꺼져
+있습니다. 활성화하면 소스 앱이 Dispatch에 로컬 조직을 등록하고 정확한
+<code>(identity_authority, identity_id)</code> 매핑을 저장합니다. 대상 앱은
+서버가 검증한 assertion에서 나온 표준 조직 ID, 이름, 검증된 멤버 역할만
+허용합니다.
 
 조직 이름, 이메일 도메인, 브라우저 쿠키는 조인 키가 아닙니다. 매핑이 없는 로컬
 조직은 명시적인 마이그레이션 전까지 변경되지 않습니다. 연결된 멤버십은 대상 앱의
@@ -60,12 +61,15 @@ assertion은 서버 간 교환으로만 반환됩니다. 브라우저 URL에 나
 
 - 소스 앱에 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code>를 설정합니다.
 - Dispatch에 일치하는
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>를 설정합니다.
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>
+  를 설정합니다.
 - 이 권한 경계에 <code>A2A_SECRET</code>를 재사용하지 않습니다.
 
 앱 ID 접미사는 영숫자가 아닌 각 연속 문자를 밑줄로 바꾸고 결과를 대문자로
 변환합니다. 예를 들어 앱 ID <code>workspace-reports</code>에는
-<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>를 사용합니다.
+
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>를
+사용합니다.
 
 ID와 조직 쓰기는 추가만 수행합니다. 같은 이메일을 가진 기존 사용자는 수정 없이
 재사용됩니다. 새로운 검증 이메일은 로컬 사용자를 생성합니다. 페더레이션을
@@ -79,6 +83,7 @@ ID와 조직 쓰기는 추가만 수행합니다. 같은 이메일을 가진 기
 
 자체 호스팅 Dispatch에서는 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code>을 사용해
 각 사용자 지정 앱의 정확한 앱 ID, 클라이언트 ID, HTTPS origin, callback 경로,
+
 <code>identity-sso</code> 기능을 등록합니다.
 
 프로덕션 등록은 HTTPS와 정확한 callback 경로를 사용해야 합니다. Localhost는 로컬
@@ -98,6 +103,7 @@ ID와 조직 쓰기는 추가만 수행합니다. 같은 이메일을 가진 기
    확인합니다.
 
 남은 경로를 롤백하려면 관련 기능 플래그를 끄고 자체 호스팅 배포에서
+
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code>를 제거한 뒤 다시 배포합니다. 추가된
 ID 및 조직 기록은 일반 로컬 인증에 계속 사용할 수 있습니다.
 

@@ -158,6 +158,22 @@ describe("fetchOrgApps", () => {
     ]);
   });
 
+  it("passes the Vercel protection bypass to the configured directory", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_URL = "dispatch.acme.com";
+    process.env.VERCEL_AUTOMATION_BYPASS_SECRET = "test-vercel-bypass";
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("x-vercel-protection-bypass")).toBe(
+        "test-vercel-bypass",
+      );
+      return new Response(JSON.stringify({ apps: [] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
+  });
+
   it("requests the directory app only when explicitly enabled", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {

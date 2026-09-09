@@ -4,16 +4,29 @@ import {
   dateRangeToInterval,
   type DateRange,
 } from "@agent-native/toolkit/dashboard";
+import { IconCheck, IconChevronDown, IconX } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
-import { callAppAction } from "../client/transactional-emails";
+import {
+  callAppAction,
+  type LocalTransactionalEmailCatalog,
+} from "../client/transactional-emails";
 import { resolveEmailPreviewAssets } from "../lib/transactional-email-preview";
 import { ActionQueryError } from "./action-query-error";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "./ui/command";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import {
   Select,
   SelectContent,
@@ -136,6 +149,136 @@ function SendLogBody({ appPath, id }: { appPath: string; id: string }) {
   );
 }
 
+function AddressFilterControl({
+  dimension,
+  contains,
+  exclude,
+  onContainsChange,
+  onExcludeChange,
+}: {
+  dimension: "to" | "from";
+  contains: string;
+  exclude: string;
+  onContainsChange: (value: string) => void;
+  onExcludeChange: (value: string) => void;
+}) {
+  const t = useT();
+  const containsId = useId();
+  const excludeId = useId();
+  const dimensionLabel = t(
+    dimension === "to"
+      ? "dispatch.transactionalEmail.sendLogTo"
+      : "dispatch.transactionalEmail.sendLogFrom",
+  );
+  const filters = [
+    {
+      operator: t("dispatch.transactionalEmail.sendLogContainsOperator"),
+      value: contains,
+      clear: () => onContainsChange(""),
+    },
+    {
+      operator: t("dispatch.transactionalEmail.sendLogExcludeOperator"),
+      value: exclude,
+      clear: () => onExcludeChange(""),
+    },
+  ].filter((filter) => filter.value);
+
+  return (
+    <Popover>
+      <div className="flex min-h-10 max-w-full flex-wrap items-center gap-1 rounded-md border border-input bg-background p-1">
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 shrink-0 gap-1 px-2"
+            aria-label={dimensionLabel}
+          >
+            {dimensionLabel}
+            <IconChevronDown aria-hidden="true" className="size-3.5" />
+          </Button>
+        </PopoverTrigger>
+        {filters.map((filter) => {
+          const label = `${filter.operator} ${filter.value}`;
+          return (
+            <Badge
+              key={filter.operator}
+              variant="secondary"
+              className="min-w-0 max-w-full gap-1 pe-1 font-normal"
+            >
+              <span className="max-w-44 truncate">{label}</span>
+              <button
+                type="button"
+                className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={t(
+                  "dispatch.transactionalEmail.sendLogRemoveAddressFilter",
+                  { filter: label },
+                )}
+                onClick={filter.clear}
+              >
+                <IconX aria-hidden="true" className="size-3" />
+              </button>
+            </Badge>
+          );
+        })}
+      </div>
+      <PopoverContent
+        align="start"
+        className="w-72 max-w-[calc(100vw-2rem)] p-3"
+      >
+        <div className="grid gap-3">
+          <label
+            className="grid gap-1.5 text-xs font-medium"
+            htmlFor={containsId}
+          >
+            {t("dispatch.transactionalEmail.sendLogContainsOperator")}
+            <Input
+              id={containsId}
+              value={contains}
+              placeholder={t(
+                "dispatch.transactionalEmail.sendLogContainsPlaceholder",
+              )}
+              onChange={(event) => onContainsChange(event.target.value)}
+              aria-label={t(
+                "dispatch.transactionalEmail.sendLogAddressFilterLabel",
+                {
+                  dimension: dimensionLabel,
+                  operator: t(
+                    "dispatch.transactionalEmail.sendLogContainsOperator",
+                  ),
+                },
+              )}
+            />
+          </label>
+          <label
+            className="grid gap-1.5 text-xs font-medium"
+            htmlFor={excludeId}
+          >
+            {t("dispatch.transactionalEmail.sendLogExcludeOperator")}
+            <Input
+              id={excludeId}
+              value={exclude}
+              placeholder={t(
+                "dispatch.transactionalEmail.sendLogExcludePlaceholder",
+              )}
+              onChange={(event) => onExcludeChange(event.target.value)}
+              aria-label={t(
+                "dispatch.transactionalEmail.sendLogAddressFilterLabel",
+                {
+                  dimension: dimensionLabel,
+                  operator: t(
+                    "dispatch.transactionalEmail.sendLogExcludeOperator",
+                  ),
+                },
+              )}
+            />
+          </label>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function SendLogDetailDialog({
   entry,
   appPath,
@@ -200,28 +343,69 @@ export function SendLogSection({
   const t = useT();
   const [appId, setAppId] = useState<string | undefined>(apps[0]?.id);
   const [dateRange, setDateRange] = useState<DateRange>("7d");
+  const [templateId, setTemplateId] = useState("all");
+  const [templatePopoverOpen, setTemplatePopoverOpen] = useState(false);
   const [to, setTo] = useState("");
+  const [excludeTo, setExcludeTo] = useState("");
   const [from, setFrom] = useState("");
+  const [excludeFrom, setExcludeFrom] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [provider, setProvider] = useState<string>("all");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<SendLogEntry | null>(null);
 
   const debouncedTo = useDebounced(to);
+  const debouncedExcludeTo = useDebounced(excludeTo);
   const debouncedFrom = useDebounced(from);
+  const debouncedExcludeFrom = useDebounced(excludeFrom);
   const selectedApp = apps.find((app) => app.id === appId) ?? apps[0];
 
   useEffect(() => {
+    setTemplateId("all");
+  }, [selectedApp?.path]);
+
+  useEffect(() => {
     setOffset(0);
-  }, [appId, dateRange, debouncedTo, debouncedFrom, status, provider]);
+  }, [
+    appId,
+    dateRange,
+    templateId,
+    debouncedTo,
+    debouncedExcludeTo,
+    debouncedFrom,
+    debouncedExcludeFrom,
+    status,
+    provider,
+  ]);
+
+  const catalogQuery = useQuery({
+    queryKey: ["send-log-email-catalog", selectedApp?.path],
+    queryFn: () =>
+      callAppAction<LocalTransactionalEmailCatalog>(
+        selectedApp!.path,
+        "list-transactional-emails",
+        { windowDays: 30 },
+        "GET",
+      ),
+    enabled: Boolean(selectedApp),
+    staleTime: Infinity,
+  });
+
+  const templates = [...(catalogQuery.data?.emails ?? [])].sort(
+    (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+  );
+  const selectedTemplate = templates.find((email) => email.id === templateId);
 
   const query = useQuery({
     queryKey: [
       "list-email-log",
       selectedApp?.path,
       dateRange,
+      templateId,
       debouncedTo,
+      debouncedExcludeTo,
       debouncedFrom,
+      debouncedExcludeFrom,
       status,
       provider,
       offset,
@@ -232,8 +416,13 @@ export function SendLogSection({
         "list-email-log",
         {
           sinceMs: Date.now() - dateRangeToInterval(dateRange) * 86_400_000,
+          ...(templateId !== "all" ? { templateId } : {}),
           ...(debouncedTo ? { to: debouncedTo } : {}),
+          ...(debouncedExcludeTo ? { excludeTo: debouncedExcludeTo } : {}),
           ...(debouncedFrom ? { from: debouncedFrom } : {}),
+          ...(debouncedExcludeFrom
+            ? { excludeFrom: debouncedExcludeFrom }
+            : {}),
           ...(status !== "all" ? { status } : {}),
           ...(provider !== "all" ? { provider } : {}),
           limit: PAGE_SIZE + 1,
@@ -265,17 +454,99 @@ export function SendLogSection({
           </SelectContent>
         </Select>
         <DateRangePicker value={dateRange} onChange={setDateRange} />
-        <Input
-          placeholder={t("dispatch.transactionalEmail.sendLogToFilter")}
-          value={to}
-          onChange={(event) => setTo(event.target.value)}
-          className="w-44"
+        <Popover
+          open={templatePopoverOpen}
+          onOpenChange={setTemplatePopoverOpen}
+        >
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              role="combobox"
+              aria-expanded={templatePopoverOpen}
+              aria-label={t("dispatch.transactionalEmail.sendLogTemplate")}
+              className="w-64 justify-between"
+            >
+              <span className="truncate">
+                {selectedTemplate
+                  ? `${selectedTemplate.name} · ${selectedTemplate.id}`
+                  : t("dispatch.transactionalEmail.sendLogAllTemplates")}
+              </span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-80 p-0">
+            <Command>
+              <CommandInput
+                placeholder={t(
+                  "dispatch.transactionalEmail.sendLogSearchTemplates",
+                )}
+              />
+              <CommandList>
+                <CommandEmpty>
+                  {t("dispatch.transactionalEmail.sendLogNoTemplatesFound")}
+                </CommandEmpty>
+                <CommandGroup forceMount>
+                  <CommandItem
+                    forceMount
+                    value="all"
+                    onSelect={() => {
+                      setTemplateId("all");
+                      setTemplatePopoverOpen(false);
+                    }}
+                  >
+                    <IconCheck
+                      aria-hidden="true"
+                      className={
+                        templateId === "all"
+                          ? "me-2 size-4"
+                          : "me-2 size-4 opacity-0"
+                      }
+                    />
+                    {t("dispatch.transactionalEmail.sendLogAllTemplates")}
+                  </CommandItem>
+                </CommandGroup>
+                <CommandGroup>
+                  {templates.map((email) => (
+                    <CommandItem
+                      key={email.id}
+                      value={email.id}
+                      keywords={[email.name]}
+                      onSelect={() => {
+                        setTemplateId(email.id);
+                        setTemplatePopoverOpen(false);
+                      }}
+                    >
+                      <IconCheck
+                        aria-hidden="true"
+                        className={
+                          templateId === email.id
+                            ? "me-2 size-4"
+                            : "me-2 size-4 opacity-0"
+                        }
+                      />
+                      <span className="truncate">
+                        {email.name} · {email.id}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+        <AddressFilterControl
+          dimension="to"
+          contains={to}
+          exclude={excludeTo}
+          onContainsChange={setTo}
+          onExcludeChange={setExcludeTo}
         />
-        <Input
-          placeholder={t("dispatch.transactionalEmail.sendLogFromFilter")}
-          value={from}
-          onChange={(event) => setFrom(event.target.value)}
-          className="w-44"
+        <AddressFilterControl
+          dimension="from"
+          contains={from}
+          exclude={excludeFrom}
+          onContainsChange={setFrom}
+          onExcludeChange={setExcludeFrom}
         />
         <Select value={status} onValueChange={setStatus}>
           <SelectTrigger className="w-32">
@@ -306,13 +577,22 @@ export function SendLogSection({
             <SelectItem value="dev">Dev</SelectItem>
           </SelectContent>
         </Select>
-        {(to || from || status !== "all" || provider !== "all") && (
+        {(templateId !== "all" ||
+          to ||
+          excludeTo ||
+          from ||
+          excludeFrom ||
+          status !== "all" ||
+          provider !== "all") && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
+              setTemplateId("all");
               setTo("");
+              setExcludeTo("");
               setFrom("");
+              setExcludeFrom("");
               setStatus("all");
               setProvider("all");
             }}

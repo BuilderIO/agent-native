@@ -43,6 +43,11 @@ export function TemplateHero({
   const headerPadding = mediaOverlapsHeader
     ? "pb-10 sm:pb-14 lg:pb-0"
     : "pb-10 sm:pb-14 lg:pb-20";
+  // The overlap variant removes the header's bottom padding, so the media has
+  // to carry the gap above itself instead.
+  const mediaPadding = mediaOverlapsHeader
+    ? "pt-3 pb-3 sm:pt-4 sm:pb-4 lg:pt-10 lg:pb-5"
+    : "py-3 sm:py-4 lg:py-5";
 
   const descriptionBlock = (
     <div
@@ -109,7 +114,7 @@ export function TemplateHero({
           {belowTitle ? null : descriptionBlock}
         </div>
 
-        <div className="relative py-3 sm:py-4 lg:py-5">{media}</div>
+        <div className={`relative ${mediaPadding}`}>{media}</div>
       </div>
     </section>
   );

@@ -96,7 +96,7 @@ describe("GettingStartedPathsBlock", () => {
     expect(screen.getByText("Deploy")).toBeTruthy();
     expect(
       screen.getByText(
-        "When you're ready, deploy your app with one click in Builder.",
+        "When you're ready, deploy your agent and its UI with one click in Builder.",
       ),
     ).toBeTruthy();
     expect(

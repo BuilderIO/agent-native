@@ -203,11 +203,21 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("keeps automatic beta runs latest-main and source-keyed", () => {
+  it("coalesces pending beta runs and keeps the source latest-main", () => {
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
     );
-    assert.equal(beta.concurrency, undefined);
+    const betaConcurrency = beta.concurrency as Workflow;
+    assert.equal(betaConcurrency["cancel-in-progress"], false);
+    assert.match(String(betaConcurrency.group), /github\.event_name == 'push'/);
+    assert.match(
+      String(betaConcurrency.group),
+      /deploy-agent-native-beta-sites-prebuilt'/,
+    );
+    assert.match(
+      String(betaConcurrency.group),
+      /deploy-agent-native-beta-sites-prebuilt-manual'/,
+    );
     assert.equal((beta.permissions as Workflow).contents, "write");
     assert.equal(
       ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
@@ -333,7 +343,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
-      /format\('netlify-prebuilt-beta-\{0\}', inputs\.site\)/,
+      /inputs\.target == 'beta'\s+&&\s+format\('netlify-prebuilt-beta-\{0\}-\{1\}', inputs\.caller, inputs\.site\)/,
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
@@ -341,7 +351,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       reusableSource,
-      /Verify beta source is current before publish/,
+      /Verify beta source is current immediately before upload/,
     );
     assert.match(
       reusableSource,
@@ -353,6 +363,29 @@ describe("production Netlify site concurrency guard", () => {
       /core\.setOutput\('current', String\(current\)\)/,
     );
     assert.match(reusableSource, /inputs\.caller/);
+    const betaResolveSource = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    const betaResolveStep = (
+      ((betaResolveSource.jobs as Workflow)["resolve-source"] as Workflow)
+        .steps as Array<Workflow>
+    ).find((step) => step.id === "source");
+    assert.equal(
+      ((betaResolveSource.jobs as Workflow).deploy as Workflow).with?.caller,
+      "${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}",
+    );
+    assert.match(
+      String(betaResolveStep?.with?.script),
+      /context\.eventName === 'workflow_dispatch'/,
+    );
+    assert.match(
+      String(betaResolveStep?.with?.script),
+      /sourceSha\.toLowerCase\(\) !== mainSha\.toLowerCase\(\)/,
+    );
+    assert.match(
+      String(betaResolveStep?.with?.script),
+      /Manual beta source_ref must equal current main/,
+    );
     assert.match(
       reusableSource,
       /SOURCE_REF: \$\{\{ steps\.source\.outputs\.source_ref \}\}/,

@@ -429,20 +429,19 @@ const messages = {
   },
   homepage: {
     hero: {
-      title: "面向 agentic 應用的框架。",
-      bodyLine1:
-        "一個面向具備 UI 和 agent 的應用程式的開放原始碼 TypeScript framework。",
-      bodyLine2: "只需定義一次每個 Action，即可從任何地方呼叫。",
+      title: "面向 agentic 應用的框架",
+      bodyLine1: "建置配備直覺式 UI 的自主型 agent。",
+      bodyLine2: "使用你自己的 LLM，隨處部署。",
       tryAnApp: "試用應用程式",
     },
     install: {
       copyCommand: "複製安裝指令",
     },
     actions: {
-      title: "從任何地方呼叫一個 Action。",
-      bodyLine1: "使用 defineAction() 定義一項能力。",
+      title: "一個 Action 驅動所有能力面",
+      bodyLine1: "使用 defineAction() 一次定義一項能力。",
       bodyLine2:
-        "你的 React UI、agent、HTTP 用戶端和整合功能都會呼叫同一份程式碼。",
+        "你的 agent、React UI、HTTP 用戶端和整合功能都會呼叫同一份程式碼。",
       diagramAlt: "一個 Action 驅動 UI、MCP、Agent 對話、A2A、HTTP API 和 CLI",
     },
     builtIn: {
@@ -534,7 +533,7 @@ const messages = {
       stepTwoTitle: "開始輸入提示",
       stepTwoBody: "用自然語言描述您想建立的內容，代理會為您建立。",
       stepThreeTitle: "部署",
-      stepThreeBody: "準備好後，在 Builder 中一鍵部署您的應用程式。",
+      stepThreeBody: "準備好後，在 Builder 中一鍵部署您的 agent 及其 UI。",
     },
   },
   templatesPage: {
@@ -1064,7 +1063,7 @@ const messages = {
       s004: "精煉",
       s005: "所有範本",
       s006: "開放原始碼 AI HTML 原型工作室",
-      s007: "根據提示生成互動式 Alpine/Tailwind 原型，比較變體，使用調整控制項進行最佳化，並匯出您擁有的真實檔案。",
+      s007: "建立互動式設計與原型。使用熟悉的工具進行調整，或進行對話編輯。可匯出至任何地方。",
       s008: "設計點什麼",
       s009: "它是如何運作的",
       s010: "你需要的一切",
@@ -1118,6 +1117,7 @@ const messages = {
       s058: "從範本開始並使用編輯來源的代理生成互動式原型。",
       s059: "閱讀檔案",
       s060: "檢視所有範本",
+      s061: "100% 免費、開放原始碼且可自訂。",
       faq: {
         question1: "AI 能產生真正的程式碼設計，而不只是模型圖嗎？",
         answer1:
@@ -2081,6 +2081,9 @@ const messages = {
     databaseProviders: "資料庫提供者",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "國際化",
     localFileMode: "本機檔案模式",

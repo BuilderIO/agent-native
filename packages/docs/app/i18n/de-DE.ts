@@ -438,20 +438,20 @@ const deDE = {
   },
   homepage: {
     hero: {
-      title: "Das Framework für agentische Apps.",
+      title: "Das Framework für agentische Anwendungen",
       bodyLine1:
-        "Ein Open-Source-TypeScript-Framework für Apps mit einer UI und einem Agenten.",
-      bodyLine2: "Definiere jede Action einmal und rufe sie überall auf.",
+        "Entwickle autonome Agenten mit intuitiven Benutzeroberflächen.",
+      bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
       tryAnApp: "App ausprobieren",
     },
     install: {
       copyCommand: "Installationsbefehl kopieren",
     },
     actions: {
-      title: "Eine Action von überall aufrufen.",
-      bodyLine1: "Definiere eine Fähigkeit mit defineAction().",
+      title: "Eine Action treibt jede Oberfläche an",
+      bodyLine1: "Definiere eine Fähigkeit einmal mit defineAction().",
       bodyLine2:
-        "Deine React-UI, dein Agent, HTTP-Clients und Integrationen verwenden denselben Code.",
+        "Dein Agent, deine React-UI, HTTP-Clients und Integrationen verwenden denselben Code.",
       diagramAlt:
         "Eine Action treibt UI, MCP, Agent-Chat, A2A, HTTP API und CLI an",
     },
@@ -546,7 +546,7 @@ const deDE = {
         "Beschreiben Sie in klarer Sprache, was Sie bauen möchten, und der Agent erstellt es für Sie.",
       stepThreeTitle: "Bereitstellen",
       stepThreeBody:
-        "Wenn Sie bereit sind, stellen Sie Ihre App mit einem Klick in Builder bereit.",
+        "Wenn Sie bereit sind, stellen Sie Ihren Agenten und seine UI mit einem Klick in Builder bereit.",
     },
   },
   templatesPage: {
@@ -1126,7 +1126,7 @@ const deDE = {
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
       s006: "Das Open-Source-Prototyping-Studio AI HTML",
-      s007: "Generieren Sie interaktive Alpine/Tailwind-Prototypen aus einer Eingabeaufforderung, vergleichen Sie Varianten, verfeinern Sie sie mit optimierten Steuerelementen und exportieren Sie echte Dateien, die Sie besitzen.",
+      s007: "Erstellen Sie interaktive Designs und Prototypen. Verfeinern Sie sie mit gewohnten Werkzeugen oder nehmen Sie Konversationsbearbeitungen vor. Exportieren Sie überall hin.",
       s008: "Etwas gestalten",
       s009: "Wie es funktioniert",
       s010: "Alles was Sie brauchen",
@@ -1180,6 +1180,7 @@ const deDE = {
       s058: "Starten Sie mit der Vorlage und beginnen Sie mit der Erstellung interaktiver Prototypen mit einem Agenten, der die Quelle bearbeitet.",
       s059: "Lesen Sie die Dokumente",
       s060: "Alle Vorlagen anzeigen",
+      s061: "100 % kostenlos, Open Source und anpassbar.",
     },
     dispatch: {
       faq: {
@@ -2137,6 +2138,9 @@ const deDE = {
     databaseProviders: "Datenbankanbieter",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "Internationalisierung",
     localFileMode: "Lokaler Dateimodus",

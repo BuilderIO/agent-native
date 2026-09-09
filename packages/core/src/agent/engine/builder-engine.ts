@@ -716,7 +716,13 @@ async function* emitHttpError(
     });
     return;
   }
-  if (status === 403 && isBuilderCredentialAuthError(message)) {
+  if (
+    status === 403 &&
+    ((opts.recordLegacyCredentialFailure === false &&
+      code === "http_403" &&
+      /^(?:forbidden|builder gateway returned 403)$/i.test(message.trim())) ||
+      isBuilderCredentialAuthError(message))
+  ) {
     await recordAuthFailureForCurrentLane({
       recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
       oauthScope: opts.oauthScope,

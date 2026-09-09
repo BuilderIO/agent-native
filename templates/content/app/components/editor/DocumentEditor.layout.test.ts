@@ -10,6 +10,7 @@ import {
   documentEditorBreadcrumbNavigationItems,
   documentEditorDefaultIconKind,
   documentEditorDatabaseRegionClassName,
+  documentEditorShowsInlineComments,
   documentEditorLoadState,
   documentTitleWidthChanged,
   documentTypeChooserInitiallyEligible,
@@ -17,7 +18,10 @@ import {
   enqueueDocumentSave,
   isDocumentLoadUnavailableError,
   metadataUpdatesWithPendingTitle,
+  pendingCommentTargetMatches,
+  pageEditorSessionKey,
   positionAnchoredCommentCard,
+  positionUnanchoredCommentCard,
   refreshUnchangedContentSaveWatermark,
   resizeDocumentTitleTextarea,
   shouldShowNewDocumentTypeChooser,
@@ -32,6 +36,59 @@ import {
 } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("keeps the selected inline conversation visible after its last thread resolves", () => {
+    expect(
+      documentEditorShowsInlineComments({
+        showIndicators: true,
+        hasUtilityRailSpace: true,
+        commentsHistoryDrawerOpen: false,
+        utilityPanel: "comments",
+        hasOpenCommentThreads: false,
+        hasSelectedCommentThread: true,
+        hasPendingComment: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps history activation in browse mode instead of replacing the desktop list", () => {
+    expect(
+      documentEditorShowsInlineComments({
+        showIndicators: true,
+        hasUtilityRailSpace: true,
+        commentsHistoryDrawerOpen: true,
+        utilityPanel: "comments",
+        hasOpenCommentThreads: true,
+        hasSelectedCommentThread: true,
+        hasPendingComment: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a pending comment target when its exact rendered text disappears or changes", () => {
+    expect(
+      pendingCommentTargetMatches(
+        [{ textContent: "exact " }, { textContent: "selection" }],
+        "exact selection",
+      ),
+    ).toBe(true);
+    expect(
+      pendingCommentTargetMatches(
+        [{ textContent: "edited selection" }],
+        "exact selection",
+      ),
+    ).toBe(false);
+    expect(pendingCommentTargetMatches([], "exact selection")).toBe(false);
+  });
+
+  it("keeps an unanchored compact comment card visible at the viewport edge", () => {
+    expect(
+      positionUnanchoredCommentCard({
+        containerRect: { top: -240, width: 390 },
+        boundaryRect: { top: 0 },
+      }),
+    ).toEqual({ left: 16, top: 256, width: 320, placement: "below" });
+  });
+
   it("ignores delayed additional-field cleanup from the previous document", () => {
     const current = { sharedProperty: "document B live value" };
     expect(
@@ -813,7 +870,7 @@ describe("document editor layout", () => {
     expect(source).toContain("showInlineComments");
   });
 
-  it("moves page metadata to Info and omits the body below full-page databases", () => {
+  it("keeps metadata in Info while reusing canonical properties inline in previews", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       { encoding: "utf8" },
@@ -840,7 +897,24 @@ describe("document editor layout", () => {
       /<DocumentBlockFields[\s\S]*?databaseId=\{[\s\S]*?databaseId \?\?[\s\S]*?document\.databaseMembership\.databaseId[\s\S]*?databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
     );
     expect(source).not.toContain("<DescriptionField");
-    expect(source).not.toContain("<DocumentProperties");
+    expect(source).toContain("<DocumentProperties");
+    expect(source).toContain('host === "preview" &&');
+  });
+
+  it("keys editor sessions by page and explicit membership context", () => {
+    expect(
+      pageEditorSessionKey({
+        documentId: "page",
+        databaseId: "database-a",
+        databaseDocumentId: "membership-a",
+      }),
+    ).not.toBe(
+      pageEditorSessionKey({
+        documentId: "page",
+        databaseId: "database-b",
+        databaseDocumentId: "membership-b",
+      }),
+    );
   });
 
   it("keeps the document toolbar in normal layout flow", () => {
@@ -912,9 +986,57 @@ describe("document editor layout", () => {
     expect(source).toContain("handleBackgroundSaveError");
     expect(source).toContain("const canEditRef = useRef(canEdit)");
     expect(source).toContain(
-      "if (!options.allowQueuedSave && !canEditRef.current) return document",
+      "if (!options.allowQueuedSave && !canEditRef.current)",
+    );
+    expect(source).toContain(
+      'throw new Error(t("editor.pageSaveBeforeNavigationFailed"))',
     );
     expect(source).toContain("if (!canEditRef.current) return");
+  });
+
+  it("exports a fail-closed route-neutral page session barrier", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("export function PageEditorSurface");
+    expect(source).toContain("document.canEdit === true");
+    expect(source).toContain("flushAllBlockFieldSaveControllersForDocument");
+    expect(source).toContain("flushDocumentPropertyWrites(documentId)");
+    expect(source).toContain(
+      "await editorPersistenceControllerRef.current?.flushLatest()",
+    );
+    expect(
+      source.indexOf("while (pendingPersistenceRef.current.size > 0)"),
+    ).toBeLessThan(
+      source.indexOf(
+        "await editorPersistenceControllerRef.current?.flushLatest()",
+      ),
+    );
+    expect(source).toContain(
+      "result.content === lastSavedContentRef.current.content",
+    );
+    expect(source).toContain("if (!primaryResult.value.contentPersisted)");
+    expect(source).toContain("pendingPersistenceRef.current.size > 0");
+    expect(source).toContain("onSessionChangeRef");
+    expect(source).toContain("documentLayoutRef.current?.querySelector");
+  });
+
+  it("routes global Escape handling to the nearest nested page editor", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("const pathOwner = path.find(");
+    expect(source).toContain(
+      'activeElement.closest<HTMLElement>("[data-page-editor-owner]")',
+    );
+    expect(source).toContain(
+      "eventOwner?.dataset.pageEditorOwner === pageEditorOwner",
+    );
+    expect(source).not.toContain("path.includes(editorRoot)");
   });
 
   it("renders viewers from SQL while retaining scoped presence", () => {
@@ -1017,8 +1139,13 @@ describe("document editor layout", () => {
 
     expect(activationStart).toBeGreaterThan(-1);
     expect(activation).toContain("setSelectedThreadId(threadId)");
+    expect(activation).toContain(
+      "setCommentsBrowseOpen(preserveBrowseContext)",
+    );
     expect(activation).toContain('setUtilityPanel("comments")');
-    expect(source).toContain("onActivateThread={activateCommentThread}");
+    expect(source).toContain(
+      'activateCommentThread(threadId, presentation === "history")',
+    );
     expect(source).not.toContain("? setSelectedThreadId\n");
   });
 

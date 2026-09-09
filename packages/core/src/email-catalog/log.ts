@@ -210,10 +210,15 @@ export interface ListEmailLogFilters {
   orgId: string;
   app: string;
   templateId?: string;
+  excludeTemplateIds?: string[];
   /** Substring match against the recipient address. */
   to?: string;
+  /** Exclude recipient addresses containing this substring. */
+  excludeTo?: string;
   /** Substring match against the resolved sender address. */
   from?: string;
+  /** Exclude resolved sender addresses containing this substring. */
+  excludeFrom?: string;
   status?: "sent" | "failed";
   provider?: string;
   /** Only sends at or after this Unix epoch (ms). */
@@ -227,6 +232,13 @@ export interface ListEmailLogFilters {
 const LOG_COLUMNS =
   "id, template_id, app, recipient, sender, subject, status, error, provider, " +
   "request_payload, response_status, response_body, created_at";
+
+// Address filters are documented as literal substrings; escape the
+// characters LIKE treats as wildcards so an address like `no_reply@x.com`
+// or one containing `%` can't match unrelated rows.
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
 
 /**
  * Most recent sends for one app, newest first, combinably filtered — modeled
@@ -247,10 +259,34 @@ export async function listEmailLog(
     args.push(value);
   };
   if (options.templateId) push("template_id = ?", options.templateId);
+  if (options.excludeTemplateIds?.length) {
+    // `template_id` is nullable; `NOT IN` evaluates to unknown against NULL,
+    // so unregistered/legacy sends must be preserved explicitly.
+    where.push(
+      `(template_id IS NULL OR template_id NOT IN (${options.excludeTemplateIds.map(() => "?").join(", ")}))`,
+    );
+    args.push(...options.excludeTemplateIds);
+  }
   if (options.status) push("status = ?", options.status);
   if (options.provider) push("provider = ?", options.provider);
-  if (options.to) push("recipient LIKE ?", `%${options.to}%`);
-  if (options.from) push("sender LIKE ?", `%${options.from}%`);
+  if (options.to) {
+    push("recipient LIKE ? ESCAPE '\\'", `%${escapeLikePattern(options.to)}%`);
+  }
+  if (options.excludeTo) {
+    push(
+      "recipient NOT LIKE ? ESCAPE '\\'",
+      `%${escapeLikePattern(options.excludeTo)}%`,
+    );
+  }
+  if (options.from) {
+    push("sender LIKE ? ESCAPE '\\'", `%${escapeLikePattern(options.from)}%`);
+  }
+  if (options.excludeFrom) {
+    push(
+      "sender NOT LIKE ? ESCAPE '\\'",
+      `%${escapeLikePattern(options.excludeFrom)}%`,
+    );
+  }
   if (typeof options.sinceMs === "number") {
     push("created_at >= ?", Math.floor(options.sinceMs));
   }

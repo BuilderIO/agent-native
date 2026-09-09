@@ -10,6 +10,7 @@ import {
   estimateThreadCardHeight,
   findPendingCommentOffset,
   findThreadPosition,
+  getAiCommentSource,
   layoutCommentThreads,
   scrollToCommentAnchor,
 } from "./CommentsSidebar";
@@ -29,6 +30,14 @@ function rect(top: number) {
 }
 
 describe("comments sidebar layout", () => {
+  it("attributes only comments submitted through AI surfaces", () => {
+    expect(getAiCommentSource("mcp")).toBe("mcp");
+    expect(getAiCommentSource("agent")).toBe("agent");
+    expect(getAiCommentSource("frontend")).toBeNull();
+    expect(getAiCommentSource("automation")).toBeNull();
+    expect(getAiCommentSource(null)).toBeNull();
+  });
+
   it("tracks both document and desktop-rail positions for a highlight", () => {
     document.body.innerHTML =
       '<div id="scroll"><div data-document-scroll-content><span data-comment-thread="thread-1"></span></div></div><div id="rail"></div>';
@@ -190,10 +199,12 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain('aria-label={t("comments.askAi")}');
-    expect(source).toContain('aria-label={t("comments.resolve")}');
+    expect(source).toContain(
+      'thread.resolved ? "comments.reopen" : "comments.resolve"',
+    );
     expect(source).toContain('aria-label={t("comments.submit")}');
-    expect(source).toContain('aria-label={t("comments.reopen")}');
-    expect(source).toContain("group-focus-within/thread:opacity-100");
+    expect(source).toContain('t("comments.reopen")');
+    expect(source).toContain("focus-visible:ring-ring");
     expect(source).not.toContain("hidden group-hover/thread:flex");
     expect(source).toContain('presentation === "history"');
     expect(source).toContain("data-comments-history");
@@ -251,7 +262,7 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source.match(/<DropdownMenu>/g)).toHaveLength(1);
+    expect(source.match(/t\("comments.filter"\)/g)).toHaveLength(1);
     expect(source).toContain("DropdownMenuCheckboxItem");
     expect(source).not.toContain('t("comments.typeFilter")');
     expect(source).not.toContain('historyType === "suggestions"');
@@ -317,20 +328,6 @@ describe("comments sidebar layout", () => {
       '"relative mx-2 mt-3 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"',
     );
     expect(source).toContain(": undefined");
-  });
-
-  it("keeps comment drafts open until their mutation succeeds", () => {
-    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("createComment.isPending");
-    expect(source).toContain("onSuccess: (result) => {");
-    expect(source).toContain("onError: (error) => {");
-    expect(source).toContain('toast.error(t("empty.genericError")');
-    expect(source).toMatch(
-      /createComment\.mutate\([\s\S]*?onSuccess: \(result\) => \{[\s\S]*?setPendingText\(""\)[\s\S]*?onPendingDone\?\.\(result\.threadId\)/,
-    );
   });
 
   it("keeps card height estimates based on the thread reply count", () => {

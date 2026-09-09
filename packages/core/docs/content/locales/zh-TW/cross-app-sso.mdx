@@ -57,11 +57,13 @@ false 仍然表示退出。如果旗標、偏好設定、註冊或資格檢查�
 
 - 在來源應用程式設定 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code>。
 - 在 Dispatch 設定相符的
-  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>。
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>
+  。
 - 不要為此權限邊界重複使用 <code>A2A_SECRET</code>。
 
 應用程式 ID 後綴會將每段非英數字元替換為底線，並將結果轉換為大寫。
 例如，應用程式 ID <code>workspace-reports</code> 使用
+
 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>。
 
 身分和組織寫入只會新增資料。相同電子郵件的現有使用者會原樣重用。新的
@@ -74,6 +76,7 @@ false 仍然表示退出。如果旗標、偏好設定、註冊或資格檢查�
 瀏覽器登入選項或自動瀏覽器跳轉。
 
 對於自我託管的 Dispatch，請透過
+
 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code> 為每個自訂應用程式註冊精確的
 應用程式 ID、用戶端 ID、HTTPS 來源、回呼路徑和 <code>identity-sso</code> 能力。
 
@@ -90,6 +93,7 @@ false 仍然表示退出。如果旗標、偏好設定、註冊或資格檢查�
 4. 如果啟用了組織聯邦，驗證目標應用程式中的精確組織 ID 和成員角色。
 
 要回滾剩餘路徑，請關閉相應功能旗標，並從自我託管部署移除
+
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code>，然後重新部署。已新增的身分和
 組織記錄會保留，可繼續用於普通本機驗證。
 

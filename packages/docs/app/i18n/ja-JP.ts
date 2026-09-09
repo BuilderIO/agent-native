@@ -437,20 +437,19 @@ const jaJP = {
   },
   homepage: {
     hero: {
-      title: "agentic アプリのためのフレームワーク。",
-      bodyLine1:
-        "UI とエージェントを備えたアプリのためのオープンソース TypeScript フレームワークです。",
-      bodyLine2: "各 Action を一度定義すれば、どこからでも呼び出せます。",
+      title: "agentic アプリケーションのための framework",
+      bodyLine1: "直感的な UI を備えた自律型エージェントを構築できます。",
+      bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
       tryAnApp: "アプリを試す",
     },
     install: {
       copyCommand: "インストールコマンドをコピー",
     },
     actions: {
-      title: "どこからでも 1 つの Action を呼び出せます。",
-      bodyLine1: "defineAction() で機能を定義します。",
+      title: "1 つの Action があらゆる面を動かす",
+      bodyLine1: "defineAction() で機能を一度だけ定義します。",
       bodyLine2:
-        "React UI、エージェント、HTTP クライアント、連携先がすべて同じコードを呼び出します。",
+        "エージェント、React UI、HTTP クライアント、連携先がすべて同じコードを呼び出します。",
       diagramAlt:
         "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
     },
@@ -545,7 +544,7 @@ const jaJP = {
         "作りたいものを自然な言葉で説明すると、エージェントが作成します。",
       stepThreeTitle: "デプロイ",
       stepThreeBody:
-        "準備ができたら、Builderでアプリをワンクリックでデプロイします。",
+        "準備ができたら、Builderでエージェントとその UI をワンクリックでデプロイします。",
     },
   },
   templatesPage: {
@@ -1089,7 +1088,7 @@ const jaJP = {
       s004: "絞り込む",
       s005: "すべてのテンプレート",
       s006: "オープンソースの AI HTML プロトタイピング スタジオ",
-      s007: "プロンプトからインタラクティブな Alpine/Tailwind プロトタイプを生成し、バリアントを比較し、コントロールを微調整して調整し、所有する実際のファイルをエクスポートします。",
+      s007: "インタラクティブなデザインとプロトタイプを作成できます。使い慣れたツールで調整するか、会話の編集で仕上げられます。どこへでもエクスポートできます。",
       s008: "何かをデザインする",
       s009: "仕組み",
       s010: "必要なものすべて",
@@ -1143,6 +1142,7 @@ const jaJP = {
       s058: "テンプレートから始め、ソースを編集するエージェントを使用して対話型プロトタイプの生成を開始します。",
       s059: "ドキュメントを読む",
       s060: "すべてのテンプレートを表示",
+      s061: "100% 無料、オープンソース、カスタマイズ可能。",
       faq: {
         question1:
           "AI はモックアップではなく、実際のコードでデザインを生成できますか？",
@@ -2129,6 +2129,9 @@ const jaJP = {
     databaseProviders: "データベースプロバイダー",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "国際化",
     localFileMode: "ローカルファイルモード",

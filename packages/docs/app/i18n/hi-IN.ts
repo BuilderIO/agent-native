@@ -436,19 +436,19 @@ const hiIN = {
   },
   homepage: {
     hero: {
-      title: "एजेंटिक ऐप्स के लिए फ्रेमवर्क।",
-      bodyLine1: "UI और एजेंट वाले ऐप्स के लिए एक ओपन-सोर्स TypeScript फ्रेमवर्क।",
-      bodyLine2: "हर Action को एक बार परिभाषित करें और कहीं से भी कॉल करें।",
+      title: "एजेंटिक एप्लिकेशन फ्रेमवर्क",
+      bodyLine1: "सहज UI वाले स्वायत्त एजेंट बनाएं।",
+      bodyLine2: "अपना LLM लाएं। कहीं भी डिप्लॉय करें।",
       tryAnApp: "कोई ऐप आज़माएं",
     },
     install: {
       copyCommand: "इंस्टॉल कमांड कॉपी करें",
     },
     actions: {
-      title: "कहीं से भी एक Action को कॉल करें।",
-      bodyLine1: "defineAction() से एक क्षमता परिभाषित करें।",
+      title: "एक Action हर सतह को चलाता है",
+      bodyLine1: "defineAction() से एक क्षमता को एक बार परिभाषित करें।",
       bodyLine2:
-        "आपका React UI, एजेंट, HTTP क्लाइंट और इंटीग्रेशन सभी एक ही कोड को कॉल करते हैं।",
+        "आपका एजेंट, React UI, HTTP क्लाइंट और इंटीग्रेशन सभी एक ही कोड को कॉल करते हैं।",
       diagramAlt: "एक Action UI, MCP, एजेंट चैट, A2A, HTTP API और CLI को चलाता है",
     },
     builtIn: {
@@ -541,7 +541,8 @@ const hiIN = {
       stepTwoBody:
         "आप जो बनाना चाहते हैं उसे साधारण भाषा में बताएं और एजेंट उसे आपके लिए बना देगा।",
       stepThreeTitle: "डिप्लॉय करें",
-      stepThreeBody: "तैयार होने पर Builder में अपनी ऐप को एक क्लिक से डिप्लॉय करें।",
+      stepThreeBody:
+        "तैयार होने पर Builder में अपने एजेंट और उसके UI को एक क्लिक से डिप्लॉय करें।",
     },
   },
   templatesPage: {
@@ -1108,7 +1109,7 @@ const hiIN = {
       s004: "परिष्कृत करें",
       s005: "सभी टेम्पलेट",
       s006: "ओपन-सोर्स AI HTML प्रोटोटाइप स्टूडियो",
-      s007: "एक प्रॉम्प्ट से इंटरैक्टिव Alpine/Tailwind प्रोटोटाइप बनाएं, वेरिएंट की तुलना करें, ट्विक नियंत्रणों के साथ परिष्कृत करें, और अपनी वास्तविक फ़ाइलों को निर्यात करें।",
+      s007: "इंटरैक्टिव डिज़ाइन और प्रोटोटाइप बनाएं। जाने-पहचाने टूल से परिष्कृत करें या संवादी संपादन करें। कहीं भी निर्यात करें।",
       s008: "कुछ डिज़ाइन करें",
       s009: "यह कैसे काम करता है",
       s010: "आपकी ज़रूरत की हर चीज़",
@@ -1162,6 +1163,7 @@ const hiIN = {
       s058: "टेम्पलेट से शुरू करें और स्रोत को संपादित करने वाले एजेंट के साथ इंटरैक्टिव प्रोटोटाइप बनाना शुरू करें।",
       s059: "दस्तावेज़ पढ़ें",
       s060: "सभी टेम्पलेट देखें",
+      s061: "100% निःशुल्क, ओपन-सोर्स और कस्टमाइज़ करने योग्य।",
     },
     dispatch: {
       faq: {
@@ -2108,6 +2110,9 @@ const hiIN = {
     databaseProviders: "डेटाबेस प्रदाता",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "अंतरराष्ट्रीयकरण",
     localFileMode: "Local File Mode",

@@ -117,6 +117,8 @@ permissions:
 concurrency:
   # Direct production dispatches share the per-site queue with the fleet,
   # manager, and promotion jobs. Release migrations use a separate queue.
+  # Beta caller lanes stay separate so manual recovery cannot replace a
+  # pending automatic child deployment for the same site.
   group: >-
     ${{ inputs.caller == 'release-migration'
         && inputs.target == 'production'
@@ -124,7 +126,7 @@ concurrency:
         || inputs.caller == 'release-migration'
         && 'agent-native-release-migrations'
         || inputs.target == 'beta'
-        && format('netlify-prebuilt-beta-{0}', inputs.site)
+        && format('netlify-prebuilt-beta-{0}-{1}', inputs.caller, inputs.site)
         || inputs.caller == 'fleet'
         && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
         || inputs.target == 'production'
@@ -855,7 +857,7 @@ jobs:
           });
           NODE
 
-      - name: Verify beta source is current before publish
+      - name: Verify beta source is current immediately before upload
         id: beta_freshness
         if: inputs.target == 'beta' && inputs.deploy
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

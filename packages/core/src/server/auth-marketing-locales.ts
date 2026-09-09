@@ -21,7 +21,7 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
     brain: {
       tagline: "企业知识层，将未经整理的对话转化为经过审核、可搜索的机构知识。",
       features: [
-        "导入转录、笔记、Slack 导出内容和 Granola 摘要",
+        "导入转录、笔记、Slack 导出内容和会议摘要",
         "用精确的来源引文验证每条事实",
         "通过提案工作流审核全公司的知识",
       ],
@@ -38,8 +38,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       tagline: "你的 AI 代理会转录、总结并搜索你记录的所有内容。",
       features: [
         "一键录屏（Loom 风格），自动生成标题、摘要和章节",
-        "与日历同步的会议笔记（Granola 风格），提供实时转录和 AI 行动项",
-        "按住 Fn 即可随时进行语音听写（Wisprflow 风格），返回干净文本",
+        "与日历同步的会议笔记，提供实时转录和 AI 行动项",
+        "按住 Fn 即可随时进行语音听写，返回干净文本",
         "统一搜索录音、会议和听写内容",
       ],
     },
@@ -159,7 +159,7 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
     brain: {
       tagline: "企業知識層，將未整理的對話轉化為經過審核、可搜尋的機構知識。",
       features: [
-        "匯入轉錄、筆記、Slack 匯出內容和 Granola 摘要",
+        "匯入轉錄、筆記、Slack 匯出內容和會議摘要",
         "用精確的來源引文驗證每項事實",
         "透過提案工作流程審核全公司的知識",
       ],
@@ -176,8 +176,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       tagline: "你的 AI 代理會轉錄、摘要並搜尋你錄下的所有內容。",
       features: [
         "一鍵錄製螢幕（Loom 風格），自動產生標題、摘要和章節",
-        "與行事曆同步的會議筆記（Granola 風格），提供即時轉錄和 AI 行動項目",
-        "按住 Fn 即可隨時進行語音聽寫（Wisprflow 風格），返回乾淨文字",
+        "與行事曆同步的會議筆記，提供即時轉錄和 AI 行動項目",
+        "按住 Fn 即可隨時進行語音聽寫，返回乾淨文字",
         "統一搜尋錄音、會議和聽寫內容",
       ],
     },
@@ -298,7 +298,7 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       tagline:
         "Una capa de conocimiento de la empresa donde las conversaciones sin procesar se convierten en conocimiento institucional revisado y consultable.",
       features: [
-        "Importa transcripciones, notas, exportaciones de Slack y resúmenes de Granola",
+        "Importa transcripciones, notas, exportaciones de Slack y resúmenes de reuniones",
         "Valida cada hecho con citas exactas de la fuente",
         "Revisa el conocimiento de toda la empresa mediante flujos de propuestas",
       ],
@@ -317,8 +317,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "Tu agente de IA transcribe, resume y busca todo lo que grabas a tu lado.",
       features: [
         "Grabación de pantalla con un clic (estilo Loom), títulos, resúmenes y capítulos automáticos",
-        "Notas de reuniones sincronizadas con el calendario (estilo Granola), con transcripciones en vivo y acciones de IA",
-        "Dictado de voz con pulsación Fn (estilo Wisprflow): mantenla pulsada en cualquier lugar y recibe texto limpio",
+        "Notas de reuniones sincronizadas con el calendario, con transcripciones en vivo y acciones de IA",
+        "Dictado de voz con pulsación Fn: mantenla pulsada en cualquier lugar y recibe texto limpio",
         "Una biblioteca donde buscar grabaciones, reuniones y dictados",
       ],
     },
@@ -444,7 +444,7 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       tagline:
         "Une couche de connaissance d’entreprise où les conversations brutes deviennent un savoir institutionnel vérifié et consultable.",
       features: [
-        "Importez des transcriptions, notes, exports Slack et résumés Granola",
+        "Importez des transcriptions, notes, exports Slack et résumés de réunions",
         "Validez chaque fait avec des citations exactes de la source",
         "Révisez les connaissances de l’entreprise grâce à des workflows de propositions",
       ],
@@ -463,8 +463,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "Votre agent IA transcrit, résume et recherche tout ce que vous enregistrez à vos côtés.",
       features: [
         "Enregistrement d’écran en un clic (style Loom), titres, résumés et chapitres automatiques",
-        "Notes de réunion synchronisées au calendrier (style Granola), transcriptions en direct et actions IA",
-        "Dictée vocale avec la touche Fn (style Wisprflow) : maintenez-la enfoncée n’importe où pour obtenir du texte propre",
+        "Notes de réunion synchronisées au calendrier, transcriptions en direct et actions IA",
+        "Dictée vocale avec la touche Fn : maintenez-la enfoncée n’importe où pour obtenir du texte propre",
         "Une bibliothèque unique pour rechercher enregistrements, réunions et dictées",
       ],
     },
@@ -591,7 +591,7 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       tagline:
         "Eine Wissensebene für Unternehmen, die rohe Gespräche in geprüfte und durchsuchbare institutionelle Erkenntnisse verwandelt.",
       features: [
-        "Importiere Transkripte, Notizen, Slack-Exporte und Granola-Zusammenfassungen",
+        "Importiere Transkripte, Notizen, Slack-Exporte und Meeting-Zusammenfassungen",
         "Prüfe jede Tatsache anhand exakter Quellenzitate",
         "Überprüfe unternehmensweites Wissen in Vorschlags-Workflows",
       ],
@@ -610,8 +610,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "Dein KI-Agent transkribiert, fasst zusammen und durchsucht alles, was du nebenbei aufzeichnest.",
       features: [
         "Bildschirmaufnahme mit einem Klick (Loom-Stil) sowie automatische Titel, Zusammenfassungen und Kapitel",
-        "Kalendersynchronisierte Meeting-Notizen (Granola-Stil) mit Live-Transkripten und KI-Aktionspunkten",
-        "Push-to-talk-Sprachdiktat mit Fn-Taste (Wisprflow-Stil): überall gedrückt halten und sauberen Text erhalten",
+        "Kalendersynchronisierte Meeting-Notizen mit Live-Transkripten und KI-Aktionspunkten",
+        "Push-to-talk-Sprachdiktat mit Fn-Taste: überall gedrückt halten und sauberen Text erhalten",
         "Eine durchsuchbare Bibliothek für Aufnahmen, Meetings und Diktate",
       ],
     },
@@ -739,7 +739,7 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       tagline:
         "生の会話をレビュー済みで検索可能な組織知識に変える、会社のナレッジレイヤーです。",
       features: [
-        "文字起こし、メモ、Slack エクスポート、Granola の要約をインポート",
+        "文字起こし、メモ、Slack エクスポート、会議の要約をインポート",
         "正確な出典の引用で事実を検証",
         "提案ワークフローで会社全体のナレッジをレビュー",
       ],
@@ -758,8 +758,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "AI エージェントがあなたの録画をすべて文字起こし、要約、検索します。",
       features: [
         "ワンクリックの画面録画（Loom スタイル）と自動タイトル、要約、チャプター",
-        "カレンダー同期の会議メモ（Granola スタイル）とライブ文字起こし、AI アクション項目",
-        "Fn キーを押してどこでも音声入力（Wisprflow スタイル）。きれいなテキストを取得",
+        "カレンダー同期の会議メモとライブ文字起こし、AI アクション項目",
+        "Fn キーを押してどこでも音声入力。きれいなテキストを取得",
         "録画、会議、音声入力をまとめて検索できるライブラリ",
       ],
     },
@@ -884,7 +884,7 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       tagline:
         "가공되지 않은 대화를 검토되고 검색 가능한 조직 지식으로 바꾸는 회사 지식 계층입니다.",
       features: [
-        "트랜스크립트, 메모, Slack 내보내기, Granola 요약 가져오기",
+        "트랜스크립트, 메모, Slack 내보내기, 회의 요약 가져오기",
         "정확한 출처 인용으로 모든 사실 검증",
         "제안 워크플로를 통해 회사 전체 지식 검토",
       ],
@@ -902,8 +902,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       tagline: "AI 에이전트가 녹화한 모든 내용을 받아쓰고 요약하고 검색합니다.",
       features: [
         "원클릭 화면 녹화(Loom 스타일)와 자동 제목, 요약, 챕터",
-        "캘린더 동기화 회의 노트(Granola 스타일), 실시간 트랜스크립트와 AI 액션 아이템",
-        "Fn을 누르고 어디서나 음성 받아쓰기(Wisprflow 스타일), 깔끔한 텍스트 받기",
+        "캘린더 동기화 회의 노트, 실시간 트랜스크립트와 AI 액션 아이템",
+        "Fn을 누르고 어디서나 음성 받아쓰기, 깔끔한 텍스트 받기",
         "녹화, 회의, 받아쓰기를 한곳에서 검색하는 라이브러리",
       ],
     },
@@ -1028,7 +1028,7 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       tagline:
         "Uma camada de conhecimento da empresa onde conversas brutas se tornam conhecimento institucional revisado e pesquisável.",
       features: [
-        "Importe transcrições, notas, exportações do Slack e resumos do Granola",
+        "Importe transcrições, notas, exportações do Slack e resumos de reuniões",
         "Valide cada fato com citações exatas da fonte",
         "Revise o conhecimento de toda a empresa por meio de fluxos de propostas",
       ],
@@ -1047,8 +1047,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "Seu agente de IA transcreve, resume e pesquisa tudo o que você grava ao seu lado.",
       features: [
         "Gravação de tela com um clique (estilo Loom), títulos, resumos e capítulos automáticos",
-        "Notas de reunião sincronizadas ao calendário (estilo Granola), com transcrições ao vivo e itens de ação de IA",
-        "Ditado de voz com a tecla Fn (estilo Wisprflow): segure em qualquer lugar e receba texto limpo",
+        "Notas de reunião sincronizadas ao calendário, com transcrições ao vivo e itens de ação de IA",
+        "Ditado de voz com a tecla Fn: segure em qualquer lugar e receba texto limpo",
         "Uma biblioteca pesquisável de gravações, reuniões e ditados",
       ],
     },
@@ -1176,7 +1176,7 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       tagline:
         "कंपनी की एक नॉलेज लेयर, जहां कच्ची बातचीत समीक्षा की गई और खोजने योग्य संस्थागत जानकारी बन जाती है।",
       features: [
-        "ट्रांसक्रिप्ट, नोट्स, Slack एक्सपोर्ट और Granola सारांश आयात करें",
+        "ट्रांसक्रिप्ट, नोट्स, Slack एक्सपोर्ट और मीटिंग सारांश आयात करें",
         "सटीक स्रोत उद्धरणों से हर तथ्य की पुष्टि करें",
         "प्रस्ताव वर्कफ़्लो के जरिए पूरी कंपनी की जानकारी की समीक्षा करें",
       ],
@@ -1195,8 +1195,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "आपका AI एजेंट आपके रिकॉर्ड किए हुए हर कंटेंट को ट्रांसक्राइब, सारांशित और खोजता है।",
       features: [
         "एक-क्लिक स्क्रीन रिकॉर्डिंग (Loom शैली), ऑटो शीर्षक, सारांश और अध्याय",
-        "कैलेंडर-सिंक मीटिंग नोट्स (Granola शैली), लाइव ट्रांसक्रिप्ट और AI एक्शन आइटम",
-        "Fn दबाकर कहीं भी वॉइस डिक्टेशन (Wisprflow शैली), साफ टेक्स्ट पाएं",
+        "कैलेंडर-सिंक मीटिंग नोट्स, लाइव ट्रांसक्रिप्ट और AI एक्शन आइटम",
+        "Fn दबाकर कहीं भी वॉइस डिक्टेशन, साफ टेक्स्ट पाएं",
         "रिकॉर्डिंग, मीटिंग और डिक्टेशन के लिए एक खोजने योग्य लाइब्रेरी",
       ],
     },
@@ -1322,7 +1322,7 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       tagline:
         "طبقة معرفة للشركة تحول المحادثات الخام إلى معرفة مؤسسية مُراجعة وقابلة للبحث.",
       features: [
-        "استورد النصوص المفرغة والملاحظات وتصديرات Slack وملخصات Granola",
+        "استورد النصوص المفرغة والملاحظات وتصديرات Slack وملخصات الاجتماعات",
         "تحقق من كل حقيقة بالاستناد إلى اقتباسات المصدر الدقيقة",
         "راجع معرفة الشركة بأكملها من خلال مسارات عمل المقترحات",
       ],
@@ -1341,8 +1341,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "ينسخ وكيل الذكاء الاصطناعي كل ما تسجله ويلخصه ويبحث فيه إلى جانبك.",
       features: [
         "تسجيل الشاشة بنقرة واحدة (بأسلوب Loom) مع عناوين وملخصات وفصول تلقائية",
-        "ملاحظات اجتماعات متزامنة مع التقويم (بأسلوب Granola) مع نصوص مباشرة وعناصر عمل من الذكاء الاصطناعي",
-        "إملاء صوتي بالضغط على Fn (بأسلوب Wisprflow): اضغط في أي مكان واحصل على نص نظيف",
+        "ملاحظات اجتماعات متزامنة مع التقويم مع نصوص مباشرة وعناصر عمل من الذكاء الاصطناعي",
+        "إملاء صوتي بالضغط على Fn: اضغط في أي مكان واحصل على نص نظيف",
         "مكتبة واحدة قابلة للبحث عبر التسجيلات والاجتماعات والإملاءات",
       ],
     },

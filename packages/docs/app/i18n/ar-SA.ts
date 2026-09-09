@@ -435,20 +435,19 @@ const arSA = {
   },
   homepage: {
     hero: {
-      title: "إطار العمل لتطبيقات الوكلاء.",
-      bodyLine1:
-        "إطار عمل TypeScript مفتوح المصدر لتطبيقات تضم واجهة مستخدم ووكيلًا.",
-      bodyLine2: "عرّف كل Action مرة واحدة واستدعها من أي مكان.",
+      title: "إطار العمل لتطبيقات الوكلاء",
+      bodyLine1: "أنشئ وكلاء مستقلين بواجهات استخدام بديهية.",
+      bodyLine2: "استخدم LLM الخاص بك. وانشر في أي مكان.",
       tryAnApp: "جرّب تطبيقًا",
     },
     install: {
       copyCommand: "نسخ أمر التثبيت",
     },
     actions: {
-      title: "استدعِ Action واحدة من أي مكان.",
-      bodyLine1: "عرّف قدرة باستخدام defineAction().",
+      title: "Action واحد يشغّل كل الواجهات",
+      bodyLine1: "عرّف قدرة مرة واحدة باستخدام defineAction().",
       bodyLine2:
-        "تستدعي واجهة React والوكيل وعملاء HTTP والتكاملات لديك الشفرة نفسها.",
+        "يستدعي الوكيل وواجهة React وعملاء HTTP والتكاملات لديك الشفرة نفسها.",
       diagramAlt:
         "Action واحد يشغّل الواجهة وMCP ودردشة الوكيل وA2A وHTTP API وCLI",
     },
@@ -541,7 +540,8 @@ const arSA = {
       stepTwoTitle: "ابدأ بكتابة طلبك",
       stepTwoBody: "صِف ما تريد بناءه بلغة واضحة وسيُنشئه الوكيل لك.",
       stepThreeTitle: "النشر",
-      stepThreeBody: "عندما تكون مستعدًا، انشر تطبيقك بنقرة واحدة في Builder.",
+      stepThreeBody:
+        "عندما تكون مستعدًا، انشر وكيلك وواجهة المستخدم الخاصة به بنقرة واحدة في Builder.",
     },
   },
   templatesPage: {
@@ -1078,7 +1078,7 @@ const arSA = {
       s004: "صقل",
       s005: "جميع القوالب",
       s006: "استوديو النماذج الأولية AI HTML مفتوح المصدر",
-      s007: "أنشئ نماذج أولية تفاعلية لـ Alpine/Tailwind من خلال موجه، وقارن بين المتغيرات، وقم بالتحسين باستخدام عناصر التحكم، وقم بتصدير الملفات الحقيقية التي تمتلكها.",
+      s007: "أنشئ تصاميم ونماذج أولية تفاعلية. حسّنها بأدوات مألوفة أو أجرِ تعديلات المحادثة. صدّرها إلى أي مكان.",
       s008: "صمّم شيئًا",
       s009: "كيف يعمل",
       s010: "كل ما تحتاجه",
@@ -1132,6 +1132,7 @@ const arSA = {
       s058: "افصل القالب وابدأ في إنشاء نماذج أولية تفاعلية باستخدام وكيل يقوم بتحرير المصدر.",
       s059: "اقرأ المستندات",
       s060: "عرض كافة القوالب",
+      s061: "مجاني 100%، ومفتوح المصدر، وقابل للتخصيص.",
       faq: {
         question1: "هل يستطيع AI إنشاء تصميم بكود حقيقي لا بمجرد نموذج بصري؟",
         answer1:
@@ -2107,6 +2108,9 @@ const arSA = {
     databaseProviders: "موفرو قواعد البيانات",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "التدويل",
     localFileMode: "Local File Mode",
