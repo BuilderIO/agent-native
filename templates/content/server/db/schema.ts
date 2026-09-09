@@ -262,6 +262,7 @@ export const contentDatabases = table(
       database.spaceId,
       database.systemRole,
     ),
+    index("content_databases_document_idx").on(database.documentId),
   ],
 );
 

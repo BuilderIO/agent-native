@@ -290,7 +290,10 @@ export default defineAction({
       : undefined;
 
     if (slides.length === 0) {
-      return { error: "Cannot export empty deck" };
+      fail("Cannot export empty deck", {
+        errorCode: "empty_deck",
+        statusCode: 400,
+      });
     }
 
     const html = buildStandaloneHtml(row.title, slides, aspectRatio);

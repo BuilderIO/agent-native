@@ -358,8 +358,18 @@ async function handleEvent(
         continue;
       }
 
-      // Evaluate condition
-      const matches = await evaluateCondition(meta.condition, payload, apiKey);
+      // Evaluate condition. Unevaluable (network/HTTP) is not a non-match —
+      // record error and leave the trigger eligible for a later event.
+      let matches: boolean;
+      try {
+        matches = await evaluateCondition(meta.condition, payload, apiKey);
+      } catch (err) {
+        const reason =
+          err instanceof Error ? err.message : "Condition evaluation failed";
+        await recordTriggerSkip(resource, "error", reason);
+        console.warn(`[triggers] ${reason}: "${resource.path}"`);
+        continue;
+      }
       if (!matches) {
         await recordTriggerSkip(resource, "skipped", undefined);
         continue;
@@ -427,7 +437,17 @@ export async function dispatchAutomationWebhookTask(
   if (isBackgroundAutomationRunActive(meta)) {
     return "retry";
   }
-  const matches = await evaluateCondition(meta.condition, task.payload, apiKey);
+  // Unevaluable conditions must retry — returning "completed" would suppress
+  // the webhook task and permanently drop the event after a transient failure.
+  let matches: boolean;
+  try {
+    matches = await evaluateCondition(meta.condition, task.payload, apiKey);
+  } catch (err) {
+    const reason =
+      err instanceof Error ? err.message : "Condition evaluation failed";
+    await recordTriggerSkip(resource, "error", reason);
+    return "retry";
+  }
   if (!matches) {
     await recordTriggerSkip(resource, "skipped", undefined);
     return "completed";

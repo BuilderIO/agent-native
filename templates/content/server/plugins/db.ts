@@ -1081,6 +1081,11 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS document_edit_receipts_owner_document_idx
         ON document_edit_receipts (owner_email, document_id)`,
     },
+    {
+      version: 88,
+      name: "content-databases-document-idx",
+      sql: `CREATE INDEX IF NOT EXISTS content_databases_document_idx ON content_databases (document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );
