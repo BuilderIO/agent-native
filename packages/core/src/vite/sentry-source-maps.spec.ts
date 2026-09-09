@@ -34,11 +34,21 @@ describe("vite/sentry-source-maps", () => {
       ).toBeNull();
     });
 
-    it("resolves a full config, falling back to ORG_SLUG/PROJECT_ID", () => {
+    it("does not accept the numeric SENTRY_PROJECT_ID as a project slug", () => {
+      expect(
+        resolveSentrySourceMapUploadConfig({
+          SENTRY_AUTH_TOKEN: "tok",
+          SENTRY_ORG: "acme",
+          SENTRY_PROJECT_ID: "4511270423822336",
+        }),
+      ).toBeNull();
+    });
+
+    it("resolves a full config, falling back to SENTRY_ORG_SLUG", () => {
       const config = resolveSentrySourceMapUploadConfig({
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG_SLUG: "acme",
-        SENTRY_PROJECT_ID: "web",
+        SENTRY_PROJECT: "web",
         AGENT_NATIVE_BUILD_ID: "deploy-42",
       });
       expect(config).toEqual({
@@ -53,12 +63,12 @@ describe("vite/sentry-source-maps", () => {
 
   describe("createSentrySourceMapUploadPlugin", () => {
     it("returns an empty array and never calls sentryVitePlugin when disabled", () => {
-      expect(createSentrySourceMapUploadPlugin("dist/spa", {})).toEqual([]);
+      expect(createSentrySourceMapUploadPlugin({})).toEqual([]);
       expect(sentryVitePluginMock).not.toHaveBeenCalled();
     });
 
     it("calls sentryVitePlugin with the resolved config when enabled", () => {
-      const plugins = createSentrySourceMapUploadPlugin("dist/spa", {
+      const plugins = createSentrySourceMapUploadPlugin({
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG: "acme",
         SENTRY_PROJECT: "web",
@@ -71,12 +81,12 @@ describe("vite/sentry-source-maps", () => {
         project: "web",
         authToken: "tok",
         release: { name: "agent-native-client@deploy-42", inject: false },
-        sourcemaps: { filesToDeleteAfterUpload: ["dist/spa/**/*.map"] },
       });
+      expect(callArgs.sourcemaps).toBeUndefined();
     });
 
     it("errorHandler swallows failures instead of throwing", () => {
-      createSentrySourceMapUploadPlugin("dist/spa", {
+      createSentrySourceMapUploadPlugin({
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG: "acme",
         SENTRY_PROJECT: "web",

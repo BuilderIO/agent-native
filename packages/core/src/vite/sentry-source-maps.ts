@@ -41,11 +41,11 @@ export function resolveSentrySourceMapUploadConfig(
   const authToken = firstNonEmpty(env.SENTRY_AUTH_TOKEN);
   if (!authToken) return null;
   const org = firstNonEmpty(env.SENTRY_ORG, env.SENTRY_ORG_SLUG);
-  const project = firstNonEmpty(
-    env.SENTRY_PROJECT,
-    env.SENTRY_CLIENT_PROJECT,
-    env.SENTRY_PROJECT_ID,
-  );
+  // SENTRY_PROJECT_ID is the numeric DSN project id used elsewhere in this
+  // repo (sentry-config.ts) — not a valid value for the plugin's `project`
+  // option, which wants the project slug. Passing the numeric id would
+  // silently target the wrong project instead of cleanly no-oping.
+  const project = firstNonEmpty(env.SENTRY_PROJECT, env.SENTRY_CLIENT_PROJECT);
   if (!org || !project) return null;
   return {
     authToken,
@@ -64,10 +64,8 @@ export function isSentrySourceMapUploadEnabled(
 
 // Safe to always include in the plugins array regardless of `vite build` vs
 // `vite dev` — `@sentry/vite-plugin`'s hooks only act during a real Rollup
-// build. `outDir` only drives the post-upload `.map` cleanup glob; the
-// upload itself reads Vite's build output directly.
+// build.
 export function createSentrySourceMapUploadPlugin(
-  outDir: string,
   env: Record<string, string | undefined> = process.env,
 ): Plugin[] {
   const config = resolveSentrySourceMapUploadConfig(env);
@@ -85,11 +83,12 @@ export function createSentrySourceMapUploadPlugin(
       name: config.release,
       inject: false,
     },
-    sourcemaps: {
-      filesToDeleteAfterUpload: [`${outDir}/**/*.map`],
-    },
-    // Every other Sentry integration in this framework fails open — a bad
-    // token or org/project typo must never break a customer's production build.
+    // No `sourcemaps.filesToDeleteAfterUpload`: the plugin runs that deletion
+    // unconditionally, even when the upload itself failed and `errorHandler`
+    // below swallowed it — which would delete the only copies of the maps
+    // with nothing uploaded to replace them. Leaving `.map` files in `dist/`
+    // means a release is never worse than un-symbolicated; `sourcemap:
+    // "hidden"` already keeps them off the shipped JS's sourceMappingURL.
     errorHandler: (error) => {
       console.warn(
         `[agent-native] Sentry source map upload failed (build continues): ${
