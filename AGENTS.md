@@ -334,6 +334,11 @@ instructions, and application state.
 - UIs should be optimistic by default: update cache and navigate immediately,
   roll back on error, and avoid click-blocking spinners except for destructive or
   irreversible operations.
+- Interaction feedback must be immediate: reflect every user input on screen
+  within 100 ms when possible, and no later than 400 ms for the first visible
+  response when completion takes longer. Never wait for a network round-trip
+  before showing a state change; use optimistic UI, a focused loading/progress
+  state, or a clear working state, then reconcile or roll back.
 - Data loads use layout-matching `Skeleton` geometry, not a generic "Loading..."
   label; reserve `Spinner` for brief mutations, uploads, and progress actions.
 - For any user-facing UI change — including screenshot feedback, copy or density

@@ -27,6 +27,12 @@ generating or editing a plan.
 
 ## Core Rules
 
+- Interaction feedback must be immediate: reflect every user input on screen
+  within 100 ms when possible, and no later than 400 ms for the first visible
+  response when completion takes longer. Never wait for a network round-trip
+  before showing a state change; use optimistic UI, a focused loading/progress
+  state, or a clear working state, then reconcile or roll back.
+
 - Follow the root framework rules: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
 - Store large file/blob payloads in configured file/blob storage, not SQL: no

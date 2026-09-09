@@ -21,6 +21,12 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 
 ## Core Rules
 
+- Interaction feedback must be immediate: reflect every user input on screen
+  within 100 ms when possible, and no later than 400 ms for the first visible
+  response when completion takes longer. Never wait for a network round-trip
+  before showing a state change; use optimistic UI, a focused loading/progress
+  state, or a clear working state, then reconcile or roll back.
+
 - Keep large payloads out of SQL: no video/audio, images, PDFs, thumbnails,
   base64, or `data:` URLs in app tables, `application_state`, `settings`, or
   `resources` — persist URLs, ids, or handles and keep bytes in configured

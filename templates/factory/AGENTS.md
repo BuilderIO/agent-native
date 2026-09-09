@@ -14,6 +14,12 @@ and graph versions.
 
 ## Core rules
 
+- Interaction feedback must be immediate: reflect every user input on screen
+  within 100 ms when possible, and no later than 400 ms for the first visible
+  response when completion takes longer. Never wait for a network round-trip
+  before showing a state change; use optimistic UI, a focused loading/progress
+  state, or a clear working state, then reconcile or roll back.
+
 - Keep app state in SQL via Drizzle, scope reads/writes by org and member, and
   use actions as the UI, agent, CLI, MCP, and A2A surface.
 - A missing callback, partial thread, unreadable provider response, or missed

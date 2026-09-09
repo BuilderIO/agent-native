@@ -119,6 +119,17 @@ const staleInstructionPatterns = [
 const runtimeIntegrationGuidancePattern =
   /For external integrations, inspect the workspace\/provider connection catalog\s+first(?:\.|;)/;
 
+const interactionResponsivenessGuidancePattern =
+  /interaction feedback must be immediate:[\s\S]*100 ms[\s\S]*400 ms[\s\S]*network round-trip/i;
+
+const requiredInteractionResponsivenessGuidance = [
+  "packages/core/src/templates/default/AGENTS.md",
+  "packages/core/src/templates/headless/AGENTS.md",
+  "packages/core/src/templates/workspace-root/AGENTS.md",
+  "packages/core/src/templates/workspace-core/AGENTS.md",
+  "registry/agent-native-app/AGENTS.md",
+];
+
 const requiredGeneratedGuidance = [
   {
     rel: "packages/core/src/templates/default/AGENTS.md",
@@ -432,6 +443,26 @@ function checkGeneratedInstructionPhrases() {
     const content = readFileSync(file, "utf-8");
     if (!runtimeIntegrationGuidancePattern.test(content)) {
       findings.push(`${rel}: missing runtime-visible integration preflight`);
+    }
+  }
+
+  for (const rel of [
+    ...requiredInteractionResponsivenessGuidance,
+    ...listTemplateDirs().map((template) => `templates/${template}/AGENTS.md`),
+  ]) {
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(
+        `${rel}: missing required interaction responsiveness guidance file`,
+      );
+      continue;
+    }
+    if (
+      !interactionResponsivenessGuidancePattern.test(
+        readFileSync(file, "utf-8"),
+      )
+    ) {
+      findings.push(`${rel}: missing interaction responsiveness guidance`);
     }
   }
 

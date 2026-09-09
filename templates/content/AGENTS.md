@@ -19,6 +19,12 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
+- Interaction feedback must be immediate: reflect every user input on screen
+  within 100 ms when possible, and no later than 400 ms for the first visible
+  response when completion takes longer. Never wait for a network round-trip
+  before showing a state change; use optimistic UI, a focused loading/progress
+  state, or a clear working state, then reconcile or roll back.
+
 - Use actions for documents, blocks, comments, media, sharing, navigation, and
   Notion integration. Do not mutate document rows directly unless a skill says to
   and access checks are preserved. Never use `curl`, raw HTTP requests, or
