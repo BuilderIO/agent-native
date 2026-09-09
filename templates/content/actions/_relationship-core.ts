@@ -13,7 +13,7 @@ import {
   ROLE_RANK,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
@@ -1377,6 +1377,59 @@ export async function activeActivationIdsForLineages(
   }
   for (const ids of result.values()) ids.sort();
   return result;
+}
+
+export async function liveRelationshipLineagesForSlot(
+  db: RelationshipDb,
+  relationshipTypeId: string,
+  sourcePageId: string,
+): Promise<{
+  lineages: Array<typeof schema.contentRelationshipLineages.$inferSelect>;
+  active: Map<string, string[]>;
+}> {
+  const lineages = await db
+    .select()
+    .from(schema.contentRelationshipLineages)
+    .where(
+      and(
+        eq(
+          schema.contentRelationshipLineages.relationshipTypeId,
+          relationshipTypeId,
+        ),
+        eq(schema.contentRelationshipLineages.sourcePageId, sourcePageId),
+      ),
+    );
+  const active = await activeActivationIdsForLineages(
+    db,
+    lineages.map((lineage) => lineage.id),
+  );
+  const permanentlyDeletedTargets = lineages.length
+    ? await db
+        .select({ pageId: schema.contentRelationshipEndpointStates.pageId })
+        .from(schema.contentRelationshipEndpointStates)
+        .where(
+          and(
+            inArray(
+              schema.contentRelationshipEndpointStates.pageId,
+              lineages.map((lineage) => lineage.targetPageId),
+            ),
+            isNotNull(
+              schema.contentRelationshipEndpointStates.permanentlyDeletedAt,
+            ),
+          ),
+        )
+    : [];
+  const permanentlyDeletedTargetIds = new Set(
+    permanentlyDeletedTargets.map((row) => row.pageId),
+  );
+  return {
+    lineages: lineages.filter(
+      (lineage) =>
+        (active.get(lineage.id)?.length ?? 0) > 0 &&
+        !permanentlyDeletedTargetIds.has(lineage.targetPageId),
+    ),
+    active,
+  };
 }
 
 export async function retireRelationshipActivations(

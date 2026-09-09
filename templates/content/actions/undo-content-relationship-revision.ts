@@ -3,7 +3,7 @@ import {
   isActionContractError,
   type ActionRunContext,
 } from "@agent-native/core/action";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -27,6 +27,7 @@ import {
   insertRelationshipReceipt,
   loadRelationshipDatabase,
   loadRelationshipTypeBundle,
+  liveRelationshipLineagesForSlot,
   lockRelationshipCardinalitySlots,
   lockRelationshipLineages,
   lockRelationshipOperation,
@@ -380,32 +381,6 @@ async function assertPropertyRemovalAccess(
       ),
     ]);
   }
-}
-
-async function activeLineagesForSlot(
-  db: RelationshipDb,
-  typeId: string,
-  sourcePageId: string,
-) {
-  const lineages = await db
-    .select()
-    .from(schema.contentRelationshipLineages)
-    .where(
-      and(
-        eq(schema.contentRelationshipLineages.relationshipTypeId, typeId),
-        eq(schema.contentRelationshipLineages.sourcePageId, sourcePageId),
-      ),
-    );
-  const active = await activeActivationIdsForLineages(
-    db,
-    lineages.map((lineage) => lineage.id),
-  );
-  return {
-    lineages: lineages.filter(
-      (lineage) => (active.get(lineage.id)?.length ?? 0) > 0,
-    ),
-    active,
-  };
 }
 
 async function addRecoveryActivation(
@@ -815,7 +790,7 @@ async function undoContentRelationshipRevision(
 
       if (plan.originalKind === "remove") {
         if (plan.bundle.version.forwardCardinality === "one") {
-          const slot = await activeLineagesForSlot(
+          const slot = await liveRelationshipLineagesForSlot(
             tx,
             plan.bundle.type.id,
             plan.lineage.sourcePageId,
@@ -892,7 +867,7 @@ async function undoContentRelationshipRevision(
           { statusCode: 503 },
         );
       }
-      const slot = await activeLineagesForSlot(
+      const slot = await liveRelationshipLineagesForSlot(
         tx,
         plan.bundle.type.id,
         plan.lineage.sourcePageId,
@@ -934,7 +909,9 @@ async function undoContentRelationshipRevision(
       await appendRelationshipEvent(tx, revision, {
         tenant,
         eventId,
-        kind: "relationship-replacement-undone",
+        kind: restored
+          ? "relationship-replacement-undone"
+          : "relationship-add-undone",
         relationshipTypeId: plan.bundle.type.id,
         relationshipTypeVersionId: plan.bundle.version.id,
         route: restored
@@ -944,12 +921,14 @@ async function undoContentRelationshipRevision(
           lineageId: restored?.id ?? plan.lineage.id,
           sourcePageId: plan.lineage.sourcePageId,
           targetPageId: restored?.targetPageId ?? plan.lineage.targetPageId,
-          displacedLineageIds: [plan.lineage.id],
+          ...(restored ? { displacedLineageIds: [plan.lineage.id] } : {}),
         },
-        diff: {
-          addedActivationIds: activationIds,
-          retiredActivationIds: retiredIds,
-        },
+        diff: restored
+          ? {
+              addedActivationIds: activationIds,
+              retiredActivationIds: retiredIds,
+            }
+          : { retiredActivationIds: retiredIds },
       });
       await updateSlot(tx, {
         typeId: plan.bundle.type.id,
@@ -1066,7 +1045,7 @@ async function undoContentRelationshipRevision(
           db: tx,
         });
         if (bundle.version.forwardCardinality === "one") {
-          const slot = await activeLineagesForSlot(
+          const slot = await liveRelationshipLineagesForSlot(
             tx,
             bundle.type.id,
             entry.sourcePageId,

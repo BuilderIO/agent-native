@@ -423,6 +423,47 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: ["actions/preview-document-draft.db.test.ts"],
   },
   {
+    id: "database.typed-relationships",
+    surface: "database",
+    label:
+      "Configure, inspect, edit, remove, and restore typed Page relationships",
+    uiEntrypoints: [
+      "app/components/editor/ContentRelationships.tsx",
+      "app/components/editor/RelationPropertyConfigurationDialog.tsx",
+      "app/components/editor/DocumentProperties.tsx",
+      "app/hooks/use-content-relationships.ts",
+    ],
+    durableEffect:
+      "Canonical typed Page relationships, Relation Property projections, committed history, and reversible removals are stored through one access-scoped action surface.",
+    uiImplementation:
+      "Relation Property configuration, cells, bulk edits, Connections, removal impact review, history, and Undo call the same typed relationship actions exposed to agents.",
+    status: "action-backed",
+    actions: [
+      "configure-content-relation-property",
+      "list-content-relation-candidates",
+      "list-content-relationship-history",
+      "list-content-relationship-types",
+      "list-content-relationships",
+      "mutate-content-relationships",
+      "prepare-content-relationship-removal",
+      "remove-content-relation-property",
+      "undo-content-relationship-revision",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/relationship-services.db.test.ts",
+      "actions/relationship-undo.db.test.ts",
+      "actions/relationship-pagination.db.test.ts",
+      "actions/canonical-relation-integration.db.test.ts",
+      "app/components/editor/ContentRelationships.test.ts",
+      "app/hooks/use-content-relationships.test.ts",
+    ],
+  },
+  {
     id: "database.properties-and-view-config",
     surface: "database",
     label: "Configure properties, values, ordering, and saved views",

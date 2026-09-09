@@ -144,6 +144,10 @@ vi.mock("@agent-native/core/client/settings", () => ({
 
 vi.mock("@/hooks/use-content-database", () => ({
   isContentDatabaseUnavailable: () => false,
+  useContentDatabases: () => ({
+    data: { databases: [] },
+    isLoading: false,
+  }),
   useContentDatabase: (
     documentId: string,
     limit: number,
@@ -513,7 +517,7 @@ describe("DatabaseView UI regressions", () => {
     expect(updateViewMutation.mutateAsync).not.toHaveBeenCalled();
 
     await act(async () => {
-      navigateRoute?.("/page/document-1?databaseViewId=numbers", {
+      await navigateRoute?.("/page/document-1?databaseViewId=numbers", {
         replace: true,
       });
       await Promise.resolve();

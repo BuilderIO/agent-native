@@ -1,5 +1,5 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -24,6 +24,7 @@ import {
   insertRelationshipReceipt,
   loadRelationshipDatabase,
   loadRelationshipTypeBundle,
+  liveRelationshipLineagesForSlot,
   lockRelationshipCardinalitySlots,
   lockRelationshipOperation,
   lockRelationshipLineages,
@@ -319,41 +320,8 @@ async function liveLineagesForSlot(
   typeId: string,
   sourcePageId: string,
 ) {
-  const lineages = await tx
-    .select()
-    .from(schema.contentRelationshipLineages)
-    .where(
-      and(
-        eq(schema.contentRelationshipLineages.relationshipTypeId, typeId),
-        eq(schema.contentRelationshipLineages.sourcePageId, sourcePageId),
-      ),
-    );
-  const activeByLineage = await activeActivationIdsForLineages(
-    tx,
-    lineages.map((lineage) => lineage.id),
-  );
-  const deletedTargets = lineages.length
-    ? await tx
-        .select({ pageId: schema.contentRelationshipEndpointStates.pageId })
-        .from(schema.contentRelationshipEndpointStates)
-        .where(
-          and(
-            inArray(
-              schema.contentRelationshipEndpointStates.pageId,
-              lineages.map((lineage) => lineage.targetPageId),
-            ),
-            isNotNull(
-              schema.contentRelationshipEndpointStates.permanentlyDeletedAt,
-            ),
-          ),
-        )
-    : [];
-  const deletedTargetIds = new Set(deletedTargets.map((row) => row.pageId));
-  return lineages.filter(
-    (lineage) =>
-      (activeByLineage.get(lineage.id)?.length ?? 0) > 0 &&
-      !deletedTargetIds.has(lineage.targetPageId),
-  );
+  return (await liveRelationshipLineagesForSlot(tx, typeId, sourcePageId))
+    .lineages;
 }
 
 async function getOrCreateLineage(

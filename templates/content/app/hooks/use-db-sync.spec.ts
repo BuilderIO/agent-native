@@ -131,6 +131,78 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(false);
   });
 
+  it.each([
+    "configure-content-relation-property",
+    "mutate-content-relationships",
+    "remove-content-relation-property",
+    "undo-content-relationship-revision",
+  ])(
+    "refreshes relationship-backed table results after agent action %s",
+    (key) => {
+      const predicate = contentActionInvalidatePredicate("/page/database-page");
+      const event = [{ source: "action", key }];
+
+      expect(
+        predicate(
+          {
+            queryKey: [
+              "action",
+              "get-content-database",
+              { documentId: "database-page", limit: 100 },
+            ],
+          },
+          event,
+        ),
+      ).toBe(true);
+      expect(
+        predicate(
+          {
+            queryKey: [
+              "action",
+              "query-content-database-items",
+              { documentId: "database-page", tableQuery: {} },
+            ],
+          },
+          event,
+        ),
+      ).toBe(true);
+      expect(
+        predicate(
+          {
+            queryKey: [
+              "action",
+              "list-content-relationship-history",
+              { pageId: "database-page" },
+            ],
+          },
+          event,
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each([
+    "configure-content-relation-property",
+    "remove-content-relation-property",
+    "undo-content-relationship-revision",
+  ])("refreshes relation Property definitions after agent action %s", (key) => {
+    const predicate = contentActionInvalidatePredicate("/page/database-page");
+
+    expect(
+      predicate(
+        {
+          queryKey: [
+            "action",
+            "list-document-properties",
+            { documentId: "database-page", databaseId: "database" },
+          ],
+          isActive: () => true,
+        },
+        [{ source: "action", key }],
+      ),
+    ).toBe(true);
+  });
+
   it("refreshes an active inline database mounted on another host page", () => {
     const predicate = contentActionInvalidatePredicate("/page/host-document");
     const inlineDatabaseQuery = {

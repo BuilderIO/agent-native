@@ -1,5 +1,5 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
+import { and, inArray, isNotNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import {

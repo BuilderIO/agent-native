@@ -16,6 +16,7 @@ const spaceId = `relationship-undo-${process.pid}-${Date.now()}`;
 
 let dbModule: typeof import("../server/db/index.js");
 let configure: typeof import("./configure-content-relation-property.js").default;
+let listCandidates: typeof import("./list-content-relation-candidates.js").default;
 let listRelationships: typeof import("./list-content-relationships.js").default;
 let listHistory: typeof import("./list-content-relationship-history.js").default;
 let mutate: typeof import("./mutate-content-relationships.js").default;
@@ -34,6 +35,8 @@ beforeAll(async () => {
   dbModule = await import("../server/db/index.js");
   await (await import("../server/plugins/db.js")).default(undefined as never);
   configure = (await import("./configure-content-relation-property.js"))
+    .default;
+  listCandidates = (await import("./list-content-relation-candidates.js"))
     .default;
   listRelationships = (await import("./list-content-relationships.js")).default;
   listHistory = (await import("./list-content-relationship-history.js"))
@@ -220,10 +223,10 @@ async function add(seed: Fixture, operationId: string, targetPageId: string) {
   return asOwner(() => mutate.run(addInput(seed, operationId, targetPageId)));
 }
 
-async function outgoing(seed: Fixture) {
+async function outgoing(seed: Fixture, pageId = seed.sourcePageId) {
   return asOwner(() =>
     listRelationships.run({
-      pageId: seed.sourcePageId,
+      pageId,
       relationshipTypeId: seed.typeId,
       direction: "outgoing",
     }),
@@ -466,6 +469,164 @@ describe("typed relationship Undo", () => {
     ).rejects.toMatchObject({ errorCode: "STALE_RECOVERY" });
   });
 
+  it("undoes atomic replacements when a source retains a permanently deleted target", async () => {
+    const seed = await fixture("one");
+    const socialPageId = `${seed.prefix}-social`;
+    const deletedTargetPageId = `${seed.prefix}-deleted-target`;
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.documents)
+      .values([
+        {
+          id: socialPageId,
+          spaceId,
+          ownerEmail: owner,
+          title: "Social post",
+        },
+        {
+          id: deletedTargetPageId,
+          spaceId,
+          ownerEmail: owner,
+          title: "Deleted teammate",
+        },
+      ]);
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.contentDatabaseItems)
+      .values([
+        {
+          id: `${socialPageId}-item`,
+          databaseId: seed.sourceDatabaseId,
+          documentId: socialPageId,
+          ownerEmail: owner,
+        },
+        {
+          id: `${deletedTargetPageId}-item`,
+          databaseId: seed.targetDatabaseId,
+          documentId: deletedTargetPageId,
+          ownerEmail: owner,
+        },
+      ]);
+    const hidden = await asOwner(() =>
+      mutate.run({
+        operationId: `${seed.prefix}-add-hidden-social-target`,
+        changes: [
+          {
+            kind: "add",
+            typeId: seed.typeId,
+            typeVersionId: seed.typeVersionId,
+            sourcePageId: socialPageId,
+            targetPageId: deletedTargetPageId,
+            route: {
+              kind: "forward-property",
+              propertyId: seed.propertyId,
+              sourcePageId: socialPageId,
+            },
+          },
+        ],
+      }),
+    );
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.contentRelationshipEndpointStates)
+      .values({
+        pageId: deletedTargetPageId,
+        ownerEmail: owner,
+        spaceId,
+        permanentlyDeletedAt: new Date().toISOString(),
+      });
+
+    const launchInitial = await add(
+      seed,
+      `${seed.prefix}-add-launch-target`,
+      seed.targetPageIds[0],
+    );
+    const launchObserved = (await outgoing(seed)).items[0]!;
+    const socialCandidates = await asOwner(() =>
+      listCandidates.run({
+        propertyId: seed.propertyId,
+        anchorPageId: socialPageId,
+        contextPropertyIds: [],
+        limit: 100,
+      }),
+    );
+    expect((await outgoing(seed, socialPageId)).items).toEqual([]);
+
+    const replacement = await asOwner(() =>
+      mutate.run({
+        operationId: `${seed.prefix}-replace-launch-and-social`,
+        changes: [
+          {
+            kind: "replace",
+            typeId: seed.typeId,
+            typeVersionId: seed.typeVersionId,
+            sourcePageId: seed.sourcePageId,
+            targetPageId: seed.targetPageIds[1],
+            observedSlotToken: launchObserved.slotObservationToken!,
+            route: launchObserved.routes[0]!,
+          },
+          {
+            kind: "replace",
+            typeId: seed.typeId,
+            typeVersionId: seed.typeVersionId,
+            sourcePageId: socialPageId,
+            targetPageId: seed.targetPageIds[1],
+            observedSlotToken: socialCandidates.slotObservationToken!,
+            route: {
+              kind: "forward-property",
+              propertyId: seed.propertyId,
+              sourcePageId: socialPageId,
+            },
+          },
+        ],
+      }),
+    );
+    const history = await asOwner(() =>
+      listHistory.run({ revisionId: replacement.revisionId }),
+    );
+    const restored = await asOwner(() =>
+      undo.run({
+        revisionId: replacement.revisionId,
+        recoveryToken: history.items[0]!.recovery.recoveryToken!,
+        operationId: `${seed.prefix}-undo-launch-and-social`,
+        routes: [],
+      }),
+    );
+    const restoredHistory = await asOwner(() =>
+      listHistory.run({ revisionId: restored.revisionId }),
+    );
+
+    expect(restored.results).toHaveLength(2);
+    expect(
+      restoredHistory.items[0]!.changes.find(
+        (change) => change.source.pageId === socialPageId,
+      ),
+    ).toEqual({
+      eventId: expect.any(String),
+      kind: "removed",
+      relationshipTypeId: seed.typeId,
+      relationshipLabel: "Contributes to",
+      source: { pageId: socialPageId, title: "Social post" },
+      target: { pageId: seed.targetPageIds[1], title: "Jo" },
+    });
+    expect((await outgoing(seed)).items[0]!.edgeId).toBe(
+      launchInitial.results[0]!.edgeId,
+    );
+    expect((await outgoing(seed, socialPageId)).items).toEqual([]);
+    const hiddenActivationId = hidden.results[0]!.activationIds[0]!;
+    const hiddenRetirements = await dbModule
+      .getDb()
+      .select()
+      .from(dbModule.schema.contentRelationshipActivationRetirements)
+      .where(
+        eq(
+          dbModule.schema.contentRelationshipActivationRetirements.activationId,
+          hiddenActivationId,
+        ),
+      );
+    expect(hiddenRetirements).toEqual([]);
+  });
+
   it("restores the same Property identity and selected relationship", async () => {
     const seed = await fixture();
     const added = await add(seed, `${seed.prefix}-add`, seed.targetPageIds[0]);
@@ -505,6 +666,92 @@ describe("typed relationship Undo", () => {
     expect(current.observedActivationIds).toEqual(
       recovered.results[0]!.activationIds,
     );
+  });
+
+  it("restores a max-one Property beside a permanently deleted target", async () => {
+    const seed = await fixture("one");
+    const previous = await add(
+      seed,
+      `${seed.prefix}-add-previous-target`,
+      seed.targetPageIds[1],
+    );
+    const observed = (await outgoing(seed)).items[0]!;
+    const visible = await asOwner(() =>
+      mutate.run({
+        operationId: `${seed.prefix}-replace-with-visible-target`,
+        changes: [
+          {
+            kind: "replace",
+            typeId: seed.typeId,
+            typeVersionId: seed.typeVersionId,
+            sourcePageId: seed.sourcePageId,
+            targetPageId: seed.targetPageIds[0],
+            observedSlotToken: observed.slotObservationToken!,
+            route: observed.routes[0]!,
+          },
+        ],
+      }),
+    );
+    const prepared = await asOwner(() =>
+      prepareRemoval.run({
+        selection: { kind: "property", propertyId: seed.propertyId },
+      }),
+    );
+    const removed = await asOwner(() =>
+      removeProperty.run({
+        propertyId: seed.propertyId,
+        relationshipMode: {
+          kind: "remove-selected",
+          selectionReceipt: prepared.selectionReceipt,
+        },
+        operationId: `${seed.prefix}-remove-property`,
+      }),
+    );
+    const hiddenActivationId = `${seed.prefix}-hidden-activation`;
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.contentRelationshipActivations)
+      .values({
+        id: hiddenActivationId,
+        ownerEmail: owner,
+        spaceId,
+        lineageId: previous.results[0]!.lineageId,
+        addedEventId: `${seed.prefix}-hidden-legacy-event`,
+        createdBy: owner,
+      });
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.contentRelationshipEndpointStates)
+      .values({
+        pageId: seed.targetPageIds[1],
+        ownerEmail: owner,
+        spaceId,
+        permanentlyDeletedAt: new Date().toISOString(),
+      });
+
+    await asOwner(() =>
+      undo.run({
+        revisionId: removed.revisionId,
+        recoveryToken: removed.undo.recoveryToken,
+        operationId: `${seed.prefix}-undo-property`,
+        routes: [],
+      }),
+    );
+
+    expect((await outgoing(seed)).items[0]!.edgeId).toBe(
+      visible.results[0]!.edgeId,
+    );
+    const hiddenRetirements = await dbModule
+      .getDb()
+      .select()
+      .from(dbModule.schema.contentRelationshipActivationRetirements)
+      .where(
+        eq(
+          dbModule.schema.contentRelationshipActivationRetirements.activationId,
+          hiddenActivationId,
+        ),
+      );
+    expect(hiddenRetirements).toEqual([]);
   });
 
   it("preserves relation column presentation and later unrelated view edits", async () => {

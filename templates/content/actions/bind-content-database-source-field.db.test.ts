@@ -66,6 +66,14 @@ async function asOwner<T>(fn: () => Promise<T>): Promise<T> {
   return runWithRequestContext({ userEmail: OWNER }, fn);
 }
 
+function sortedItemValues<T extends { itemId: string }>(
+  values: readonly T[] | undefined,
+): T[] {
+  return [...(values ?? [])].sort((left, right) =>
+    left.itemId.localeCompare(right.itemId),
+  );
+}
+
 /**
  * Seed a row-union database with two Builder sources. Source A has two rows
  * carrying a `data.cat` value (one of which is empty), plus a multi-value
@@ -838,18 +846,20 @@ describe("add-content-database-source-field-property Builder refresh", () => {
     );
 
     expect(readBuilderEntries).not.toHaveBeenCalled();
-    expect(result.itemValues).toEqual([
-      {
-        itemId: f.rows[0].itemId,
-        documentId: f.rows[0].documentId,
-        value: ["agent-native"],
-      },
-      {
-        itemId: f.rows[1].itemId,
-        documentId: f.rows[1].documentId,
-        value: ["developer-experience"],
-      },
-    ]);
+    expect(sortedItemValues(result.itemValues)).toEqual(
+      sortedItemValues([
+        {
+          itemId: f.rows[0].itemId,
+          documentId: f.rows[0].documentId,
+          value: ["agent-native"],
+        },
+        {
+          itemId: f.rows[1].itemId,
+          documentId: f.rows[1].documentId,
+          value: ["developer-experience"],
+        },
+      ]),
+    );
     expect(JSON.stringify(result)).not.toContain("_builder.bodyContent");
     expect(JSON.stringify(result)).not.toContain("unrelated");
   });
@@ -949,18 +959,20 @@ describe("add-content-database-source-field-property Builder refresh", () => {
       limit: 500,
       offset: 0,
     });
-    expect(result.itemValues).toEqual([
-      {
-        itemId: f.rows[0].itemId,
-        documentId: f.rows[0].documentId,
-        value: ["agent-native"],
-      },
-      {
-        itemId: f.rows[1].itemId,
-        documentId: f.rows[1].documentId,
-        value: ["developer-experience"],
-      },
-    ]);
+    expect(sortedItemValues(result.itemValues)).toEqual(
+      sortedItemValues([
+        {
+          itemId: f.rows[0].itemId,
+          documentId: f.rows[0].documentId,
+          value: ["agent-native"],
+        },
+        {
+          itemId: f.rows[1].itemId,
+          documentId: f.rows[1].documentId,
+          value: ["developer-experience"],
+        },
+      ]),
+    );
 
     const db = getDb();
     const sourceRows = await db
@@ -968,10 +980,24 @@ describe("add-content-database-source-field-property Builder refresh", () => {
       .from(schema.contentDatabaseSourceRows)
       .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
     expect(
-      sourceRows.map((row) => {
-        return JSON.parse(row.sourceValuesJson)["data.topics"];
-      }),
-    ).toEqual([["Agent-Native"], ["Developer Experience"]]);
+      sourceRows
+        .map((row) => ({
+          sourceRowId: row.sourceRowId,
+          value: JSON.parse(row.sourceValuesJson)["data.topics"],
+        }))
+        .sort((left, right) =>
+          left.sourceRowId.localeCompare(right.sourceRowId),
+        ),
+    ).toEqual(
+      f.rows
+        .map((row, index) => ({
+          sourceRowId: row.entryId,
+          value: index === 0 ? ["Agent-Native"] : ["Developer Experience"],
+        }))
+        .sort((left, right) =>
+          left.sourceRowId.localeCompare(right.sourceRowId),
+        ),
+    );
     const properties = await db
       .select()
       .from(schema.documentPropertyDefinitions)
@@ -1313,12 +1339,14 @@ describe("add-content-database-source-field-property Builder refresh", () => {
       { id: "current-choice", name: "Current Choice", color: "blue" },
       { id: "second-choice", name: "Second Choice", color: "green" },
     ]);
-    expect(result.itemValues).toEqual(
-      f.rows.map((row) => ({
-        itemId: row.itemId,
-        documentId: row.documentId,
-        value: "current-choice",
-      })),
+    expect(sortedItemValues(result.itemValues)).toEqual(
+      sortedItemValues(
+        f.rows.map((row) => ({
+          itemId: row.itemId,
+          documentId: row.documentId,
+          value: "current-choice",
+        })),
+      ),
     );
 
     const [property] = await db
