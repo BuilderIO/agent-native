@@ -29,6 +29,7 @@ import { saveGmailDraft } from "./gmail-drafts.js";
 describe("saveGmailDraft", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
     mocks.getOAuthTokens.mockResolvedValue({ access_token: "token" });
     mocks.gmailGetMessage.mockResolvedValue({
       threadId: "gmail-thread-1",
@@ -69,6 +70,29 @@ describe("saveGmailDraft", () => {
     expect(raw).toContain("In-Reply-To: <message-1@example.com>");
     expect(raw).toContain(
       "References: <root@example.com> <message-1@example.com>",
+    );
+  });
+
+  it("uses a connected Gmail account when the owner email is not the account", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "gmail@example.com",
+        displayName: null,
+        tokens: { access_token: "token" },
+      },
+    ]);
+
+    const result = await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Draft",
+    });
+
+    expect(result?.accountEmail).toBe("gmail@example.com");
+    expect(mocks.getOAuthTokens).toHaveBeenCalledWith(
+      "google",
+      "gmail@example.com",
     );
   });
 });

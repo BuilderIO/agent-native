@@ -18,6 +18,19 @@ interface StoredTokens {
   expiry_date?: number;
 }
 
+function hasGmailScope(tokens: Record<string, unknown>): boolean {
+  const scope = tokens.scope;
+  return (
+    typeof scope !== "string" ||
+    !scope.trim() ||
+    scope
+      .split(/[\s,]+/)
+      .some((value) =>
+        value.startsWith("https://www.googleapis.com/auth/gmail."),
+      )
+  );
+}
+
 async function getAccessToken(accountEmail: string): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
     | StoredTokens
@@ -50,12 +63,20 @@ async function resolveAccountEmail(
   requested: string | undefined,
   ownerEmail: string,
 ): Promise<string> {
-  if (!requested || requested === ownerEmail) return ownerEmail;
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
-  if (!accounts.some((account) => account.accountId === requested)) {
-    throw new Error("Account not owned by current user");
+  const accounts = (
+    await listOAuthAccountsByOwner("google", ownerEmail)
+  ).filter((account) => hasGmailScope(account.tokens));
+  if (requested && requested !== ownerEmail) {
+    if (!accounts.some((account) => account.accountId === requested)) {
+      throw new Error("Account not owned by current user");
+    }
+    return requested;
   }
-  return requested;
+  return (
+    accounts.find((account) => account.accountId === ownerEmail)?.accountId ??
+    accounts[0]?.accountId ??
+    ownerEmail
+  );
 }
 
 export async function saveGmailDraft(args: {
