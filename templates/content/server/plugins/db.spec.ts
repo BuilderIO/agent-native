@@ -117,6 +117,14 @@ describe("content db.ts migration entries follow the naming convention", () => {
     expect(duplicates).toEqual([]);
   });
 
+  it("keeps named content migration versions ordered and unique", () => {
+    const versions = entries
+      .filter((entry) => entry.version > 60)
+      .map((entry) => entry.version);
+    expect(versions).toEqual([...versions].sort((left, right) => left - right));
+    expect(new Set(versions).size).toBe(versions.length);
+  });
+
   it("every migration entry with version > 60 has a name", () => {
     // Both runContentMigrations (max 60) and runContentSourceMigrations (max
     // 5) share this same source file and regex scan, so a version > 60 can

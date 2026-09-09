@@ -50,6 +50,7 @@ import {
   getDatabaseMutationContract,
 } from "./_database-row-mutation.js";
 import { getAllContentDatabaseSourceSnapshots } from "./_database-source-utils.js";
+import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   applyFederatedOverlayValues,
@@ -695,6 +696,13 @@ export async function getContentDatabasePageResponse(
       where ${schema.documents.id} = ${schema.contentDatabaseItems.documentId}
         and ${schema.documents.trashedAt} is null
     )`,
+    database.systemRole === "files"
+      ? and(
+          ...softDeletedDatabaseDocumentExclusions(
+            schema.contentDatabaseItems.documentId,
+          ),
+        )
+      : undefined,
     organizationFilesItemFilter,
     favoritesVisibleDocumentIds
       ? favoritesVisibleDocumentIds.length > 0
