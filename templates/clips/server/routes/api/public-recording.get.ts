@@ -49,7 +49,7 @@ import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
-  isRecordingExpired,
+  isRecordingExpiredForViewer,
   type RecordingPageAccessRole,
 } from "../../lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
@@ -280,7 +280,10 @@ export default defineEventHandler(async (event) => {
   );
 
   // Expiry check
-  const recordingExpired = isRecordingExpired(rec.expiresAt);
+  const recordingExpired = isRecordingExpiredForViewer({
+    expiresAt: rec.expiresAt,
+    viewerIsOwner,
+  });
   if (recordingExpired) {
     setResponseStatus(event, 410);
     return { error: "Recording has expired", expired: true };
