@@ -17,6 +17,11 @@ Vercel CLI나 git push로 배포하세요:
 npx vercel deploy
 ```
 
+Vercel에 로그인하지 않고 임시 미리보기를 만들려면
+`npx vercel deploy --temporary`를 실행하세요. 임시 배포에는 프로젝트 환경 변수가
+유지되지 않으므로 UI 미리보기 이상의 기능이 필요하면 `--env`와 `--build-env`로
+데이터베이스 및 비밀 값을 전달하세요.
+
 작업 공간의 경우, 모든 앱을 하나의 Vercel Build Output API 번들로 빌드하세요:
 
 ```bash

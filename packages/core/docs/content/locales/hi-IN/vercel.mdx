@@ -17,6 +17,11 @@ Vercel CLI या git push के ज़रिए तैनात करें:
 npx vercel deploy
 ```
 
+Vercel में साइन इन किए बिना अस्थायी प्रीव्यू के लिए
+`npx vercel deploy --temporary` चलाएँ। अस्थायी डिप्लॉयमेंट प्रोजेक्ट के
+environment variables नहीं रखते, इसलिए UI प्रीव्यू से अधिक चाहिए तो database
+और secret values को `--env` और `--build-env` से दें।
+
 एक कार्यस्थान के लिए, हर ऐप को एक Vercel Build Output API bundle में build करें:
 
 ```bash

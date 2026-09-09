@@ -17,6 +17,11 @@ Déployez via la CLI Vercel ou un git push :
 npx vercel deploy
 ```
 
+Pour créer un aperçu temporaire sans vous connecter à Vercel, exécutez
+`npx vercel deploy --temporary`. Les déploiements temporaires ne conservent pas
+les variables d’environnement du projet. Transmettez donc la base de données et
+les secrets avec `--env` et `--build-env` si vous avez besoin de plus qu’un aperçu de l’interface.
+
 Pour un workspace, construisez chaque application dans un seul bundle Vercel Build Output API :
 
 ```bash

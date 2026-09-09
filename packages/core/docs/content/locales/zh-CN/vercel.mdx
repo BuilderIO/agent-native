@@ -17,6 +17,10 @@ export default defineConfig({
 npx vercel deploy
 ```
 
+要在不登录 Vercel 的情况下创建一次性预览，请运行
+`npx vercel deploy --temporary`。临时部署不会保留项目环境变量，因此当你需要的
+不只是界面预览时，请通过 `--env` 和 `--build-env` 传入数据库与密钥值。
+
 对于工作区,把每个应用都构建进同一个 Vercel Build Output API 包:
 
 ```bash

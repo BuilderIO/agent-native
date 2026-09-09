@@ -17,6 +17,11 @@ Implementa mediante la CLI de Vercel o con `git push`:
 npx vercel deploy
 ```
 
+Para crear una vista previa desechable sin iniciar sesión en Vercel, ejecuta
+`npx vercel deploy --temporary`. Los despliegues temporales no conservan las
+variables de entorno del proyecto, así que pasa la base de datos y los secretos
+con `--env` y `--build-env` cuando necesites algo más que una vista previa de la interfaz.
+
 Para un espacio de trabajo, compila todas las aplicaciones en un único paquete de la Vercel Build Output API:
 
 ```bash

@@ -17,6 +17,11 @@ Bereitstellung über die Vercel CLI oder Git Push:
 npx vercel deploy
 ```
 
+Für eine kurzlebige Vorschau ohne Vercel-Anmeldung führen Sie
+`npx vercel deploy --temporary` aus. Temporäre Deployments übernehmen keine
+Projekt-Umgebungsvariablen. Übergeben Sie Datenbank- und Geheimniswerte daher
+mit `--env` und `--build-env`, wenn Sie mehr als eine UI-Vorschau benötigen.
+
 Bauen Sie für einen Arbeitsbereich jede App in ein einziges Vercel-Build-Output-API-Bundle:
 
 ```bash

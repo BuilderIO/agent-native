@@ -13,6 +13,9 @@ export default defineConfig({
 });
 ```
 
+新脚手架可能会将导入的函数命名为 `agentNativePlugins` 并展开其结果，以保持
+Vite 软件包类型一致。它就是同一个 `agentNative` 插件，接受相同的选项。
+
 ……或者在构建时设置 `NITRO_PRESET=netlify`。
 
 对于独立应用，请构建 Netlify 输出并部署静态资源和函数：

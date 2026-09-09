@@ -13,6 +13,9 @@ export default defineConfig({
 });
 ```
 
+新鷹架可能會將匯入的函式命名為 `agentNativePlugins` 並展開其結果，以保持
+Vite 套件型別一致。它就是同一個 `agentNative` 外掛，接受相同的選項。
+
 ……或者在建置時設定 `NITRO_PRESET=netlify`。
 
 對於獨立應用程式，請建置 Netlify 輸出並部署靜態資源與函式：

@@ -13,6 +13,10 @@ export default defineConfig({
 });
 ```
 
+새 스캐폴드에서는 Vite 패키지 타입을 맞추기 위해 가져온 함수의 이름을
+`agentNativePlugins`로 지정하고 결과를 펼칠 수 있습니다. 동일한 `agentNative`
+플러그인이며 같은 옵션을 받습니다.
+
 …또는 빌드 시점에 `NITRO_PRESET=netlify`를 설정하세요.
 
 독립 앱은 Netlify 출력을 빌드한 뒤 정적 자산과 함수를 배포합니다:

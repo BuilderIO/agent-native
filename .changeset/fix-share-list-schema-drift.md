@@ -7,4 +7,5 @@ Keep share dialogs readable while additive migrations are pending, and let
 ordinary iframe pages load cross-origin subresources. Improve new-project setup
 and Slack identity recovery guidance. Keep Cloudflare Workers builds below the
 static-header rule limit, allow local Ollama endpoints on local non-production
-servers, surface provider-setting errors, and clarify standalone deployment.
+servers, surface provider-setting errors, keep one PGlite client across dev
+reload realms, and clarify standalone deployment.
