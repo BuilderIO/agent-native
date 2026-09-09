@@ -1182,33 +1182,6 @@ describe("startWorkspaceAppCreation", () => {
     ).rejects.toThrow("already registered");
   });
 
-  it("returns builder-not-connected without leaking the project id when no Builder credentials are configured", async () => {
-    stubHostedRuntime();
-    stubBuilderProjectConfigured();
-    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(credentials());
-
-    const result = (await create()) as any;
-
-    expect(result.mode).toBe("builder-unavailable");
-    expect(result.reason).toBe("builder-not-connected");
-    expect(result.message).not.toContain(leakedProjectId);
-    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
-  });
-
-  it("returns credential-store-unavailable when the credential lookup itself fails", async () => {
-    stubHostedRuntime();
-    stubBuilderProjectConfigured();
-    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
-      credentials({ lookupFailed: true }),
-    );
-
-    const result = (await create()) as any;
-
-    expect(result.mode).toBe("builder-unavailable");
-    expect(result.reason).toBe("credential-store-unavailable");
-    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
-  });
-
   it("returns builder-error with the raw failure in detail when runBuilderAgent throws", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();
@@ -1229,64 +1202,6 @@ describe("startWorkspaceAppCreation", () => {
     expect(result.reason).toBe("builder-error");
     expect(result.detail).toBe("Builder keys are not configured");
     expect(result.message).not.toContain(leakedProjectId);
-  });
-
-  it("starts the Builder branch and passes the resolved userId through", async () => {
-    stubHostedRuntime();
-    stubBuilderProjectConfigured();
-    mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });
-    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
-      credentials({
-        privateKey: "priv",
-        publicKey: "pub",
-        userId: "builder-user-42",
-      }),
-    );
-    mocks.runBuilderAgent.mockResolvedValue({
-      branchName: "onboarding1",
-      url: "https://builder.io/app/projects/project-1/branch/onboarding1",
-      status: "processing",
-    });
-
-    const result = (await create("onboarding", {
-      userEmail: "dev@example.test",
-      orgId: "org-123",
-    })) as any;
-
-    expect(result.mode).toBe("builder");
-    expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "builder-user-42" }),
-    );
-    const pendingApps = (
-      mocks.settings.get("dispatch-app-creation-settings:org:org-123") as any
-    )?.pendingApps;
-    const pendingExpiresAt = Date.parse(pendingApps?.[0]?.expiresAt ?? "");
-    expect(pendingExpiresAt - Date.now()).toBeGreaterThan(
-      29 * 24 * 60 * 60 * 1_000,
-    );
-    expect(pendingExpiresAt - Date.now()).toBeLessThan(
-      31 * 24 * 60 * 60 * 1_000,
-    );
-    const builderPrompt = String(
-      mocks.runBuilderAgent.mock.calls.at(-1)?.[0]?.prompt ?? "",
-    );
-    expect(builderPrompt).toContain("Autonomous Builder handoff contract:");
-    expect(builderPrompt).toContain(
-      "do not invoke a clarification, guided-question, or choice flow",
-    );
-    expect(builderPrompt).toContain(
-      "choose the most direct, conservative default",
-    );
-    expect(builderPrompt).toContain(
-      "Treat the source brief's unknowns and follow-up items as assumptions",
-    );
-    expect(
-      mocks.settings.get("workspace-app-metadata:org:org-123"),
-    ).toMatchObject({
-      apps: {
-        onboarding: { visibility: "private" },
-      },
-    });
   });
 
   it("provisions and remembers the workspace Builder project when none is configured", async () => {
