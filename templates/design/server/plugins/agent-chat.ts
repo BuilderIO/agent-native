@@ -39,6 +39,7 @@ const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   "create-file",
   "update-file",
   "rename-screen",
+  "export-png",
 ];
 
 const INITIAL_TOOL_NAMES = [
@@ -77,6 +78,7 @@ const INITIAL_TOOL_NAMES = [
   "create-file",
   "update-file",
   "rename-screen",
+  "export-png",
   "navigate",
   "provider-api-catalog",
   "provider-api-docs",
@@ -235,7 +237,7 @@ export default createAgentChatPlugin({
   mcp: {
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
-      "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-html / export-zip / export-coding-handoff / export-design-as-figma-svg. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
+      "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-png for one screen, or export-html / export-zip / export-coding-handoff / export-design-as-figma-svg for other formats. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
       'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation.',
   },
   externalAgents: { writes: "allowlisted" },
