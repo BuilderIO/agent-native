@@ -133,11 +133,15 @@ describe("responsive Interact wiring", () => {
     expect(source).toContain(
       '<IconLayoutSidebar className="size-4 -scale-x-100" />',
     );
+    expect(source).toContain('data-design-minimal-bar="interact"');
     expect(source).toContain(
-      'data-design-minimal-bar={minimalUi ? "interact" : undefined}',
+      "grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)]",
     );
     expect(source).toContain(
-      '"pointer-events-none absolute inset-x-0 top-3 z-[95] flex justify-center px-3"',
+      'className="pointer-events-none flex min-w-0 justify-center"',
+    );
+    expect(source).toContain(
+      "open={minimalUi ? minimalRightSidebarOpen : undefined}",
     );
   });
 

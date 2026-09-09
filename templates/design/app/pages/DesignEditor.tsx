@@ -19762,6 +19762,27 @@ function DesignEditor() {
     </div>
   );
 
+  const renderResponsiveInteractBar = (floating: boolean) => (
+    <ResponsiveInteractBar
+      deviceName={interactDeviceName}
+      width={interactDeviceSize.width}
+      height={interactDeviceSize.height}
+      zoom={interactZoom}
+      onDeviceChange={handleInteractDeviceChange}
+      onWidthChange={handleInteractWidthChange}
+      onHeightChange={handleInteractHeightChange}
+      onZoomChange={setInteractZoom}
+      onModeChange={handleModeChange}
+      canAnnotate={canEditDesign}
+      onClose={handleExitResponsiveInteract}
+      className={
+        floating
+          ? "pointer-events-auto w-full max-w-[680px] rounded-lg border shadow-xl"
+          : undefined
+      }
+    />
+  );
+
   const leftContentWidth =
     activeLeftPanel === "code"
       ? Math.max(leftSidebarWidth, 640)
@@ -20529,32 +20550,9 @@ function DesignEditor() {
                 {/* Interact's device chrome sits inside the canvas column so
                     the workspace rails stay put — Interact is a different view
                     of the same editor, not a chrome-free takeover. */}
-                {responsiveInteractActive ? (
-                  <div
-                    data-design-minimal-bar={minimalUi ? "interact" : undefined}
-                    className={cn(
-                      minimalUi
-                        ? "pointer-events-none absolute inset-x-0 top-3 z-[95] flex justify-center px-3"
-                        : "shrink-0",
-                    )}
-                  >
-                    <ResponsiveInteractBar
-                      deviceName={interactDeviceName}
-                      width={interactDeviceSize.width}
-                      height={interactDeviceSize.height}
-                      zoom={interactZoom}
-                      onDeviceChange={handleInteractDeviceChange}
-                      onWidthChange={handleInteractWidthChange}
-                      onHeightChange={handleInteractHeightChange}
-                      onZoomChange={setInteractZoom}
-                      onModeChange={handleModeChange}
-                      canAnnotate={canEditDesign}
-                      onClose={handleExitResponsiveInteract}
-                      className={cn(
-                        minimalUi &&
-                          "pointer-events-auto w-full max-w-[680px] rounded-lg border shadow-xl",
-                      )}
-                    />
+                {responsiveInteractActive && !minimalUi ? (
+                  <div className="shrink-0">
+                    {renderResponsiveInteractBar(false)}
                   </div>
                 ) : null}
                 {/* §6.4 / BP-DEEP v2 — breakpoint targeting no longer
@@ -21236,23 +21234,34 @@ function DesignEditor() {
             data-design-minimal-ui
             className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
           >
-            <div
-              data-design-minimal-bar="left"
-              className="pointer-events-auto absolute left-3 top-3 flex h-10 min-w-0 max-w-[calc(100%-1.5rem)] items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
-            >
-              <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
-              <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
-              {minimalUiToggle}
-            </div>
-
-            {!minimalRightSidebarOpen || uiHidden ? (
+            <div className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3">
               <div
-                data-design-minimal-bar="right"
-                className="pointer-events-auto absolute right-3 top-3 max-w-[calc(100%-1.5rem)] overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
+                data-design-minimal-bar="left"
+                className="pointer-events-auto flex h-10 min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
               >
-                {rightSidebarActions}
+                <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
+                <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
+                {minimalUiToggle}
               </div>
-            ) : null}
+              <div
+                data-design-minimal-bar="interact"
+                className="pointer-events-none flex min-w-0 justify-center"
+              >
+                {responsiveInteractActive
+                  ? renderResponsiveInteractBar(true)
+                  : null}
+              </div>
+              {!minimalRightSidebarOpen || uiHidden ? (
+                <div
+                  data-design-minimal-bar="right"
+                  className="pointer-events-auto min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
+                >
+                  {rightSidebarActions}
+                </div>
+              ) : (
+                <div aria-hidden="true" />
+              )}
+            </div>
           </div>
         ) : null}
       </div>
@@ -21260,21 +21269,25 @@ function DesignEditor() {
       {/* ── Render: mobile inspector sheet ── */}
       {!hostOwnsChrome &&
       !uiHidden &&
-      !minimalUi &&
       !initialGenerationChromeLimited &&
       mode === "edit" ? (
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              className="fixed right-3 top-14 z-[75] size-9 rounded-full shadow-lg md:hidden"
-              aria-label={t("editPanel.properties")}
-            >
-              <IconAdjustmentsHorizontal className="size-4" />
-            </Button>
-          </SheetTrigger>
+        <Sheet
+          open={minimalUi ? minimalRightSidebarOpen : undefined}
+          onOpenChange={minimalUi ? setMinimalRightSidebarOpen : undefined}
+        >
+          {!minimalUi ? (
+            <SheetTrigger asChild>
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="fixed right-3 top-14 z-[75] size-9 rounded-full shadow-lg md:hidden"
+                aria-label={t("editPanel.properties")}
+              >
+                <IconAdjustmentsHorizontal className="size-4" />
+              </Button>
+            </SheetTrigger>
+          ) : null}
           <SheetContent
             side="right"
             className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"

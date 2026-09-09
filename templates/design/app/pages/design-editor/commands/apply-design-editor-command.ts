@@ -12,6 +12,7 @@ import {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   clampZoom,
+  getAllScreenFrameEntries,
   shouldDeferOverviewZoomCommand,
 } from "@/pages/design-editor/overview-camera";
 import {
@@ -208,11 +209,16 @@ export function runApplyDesignEditorCommand(
     // query param or an equivalent `navigate` app-state write, never an
     // ordinary in-canvas interaction — see screen-command-utils.ts) means
     // "land here, focused on this screen", the same reveal a freshly created
-    // screen gets from focusCreatedScreen. Skip it when the geometry isn't
-    // known yet rather than fitting to a placeholder rect. Keep the command
-    // pending so the caller retries after the design data has loaded.
-    if (targetFile && requestCameraFit) {
-      const geometry = canvasFrameGeometryById[targetFile.id];
+    // screen gets from focusCreatedScreen. Use the canvas's initial layout
+    // when the screen has no persisted geometry yet.
+    const targetScreen = targetFile
+      ? overviewScreens.find((screen) => screen.id === targetFile.id)
+      : undefined;
+    if (targetScreen && requestCameraFit) {
+      const geometry = getAllScreenFrameEntries({
+        overviewScreens,
+        canvasFrameGeometryById,
+      }).find((entry) => entry.id === targetScreen.id)?.geometry;
       if (
         !geometry ||
         !Number.isFinite(geometry.x) ||
@@ -224,7 +230,7 @@ export function runApplyDesignEditorCommand(
       }
       requestCameraFit(
         getCreatedScreenNavigationPlan({
-          screenId: targetFile.id,
+          screenId: targetScreen.id,
           geometry: {
             x: geometry.x as number,
             y: geometry.y as number,
