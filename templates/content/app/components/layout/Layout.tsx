@@ -170,6 +170,10 @@ export function Layout({ children }: LayoutProps) {
   const sidebarTriggerRef = useRef<HTMLButtonElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [location.key]);
+
   const handleSidebarResize = useCallback((width: number) => {
     const clamped = Math.max(
       MIN_SIDEBAR_WIDTH,
@@ -276,6 +280,8 @@ export function Layout({ children }: LayoutProps) {
               collapsed={sidebarCollapsed}
               onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
               width={sidebarWidth}
+              minWidth={MIN_SIDEBAR_WIDTH}
+              maxWidth={MAX_SIDEBAR_WIDTH}
               onResize={handleSidebarResize}
             />
           </div>

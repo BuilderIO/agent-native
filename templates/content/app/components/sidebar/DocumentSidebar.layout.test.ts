@@ -114,7 +114,6 @@ describe("document sidebar layout", () => {
 
   it("defaults database pages to the database icon before the page icon", () => {
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const iconSource = treeItem.slice(
       treeItem.indexOf("export function getDocumentSidebarIconKind"),
       treeItem.indexOf("export function DocumentTreeItem"),
@@ -125,7 +124,6 @@ describe("document sidebar layout", () => {
     expect(iconSource.indexOf("if (document.database)")).toBeLessThan(
       iconSource.indexOf('return "page"'),
     );
-    expect(sidebar).toContain("<DocumentSidebarIcon document={doc} />");
   });
 
   it("uses the database icon as the default for database pages", () => {
@@ -214,9 +212,6 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("selectedSpace?.id");
     expect(sidebar).toContain("spaceId: parentId ? undefined : rootSpaceId");
     expect(sidebar).toContain("const handleCreatePageInSpace = useCallback");
-    expect(sidebar).toContain(
-      "const renderNewButton = (space = selectedSpace) =>",
-    );
     expect(sidebar).toContain("const renderCollapsedNewButton = () =>");
     expect(sidebar).toContain('t("sidebar.newPage")');
     expect(sidebar).not.toContain(
