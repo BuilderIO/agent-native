@@ -898,7 +898,7 @@ function SettingsSwitch({
       onCheckedChange={onCheckedChange}
       disabled={disabled}
       aria-label={label}
-      className="data-[state=checked]:border-success data-[state=checked]:bg-success data-[state=unchecked]:border-border"
+      tone="success"
     />
   );
 }

@@ -95,6 +95,12 @@ describe("recorder popover failure states", () => {
     expect(html).toContain("group-data-[size=default]/switch:size-4");
     expect(html).toContain("ring-foreground/20");
     expect(html).toContain("data-[state=checked]:translate-x-[calc(100%-2px)]");
+    expect(html).toMatch(
+      /data-slot="switch"[^>]*data-\[state=checked\]:bg-success(?:\s|")/,
+    );
+    expect(html).toMatch(
+      /data-slot="switch-thumb"[^>]*data-\[state=checked\]:bg-success-foreground(?:\s|")/,
+    );
     expect(html).not.toContain("[&>span]");
   });
 

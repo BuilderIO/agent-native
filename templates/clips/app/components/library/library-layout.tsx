@@ -883,7 +883,7 @@ export function LibraryLayout({
             ) : null}
           </header>
         )}
-        <div className="flex min-h-0 flex-1 overflow-hidden [&>.agent-sidebar-shell]:h-full [&>.agent-sidebar-shell]:min-h-0">
+        <div className="flex min-h-0 flex-1 overflow-hidden [--agent-native-viewport-height:100%]">
           {showAgentSidebar ? (
             <AgentSidebar
               position="right"

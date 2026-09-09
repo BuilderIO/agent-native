@@ -234,7 +234,8 @@ describe("direct recording route shell cue", () => {
     expect(layout).toContain("showWhenOpen");
     expect(layout).not.toContain("IconLayoutSidebarRight");
     expect(layout).toContain("<ClipsAgentToggleButton />");
-    expect(layout).toContain("[&>.agent-sidebar-shell]:h-full");
+    expect(layout).toContain("[--agent-native-viewport-height:100%]");
+    expect(layout).not.toContain("[&>.agent-sidebar-shell]:h-full");
     expect(layout).toContain("showAgentSidebar = true");
     expect(layout).toContain("{showAgentSidebar ? (");
     expect(route).toContain("<PageHeader>");
