@@ -114,6 +114,41 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
     });
   });
 
+  it("fits the rendered responsive layout-group fallback", () => {
+    const requestCameraFit = vi.fn();
+    const args = makeArgs({
+      files: [screenFile, { ...screenFile, id: "file-2" }],
+      overviewScreens: [
+        {
+          ...overviewScreen,
+          layoutGroupId: "group-1",
+          breakpointWidths: [390],
+        },
+        {
+          ...overviewScreen,
+          id: "file-2",
+          layoutGroupId: "group-1",
+          breakpointWidths: [390],
+        },
+      ],
+      requestCameraFit,
+    });
+
+    const applied = runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      editorView: "overview",
+      screen: "file-2",
+    });
+
+    expect(applied).toBe(true);
+    expect(requestCameraFit).toHaveBeenCalledTimes(1);
+    expect(requestCameraFit.mock.calls[0]![0].fitBounds.left).toBeCloseTo(
+      497.5,
+      2,
+    );
+  });
+
   it("does not fit when the command names no screen", () => {
     const requestCameraFit = vi.fn();
     const args = makeArgs({ requestCameraFit });

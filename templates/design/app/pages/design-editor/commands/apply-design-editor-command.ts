@@ -2,7 +2,10 @@ import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { InspectorTab } from "@/components/design/EditPanel";
-import { getScreenPreviewViewport } from "@/components/design/multi-screen/frame-geometry";
+import {
+  getScreenPreviewViewport,
+  resolveFrameGeometrySync,
+} from "@/components/design/multi-screen/frame-geometry";
 import type { ElementInfo } from "@/components/design/types";
 import type { DesignEditorCommand } from "@/hooks/use-navigation-state";
 import {
@@ -12,7 +15,6 @@ import {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   clampZoom,
-  getAllScreenFrameEntries,
   shouldDeferOverviewZoomCommand,
 } from "@/pages/design-editor/overview-camera";
 import {
@@ -215,10 +217,21 @@ export function runApplyDesignEditorCommand(
       ? overviewScreens.find((screen) => screen.id === targetFile.id)
       : undefined;
     if (targetScreen && requestCameraFit) {
-      const geometry = getAllScreenFrameEntries({
-        overviewScreens,
-        canvasFrameGeometryById,
-      }).find((entry) => entry.id === targetScreen.id)?.geometry;
+      const geometry = resolveFrameGeometrySync({
+        screens: overviewScreens.map((screen) => ({
+          id: screen.id,
+          metadata: {
+            width: screen.width ?? 1280,
+            height: screen.height ?? 2560,
+          },
+          breakpointWidths: screen.breakpointWidths,
+          layoutGroupId: screen.layoutGroupId,
+        })),
+        // The command has no access to the canvas's private live ref; an empty
+        // current map makes this resolve the same responsive initial layout.
+        currentGeometryById: {},
+        persistedGeometryById: canvasFrameGeometryById,
+      }).next[targetScreen.id];
       if (
         !geometry ||
         !Number.isFinite(geometry.x) ||
