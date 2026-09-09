@@ -208,31 +208,64 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
-  it("refreshes document and Trash lists after external database lifecycle changes", () => {
-    const predicate = contentActionInvalidatePredicate("/page/database-page");
+  it.each(["/page/database-page", "/home", "/trash"])(
+    "refreshes document and Trash lists after external database lifecycle changes on %s",
+    (pathname) => {
+      const predicate = contentActionInvalidatePredicate(pathname);
 
-    for (const queryName of [
-      "list-content-databases",
-      "list-documents",
-      "list-trashed-content-databases",
-      "list-trashed-documents",
-    ]) {
-      const query = { queryKey: ["action", queryName, {}] };
-      expect(
-        predicate(query, [
-          { source: "action", key: "delete-content-database" },
-        ]),
-      ).toBe(true);
-      expect(
-        predicate(query, [
-          { source: "action", key: "restore-content-database" },
-        ]),
-      ).toBe(true);
-      expect(
-        predicate(query, [{ source: "action", key: "update-document" }]),
-      ).toBe(false);
-    }
-  });
+      for (const queryName of [
+        "list-content-databases",
+        "list-documents",
+        "list-trashed-content-databases",
+        "list-trashed-documents",
+      ]) {
+        const query = { queryKey: ["action", queryName, {}] };
+        expect(
+          predicate(query, [
+            { source: "action", key: "delete-content-database" },
+          ]),
+        ).toBe(true);
+        expect(
+          predicate(query, [
+            { source: "action", key: "restore-content-database" },
+          ]),
+        ).toBe(true);
+        expect(
+          predicate(query, [{ source: "action", key: "update-document" }]),
+        ).toBe(false);
+      }
+    },
+  );
+
+  it.each(["/home", "/settings", "/trash"])(
+    "refreshes active sidebar database reads after lifecycle changes on %s",
+    (pathname) => {
+      const predicate = contentActionInvalidatePredicate(pathname);
+      for (const queryName of [
+        "get-content-database",
+        "query-content-database-items",
+      ]) {
+        const query = {
+          queryKey: ["action", queryName, { databaseId: "files" }],
+          isActive: () => true,
+        };
+        for (const key of [
+          "delete-content-database",
+          "restore-content-database",
+        ]) {
+          expect(predicate(query, [{ source: "action", key }])).toBe(true);
+          expect(
+            predicate({ ...query, isActive: () => false }, [
+              { source: "action", key },
+            ]),
+          ).toBe(false);
+        }
+        expect(
+          predicate(query, [{ source: "action", key: "update-document" }]),
+        ).toBe(false);
+      }
+    },
+  );
 
   it("refreshes only the active personal-view query for personal presentation writes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");

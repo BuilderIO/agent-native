@@ -176,16 +176,20 @@ export function contentActionInvalidatePredicate(
             ? args.documentId
             : undefined
         : undefined;
-    if (documentId === undefined) {
-      return false;
-    }
-    if (isDatabaseLifecycleQuery(query)) {
-      return events.some(
+    if (
+      (isDatabaseLifecycleQuery(query) ||
+        (isDatabaseQuery(query) && query.isActive?.() === true)) &&
+      events.some(
         (event) =>
           event.source === "action" &&
           typeof event.key === "string" &&
           DATABASE_LIFECYCLE_MUTATIONS.has(event.key),
-      );
+      )
+    ) {
+      return true;
+    }
+    if (documentId === undefined) {
+      return false;
     }
     if (
       typeof targetId === "string" &&
