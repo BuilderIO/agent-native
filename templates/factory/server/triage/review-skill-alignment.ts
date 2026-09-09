@@ -21,10 +21,13 @@ contract is evidence-first and reply-producing:
   state.
 - Check the existing Slack reaction marker and owner before any write.
   Preserve an existing marker; if reactions cannot be read, do not guess or
-  add one. Do not react to or dispatch Design UX/interaction work (Sid) or
-  any Content work (Alice); record the owner instead.
-- For an actionable repo-owned Slack item with no existing marker, pass
-  \`reaction: robot_face\` 🤖 on \`dispatch-factory-item\`. Every parent this run
+  add one. If the parent already has eyes 👀 or robot_face 🤖, call
+  \`dispatch-factory-item\` with \`clearBug: false\`, omit reaction, and do not
+  start Builder work. Do not react to or dispatch Design UX/interaction
+  work (Sid) or any Content work (Alice); record the owner instead.
+- For an actionable repo-owned Slack item with no existing eyes 👀 or
+  robot_face 🤖 marker, pass \`reaction: robot_face\` 🤖 on
+  \`dispatch-factory-item\`. Do not pass reaction eyes. Every parent this run
   marks must later receive a verified @agent-native Fixed, In progress, or
   Clarification needed reply; a reaction, forward, generic acknowledgement,
   or another person's reply is not a disposition. Group only genuinely

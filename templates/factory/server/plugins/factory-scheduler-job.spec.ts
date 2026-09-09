@@ -136,8 +136,11 @@ Babysit pull requests.
     expect(prompt).toContain("get-slack-feedback-context");
     expect(prompt).toContain("productUxImplications false");
     expect(prompt).toContain("visual/UI defects");
+    expect(prompt).toContain("already has eyes 👀 or robot_face 🤖");
+    expect(prompt).toContain("neither eyes nor robot_face");
+    expect(prompt).toContain("omit reaction");
     expect(prompt).not.toContain("limit 20");
-    expect(prompt).not.toContain("👀");
+    expect(prompt).not.toContain("that action adds 👀");
   });
 
   it("keeps the PR babysit prompt as a thin action playbook", () => {

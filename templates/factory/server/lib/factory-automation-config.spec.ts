@@ -101,6 +101,7 @@ Babysit pull requests.
     const guardrails = buildGuardrailsText("support-triage", config);
     expect(guardrails).toContain("dispatch-factory-item");
     expect(guardrails).toContain("reaction");
+    expect(guardrails).toContain("omit it on skips");
     expect(guardrails).not.toContain("limit 20");
     expect(guardrails).not.toContain("👀");
 

@@ -45,4 +45,25 @@ ${pastedMentionGuard}
     expect(repaired).toContain("dispatch-factory-item");
     expect(repaired).not.toContain("start-builder-for-item");
   });
+
+  it("replaces unconditional robot_face dispatch with a claimed-parent skip", () => {
+    const existing = `# Factory Slack feedback triage
+
+For each item, call dispatch-factory-item with clearBug true or false,
+productUxImplications false unless it is a pure product or design decision
+with no single correct fix, a short reason, and reaction robot_face 🤖.
+Cluster only items listed in this run: one dispatch with relatedItemIds. Do
+not dispatch needs_manual items or items that already started.
+`;
+
+    const repaired = repairSlackFeedbackPrompt(existing);
+
+    expect(repaired).toContain("already has eyes 👀 or robot_face 🤖");
+    expect(repaired).toContain("omit reaction");
+    expect(repaired).toContain("neither eyes nor robot_face");
+    expect(repaired).toContain("Cluster only items listed in this run");
+    expect(repaired).not.toContain(
+      "a short reason, and reaction robot_face 🤖.",
+    );
+  });
 });
