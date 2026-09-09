@@ -27,6 +27,9 @@ evidence:
   [
     "../../../app/components/sidebar/document-sidebar-sections.test.ts",
     "../../../app/components/editor/database/sidebar.tsx",
+    "../../../actions/content-recent.test.ts",
+    "../../../actions/content-personal-navigation-patch.test.ts",
+    "../../../app/components/editor/database/DatabaseView.recent.test.ts",
   ]
 superseded_by: null
 last_reviewed: "2026-07-29"
@@ -75,6 +78,14 @@ Existing sidebar section tests and sidebar rendering show useful donor behavior.
 not prove the full Reference/query, access, recovery, and personal-state contract; this
 Capability remains `approved_shape`.
 
+Personal section settings and bounded Recent navigation now use per-user Actions.
+Recent stores target and exact View identity, resolves current labels under current
+context access, and records successful foreground visits rather than edits. Focused
+tests cover bounded recency, scope rejection, concurrent navigation patches, legacy
+preference migration, and preservation of inherited filters. Real-interface reload,
+keyboard, multi-user isolation, and composed lifecycle reconciliation remain required;
+the unit tests do not establish those workflows.
+
 ## Proof plan
 
 1. Test pin, reorder, expand, query sections, reload, and stale-reference recovery.
@@ -83,4 +94,7 @@ Capability remains `approved_shape`.
 
 ## Open questions
 
-The first dynamic-section catalog and section-level personalization controls need design.
+The initial catalog is Pinned and Recent alongside existing workspace navigation.
+Pinned and Recent start visible and expanded, show five entries initially, and allow
+five-entry increments up to fifty. Section order, visibility, expansion, and display
+limits are personal preferences. Additional dynamic sections remain outside this slice.

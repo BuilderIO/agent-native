@@ -665,6 +665,7 @@ export function useContentDatabase(
   documentId: string | null,
   limit?: number,
   tableQuery?: ContentDatabaseTableQuery,
+  options?: { refetchOnMount?: "always" },
 ) {
   const queryClient = useQueryClient();
   const baseQuery = useActionQuery<ContentDatabaseResponse>(
@@ -684,6 +685,7 @@ export function useContentDatabase(
       // Cross-key seeds (e.g. a differently-paginated cached response) render
       // instantly but must refetch immediately, not sit fresh for staleTime.
       initialDataUpdatedAt: 0,
+      ...options,
     },
   );
   const pageQuery = useActionQuery<ContentDatabaseItemsPageResponse>(

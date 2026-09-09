@@ -203,6 +203,7 @@ import {
   useUpdateContentDatabaseView,
   writeBuilderAttachPreviewToCache,
 } from "@/hooks/use-content-database";
+import { useUpdateContentPersonalNavigation } from "@/hooks/use-content-personal-navigation";
 import { useRecordContentVisit } from "@/hooks/use-content-recent";
 import {
   useContentSpaces,
@@ -848,6 +849,9 @@ function DatabaseTable({
     document.id,
     databaseRequestItemLimit,
     tableQuery,
+    foreground && renderMode === "page" && isActive
+      ? { refetchOnMount: "always" }
+      : undefined,
   );
   // A deleted/missing database resolves to the unavailable union (no
   // `database` field) — treat it as no data; the inline-block wrapper owns
@@ -2750,13 +2754,18 @@ function DatabaseTable({
       ),
   );
 
+  const updatePersonalNavigation =
+    useUpdateContentPersonalNavigation(databaseId);
   function selectPersonalView(viewId: string) {
     const next = selectDatabaseView(viewConfig, viewId);
     setPersonalQueryDirty(
       databaseViewHasPersonalQueryChanges(next, savedViewConfig),
     );
     setViewConfig(next);
-    schedulePersonalDatabaseViewOverrideWrite(databaseId, next);
+    updatePersonalNavigation.mutate(
+      { databaseId, navigation: { activeViewId: viewId } },
+      { onError: () => toast.error(dbText("failedToSaveView")) },
+    );
     if (foreground && renderMode === "page" && isActive) {
       navigate(
         contentRecentHref({ documentId: document.id, databaseId, viewId }),

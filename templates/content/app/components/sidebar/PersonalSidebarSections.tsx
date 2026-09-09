@@ -101,6 +101,12 @@ export function PersonalSidebarSections({
     recent: t("sidebar.recent"),
     workspaces: t("sidebar.workspaces"),
   };
+  function canShowMore(id: "pinned" | "recent") {
+    const count =
+      id === "pinned" ? pinnedCount : (recent.data?.entries.length ?? 0);
+    if (sections[id].limit >= 50) return false;
+    return count > sections[id].limit;
+  }
   if (state.isError)
     return (
       <>
@@ -218,23 +224,19 @@ export function PersonalSidebarSections({
                       {t("sidebar.noRecentVisits")}
                     </p>
                   )}
-                  {(id === "pinned"
-                    ? pinnedCount
-                    : (recent.data?.entries.length ?? 0)) >
-                    sections[id].limit &&
-                    sections[id].limit < 50 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          change(id, {
-                            limit: Math.min(50, sections[id].limit + 5),
-                          })
-                        }
-                      >
-                        {t("sidebar.showMore")}
-                      </Button>
-                    )}
+                  {canShowMore(id) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        change(id, {
+                          limit: Math.min(50, sections[id].limit + 5),
+                        })
+                      }
+                    >
+                      {t("sidebar.showMore")}
+                    </Button>
+                  )}
                   {sections[id].limit > 5 && (
                     <Button
                       variant="ghost"

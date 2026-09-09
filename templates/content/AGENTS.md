@@ -78,6 +78,7 @@ Read the relevant skill before deeper work:
 | `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |
 | `create-document` | Create a page, optionally under a parent |
 | `resolve-content-landing` | Restore the caller's last authorized page or ensure their private Personal welcome page |
+| `get-content-recent` | Current-context personal visits, resolved with current access and exact View identity |
 | `edit-document` | Find/replace edit — preferred for small changes |
 | `update-document` | Full rewrite of title, content, or description |
 | `delete-document` | Move a page and its children to Trash |
@@ -90,11 +91,12 @@ Every action carries its own schema, and the rest of the app-specific surface
 `remove-local-file-source`) is registered too — use `tool-search` instead of
 scanning a table here.
 
-Sidebar ordering has two meanings. Reordering Pinned or workspace roots moves
-the exact `databaseId` + `itemId` membership, never the document. Files Custom
-order is a per-user view preference written with
-`update-content-database-personal-view`; shared row ordering still uses
-`move-database-item`.
+Pinned, workspace roots, and Files Custom order use personal View preferences,
+without changing membership positions or parentage. Use the `navigation` patch
+on `update-content-database-personal-view` for `activeViewId` or one View's
+`sidebarOrder: { viewId, mode, itemIds }`; it atomically preserves other settings.
+Shared database row ordering still uses `move-database-item`. Recent records
+successful foreground visits; reading or editing a Page does not record a visit.
 
 ## Source Changes
 

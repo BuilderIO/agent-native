@@ -1245,6 +1245,11 @@ const messages = {
   sidebar: {
     cannotReorderPages: "無法重新排序頁面",
     pinned: "已釘選",
+    recent: "最近瀏覽",
+    customizeSidebar: "自訂側邊欄",
+    noRecentVisits: "尚無最近瀏覽記錄",
+    showMore: "顯示更多",
+    showLess: "顯示更少",
     loadingPinned: "正在載入已釘選項目…",
     dragToReorder: "拖曳以重新排序 {{label}}",
     moveUp: "上移",

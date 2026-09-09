@@ -86,6 +86,7 @@ import {
   useRestoreContentDatabase,
   useTrashedContentDatabases,
 } from "@/hooks/use-content-database";
+import { useUpdateContentPersonalNavigation } from "@/hooks/use-content-personal-navigation";
 import {
   shouldAutoEnsureContentSpaces,
   useContentSpaces,
@@ -216,8 +217,8 @@ const CONTENT_SIDEBAR_STATE_VERSION = 1 as const;
 
 interface ContentSidebarStateSnapshot {
   version: typeof CONTENT_SIDEBAR_STATE_VERSION;
-  expandedWorkspaceIds: string[];
-  expandedDocumentIds: string[];
+  expandedWorkspaceIds?: string[];
+  expandedDocumentIds?: string[];
 }
 const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
   favorites: false,
@@ -913,15 +914,21 @@ export function DocumentSidebar({
   const workspaceCatalogPersonalView = useContentDatabasePersonalView(
     resolvedWorkspaceCatalogDatabaseId,
   );
+  const updateWorkspaceNavigation = useUpdateContentPersonalNavigation(
+    resolvedWorkspaceCatalogDatabaseId,
+    workspaceCatalogDatabaseData?.database.viewConfig.views,
+  );
   const updateWorkspaceCatalogPersonalView =
     useUpdateContentDatabasePersonalView(resolvedWorkspaceCatalogDatabaseId);
   const favoritesPersonalView =
     useContentDatabasePersonalView(favoritesDatabaseId);
-  const updateFavoritesPersonalView =
-    useUpdateContentDatabasePersonalView(favoritesDatabaseId);
   const favoritesData = isContentDatabaseUnavailable(favoritesDatabase.data)
     ? undefined
     : favoritesDatabase.data;
+  const updateFavoritesPersonalView = useUpdateContentPersonalNavigation(
+    favoritesDatabaseId,
+    favoritesData?.database.viewConfig.views,
+  );
   const favoritesOrder = personalSidebarOrderForDatabase(
     favoritesData,
     favoritesPersonalView.data?.overrides,
@@ -1723,12 +1730,9 @@ export function DocumentSidebar({
       updateFavoritesPersonalView.mutate(
         {
           databaseId: favoritesDatabaseId,
-          overrides: withPersonalSidebarOrder(
-            favoritesData,
-            favoritesPersonalView.data?.overrides,
-            favoritesOrder.activeViewId,
-            order,
-          ),
+          navigation: {
+            sidebarOrder: { viewId: favoritesOrder.activeViewId, ...order },
+          },
         },
         { onError: () => toast.error(t("sidebar.failedSaveOrder")) },
       );
@@ -1750,15 +1754,16 @@ export function DocumentSidebar({
         workspaceCatalogDatabaseData,
         current,
       );
-      updateWorkspaceCatalogPersonalView.mutate(
+      updateWorkspaceNavigation.mutate(
         {
           databaseId: workspaceCatalogDatabaseId,
-          overrides: withPersonalSidebarOrder(
-            workspaceCatalogDatabaseData,
-            current,
-            selected.activeViewId,
-            { mode: "custom", itemIds },
-          ),
+          navigation: {
+            sidebarOrder: {
+              viewId: selected.activeViewId,
+              mode: "custom",
+              itemIds,
+            },
+          },
         },
         { onError: () => toast.error(t("sidebar.failedSaveOrder")) },
       );
@@ -1767,7 +1772,7 @@ export function DocumentSidebar({
       workspaceCatalogDatabaseId,
       workspaceCatalogDatabaseData,
       workspaceCatalogPersonalView.data?.overrides,
-      updateWorkspaceCatalogPersonalView,
+      updateWorkspaceNavigation,
       t,
     ],
   );

@@ -9,8 +9,8 @@ const expandedIdSchema = z.string().min(1).max(256);
 
 export const contentSidebarStateSchema = z.object({
   version: z.literal(CONTENT_SIDEBAR_STATE_VERSION),
-  expandedWorkspaceIds: z.array(expandedIdSchema).max(1_000),
-  expandedDocumentIds: z.array(expandedIdSchema).max(5_000),
+  expandedWorkspaceIds: z.array(expandedIdSchema).max(1_000).optional(),
+  expandedDocumentIds: z.array(expandedIdSchema).max(5_000).optional(),
   sections: contentSidebarSectionsSchema.optional(),
 });
 
@@ -21,7 +21,11 @@ export function normalizeContentSidebarState(value: unknown) {
   const data = contentSidebarStateSchema.parse(value);
   return {
     ...data,
-    expandedWorkspaceIds: [...new Set(data.expandedWorkspaceIds)],
-    expandedDocumentIds: [...new Set(data.expandedDocumentIds)],
+    ...(data.expandedWorkspaceIds === undefined
+      ? {}
+      : { expandedWorkspaceIds: [...new Set(data.expandedWorkspaceIds)] }),
+    ...(data.expandedDocumentIds === undefined
+      ? {}
+      : { expandedDocumentIds: [...new Set(data.expandedDocumentIds)] }),
   };
 }

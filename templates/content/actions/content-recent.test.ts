@@ -281,7 +281,6 @@ describe("sidebar partial state persistence", () => {
     ).toEqual({
       version: 1,
       expandedDocumentIds: ["page"],
-      expandedWorkspaceIds: [],
       sections,
     });
     expect(stored.has(settingId(bob.userEmail, "content-sidebar-state"))).toBe(

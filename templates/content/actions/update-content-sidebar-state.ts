@@ -18,8 +18,6 @@ export default defineAction({
       CONTENT_SIDEBAR_STATE_SETTING_KEY,
       (current) =>
         normalizeContentSidebarState({
-          expandedWorkspaceIds: [],
-          expandedDocumentIds: [],
           ...normalizeContentSidebarState(current),
           ...state,
         })!,

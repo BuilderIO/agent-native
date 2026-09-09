@@ -269,8 +269,8 @@ export function ContentFilesSidebarView({
     Boolean(manualReorder) &&
     !items.some((item) => item.document.source?.kind === "folder") &&
     (sidebarOrder?.mode ?? "custom") === "custom" &&
-    activeView.sorts.length === 0 &&
-    activeView.filters.length === 0 &&
+    (Boolean(sidebarOrder) ||
+      (activeView.sorts.length === 0 && activeView.filters.length === 0)) &&
     !databaseViewGroupingProperty(activeView, usableData?.properties ?? []);
   return (
     <div className="min-w-0">
