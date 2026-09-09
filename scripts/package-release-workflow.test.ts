@@ -108,19 +108,21 @@ describe("npm package release workflow", () => {
   it("keeps the release changeset package list aligned with the publisher", () => {
     const source = readFileSync("scripts/create-release-changeset.ts", "utf8");
     assert.match(source, /NPM_PUBLISH_PACKAGE_NAMES/);
-    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 12);
+    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 14);
   });
 
   it("allows npm propagation to settle before failing a publish", () => {
     assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 15 * 60_000);
   });
 
-  it("registers exactly the four headless AgentKit packages for publication", () => {
+  it("registers all six AgentKit packages for publication", () => {
     assert.deepEqual(AGENTKIT_NPM_PACKAGE_NAMES, [
       "@agent-native/agentkit-protocol",
       "@agent-native/agentkit-client",
       "@agent-native/agentkit-adapters",
       "@agent-native/agentkit-conformance",
+      "@agent-native/agentkit-react",
+      "@agent-native/agentkit",
     ]);
     const paths = (trigger.push as Workflow).paths as string[];
     for (const name of AGENTKIT_NPM_PACKAGE_NAMES) {
@@ -131,8 +133,6 @@ describe("npm package release workflow", () => {
       assert.equal(pkg.publishConfig.access, "public");
       assert.equal(typeof pkg.scripts.test, "string");
     }
-    assert(!paths.includes("packages/agentkit/**"));
-    assert(!paths.includes("packages/agentkit-react/**"));
   });
 
   it("runs release regression tests in PR CI", () => {

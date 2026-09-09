@@ -274,7 +274,7 @@ export function McpConnectionSuggestion({
           className={
             variant === "response"
               ? "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--response mt-1 max-w-[520px] text-[11px] text-destructive"
-              : "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--composer mx-auto mb-2 w-[min(calc(100%_-_1.5rem),750px)] text-[11px] text-destructive"
+              : "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--composer agent-kit-composer-adjacent-width agent-kit-caption-copy mx-auto mb-2 text-destructive"
           }
         >
           {error}

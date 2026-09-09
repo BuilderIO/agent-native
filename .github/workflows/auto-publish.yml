@@ -24,6 +24,8 @@ on:
     paths:
       # npm-published packages — any source change reaches here via the
       # Version Packages PR merge bumping their package.json.
+      - "packages/agentkit/**"
+      - "packages/agentkit-react/**"
       - "packages/agentkit-adapters/**"
       - "packages/agentkit-client/**"
       - "packages/agentkit-conformance/**"
@@ -425,6 +427,8 @@ jobs:
           jq -r '
             .changesets[]
             | select(any(.releases[]?.name;
+                . == "@agent-native/agentkit" or
+                . == "@agent-native/agentkit-react" or
                 . == "@agent-native/agentkit-adapters" or
                 . == "@agent-native/agentkit-client" or
                 . == "@agent-native/agentkit-conformance" or
@@ -625,6 +629,8 @@ jobs:
             # run can never announce a version that was never published.
             entries=""
             for name in \
+              @agent-native/agentkit \
+              @agent-native/agentkit-react \
               @agent-native/agentkit-adapters \
               @agent-native/agentkit-client \
               @agent-native/agentkit-conformance \
@@ -719,7 +725,8 @@ jobs:
 
           rc=0
 
-          if has @agent-native/agentkit-adapters ||
+          if has @agent-native/agentkit || has @agent-native/agentkit-react ||
+            has @agent-native/agentkit-adapters ||
             has @agent-native/agentkit-client || has @agent-native/agentkit-conformance ||
             has @agent-native/agentkit-protocol ||
             has @agent-native/core || has @agent-native/creative-context ||
@@ -742,7 +749,8 @@ jobs:
             note "Builder workspace not notified: no package it consumes was published."
           fi
 
-          if has @agent-native/agentkit-adapters ||
+          if has @agent-native/agentkit || has @agent-native/agentkit-react ||
+            has @agent-native/agentkit-adapters ||
             has @agent-native/agentkit-client || has @agent-native/agentkit-conformance ||
             has @agent-native/agentkit-protocol ||
             has @agent-native/core || has @agent-native/creative-context || has @agent-native/toolkit; then

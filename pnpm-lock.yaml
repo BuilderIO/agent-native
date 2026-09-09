@@ -9,6 +9,12 @@ catalogs:
     '@assistant-ui/react':
       specifier: ^0.12.19
       version: 0.12.28
+    '@assistant-ui/store':
+      specifier: 0.2.13
+      version: 0.2.13
+    '@assistant-ui/tap':
+      specifier: 0.5.16
+      version: 0.5.16
     '@playwright/test':
       specifier: 1.61.1
       version: 1.61.1
@@ -352,6 +358,83 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@20.12.0)(jsdom@29.1.1(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
+  packages/agentkit:
+    dependencies:
+      '@agent-native/agentkit-adapters':
+        specifier: workspace:^
+        version: link:../agentkit-adapters
+      '@agent-native/agentkit-client':
+        specifier: workspace:*
+        version: link:../agentkit-client
+      '@agent-native/agentkit-protocol':
+        specifier: workspace:*
+        version: link:../agentkit-protocol
+      '@agent-native/agentkit-react':
+        specifier: workspace:^
+        version: link:../agentkit-react
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.14
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      typescript-7:
+        specifier: 'catalog:'
+        version: typescript@7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@20.12.0)(jsdom@29.1.1(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+
+  packages/agentkit-react:
+    dependencies:
+      '@agent-native/agentkit-adapters':
+        specifier: workspace:*
+        version: link:../agentkit-adapters
+      '@agent-native/agentkit-client':
+        specifier: workspace:*
+        version: link:../agentkit-client
+      '@agent-native/agentkit-protocol':
+        specifier: workspace:*
+        version: link:../agentkit-protocol
+      '@agent-native/toolkit':
+        specifier: workspace:*
+        version: link:../toolkit
+      '@tabler/icons-react':
+        specifier: 'catalog:'
+        version: 3.44.0(react@19.2.7)
+      react-markdown:
+        specifier: ^10.1.0
+        version: 10.1.0(@types/react@19.2.17)(react@19.2.7)
+      remark-gfm:
+        specifier: ^4.0.1
+        version: 4.0.1
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.14
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      typescript-7:
+        specifier: 'catalog:'
+        version: typescript@7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@20.12.0)(jsdom@29.1.1(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+
   packages/agentkit-adapters:
     dependencies:
       '@agent-native/agentkit-protocol':
@@ -433,10 +516,10 @@ importers:
         specifier: ^0.12.6
         version: 0.12.11(@assistant-ui/react@0.12.28(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.8)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@assistant-ui/store':
-        specifier: '>=0.2.9 <0.2.14'
+        specifier: 'catalog:'
         version: 0.2.13(@assistant-ui/tap@0.5.16(@types/react@19.2.17)(react@19.2.7))(@types/react@19.2.17)(react@19.2.7)
       '@assistant-ui/tap':
-        specifier: ^0.5.14
+        specifier: 'catalog:'
         version: 0.5.16(@types/react@19.2.17)(react@19.2.7)
       '@builder.io/ai-utils':
         specifier: ^0.84.0
@@ -1661,6 +1744,12 @@ importers:
       '@assistant-ui/react':
         specifier: 'catalog:'
         version: 0.12.28(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.8)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
+      '@assistant-ui/store':
+        specifier: 'catalog:'
+        version: 0.2.13(@assistant-ui/tap@0.5.16(@types/react@19.2.17)(react@19.2.7))(@types/react@19.2.17)(react@19.2.7)
+      '@assistant-ui/tap':
+        specifier: 'catalog:'
+        version: 0.5.16(@types/react@19.2.17)(react@19.2.7)
       '@radix-ui/react-accordion':
         specifier: ^1.2.15
         version: 1.2.15(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

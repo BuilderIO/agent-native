@@ -1,0 +1,84 @@
+{
+  "name": "@agent-native/agentkit-react",
+  "version": "0.1.0",
+  "description": "Composable React bindings and accessible UI primitives for AgentKit.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/agentkit-react"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./headless": {
+      "types": "./dist/headless.d.ts",
+      "import": "./dist/headless.js"
+    },
+    "./chat": {
+      "types": "./dist/chat.d.ts",
+      "import": "./dist/chat.js"
+    },
+    "./components": {
+      "types": "./dist/components.d.ts",
+      "import": "./dist/components.js"
+    },
+    "./context": {
+      "types": "./dist/context.d.ts",
+      "import": "./dist/context.js"
+    },
+    "./root": {
+      "types": "./dist/root.d.ts",
+      "import": "./dist/root.js"
+    },
+    "./streaming-text": {
+      "types": "./dist/streaming-text.d.ts",
+      "import": "./dist/streaming-text.js"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc && cp src/styles.css dist/styles.css",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run --passWithNoTests",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@agent-native/agentkit-adapters": "workspace:*",
+    "@agent-native/agentkit-client": "workspace:*",
+    "@agent-native/agentkit-protocol": "workspace:*",
+    "@agent-native/toolkit": "workspace:*",
+    "@tabler/icons-react": "catalog:",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "typescript-7": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

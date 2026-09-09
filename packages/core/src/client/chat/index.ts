@@ -62,6 +62,45 @@ export {
   type CreateCodeAgentChatAdapterOptions,
 } from "../code-agent-chat-adapter.js";
 export * from "./connectors.js";
+export {
+  AgentApprovalCard,
+  AgentChoiceCard,
+  AgentInputCard,
+  type AgentApprovalCardProps,
+  type AgentChoiceCardProps,
+  type AgentChoiceOption,
+  type AgentInputCardProps,
+} from "./agent-approval-card.js";
+export {
+  AgentActivityObject,
+  type AgentActivityObjectKind,
+  type AgentActivityObjectProps,
+  type AgentActivityObjectReference,
+} from "./agent-activity-object.js";
+export {
+  AgentActivityChip,
+  AgentActivityTrace,
+  type AgentActivityChipProps,
+  type AgentActivityDisplayMode,
+  type AgentActivityItem,
+  type AgentActivityStatus,
+  type AgentActivityTraceProps,
+  type AgentActivityVariant,
+} from "./agent-activity-trace.js";
+export {
+  ToolChips,
+  type ToolChipDetail,
+  type ToolChipDiff,
+  type ToolChipKind,
+  type ToolChipStep,
+  type ToolChipTone,
+  type ToolChipsProps,
+} from "./tool-chips.js";
+export {
+  AssistantMessageActionBar,
+  type AssistantMessageActionBarProps,
+  type FormattedMessageTimestamp,
+} from "./message-components.js";
 export * from "./runtime.js";
 export {
   sendToAgentChat,

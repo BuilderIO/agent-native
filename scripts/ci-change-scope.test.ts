@@ -132,9 +132,16 @@ test("keeps package metadata targeted but runs the drizzle guard", () => {
   assert.equal(scope.checks.drizzle, true);
 });
 
-test("routes each headless AgentKit package through dependency-aware fast tests", () => {
-  for (const name of ["protocol", "client", "adapters", "conformance"]) {
-    const packageDir = `packages/agentkit-${name}`;
+test("routes each AgentKit package through dependency-aware fast tests", () => {
+  for (const name of [
+    "protocol",
+    "client",
+    "adapters",
+    "conformance",
+    "react",
+    "",
+  ]) {
+    const packageDir = name ? `packages/agentkit-${name}` : "packages/agentkit";
     const scope = classifyChangedPaths([`${packageDir}/src/index.ts`]);
 
     assert.equal(scope.full, false);

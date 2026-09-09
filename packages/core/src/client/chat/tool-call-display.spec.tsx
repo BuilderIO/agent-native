@@ -1073,6 +1073,24 @@ describe("ToolCallDisplay native renderers", () => {
     const row = container.querySelector("button")?.parentElement;
     expect(row?.className).toContain("w-full");
     expect(container.querySelector("button")?.className).toContain("w-full");
+    expect(container.textContent).toContain("recent deals");
+  });
+
+  it("shows the command itself in a generic command row", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="exec-command"
+          args={{ cmd: "pnpm test --filter @agent-native/core" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("exec command");
+    expect(container.textContent).toContain(
+      "pnpm test --filter @agent-native/core",
+    );
   });
 
   it("expands inputs inline and opens output in a popover", () => {
@@ -2485,15 +2503,16 @@ describe("ApprovalAffordance", () => {
       );
     });
 
-    const approvalCopy = Array.from(container.querySelectorAll("span")).find(
-      (span) => span.textContent === "Approve to run send-email?",
-    ) as HTMLSpanElement;
-    const approvalCard = approvalCopy.parentElement as HTMLDivElement;
+    const approvalCard = container.querySelector(
+      ".agent-approval-card",
+    ) as HTMLDivElement;
+    const approvalCopy = Array.from(approvalCard.querySelectorAll("div")).find(
+      (div) => div.textContent === "Approve to run send-email?",
+    ) as HTMLDivElement;
     const actionButtons = Array.from(approvalCard.querySelectorAll("button"));
 
-    expect(approvalCard.className).toContain("flex-wrap");
-    expect(approvalCopy.className).toContain("min-w-0");
-    expect(approvalCopy.className).toContain("flex-1");
+    expect(approvalCard.className).toContain("rounded-xl");
+    expect(approvalCopy.className).toContain("font-semibold");
     expect(actionButtons.map((button) => button.textContent)).toEqual([
       "Approve",
       "",

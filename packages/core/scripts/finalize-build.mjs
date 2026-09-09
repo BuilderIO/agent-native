@@ -176,10 +176,21 @@ rmSync(templatesTempDir, { recursive: true, force: true });
 cpSync("src/templates", templatesTempDir, { recursive: true });
 pruneSpecArtifacts(templatesTempDir);
 swapTemplatesDirIntoPlace(templatesTempDir);
-mkdirSync("dist/styles", { recursive: true });
-for (const f of readdirSync("src/styles").filter((n) => n.endsWith(".css"))) {
-  copyFileSync(join("src/styles", f), join("dist/styles", f));
+function copyCssTree(sourceDir, targetDir) {
+  mkdirSync(targetDir, { recursive: true });
+  for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+    const source = join(sourceDir, entry.name);
+    const target = join(targetDir, entry.name);
+    if (entry.isDirectory()) {
+      copyCssTree(source, target);
+      continue;
+    }
+    if (entry.isFile() && entry.name.endsWith(".css")) {
+      copyFileSync(source, target);
+    }
+  }
 }
+copyCssTree("src/styles", "dist/styles");
 
 // Snapshot the pnpm catalog into dist/catalog.json so the CLI can inject it
 // into scaffolded workspaces even when running as a published npm package
