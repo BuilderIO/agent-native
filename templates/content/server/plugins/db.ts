@@ -1089,6 +1089,13 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 89,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS document_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
+    {
+      version: 90,
       name: "content-database-setup-receipts",
       sql: `CREATE TABLE IF NOT EXISTS content_database_setup_receipts (
         id TEXT PRIMARY KEY,
