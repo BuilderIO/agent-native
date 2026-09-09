@@ -142,8 +142,8 @@ export default defineAction({
           : undefined,
         pattern
           ? args.searchFields === "title"
-            ? sql`${schema.documents.title} LIKE ${pattern} ESCAPE '\\'`
-            : sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`
+            ? sql`${schema.documents.title} ILIKE ${pattern} ESCAPE '\\'`
+            : sql`(${schema.documents.title} ILIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} ILIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} ILIKE ${pattern} ESCAPE '\\')`
           : undefined,
         args.modifiedAfter
           ? gte(schema.documents.updatedAt, args.modifiedAfter)
@@ -209,6 +209,7 @@ export default defineAction({
             documentDiscoveryWhere({
               userEmail,
               authorizedOrgIds,
+              spaceId: args.spaceId,
               additional: inArray(schema.documents.id, parentIds),
             }),
           )

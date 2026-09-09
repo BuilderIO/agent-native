@@ -19,7 +19,12 @@ proof_requirements:
     "Cross-surface UI, Action, agent-context, reload, and failure-state coverage",
     "Real-interface keyboard and assistive-technology workflow coverage",
   ]
-evidence: []
+evidence:
+  [
+    "../../../actions/document-discovery.db.test.ts",
+    "../../../app/lib/content-command-search.test.ts",
+    "../../../app/components/ContentCommandSearch.tsx",
+  ]
 superseded_by: null
 last_reviewed: "2026-07-29"
 ---
@@ -55,6 +60,13 @@ Given a stale connected Source result, when it appears, then its freshness state
 ## Current evidence
 
 Existing search paths are in progress donor substrate, but complete indexed, freshness, ranking, and agent-parity proof is incomplete. This Capability remains `in_progress`.
+
+The command picker uses the shared paginated search Action, with title-only,
+document-type and modified-date predicates applied before pagination. Parent
+context is independently access-scoped. Focused tests cover later pages,
+private-parent suppression, hidden-result counts and type filters. This is
+bounded lexical search substrate, not proof of indexed retrieval across every
+Source, authoritative author filtering, or policy-governed global search.
 
 ## Proof plan
 

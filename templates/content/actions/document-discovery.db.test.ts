@@ -86,6 +86,31 @@ afterAll(async () => {
 });
 
 describe("bounded document discovery", () => {
+  it("matches case-insensitively while treating wildcard input literally", async () => {
+    await getDb().insert(schema.documents).values({
+      id: "search-literal",
+      ownerEmail: OWNER,
+      title: "Literal 100%_ Match",
+    });
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "literal 100%_ match",
+        searchFields: "title",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(result.documents.map((doc) => doc.id)).toEqual(["search-literal"]);
+    const ordinary = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "BOUNDED DOCUMENT",
+        searchFields: "title",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(ordinary.pagination.totalItems).toBe(203);
+  });
   it("filters title and modified date before pagination and returns authorized parent context", async () => {
     const first = await asUser(OWNER, () =>
       searchDocuments.run({
@@ -189,14 +214,12 @@ describe("bounded document discovery", () => {
           title: "Kind needle database",
         },
       ]);
-    await getDb()
-      .insert(schema.contentDatabases)
-      .values({
-        id: "search-kind-database",
-        documentId: "search-kind-db",
-        ownerEmail: OWNER,
-        title: "Kind needle database",
-      });
+    await getDb().insert(schema.contentDatabases).values({
+      id: "search-kind-database",
+      documentId: "search-kind-db",
+      ownerEmail: OWNER,
+      title: "Kind needle database",
+    });
     const all = await asUser(OWNER, () =>
       searchDocuments.run({ query: "Kind needle", limit: 8, offset: 0 }),
     );
