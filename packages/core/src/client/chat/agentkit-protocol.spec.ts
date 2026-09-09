@@ -2,7 +2,7 @@ import type {
   AgentApprovalResponse,
   AgentEvent,
   AgentMessage,
-} from "@agent-native/agentkit-protocol";
+} from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import { createAgentKitProtocolAdapter } from "./agentkit-protocol.js";

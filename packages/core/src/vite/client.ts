@@ -1548,10 +1548,6 @@ function getAgentKitOptimizeExcludes(
   // in getAgentKitOptimizeDeps above.
   return [
     "@agent-native/agentkit",
-    "@agent-native/agentkit-react",
-    "@agent-native/agentkit-client",
-    "@agent-native/agentkit-protocol",
-    "@agent-native/agentkit-adapters",
     "@agent-native/core",
     ...CORE_CLIENT_SUBPATHS,
     "@agent-native/toolkit",

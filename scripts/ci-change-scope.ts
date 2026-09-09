@@ -180,9 +180,7 @@ function buildChecks(
   const workspaceChanged = changedPaths.some(isWorkspacePath);
   const coreChanged = hasPath(changedPaths, "packages/core/");
   const toolkitChanged = hasPath(changedPaths, "packages/toolkit/");
-  const agentkitChanged = changedPaths.some((path) =>
-    /^packages\/agentkit(?:\/|-)/u.test(path),
-  );
+  const agentkitChanged = hasPath(changedPaths, "packages/agentkit/");
   const sharedAppConfigChanged = hasPath(
     changedPaths,
     "packages/shared-app-config/",

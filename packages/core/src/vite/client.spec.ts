@@ -3326,15 +3326,15 @@ describe("local-core dev aliases and router dedupe", () => {
           : alias.find === "@agent-native/agentkit/react/styles.css",
       );
       expect(agentkitStylesAlias?.replacement).toBe(
-        path.join(agentkitRoot, "src/styles.css"),
+        path.join(agentkitRoot, "src/react/styles.css"),
       );
       const protocolAlias = aliases.find((alias) =>
         alias.find instanceof RegExp
-          ? alias.find.test("@agent-native/agentkit-protocol")
-          : alias.find === "@agent-native/agentkit-protocol",
+          ? alias.find.test("@agent-native/agentkit/protocol")
+          : alias.find === "@agent-native/agentkit/protocol",
       );
       expect(protocolAlias?.replacement).toBe(
-        path.join(workspaceRoot, "packages/agentkit-protocol/src/index.ts"),
+        path.join(agentkitRoot, "src/protocol/index.ts"),
       );
       expect(exclude).toEqual(
         expect.arrayContaining([

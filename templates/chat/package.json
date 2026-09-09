@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "@agent-native/agentkit": "workspace:*",
-    "@agent-native/agentkit-react": "workspace:*",
     "@agent-native/core": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@ai-sdk/anthropic": "^3.0.71",

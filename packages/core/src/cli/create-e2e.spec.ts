@@ -1006,13 +1006,10 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(appPkg.dependencies["@agent-native/agentkit"]).toBe(
       _getAgentKitDependencyVersion(),
     );
-    expect(appPkg.dependencies["@agent-native/agentkit-react"]).not.toMatch(
+    expect(appPkg.dependencies["@agent-native/agentkit"]).not.toMatch(
       /^workspace:/,
     );
     expect(appPkg.dependencies["@agent-native/agentkit"]).not.toBe("latest");
-    expect(appPkg.dependencies["@agent-native/agentkit-react"]).toBe(
-      appPkg.dependencies["@agent-native/agentkit"],
-    );
   });
 
   it("builds missing local package exports before packing", () => {
@@ -1065,9 +1062,6 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       expect(pkg.dependencies["@agent-native/core"]).toMatch(/^file:\/\//);
       expect(pkg.dependencies["@agent-native/toolkit"]).toMatch(/^file:\/\//);
       expect(pkg.dependencies["@agent-native/agentkit"]).toMatch(/^file:\/\//);
-      expect(pkg.dependencies["@agent-native/agentkit-react"]).toMatch(
-        /^file:\/\//,
-      );
 
       const workspaceYaml = fs
         .readFileSync(path.join(tmpDir, "local-chat", "pnpm-workspace.yaml"), {
@@ -1078,19 +1072,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("agent-native-toolkit-");
       expect(workspaceYaml).toContain(".tgz");
-      for (const packageName of [
-        "agentkit-protocol",
-        "agentkit-client",
-        "agentkit-adapters",
-        "agentkit-conformance",
-        "agentkit-react",
-        "agentkit",
-      ]) {
-        expect(workspaceYaml).toContain(
-          `\"@agent-native/${packageName}\": \"file://`,
-        );
-        expect(workspaceYaml).toContain(`agent-native-${packageName}-`);
-      }
+      expect(workspaceYaml).toContain('"@agent-native/agentkit": "file://');
+      expect(workspaceYaml).toContain("agent-native-agentkit-");
       expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
       expect(workspaceYaml).toContain("/packages/recap-cli");
       expect(workspaceYaml).not.toContain("packages:");
@@ -1493,9 +1476,8 @@ describe("template/core version compatibility", () => {
   });
 
   it("pins unpublished generated framework dependencies to compatible versions", () => {
-    // Toolkit has no release-train package in monorepo source, so it falls
-    // back to `latest`. AgentKit packages share the local Protocol version so
-    // every generated package stays on one compatibility-tested release train.
+    // Toolkit has no published range in monorepo source, so it falls back to
+    // `latest`. AgentKit falls back to the local package version.
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
@@ -1528,7 +1510,7 @@ describe("template/core version compatibility", () => {
           return JSON.stringify({
             dependencies: {
               "@agent-native/toolkit": "^0.9.1",
-              "@agent-native/agentkit-protocol": "^0.2.3",
+              "@agent-native/agentkit": "^0.2.3",
             },
           });
         }
@@ -2088,7 +2070,7 @@ describe("build artifacts", () => {
 
   it("core package.json only uses workspace:* for publishable package deps", () => {
     const publishableWorkspaceDeps = new Set([
-      "@agent-native/agentkit-protocol",
+      "@agent-native/agentkit",
       "@agent-native/recap-cli",
       "@agent-native/toolkit",
     ]);

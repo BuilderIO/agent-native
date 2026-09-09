@@ -1,2 +1,2 @@
-export * from "@agent-native/agentkit-client";
-export * from "@agent-native/agentkit-protocol";
+export * from "./client/index.js";
+export * from "./protocol/index.js";

@@ -24,14 +24,7 @@ const commandTimeoutMs = Number(
   process.env.AGENTKIT_PACKAGING_TIMEOUT_MS || 300_000,
 );
 
-const publicPackages = [
-  "packages/agentkit-protocol",
-  "packages/agentkit-client",
-  "packages/agentkit-adapters",
-  "packages/agentkit-conformance",
-  "packages/agentkit-react",
-  "packages/agentkit",
-] as const;
+const publicPackages = ["packages/agentkit"] as const;
 const supportPackages = ["packages/toolkit"] as const;
 
 interface PackageManifest {
@@ -251,18 +244,31 @@ async function main(): Promise<void> {
     `import React from "react";
 import { createRoot } from "react-dom/client";
 import * as root from "@agent-native/agentkit";
+import * as protocol from "@agent-native/agentkit/protocol";
 import * as http from "@agent-native/agentkit/http";
+import * as conformance from "@agent-native/agentkit/conformance";
 import * as react from "@agent-native/agentkit/react";
 import * as headless from "@agent-native/agentkit/react/headless";
-import * as protocol from "@agent-native/agentkit-protocol";
-import * as client from "@agent-native/agentkit-client";
-import * as adapters from "@agent-native/agentkit-adapters";
-import * as conformance from "@agent-native/agentkit-conformance";
+import * as reactRoot from "@agent-native/agentkit/react/root";
+import * as chat from "@agent-native/agentkit/react/chat";
+import * as components from "@agent-native/agentkit/react/components";
+import * as context from "@agent-native/agentkit/react/context";
+import * as streamingText from "@agent-native/agentkit/react/streaming-text";
 import "@agent-native/agentkit/react/styles.css";
-import "@agent-native/agentkit-react/styles.css";
 
-const exportsLoaded = [root, http, react, headless, protocol, client, adapters, conformance]
-  .every((value) => Object.keys(value).length > 0);
+const exportsLoaded = [
+  root,
+  protocol,
+  http,
+  conformance,
+  react,
+  headless,
+  reactRoot,
+  chat,
+  components,
+  context,
+  streamingText,
+].every((value) => Object.keys(value).length > 0);
 createRoot(document.getElementById("root")!).render(
   <main>AgentKit packed {exportsLoaded ? "exports ready" : "exports missing"}</main>,
 );
@@ -272,15 +278,16 @@ createRoot(document.getElementById("root")!).render(
     "probe.mjs",
     `const modules = await Promise.all([
   import("@agent-native/agentkit"),
+  import("@agent-native/agentkit/protocol"),
   import("@agent-native/agentkit/http"),
+  import("@agent-native/agentkit/conformance"),
   import("@agent-native/agentkit/react"),
   import("@agent-native/agentkit/react/headless"),
-  import("@agent-native/agentkit-protocol"),
-  import("@agent-native/agentkit-client"),
-  import("@agent-native/agentkit-adapters"),
-  import("@agent-native/agentkit-conformance"),
-  import("@agent-native/agentkit-react"),
-  import("@agent-native/agentkit-react/headless"),
+  import("@agent-native/agentkit/react/root"),
+  import("@agent-native/agentkit/react/chat"),
+  import("@agent-native/agentkit/react/components"),
+  import("@agent-native/agentkit/react/context"),
+  import("@agent-native/agentkit/react/streaming-text"),
 ]);
 if (modules.some((value) => Object.keys(value).length === 0)) {
   throw new Error("a supported packed JavaScript export was empty");
@@ -350,7 +357,7 @@ process.exit(0);
     }
   }
   console.log("qa-agentkit-packages: clean");
-  console.log(`  packed: ${publicPackages.length} public AgentKit packages`);
+  console.log(`  packed: ${publicPackages.length} public AgentKit package`);
   console.log(
     "  checked: tarball install, JS exports, CSS exports, build, launch",
   );

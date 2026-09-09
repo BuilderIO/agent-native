@@ -5,7 +5,7 @@ import type {
   AgentQueuedMessage,
   AgentThreadSnapshot,
   TextPart,
-} from "@agent-native/agentkit-protocol";
+} from "@agent-native/agentkit/protocol";
 
 import { agentNativePath } from "../api-path.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";

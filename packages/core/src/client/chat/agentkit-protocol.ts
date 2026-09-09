@@ -27,14 +27,14 @@ import type {
   TextPart,
   DataPart,
   FilePart,
-} from "@agent-native/agentkit-protocol";
+} from "@agent-native/agentkit/protocol";
 import {
   AGENTKIT_PROTOCOL_VERSION,
   createCapabilityUnavailableError,
   createCapabilityUnsupportedError,
   inferAgentActivityKind,
   negotiateAgentKitProtocolVersion,
-} from "@agent-native/agentkit-protocol";
+} from "@agent-native/agentkit/protocol";
 
 import type {
   AgentChatRuntime,

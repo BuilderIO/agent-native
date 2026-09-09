@@ -2,10 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  AGENTKIT_NPM_PACKAGE_NAMES,
-  NPM_PUBLISH_PACKAGE_NAMES,
-} from "./public-package-names.ts";
+import { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -86,21 +83,6 @@ function readWorkspacePackageNames(): Set<string> {
 }
 
 const workspacePackageNames = readWorkspacePackageNames();
-
-const agentKitVersions = new Map(
-  AGENTKIT_NPM_PACKAGE_NAMES.map((name) => {
-    const packageDir = name.replace("@agent-native/", "");
-    const pkg = readJson<PackageJson & { version?: string }>(
-      path.join(packagesDir, packageDir, "package.json"),
-    );
-    return [name, pkg.version] as const;
-  }),
-);
-if (new Set(agentKitVersions.values()).size !== 1) {
-  failures.push(
-    `AgentKit packages must share one release-train version: ${[...agentKitVersions].map(([name, version]) => `${name}@${version ?? "missing"}`).join(", ")}`,
-  );
-}
 
 function collectStringValues(value: unknown): string[] {
   if (typeof value === "string") return [value];

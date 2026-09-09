@@ -55,8 +55,6 @@ export interface WorkspacifyOptions {
   toolkitDependencyVersion?: string;
   /** Version range to use for the published @agent-native/agentkit package */
   agentKitDependencyVersion?: string;
-  /** Version ranges for optional AgentKit packages used by the template. */
-  agentKitPackageDependencyVersions?: Record<string, string>;
 }
 
 export function workspacifyApp(opts: WorkspacifyOptions): void {
@@ -109,13 +107,6 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
             }
             if (key === "@agent-native/agentkit") {
               deps[key] = agentKitDependencyVersion;
-            }
-            if (key.startsWith("@agent-native/agentkit-")) {
-              deps[key] = pinnedByWorkspace(
-                key,
-                opts.agentKitPackageDependencyVersions?.[key] ??
-                  agentKitDependencyVersion,
-              );
             }
           }
         }

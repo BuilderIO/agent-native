@@ -1,4 +1,4 @@
-import type { AgentSuggestion } from "@agent-native/agentkit-protocol";
+import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";

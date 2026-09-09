@@ -1,8 +1,11 @@
 {
   "name": "@agent-native/agentkit",
   "version": "0.1.0",
-  "description": "Provider-neutral AgentKit runtime for composable agent-native conversations.",
+  "description": "Provider-neutral AgentKit protocol, headless client, transports, and React runtime for composable agent-native conversations.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -11,7 +14,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "ARCHITECTURE.md"
   ],
   "type": "module",
   "sideEffects": [
@@ -24,53 +28,64 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./protocol": {
+      "types": "./dist/protocol/index.d.ts",
+      "import": "./dist/protocol/index.js"
+    },
     "./http": {
-      "types": "./dist/http.d.ts",
-      "import": "./dist/http.js"
+      "types": "./dist/adapters/index.d.ts",
+      "import": "./dist/adapters/index.js"
+    },
+    "./conformance": {
+      "types": "./dist/conformance/index.d.ts",
+      "import": "./dist/conformance/index.js"
     },
     "./react": {
-      "types": "./dist/react.d.ts",
-      "import": "./dist/react.js"
-    },
-    "./react/headless": {
-      "types": "./dist/react-headless.d.ts",
-      "import": "./dist/react-headless.js"
-    },
-    "./react/chat": {
-      "types": "./dist/react-chat.d.ts",
-      "import": "./dist/react-chat.js"
-    },
-    "./react/components": {
-      "types": "./dist/react-components.d.ts",
-      "import": "./dist/react-components.js"
-    },
-    "./react/context": {
-      "types": "./dist/react-context.d.ts",
-      "import": "./dist/react-context.js"
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
     },
     "./react/root": {
-      "types": "./dist/react-root.d.ts",
-      "import": "./dist/react-root.js"
+      "types": "./dist/react/root.d.ts",
+      "import": "./dist/react/root.js"
+    },
+    "./react/chat": {
+      "types": "./dist/react/chat.d.ts",
+      "import": "./dist/react/chat.js"
+    },
+    "./react/components": {
+      "types": "./dist/react/components.d.ts",
+      "import": "./dist/react/components.js"
+    },
+    "./react/context": {
+      "types": "./dist/react/context.d.ts",
+      "import": "./dist/react/context.js"
+    },
+    "./react/headless": {
+      "types": "./dist/react/headless.d.ts",
+      "import": "./dist/react/headless.js"
     },
     "./react/streaming-text": {
-      "types": "./dist/react-streaming-text.d.ts",
-      "import": "./dist/react-streaming-text.js"
+      "types": "./dist/react/streaming-text.d.ts",
+      "import": "./dist/react/streaming-text.js"
     },
-    "./react/styles.css": "./dist/styles.css"
+    "./react/styles.css": "./dist/react/styles.css"
   },
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
   "scripts": {
-    "build": "tsc && cp ../agentkit-react/src/styles.css dist/styles.css",
+    "build": "tsc && cp src/react/styles.css dist/react/styles.css",
+    "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@agent-native/agentkit-client": "workspace:*",
-    "@agent-native/agentkit-protocol": "workspace:*"
+    "@agent-native/toolkit": "workspace:*",
+    "@tabler/icons-react": "catalog:",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/react": "catalog:",
@@ -81,14 +96,14 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@agent-native/agentkit-adapters": "workspace:^",
-    "@agent-native/agentkit-react": "workspace:^"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "peerDependenciesMeta": {
-    "@agent-native/agentkit-adapters": {
+    "react": {
       "optional": true
     },
-    "@agent-native/agentkit-react": {
+    "react-dom": {
       "optional": true
     }
   }

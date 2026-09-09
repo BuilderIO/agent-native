@@ -3,7 +3,7 @@ import type {
   AgentMessage,
   AgentTransport,
   StartRunInput,
-} from "@agent-native/agentkit-protocol";
+} from "@agent-native/agentkit/protocol";
 
 export const acceptanceSuggestionPrompt =
   "Summarize the accepted AgentKit release in one sentence.";

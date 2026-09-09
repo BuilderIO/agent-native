@@ -25,11 +25,6 @@ on:
       # npm-published packages — any source change reaches here via the
       # Version Packages PR merge bumping their package.json.
       - "packages/agentkit/**"
-      - "packages/agentkit-adapters/**"
-      - "packages/agentkit-client/**"
-      - "packages/agentkit-conformance/**"
-      - "packages/agentkit-protocol/**"
-      - "packages/agentkit-react/**"
       - "packages/core/**"
       - "packages/creative-context/**"
       - "packages/dispatch/**"
@@ -427,11 +422,6 @@ jobs:
             .changesets[]
             | select(any(.releases[]?.name;
                 . == "@agent-native/agentkit" or
-                . == "@agent-native/agentkit-adapters" or
-                . == "@agent-native/agentkit-client" or
-                . == "@agent-native/agentkit-conformance" or
-                . == "@agent-native/agentkit-protocol" or
-                . == "@agent-native/agentkit-react" or
                 . == "@agent-native/core" or
                 . == "@agent-native/creative-context" or
                 . == "@agent-native/dispatch" or
@@ -629,11 +619,6 @@ jobs:
             entries=""
             for name in \
               @agent-native/agentkit \
-              @agent-native/agentkit-adapters \
-              @agent-native/agentkit-client \
-              @agent-native/agentkit-conformance \
-              @agent-native/agentkit-protocol \
-              @agent-native/agentkit-react \
               @agent-native/core \
               @agent-native/creative-context \
               @agent-native/dispatch \
@@ -724,10 +709,8 @@ jobs:
 
           rc=0
 
-          if has @agent-native/agentkit || has @agent-native/agentkit-adapters ||
-            has @agent-native/agentkit-client || has @agent-native/agentkit-conformance ||
-            has @agent-native/agentkit-protocol || has @agent-native/agentkit-react ||
-            has @agent-native/core || has @agent-native/creative-context ||
+          if has @agent-native/agentkit || has @agent-native/core ||
+            has @agent-native/creative-context ||
             has @agent-native/dispatch || has @agent-native/toolkit; then
             core_version="$(published_version @agent-native/core)"
             dispatch_version="$(published_version @agent-native/dispatch)"
@@ -747,10 +730,8 @@ jobs:
             note "Builder workspace not notified: no package it consumes was published."
           fi
 
-          if has @agent-native/agentkit || has @agent-native/agentkit-adapters ||
-            has @agent-native/agentkit-client || has @agent-native/agentkit-conformance ||
-            has @agent-native/agentkit-protocol || has @agent-native/agentkit-react ||
-            has @agent-native/core || has @agent-native/creative-context || has @agent-native/toolkit; then
+          if has @agent-native/agentkit || has @agent-native/core ||
+            has @agent-native/creative-context || has @agent-native/toolkit; then
             payload="$(jq -cn --arg p "$packages" --arg s "$SHA" --arg c "$RELEASE_CHANNEL" --arg rc "$RELEASE_DIST_TAG" \
               '{event_type:"agent-native-packages-published",client_payload:{channel:$c,releaseChannel:$rc,sha:$s,publishedPackages:$p}}')"
             dispatch "Starter template mirror" "$REPO" "$SELF_TOKEN" "$payload" || rc=1

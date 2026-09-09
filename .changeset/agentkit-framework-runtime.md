@@ -1,15 +1,13 @@
 ---
-"@agent-native/agentkit-adapters": minor
 "@agent-native/agentkit": minor
-"@agent-native/agentkit-client": minor
-"@agent-native/agentkit-conformance": minor
-"@agent-native/agentkit-protocol": minor
-"@agent-native/agentkit-react": minor
 "@agent-native/core": patch
 "@agent-native/toolkit": minor
 ---
 
-Introduce AgentKit as six focused public packages with a
+Introduce AgentKit as one public package with subpath exports for the protocol,
+headless client, HTTP transport, transport conformance, and React runtime
+(`@agent-native/agentkit`, `/protocol`, `/http`, `/conformance`, `/react`, and
+`/react/*`), where the root and `/http` entries stay React-free; a
 versioned, provider-neutral protocol; validated messages, runs, capabilities,
 approvals, activities, smart objects, uploads, actions, participants, tasks,
 custom content, and durable thread snapshots; and typed compatibility,

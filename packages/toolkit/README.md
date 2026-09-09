@@ -29,7 +29,7 @@ design-system adapters. Core owns runtime-backed chat surfaces and registries:
 streaming text, activity traces, approvals, tool and widget renderers, threads,
 attachments, and application-state adapters. Both layers are reusable, and
 Toolkit stays Core-free. The provider-neutral event contract lives in
-[`@agent-native/agentkit-protocol`](../agentkit-protocol/README.md).
+[`@agent-native/agentkit/protocol`](../agentkit/README.md).
 
 AgentKit is an independent implementation optimized for Agent-Native workflows.
 The protocol README records the shared product goals and clean implementation

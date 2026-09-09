@@ -569,8 +569,6 @@ async function createWorkspaceInteractive(
         dispatchDependencyVersion: getDispatchDependencyVersion(),
         toolkitDependencyVersion: getToolkitDependencyVersion(),
         agentKitDependencyVersion: getAgentKitDependencyVersion(),
-        agentKitPackageDependencyVersions:
-          getAgentKitPackageDependencyVersions(),
       });
       fixPackageJsonName(appDir, appName, templateName, {
         ...resolution,
@@ -917,7 +915,6 @@ async function scaffoldOneAppIntoWorkspace(
       dispatchDependencyVersion: getDispatchDependencyVersion(),
       toolkitDependencyVersion: getToolkitDependencyVersion(),
       agentKitDependencyVersion: getAgentKitDependencyVersion(),
-      agentKitPackageDependencyVersions: getAgentKitPackageDependencyVersions(),
     });
     fixPackageJsonName(appDir, appName, templateName, {
       ...resolution,
@@ -2107,8 +2104,6 @@ function postProcessStandalone(
             deps[key] = getToolkitDependencyVersion();
           } else if (key === "@agent-native/agentkit") {
             deps[key] = getAgentKitDependencyVersion();
-          } else if (key.startsWith("@agent-native/agentkit-")) {
-            deps[key] = getAgentKitPackageDependencyVersion(key);
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
           } else if (typeof val === "string" && val === "catalog:") {
@@ -3604,39 +3599,19 @@ function getToolkitDependencyVersion(): string {
 }
 
 function getAgentKitDependencyVersion(): string {
-  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
-    const localAgentKit = findLocalPackage("agentkit");
-    if (localAgentKit) return localPackageTarball(localAgentKit);
+  const localAgentKit = findLocalPackage("agentkit");
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1" && localAgentKit) {
+    return localPackageTarball(localAgentKit);
   }
 
-  return getAgentKitReleaseTrainVersion();
-}
-
-function getAgentKitPackageDependencyVersion(packageName: string): string {
-  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
-    const packageDirName = packageName.replace("@agent-native/", "");
-    const localPackage = findLocalPackage(packageDirName);
-    if (localPackage) return localPackageTarball(localPackage);
-  }
-
-  return getAgentKitReleaseTrainVersion();
-}
-
-/**
- * AgentKit packages publish as one compatibility-tested release train. Core
- * depends on the protocol package, so its resolved published range is the
- * authoritative pin for every AgentKit package a template consumes.
- */
-function getAgentKitReleaseTrainVersion(): string {
   const publishedRange = getOwnPackageDependencyVersion(
-    "@agent-native/agentkit-protocol",
+    "@agent-native/agentkit",
   );
   if (publishedRange !== "latest") return publishedRange;
 
-  const localProtocol = findLocalPackage("agentkit-protocol");
-  if (localProtocol) {
+  if (localAgentKit) {
     const manifest = JSON.parse(
-      fs.readFileSync(path.join(localProtocol, "package.json"), "utf-8"),
+      fs.readFileSync(path.join(localAgentKit, "package.json"), "utf-8"),
     ) as { version?: unknown };
     if (typeof manifest.version === "string" && manifest.version.length > 0) {
       return `^${manifest.version}`;
@@ -3644,18 +3619,7 @@ function getAgentKitReleaseTrainVersion(): string {
   }
 
   throw new Error(
-    "Cannot determine the compatible AgentKit release train from @agent-native/core. Reinstall Core before scaffolding Chat.",
-  );
-}
-
-function getAgentKitPackageDependencyVersions(): Record<string, string> {
-  return Object.fromEntries(
-    LOCAL_AGENTKIT_PACKAGES.filter((name) => name !== "agentkit").map(
-      (name) => {
-        const packageName = `@agent-native/${name}`;
-        return [packageName, getAgentKitPackageDependencyVersion(packageName)];
-      },
-    ),
+    "Cannot determine a compatible @agent-native/agentkit version from @agent-native/core. Reinstall Core before scaffolding Chat.",
   );
 }
 
@@ -3689,15 +3653,6 @@ function localToolkitOverride(): string | null {
   return localToolkit ? localPackageTarball(localToolkit) : null;
 }
 
-const LOCAL_AGENTKIT_PACKAGES = [
-  "agentkit-protocol",
-  "agentkit-client",
-  "agentkit-adapters",
-  "agentkit-conformance",
-  "agentkit-react",
-  "agentkit",
-] as const;
-
 function getLocalFrameworkPackageOverrides(): Record<string, string> {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return {};
 
@@ -3707,15 +3662,10 @@ function getLocalFrameworkPackageOverrides(): Record<string, string> {
     overrides['"@agent-native/toolkit"'] = JSON.stringify(localToolkit);
   }
 
-  for (const packageDirName of LOCAL_AGENTKIT_PACKAGES) {
-    const packageDir = findLocalPackage(packageDirName);
-    if (!packageDir) continue;
-    const packageJson = JSON.parse(
-      fs.readFileSync(path.join(packageDir, "package.json"), "utf-8"),
-    ) as { name?: unknown };
-    if (typeof packageJson.name !== "string") continue;
-    overrides[JSON.stringify(packageJson.name)] = JSON.stringify(
-      localPackageTarball(packageDir),
+  const localAgentKit = findLocalPackage("agentkit");
+  if (localAgentKit) {
+    overrides['"@agent-native/agentkit"'] = JSON.stringify(
+      localPackageTarball(localAgentKit),
     );
   }
 

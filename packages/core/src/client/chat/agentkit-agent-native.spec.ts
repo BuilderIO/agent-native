@@ -1,4 +1,4 @@
-import type { AgentEvent } from "@agent-native/agentkit-protocol";
+import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";

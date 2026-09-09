@@ -95,51 +95,6 @@ function exportedDistOutputs(packageDir: string): string[] {
 
 const targets: PackageTarget[] = [
   {
-    id: "agentkit-protocol",
-    name: "@agent-native/agentkit-protocol",
-    dir: "packages/agentkit-protocol",
-    expectedOutputs: exportedDistOutputs("packages/agentkit-protocol"),
-    tsBuildInfoFiles: [
-      "node_modules/.cache/tsbuildinfo/agentkit-protocol.tsbuildinfo",
-    ],
-  },
-  {
-    id: "agentkit-client",
-    name: "@agent-native/agentkit-client",
-    dir: "packages/agentkit-client",
-    expectedOutputs: exportedDistOutputs("packages/agentkit-client"),
-    tsBuildInfoFiles: [
-      "node_modules/.cache/tsbuildinfo/agentkit-client.tsbuildinfo",
-    ],
-  },
-  {
-    id: "agentkit-adapters",
-    name: "@agent-native/agentkit-adapters",
-    dir: "packages/agentkit-adapters",
-    expectedOutputs: exportedDistOutputs("packages/agentkit-adapters"),
-    tsBuildInfoFiles: [
-      "node_modules/.cache/tsbuildinfo/agentkit-adapters.tsbuildinfo",
-    ],
-  },
-  {
-    id: "agentkit-conformance",
-    name: "@agent-native/agentkit-conformance",
-    dir: "packages/agentkit-conformance",
-    expectedOutputs: exportedDistOutputs("packages/agentkit-conformance"),
-    tsBuildInfoFiles: [
-      "node_modules/.cache/tsbuildinfo/agentkit-conformance.tsbuildinfo",
-    ],
-  },
-  {
-    id: "agentkit-react",
-    name: "@agent-native/agentkit-react",
-    dir: "packages/agentkit-react",
-    expectedOutputs: exportedDistOutputs("packages/agentkit-react"),
-    tsBuildInfoFiles: [
-      "node_modules/.cache/tsbuildinfo/agentkit-react.tsbuildinfo",
-    ],
-  },
-  {
     id: "agentkit",
     name: "@agent-native/agentkit",
     dir: "packages/agentkit",
@@ -242,22 +197,8 @@ const targets: PackageTarget[] = [
 ];
 
 const modeTargets: Record<PrebuildMode, string[]> = {
-  "agentkit-acceptance": [
-    "agentkit-protocol",
-    "agentkit-client",
-    "agentkit-adapters",
-    "agentkit-conformance",
-    "agentkit-react",
-    "agentkit",
-    "toolkit",
-    "core",
-  ],
+  "agentkit-acceptance": ["agentkit", "toolkit", "core"],
   dev: [
-    "agentkit-protocol",
-    "agentkit-client",
-    "agentkit-adapters",
-    "agentkit-conformance",
-    "agentkit-react",
     "agentkit",
     "recap-cli",
     "shared-app-config",
@@ -270,11 +211,6 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "pinpoint",
   ],
   postinstall: [
-    "agentkit-protocol",
-    "agentkit-client",
-    "agentkit-adapters",
-    "agentkit-conformance",
-    "agentkit-react",
     "agentkit",
     "recap-cli",
     "shared-app-config",

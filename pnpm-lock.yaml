@@ -299,97 +299,6 @@ importers:
 
   packages/agentkit:
     dependencies:
-      '@agent-native/agentkit-adapters':
-        specifier: workspace:^
-        version: link:../agentkit-adapters
-      '@agent-native/agentkit-client':
-        specifier: workspace:*
-        version: link:../agentkit-client
-      '@agent-native/agentkit-protocol':
-        specifier: workspace:*
-        version: link:../agentkit-protocol
-      '@agent-native/agentkit-react':
-        specifier: workspace:^
-        version: link:../agentkit-react
-    devDependencies:
-      '@types/react':
-        specifier: ^19.2.14
-        version: 19.2.17
-      '@types/react-dom':
-        specifier: ^19.2.3
-        version: 19.2.3(@types/react@19.2.17)
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
-      typescript-7:
-        specifier: 'catalog:'
-        version: typescript@7.0.2
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@20.12.0)(jsdom@29.1.1(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
-
-  packages/agentkit-adapters:
-    dependencies:
-      '@agent-native/agentkit-protocol':
-        specifier: workspace:*
-        version: link:../agentkit-protocol
-    devDependencies:
-      typescript-7:
-        specifier: 'catalog:'
-        version: typescript@7.0.2
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@20.12.0)(jsdom@29.1.1(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
-
-  packages/agentkit-client:
-    dependencies:
-      '@agent-native/agentkit-protocol':
-        specifier: workspace:*
-        version: link:../agentkit-protocol
-    devDependencies:
-      typescript-7:
-        specifier: 'catalog:'
-        version: typescript@7.0.2
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@20.12.0)(jsdom@29.1.1(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
-
-  packages/agentkit-conformance:
-    dependencies:
-      '@agent-native/agentkit-protocol':
-        specifier: workspace:*
-        version: link:../agentkit-protocol
-    devDependencies:
-      typescript-7:
-        specifier: 'catalog:'
-        version: typescript@7.0.2
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@20.12.0)(jsdom@29.1.1(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
-
-  packages/agentkit-protocol:
-    devDependencies:
-      typescript-7:
-        specifier: 'catalog:'
-        version: typescript@7.0.2
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@20.12.0)(jsdom@29.1.1(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
-
-  packages/agentkit-react:
-    dependencies:
-      '@agent-native/agentkit-adapters':
-        specifier: workspace:*
-        version: link:../agentkit-adapters
-      '@agent-native/agentkit-client':
-        specifier: workspace:*
-        version: link:../agentkit-client
-      '@agent-native/agentkit-protocol':
-        specifier: workspace:*
-        version: link:../agentkit-protocol
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../toolkit
@@ -485,9 +394,9 @@ importers:
 
   packages/core:
     dependencies:
-      '@agent-native/agentkit-protocol':
+      '@agent-native/agentkit':
         specifier: workspace:^
-        version: link:../agentkit-protocol
+        version: link:../agentkit
       '@agent-native/recap-cli':
         specifier: workspace:*
         version: link:../recap-cli
@@ -2799,9 +2708,6 @@ importers:
       '@agent-native/agentkit':
         specifier: workspace:*
         version: link:../../packages/agentkit
-      '@agent-native/agentkit-react':
-        specifier: workspace:*
-        version: link:../../packages/agentkit-react
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core

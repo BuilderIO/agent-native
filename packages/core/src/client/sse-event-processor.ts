@@ -1,4 +1,4 @@
-import type { AgentSuggestion } from "@agent-native/agentkit-protocol";
+import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 import type { ChatModelRunResult } from "@assistant-ui/react";
 
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";

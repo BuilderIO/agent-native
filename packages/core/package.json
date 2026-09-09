@@ -391,7 +391,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@agent-native/agentkit-protocol": "workspace:^",
+    "@agent-native/agentkit": "workspace:^",
     "@agent-native/recap-cli": "workspace:*",
     "@agent-native/toolkit": "workspace:^",
     "@amplitude/analytics-browser": "^2.41.1",
