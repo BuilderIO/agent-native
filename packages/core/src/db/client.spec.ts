@@ -240,6 +240,19 @@ describe("getRuntimeDatabaseUrl", () => {
     expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL_UNPOOLED");
   });
 
+  it("ignores a malformed unpooled alias and falls back to DATABASE_URL", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("DATABASE_URL", "postgres://pooled.example/db");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "postgresql://");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { getRuntimeDatabaseSource, getRuntimeDatabaseUrl } =
+      await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://pooled.example/db");
+    expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL");
+  });
+
   it("keeps pooled URLs unchanged outside serverless runtimes", async () => {
     vi.stubEnv(
       "DATABASE_URL",
