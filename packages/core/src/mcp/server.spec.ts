@@ -3871,22 +3871,20 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).not.toContain("embed-session-ticket");
   });
 
-  it("does NOT surface raw result via structuredContent for model-visible (non-app-only) tools", async () => {
-    // Counter-regression: only `visibility: ["app"]` tools get the raw
-    // structuredContent escape hatch. Tools the LLM can call must continue
-    // to go through the normal text + purge path so embed-start URLs and
-    // other internal fields stay hidden from the model.
+  it("preserves complete mutation receipts while sanitizing model-visible structured results", async () => {
     const embedConfig = {
       ...config,
       actions: {
         "model-callable-helper": {
+          mcpApp: { structuredContent: true },
           tool: {
             description: "A normal model-visible tool",
             // No `visibility` hint = model + app visible.
           },
           run: async () => ({
             startUrl: "/_agent-native/embed/start?ticket=should-be-hidden",
-            payload: "ok",
+            payload: "x".repeat(3000),
+            receipt: { id: "operation-42", verified: true },
           }),
         },
       },
@@ -3906,7 +3904,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    expect(out.result.structuredContent).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      payload: "x".repeat(3000),
+      receipt: { id: "operation-42", verified: true },
+    });
+    expect(JSON.stringify(out.result.structuredContent)).not.toContain(
+      "should-be-hidden",
+    );
     expect(out.result.content[0].text).not.toContain("should-be-hidden");
   });
 

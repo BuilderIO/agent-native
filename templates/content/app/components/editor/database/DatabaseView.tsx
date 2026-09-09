@@ -299,11 +299,21 @@ export interface DatabaseViewProps {
   renderMode?: "page" | "inline";
   canEdit?: boolean;
   isActive?: boolean;
+  viewId?: string | null;
   onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }
 
 const CONTENT_DATABASE_PAGE_SIZE = 100;
 const CONTENT_DATABASE_MAX_ITEM_LIMIT = 5_000;
+
+export function createDatabaseViewSaveQueue() {
+  let previous: Promise<unknown> = Promise.resolve();
+  return <T,>(save: () => Promise<T>): Promise<T> => {
+    const next = previous.then(save, save);
+    previous = next;
+    return next;
+  };
+}
 
 export function databaseSearchExpandedItemLimit(
   searchQuery: string,
@@ -748,6 +758,7 @@ export function DatabaseView({
   renderMode = "page",
   canEdit = true,
   isActive,
+  viewId,
   onExportContextChange,
 }: DatabaseViewProps) {
   const { data: document } = useDocument(databaseDocumentId);
@@ -764,6 +775,7 @@ export function DatabaseView({
       renderMode={renderMode}
       canEdit={effectiveCanEdit}
       isActive={isActive ?? renderMode === "page"}
+      viewId={viewId}
       onExportContextChange={onExportContextChange}
     />
   );
@@ -777,6 +789,7 @@ function DatabaseTable({
   renderMode,
   canEdit,
   isActive,
+  viewId,
   onExportContextChange,
 }: {
   document: Document;
@@ -786,6 +799,7 @@ function DatabaseTable({
   renderMode: "page" | "inline";
   canEdit: boolean;
   isActive: boolean;
+  viewId?: string | null;
   onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }) {
   const t = useT();
@@ -878,8 +892,10 @@ function DatabaseTable({
     renderMode,
   );
   const serializedSearchParams = searchParams.toString();
-  const requestedViewId =
-    searchParams.get(viewSelectionSearchParam)?.trim() || null;
+  const requestedViewId = requestedDatabaseViewId(
+    viewId,
+    searchParams.get(viewSelectionSearchParam),
+  );
   const personalViewDatabaseId = data?.database.id ?? null;
   const newDatabaseRowLabel = isWorkspaceCatalog
     ? t("sidebar.addWorkspace")
@@ -1068,6 +1084,16 @@ function DatabaseTable({
   const submittedViewRef = useRef<{ databaseId: string; key: string } | null>(
     null,
   );
+  const viewSetupRevisionRef = useRef<{
+    databaseId: string;
+    target: {
+      spaceId: string;
+      databaseId: string;
+      databaseDocumentId: string;
+    };
+    schemaRevision: string;
+    configurationRevision: string;
+  } | null>(null);
 
   const [dateViewMonth, setDateViewMonth] = useState(() =>
     startOfMonth(new Date()),
@@ -1102,6 +1128,7 @@ function DatabaseTable({
   );
   const hydratedViewRef = useRef("");
   const hydratedDatabaseIdRef = useRef<string | null>(null);
+  const viewSaveQueueRef = useRef(createDatabaseViewSaveQueue());
   const saveViewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const personalViewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -1987,15 +2014,31 @@ function DatabaseTable({
 
   async function savePersonalQueryForEveryone() {
     if (!databaseId) return;
-
     try {
-      const response = await updateView.mutateAsync({
-        databaseId,
-        viewConfig,
+      const response = await viewSaveQueueRef.current(async () => {
+        const revision = viewSetupRevisionRef.current;
+        if (!revision || revision.databaseId !== databaseId) {
+          throw new Error(dbText("failedToSaveView"));
+        }
+        const result = await updateView.mutateAsync({
+          operation: "replace",
+          target: revision.target,
+          expectedSchemaRevision: revision.schemaRevision,
+          expectedConfigurationRevision: revision.configurationRevision,
+          idempotencyKey: crypto.randomUUID(),
+          viewConfig,
+        });
+        if (viewPersistenceRef.current.databaseId === databaseId) {
+          viewSetupRevisionRef.current = {
+            ...revision,
+            schemaRevision: result.receipt.revisions.schemaAfter,
+            configurationRevision: result.receipt.revisions.configurationAfter,
+          };
+        }
+        return result;
       });
-      const nextViewConfig = normalizeClientDatabaseViewConfig(
-        response.database.viewConfig,
-      );
+      if (viewPersistenceRef.current.databaseId !== databaseId) return;
+      const nextViewConfig = normalizeClientDatabaseViewConfig(response.value);
       if (personalViewSaveTimerRef.current) {
         clearTimeout(personalViewSaveTimerRef.current);
         personalViewSaveTimerRef.current = null;
@@ -2592,6 +2635,17 @@ function DatabaseTable({
       data.database.id,
       reconciled.viewConfig,
     );
+    const mutationContract = data.mutationContract;
+    if (mutationContract && data.configurationRevision) {
+      const { authorityScope: _authorityScope, ...target } =
+        mutationContract.target;
+      viewSetupRevisionRef.current = {
+        databaseId: data.database.id,
+        target,
+        schemaRevision: mutationContract.schemaRevision,
+        configurationRevision: data.configurationRevision,
+      };
+    }
     if (hydratedViewRef.current === nextKey) return;
     hydratedViewRef.current = nextKey;
     setSavedViewConfig(reconciled.savedViewConfig);
@@ -2609,6 +2663,8 @@ function DatabaseTable({
   }, [
     data?.database.id,
     data?.database.viewConfig,
+    data?.configurationRevision,
+    data?.mutationContract,
     personalView.data?.overrides,
     personalView.isLoading,
     requestedViewId,
@@ -2644,45 +2700,62 @@ function DatabaseTable({
     }
     saveViewTimerRef.current = setTimeout(() => {
       submittedViewRef.current = { databaseId, key: nextKey };
-      void updateView
-        .mutateAsync({ databaseId, viewConfig: sharedViewConfig })
-        .then(
-          (response) => {
-            if (viewPersistenceRef.current.databaseId !== databaseId) return;
-            const nextViewConfig = normalizeClientDatabaseViewConfig(
-              response.database.viewConfig,
-            );
-            viewPersistenceRef.current.savedViewConfig = nextViewConfig;
-            setSavedViewConfig(nextViewConfig);
-            if (
-              submittedViewRef.current?.databaseId === databaseId &&
-              submittedViewRef.current.key === nextKey
-            ) {
-              submittedViewRef.current = null;
-            }
-          },
-          (err: unknown) => {
-            if (viewPersistenceRef.current.databaseId !== databaseId) return;
-            const latest = viewPersistenceRef.current;
-            setViewConfig((current) =>
-              rollbackFailedDatabaseViewSave({
-                databaseId,
-                current,
-                saved: latest.savedViewConfig,
-                failed: sharedViewConfig,
-                personalQueryDirty: latest.personalQueryDirty,
-              }),
-            );
-            if (submittedViewRef.current?.key === nextKey)
-              submittedViewRef.current = null;
-            toast.error(dbText("failedToSaveView"), {
-              description:
-                err instanceof Error
-                  ? err.message
-                  : dbText("somethingWentWrong"),
-            });
-          },
-        );
+      void viewSaveQueueRef.current(async () => {
+        const revision = viewSetupRevisionRef.current;
+        if (!revision || revision.databaseId !== databaseId) return;
+        return updateView
+          .mutateAsync({
+            operation: "replace",
+            target: revision.target,
+            expectedSchemaRevision: revision.schemaRevision,
+            expectedConfigurationRevision: revision.configurationRevision,
+            idempotencyKey: crypto.randomUUID(),
+            viewConfig: sharedViewConfig,
+          })
+          .then(
+            (response) => {
+              if (viewPersistenceRef.current.databaseId !== databaseId) return;
+              const nextViewConfig = normalizeClientDatabaseViewConfig(
+                response.value,
+              );
+              viewSetupRevisionRef.current = {
+                ...revision,
+                schemaRevision: response.receipt.revisions.schemaAfter,
+                configurationRevision:
+                  response.receipt.revisions.configurationAfter,
+              };
+              viewPersistenceRef.current.savedViewConfig = nextViewConfig;
+              setSavedViewConfig(nextViewConfig);
+              if (
+                submittedViewRef.current?.databaseId === databaseId &&
+                submittedViewRef.current.key === nextKey
+              ) {
+                submittedViewRef.current = null;
+              }
+            },
+            (err: unknown) => {
+              if (viewPersistenceRef.current.databaseId !== databaseId) return;
+              const latest = viewPersistenceRef.current;
+              setViewConfig((current) =>
+                rollbackFailedDatabaseViewSave({
+                  databaseId,
+                  current,
+                  saved: latest.savedViewConfig,
+                  failed: sharedViewConfig,
+                  personalQueryDirty: latest.personalQueryDirty,
+                }),
+              );
+              if (submittedViewRef.current?.key === nextKey)
+                submittedViewRef.current = null;
+              toast.error(dbText("failedToSaveView"), {
+                description:
+                  err instanceof Error
+                    ? err.message
+                    : dbText("somethingWentWrong"),
+              });
+            },
+          );
+      });
     }, 350);
     return () => {
       if (saveViewTimerRef.current) {
@@ -13309,6 +13382,13 @@ export function selectDatabaseView(
 }
 
 export const DATABASE_VIEW_SELECTION_SEARCH_PARAM = "databaseViewId";
+
+export function requestedDatabaseViewId(
+  explicitViewId: string | null | undefined,
+  savedSelection: string | null | undefined,
+) {
+  return explicitViewId?.trim() || savedSelection?.trim() || null;
+}
 
 export function databaseViewSelectionSearchParam(
   databaseId: string,

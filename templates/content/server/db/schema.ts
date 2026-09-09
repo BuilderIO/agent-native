@@ -542,6 +542,29 @@ export const contentDatabaseRowMutationReceipts = table(
   ],
 );
 
+export const contentDatabaseSetupReceipts = table(
+  "content_database_setup_receipts",
+  {
+    id: text("id").primaryKey(),
+    actorEmail: text("actor_email").notNull(),
+    operation: text("operation").notNull(),
+    scopeId: text("scope_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    databaseId: text("database_id"),
+    resultJson: text("result_json"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (receipt) => [
+    uniqueIndex("content_database_setup_receipts_actor_operation_key").on(
+      receipt.actorEmail,
+      receipt.operation,
+      receipt.scopeId,
+      receipt.idempotencyKey,
+    ),
+  ],
+);
+
 export const documentEditReceipts = table(
   "document_edit_receipts",
   {

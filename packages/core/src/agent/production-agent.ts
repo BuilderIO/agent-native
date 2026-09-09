@@ -40,6 +40,7 @@ import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import { isObjectOnly } from "../mcp/tool-input-schema.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
 import {
   completeRun as completeProgressRun,
@@ -3744,7 +3745,7 @@ function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
 ): EngineTool["inputSchema"] | null {
   if (!schema) return { type: "object", properties: {} };
-  if (schema.type !== "object") return null;
+  if (!isObjectOnly(schema)) return null;
   type ToolParams = NonNullable<ActionTool["parameters"]>;
   let cloned: ToolParams;
   try {

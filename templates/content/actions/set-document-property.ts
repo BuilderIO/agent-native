@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, ne } from "drizzle-orm";
@@ -298,8 +299,9 @@ export default defineAction({
           parsed = null;
         }
         if (typeof parsed !== "string" || !parsed.trim()) {
-          throw new Error(
+          throw new ActionContractError(
             "A database natural key must remain a non-empty string.",
+            { errorCode: "INVALID_NATURAL_KEY", statusCode: 400 },
           );
         }
         const [existingNaturalKeyClaim] = await tx
@@ -319,8 +321,9 @@ export default defineAction({
           existingNaturalKeyClaim &&
           existingNaturalKeyClaim.keyValueJson !== valueJson
         ) {
-          throw new Error(
+          throw new ActionContractError(
             "A claimed database natural key cannot be changed. Create a new row instead.",
+            { errorCode: "NATURAL_KEY_IMMUTABLE", statusCode: 409 },
           );
         }
       }

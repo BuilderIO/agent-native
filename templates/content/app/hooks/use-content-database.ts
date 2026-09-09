@@ -53,7 +53,6 @@ import type {
   SubmitContentDatabaseFormResponse,
   SuggestSourceJoinKeyResponse,
   UpdateContentDatabasePersonalViewRequest,
-  UpdateContentDatabaseViewRequest,
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
 import type { Query, QueryClient } from "@tanstack/react-query";
@@ -781,6 +780,25 @@ export function useCreateContentDatabase(
   );
 }
 
+export function contentDatabaseCreationRequest(args: {
+  newDocumentId: string;
+  parentId?: string | null;
+  spaceId: string | undefined;
+  title: string;
+}): CreateDatabaseRequest {
+  const parentId = args.parentId ?? null;
+  if (!args.spaceId) {
+    throw new Error("Choose a Content space before creating a database");
+  }
+  return {
+    newDocumentId: args.newDocumentId,
+    idempotencyKey: args.newDocumentId,
+    parentId,
+    spaceId: args.spaceId,
+    title: args.title,
+  };
+}
+
 export function useCreateInlineContentDatabase(hostDocumentId: string | null) {
   const queryClient = useQueryClient();
   return useActionMutation<
@@ -1061,8 +1079,27 @@ export function useUpdateContentDatabaseView(documentId: string) {
   const mutationSequences =
     contentDatabaseViewMutationSequencesFor(queryClient);
   return useActionMutation<
-    ContentDatabaseResponse,
-    UpdateContentDatabaseViewRequest
+    {
+      receipt: {
+        revisions: {
+          schemaAfter: string;
+          configurationAfter: string;
+        };
+      };
+      value: ContentDatabaseResponse["database"]["viewConfig"];
+    },
+    {
+      operation: "replace";
+      target: {
+        spaceId: string;
+        databaseId: string;
+        databaseDocumentId: string;
+      };
+      expectedSchemaRevision: string;
+      expectedConfigurationRevision: string;
+      idempotencyKey: string;
+      viewConfig: ContentDatabaseResponse["database"]["viewConfig"];
+    }
   >("update-content-database-view", {
     skipActionQueryInvalidation: true,
     scope: { id: `content-database-view:${documentId}` },
@@ -1072,7 +1109,7 @@ export function useUpdateContentDatabaseView(documentId: string) {
       await queryClient.cancelQueries(contentDatabaseQueryFilter(documentId));
       return { sequence };
     },
-    onSuccess: (data, _variables, context) => {
+    onSuccess: (data, variables, context) => {
       if (
         (context as { sequence?: number } | undefined)?.sequence !==
         mutationSequences.get(documentId)
@@ -1085,12 +1122,23 @@ export function useUpdateContentDatabaseView(documentId: string) {
           current
             ? {
                 ...current,
-                database: data.database,
+                configurationRevision:
+                  data.receipt.revisions.configurationAfter,
+                mutationContract: current.mutationContract
+                  ? {
+                      ...current.mutationContract,
+                      schemaRevision: data.receipt.revisions.schemaAfter,
+                    }
+                  : current.mutationContract,
+                database: {
+                  ...current.database,
+                  viewConfig: data.value,
+                },
               }
             : current,
       );
     },
-    onSettled: (_data, _error, _variables, context) => {
+    onSettled: (_data, _error, variables, context) => {
       if (
         (context as { sequence?: number } | undefined)?.sequence !==
         mutationSequences.get(documentId)
@@ -1100,6 +1148,9 @@ export function useUpdateContentDatabaseView(documentId: string) {
       void queryClient.invalidateQueries(
         contentDatabaseQueryFilter(documentId),
       );
+      void queryClient.invalidateQueries({
+        queryKey: contentDatabaseByIdQueryKey(variables.target.databaseId),
+      });
     },
   });
 }

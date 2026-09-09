@@ -157,6 +157,7 @@ interface DocumentEditorProps {
   documentId: string;
   databaseId?: string | null;
   databaseDocumentId?: string | null;
+  viewId?: string | null;
 }
 
 export interface PageEditorSession {
@@ -315,12 +316,14 @@ export function DocumentEditor({
   documentId,
   databaseId,
   databaseDocumentId,
+  viewId,
 }: DocumentEditorProps) {
   return (
     <PageEditorSurface
       documentId={documentId}
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
+      viewId={viewId}
       host="page"
     />
   );
@@ -341,6 +344,7 @@ export function PageEditorSurface({
   documentId,
   databaseId,
   databaseDocumentId,
+  viewId,
   host,
   onSessionChange,
   onDelete,
@@ -460,6 +464,7 @@ export function PageEditorSurface({
         document={document}
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
+        viewId={viewId}
         host={host}
         onSessionChange={onSessionChange}
         onDelete={onDelete}
@@ -647,6 +652,7 @@ interface DocumentEditorBodyProps {
   document: Document;
   databaseId?: string | null;
   databaseDocumentId?: string | null;
+  viewId?: string | null;
   host: "page" | "preview";
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
@@ -1054,6 +1060,7 @@ function PageEditorSessionBody({
   document,
   databaseId,
   databaseDocumentId,
+  viewId,
   host,
   onSessionChange,
   onDelete,
@@ -3714,6 +3721,7 @@ function PageEditorSessionBody({
                     <DocumentDatabase
                       document={document}
                       canEdit={canEdit}
+                      viewId={viewId}
                       onExportContextChange={handleDatabaseExportContextChange}
                     />
                   </div>

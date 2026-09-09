@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   acquireDatabaseSourceOperation,
+  createDatabaseViewSaveQueue,
   databaseBuilderBulkUpdateSource,
   databaseBuilderHydrationSourceForItem,
   databaseBulkEditableProperties,
@@ -67,7 +68,18 @@ import {
   previewDraftNeedsConflict,
   previewDraftMissingCasRecovery,
   preparedBuilderReviewMatches,
+  requestedDatabaseViewId,
 } from "./DatabaseView";
+
+describe("database view deep-link selection", () => {
+  it("prefers the explicit route view without changing the saved default", () => {
+    expect(requestedDatabaseViewId(" ready-drafts ", "default")).toBe(
+      "ready-drafts",
+    );
+    expect(requestedDatabaseViewId(null, " default ")).toBe("default");
+    expect(requestedDatabaseViewId("   ", null)).toBeNull();
+  });
+});
 
 describe("database source page projections", () => {
   it("does not present page-scoped review counts as complete", () => {
@@ -1616,5 +1628,31 @@ describe("Database bulk multi-select edit helpers", () => {
       addOptionIds: [],
       removeOptionIds: ["open-source"],
     });
+  });
+});
+
+describe("createDatabaseViewSaveQueue", () => {
+  it("constructs a queued save after the previous receipt updates revisions", async () => {
+    const enqueue = createDatabaseViewSaveQueue();
+    let revision = "S0/C0";
+    const inputs: string[] = [];
+    let finishFirst!: () => void;
+    const firstResponse = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const first = enqueue(async () => {
+      inputs.push(revision);
+      await firstResponse;
+      revision = "S1/C1";
+    });
+    const second = enqueue(async () => {
+      inputs.push(revision);
+      revision = "S2/C2";
+    });
+    await Promise.resolve();
+    expect(inputs).toEqual(["S0/C0"]);
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(inputs).toEqual(["S0/C0", "S1/C1"]);
   });
 });

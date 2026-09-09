@@ -249,6 +249,7 @@ export async function loadContext(
   role: "viewer" | "editor",
   db: Db = getDb(),
   accessAlreadyResolved = false,
+  includeDeleted = false,
 ): Promise<MutationContext> {
   const [database] = await db
     .select()
@@ -256,7 +257,7 @@ export async function loadContext(
     .where(
       and(
         eq(schema.contentDatabases.id, target.databaseId),
-        isNull(schema.contentDatabases.deletedAt),
+        includeDeleted ? undefined : isNull(schema.contentDatabases.deletedAt),
       ),
     );
   if (!database) {
@@ -273,7 +274,7 @@ export async function loadContext(
           .where(
             and(
               eq(schema.documents.id, database.documentId),
-              isNull(schema.documents.trashedAt),
+              includeDeleted ? undefined : isNull(schema.documents.trashedAt),
             ),
           )
       )[0]
@@ -833,7 +834,7 @@ function resultForReceipt(
     row: {
       itemId: snapshot.item.id,
       documentId: snapshot.document.id,
-      urlPath: `/page/${snapshot.document.id}`,
+      urlPath: `/page/${encodeURIComponent(snapshot.document.id)}?${new URLSearchParams({ databaseId: context.database.id, databaseDocumentId: context.database.documentId }).toString()}`,
       rowRevision: snapshot.revision,
     },
     affected: {

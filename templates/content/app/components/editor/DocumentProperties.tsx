@@ -903,6 +903,7 @@ export function DocumentProperties({
 
       {loaded && canManageSchema && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
+          databaseDocumentId={databaseDocumentId ?? documentId}
           documentId={documentId}
           databaseId={databaseId}
           properties={hiddenProperties}
@@ -912,6 +913,7 @@ export function DocumentProperties({
 
       {loaded && canManageSchema && databaseId ? (
         <AddProperty
+          databaseDocumentId={databaseDocumentId ?? documentId}
           documentId={documentId}
           databaseId={databaseId}
           popoversPortalled={popoversPortalled}
@@ -932,16 +934,22 @@ function isPropertyVisible(property: DocumentProperty) {
 
 function HiddenPropertiesMenu({
   documentId,
+  databaseDocumentId = documentId,
   databaseId,
   properties,
   t,
 }: {
   documentId: string;
+  databaseDocumentId?: string;
   databaseId: string;
   properties: DocumentProperty[];
   t: TFunction;
 }) {
-  const configure = useConfigureDocumentProperty(documentId, databaseId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
 
   async function showProperty(property: DocumentProperty) {
     await configure.mutateAsync({
@@ -1023,6 +1031,7 @@ function PropertyRow({
     <div className="grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
       {canManageSchema && !property.definition.systemRole ? (
         <PropertyManagementPopover
+          databaseDocumentId={databaseDocumentId}
           property={property}
           documentId={documentId}
           databaseId={property.definition.databaseId!}
@@ -1089,6 +1098,7 @@ export function propertyTypeForSourceFieldType(
 export function PropertyManagementPopover({
   property,
   documentId,
+  databaseDocumentId = documentId,
   databaseId,
   icon: Icon,
   triggerClassName,
@@ -1108,6 +1118,7 @@ export function PropertyManagementPopover({
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId?: string;
   databaseId: string;
   icon: Icon;
   triggerClassName?: string;
@@ -1141,7 +1152,11 @@ export function PropertyManagementPopover({
   const quickFilters = databaseQuickFilterOptionsForColumn(
     property.definition.type,
   );
-  const configure = useConfigureDocumentProperty(documentId, databaseId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
   const duplicate = useDuplicateDocumentProperty(documentId, databaseId);
   const remove = useDeleteDocumentProperty(documentId, databaseId);
   const { data: propertiesData } = useDocumentProperties(
@@ -3296,6 +3311,7 @@ function OptionValueEditor({
 
 export function AddProperty({
   documentId,
+  databaseDocumentId = documentId,
   databaseId,
   variant = "default",
   label,
@@ -3307,6 +3323,7 @@ export function AddProperty({
   onOpenRequestHandled,
 }: {
   documentId: string;
+  databaseDocumentId?: string;
   databaseId: string;
   variant?: "default" | "header" | "icon";
   label?: string;
@@ -3318,7 +3335,11 @@ export function AddProperty({
   onOpenRequestHandled?: (requestId: number) => void;
 }) {
   const t = useT();
-  const configure = useConfigureDocumentProperty(documentId, databaseId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
   const addSourceFieldProperty =
     useAddContentDatabaseSourceFieldProperty(documentId);
   const [open, setOpen] = useState(false);

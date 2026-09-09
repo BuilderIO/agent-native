@@ -74,6 +74,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   applyOptimisticItemToContentDatabase,
+  contentDatabaseCreationRequest,
   contentDatabaseByIdQueryKey,
   isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
@@ -1540,12 +1541,23 @@ export function DocumentSidebar({
       onNavigate?.();
 
       try {
-        const result = await createDatabase.mutateAsync({
-          newDocumentId: id,
-          parentId: parentId ?? null,
-          spaceId: parentId ? undefined : rootSpaceId,
-          title,
-        });
+        const parentFilesDocumentId = parentId
+          ? documents.find((document) => document.id === parentId)
+              ?.databaseMembership?.databaseDocumentId
+          : undefined;
+        const spaceId = parentFilesDocumentId
+          ? contentSpaces.find(
+              (space) => space.filesDocumentId === parentFilesDocumentId,
+            )?.id
+          : rootSpaceId;
+        const result = await createDatabase.mutateAsync(
+          contentDatabaseCreationRequest({
+            newDocumentId: id,
+            parentId: parentId ?? null,
+            spaceId,
+            title,
+          }),
+        );
         const nextId = result.database.documentId;
         if (nextId !== id) {
           queryClient.removeQueries(documentQueryFilter(id));
@@ -1577,6 +1589,7 @@ export function DocumentSidebar({
     },
     [
       createDatabase,
+      contentSpaces,
       documents,
       location.hash,
       location.pathname,
