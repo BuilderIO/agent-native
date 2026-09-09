@@ -59,11 +59,38 @@ not dispatch needs_manual items or items that already started.
     const repaired = repairSlackFeedbackPrompt(existing);
 
     expect(repaired).toContain("already has eyes 👀 or robot_face 🤖");
+    expect(repaired).toContain("alreadyClaimed true");
     expect(repaired).toContain("omit reaction");
     expect(repaired).toContain("neither eyes nor robot_face");
     expect(repaired).toContain("Cluster only items listed in this run");
     expect(repaired).not.toContain(
       "a short reason, and reaction robot_face 🤖.",
+    );
+    expect(repaired).not.toContain(
+      "call dispatch-factory-item with clearBug false, omit reaction",
+    );
+  });
+
+  it("repairs the intermediate claimed skip that used clearBug false", () => {
+    const existing = `# Factory Slack feedback triage
+
+Look at the parent message reactions from get-slack-feedback-context. If the
+parent already has eyes 👀 or robot_face 🤖, it has already been looked at:
+call dispatch-factory-item with clearBug false, omit reaction, and a short
+reason that names the existing marker. Do not start Builder work on it.
+
+For every other item, call dispatch-factory-item with clearBug true or false,
+productUxImplications false unless it is a pure product or design decision
+with no single correct fix, and a short reason. Pass reaction robot_face 🤖
+only when clearBug is true and the parent has neither eyes nor robot_face.
+Omit reaction on skips.
+`;
+
+    const repaired = repairSlackFeedbackPrompt(existing);
+
+    expect(repaired).toContain("alreadyClaimed true");
+    expect(repaired).not.toContain(
+      "call dispatch-factory-item with clearBug false, omit reaction",
     );
   });
 });

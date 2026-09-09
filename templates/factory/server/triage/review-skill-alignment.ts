@@ -22,8 +22,8 @@ contract is evidence-first and reply-producing:
 - Check the existing Slack reaction marker and owner before any write.
   Preserve an existing marker; if reactions cannot be read, do not guess or
   add one. If the parent already has eyes 👀 or robot_face 🤖, call
-  \`dispatch-factory-item\` with \`clearBug: false\`, omit reaction, and do not
-  start Builder work. Do not react to or dispatch Design UX/interaction
+  \`dispatch-factory-item\` with \`alreadyClaimed: true\`, omit reaction, and
+  do not start Builder work. Do not react to or dispatch Design UX/interaction
   work (Sid) or any Content work (Alice); record the owner instead.
 - For an actionable repo-owned Slack item with no existing eyes 👀 or
   robot_face 🤖 marker, pass \`reaction: robot_face\` 🤖 on
@@ -40,9 +40,10 @@ contract is evidence-first and reply-producing:
   separate. Do not claim a fix, PR, reply, or deployment without confirmation
   from the relevant action or runtime evidence.
 
-After classifying every processed item, call \`dispatch-factory-item\` with
-\`clearBug: true\` or \`false\` and a concise evidence-grounded reason so every
-skip or dispatch is recorded.`;
+After classifying every processed item, call \`dispatch-factory-item\` so every
+skip or dispatch is recorded: \`alreadyClaimed: true\` when the parent already
+has eyes or robot_face, otherwise \`clearBug: true\` or \`false\` with a concise
+evidence-grounded reason.`;
 
 const PR_ALIGNMENT = `## Current review-prs contract
 

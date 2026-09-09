@@ -58,6 +58,7 @@ describe("dispatch-factory-item schema guidance", () => {
       action as {
         schema: {
           shape: {
+            alreadyClaimed: { description?: string };
             clearBug: { description?: string };
             productUxImplications: { description?: string };
           };
@@ -65,6 +66,10 @@ describe("dispatch-factory-item schema guidance", () => {
       }
     ).schema.shape;
     expect(shape.clearBug.description).toMatch(/visual\/UI defects/i);
+    expect(shape.clearBug.description).toMatch(/alreadyClaimed true/i);
+    expect(shape.alreadyClaimed.description).toMatch(
+      /already started keep their status/i,
+    );
     expect(shape.productUxImplications.description).toMatch(
       /Leave false for concrete reproducible bugs/i,
     );
