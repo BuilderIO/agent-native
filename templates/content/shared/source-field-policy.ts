@@ -35,3 +35,26 @@ export function contentDatabaseSourceFieldsAllowLocalWrite(
   const decisions = fields.map(contentDatabaseSourceFieldAllowsLocalWrite);
   return decisions.every(Boolean);
 }
+
+export function contentDatabaseSourceManagedPropertyIds(
+  fields: Array<{
+    propertyId: string | null;
+    writeOwner: unknown;
+    readOnly: unknown;
+  }>,
+) {
+  const decisions = fields
+    .filter(
+      (field): field is typeof field & { propertyId: string } =>
+        field.propertyId !== null,
+    )
+    .map((field) => ({
+      propertyId: field.propertyId,
+      allowsLocalWrite: contentDatabaseSourceFieldAllowsLocalWrite(field),
+    }));
+  return new Set(
+    decisions.flatMap(({ propertyId, allowsLocalWrite }) =>
+      allowsLocalWrite ? [] : [propertyId],
+    ),
+  );
+}

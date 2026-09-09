@@ -21,7 +21,7 @@ import type {
 import { evaluateNormalizationFormula } from "../shared/properties.js";
 import {
   contentDatabaseSourceFieldAllowsLocalWrite,
-  contentDatabaseSourceFieldsAllowLocalWrite,
+  contentDatabaseSourceManagedPropertyIds,
 } from "../shared/source-field-policy.js";
 
 // Map a source row's own values into the canonical key space. Returns null for
@@ -148,22 +148,8 @@ export function applyFederatedOverlayValues(
   items: ContentDatabaseItem[],
   sources: ContentDatabaseSource[],
 ): ContentDatabaseItem[] {
-  const sourceFieldsByPropertyId = new Map<
-    string,
-    ContentDatabaseSource["fields"]
-  >();
-  for (const source of sources) {
-    for (const field of source.fields) {
-      if (!field.propertyId) continue;
-      const fields = sourceFieldsByPropertyId.get(field.propertyId) ?? [];
-      fields.push(field);
-      sourceFieldsByPropertyId.set(field.propertyId, fields);
-    }
-  }
-  const sourceManagedPropertyIds = new Set(
-    [...sourceFieldsByPropertyId].flatMap(([propertyId, fields]) =>
-      contentDatabaseSourceFieldsAllowLocalWrite(fields) ? [] : [propertyId],
-    ),
+  const sourceManagedPropertyIds = contentDatabaseSourceManagedPropertyIds(
+    sources.flatMap((source) => source.fields),
   );
   const secondaryPropertyIds = new Set(
     sources

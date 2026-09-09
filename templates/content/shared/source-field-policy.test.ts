@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   contentDatabaseSourceFieldAllowsLocalWrite,
+  contentDatabaseSourceManagedPropertyIds,
   contentDatabaseSourceFieldsAllowLocalWrite,
   parseContentDatabaseSourceFieldReadOnly,
   parseContentDatabaseSourceWriteOwner,
@@ -54,5 +55,15 @@ describe("Content source field write policy", () => {
         { writeOwner: "unknown", readOnly: 0 },
       ]),
     ).toThrow("Invalid Content source field write owner: unknown");
+  });
+
+  it("marks a property source-managed when any mapping blocks local writes", () => {
+    expect(
+      contentDatabaseSourceManagedPropertyIds([
+        { propertyId: "local", writeOwner: "local", readOnly: 0 },
+        { propertyId: "shared", writeOwner: "local", readOnly: 0 },
+        { propertyId: "shared", writeOwner: "source", readOnly: 1 },
+      ]),
+    ).toEqual(new Set(["shared"]));
   });
 });

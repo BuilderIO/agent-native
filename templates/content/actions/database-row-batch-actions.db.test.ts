@@ -24,6 +24,8 @@ let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let lockDatabaseMemberships: typeof import("./_database-membership-lock.js").lockDatabaseMemberships;
 let replaceMockSourceRows: typeof import("./_database-source-utils.js").replaceMockSourceRows;
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
+let getDocumentAction: typeof import("./get-document.js").default;
+let listDocumentPropertiesAction: typeof import("./list-document-properties.js").default;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
 let updateDatabaseItemsAction: typeof import("./update-database-items.js").default;
 let updateDatabaseItemAction: typeof import("./update-database-item.js").default;
@@ -55,6 +57,9 @@ beforeAll(async () => {
   ({ createAppendPositionAllocator, nextAppendPosition } =
     await import("./_position-utils.js"));
   setDocumentPropertyAction = (await import("./set-document-property.js"))
+    .default;
+  getDocumentAction = (await import("./get-document.js")).default;
+  listDocumentPropertiesAction = (await import("./list-document-properties.js"))
     .default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
     .default;
@@ -1166,7 +1171,8 @@ describe("database row batch actions", () => {
   });
 
   it("allows only locally owned writable mapped properties to save locally", async () => {
-    const { databaseId, rows } = await createDatabaseWithRows(1);
+    const { databaseId, databaseDocumentId, rows } =
+      await createDatabaseWithRows(1);
     const now = new Date().toISOString();
     const sourceId = nextId("source");
     const mappings = [
@@ -1267,6 +1273,38 @@ describe("database row batch actions", () => {
           (property) => property.definition.id === propertyIds[key],
         ),
       ).toMatchObject({ editable: false });
+    }
+
+    const documentDetail = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        getDocumentAction.run({
+          id: rows[0].documentId,
+          databaseId,
+          databaseDocumentId,
+        }),
+    );
+    const propertyPanel = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        listDocumentPropertiesAction.run({
+          documentId: rows[0].documentId,
+          databaseId,
+        }),
+    );
+    for (const response of [documentDetail, propertyPanel]) {
+      expect(
+        response.properties.find(
+          (property) => property.definition.id === propertyIds.local,
+        ),
+      ).toMatchObject({ editable: true });
+      for (const key of ["source", "derived", "read_only"] as const) {
+        expect(
+          response.properties.find(
+            (property) => property.definition.id === propertyIds[key],
+          ),
+        ).toMatchObject({ editable: false });
+      }
     }
 
     const guardedResult = await runWithRequestContext(

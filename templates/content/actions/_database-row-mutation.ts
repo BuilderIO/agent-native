@@ -22,7 +22,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
-import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
+import { contentDatabaseSourceManagedPropertyIds } from "../shared/source-field-policy.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -333,18 +333,8 @@ export async function loadContext(
       ),
     )
     .where(eq(schema.contentDatabaseSources.databaseId, database.id));
-  const sourceFieldsByPropertyId = new Map<string, typeof sourceFields>();
-  for (const field of sourceFields) {
-    if (!field.propertyId) continue;
-    const fields = sourceFieldsByPropertyId.get(field.propertyId) ?? [];
-    fields.push(field);
-    sourceFieldsByPropertyId.set(field.propertyId, fields);
-  }
-  const sourceManagedPropertyIds = new Set(
-    [...sourceFieldsByPropertyId].flatMap(([propertyId, fields]) =>
-      contentDatabaseSourceFieldsAllowLocalWrite(fields) ? [] : [propertyId],
-    ),
-  );
+  const sourceManagedPropertyIds =
+    contentDatabaseSourceManagedPropertyIds(sourceFields);
   return {
     database,
     databaseDocument,
