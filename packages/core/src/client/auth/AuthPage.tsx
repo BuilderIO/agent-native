@@ -1,6 +1,6 @@
 /** @jsxRuntime classic */
 
-import { MarketingHome, Starfield } from "@agent-native/toolkit/marketing";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
@@ -10,6 +10,7 @@ import {
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
+import { OceanBackground } from "../ocean/OceanBackground.js";
 
 export type AuthView =
   | "signup"
@@ -2826,7 +2827,9 @@ export function AuthPage(props: AuthPageProps) {
       appName={marketingCopy.appName}
       variant="auth"
       background={
-        marketingCopy.screenshotSrc ? null : <Starfield id="starfield" />
+        marketingCopy.screenshotSrc ? null : (
+          <OceanBackground className="auth-marketing-background" />
+        )
       }
       topRight={
         marketingCopy.learnMoreUrl ? (
@@ -2865,15 +2868,7 @@ export function AuthPage(props: AuthPageProps) {
             aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
           }}
         >
-          <img
-            className="auth-marketing-screenshot"
-            src={marketingCopy.screenshotSrc}
-            alt={`${marketingCopy.appName} preview`}
-            width={marketingCopy.screenshotWidth}
-            height={marketingCopy.screenshotHeight}
-            fetchPriority="high"
-            decoding="async"
-          />
+          <OceanBackground className="auth-marketing-screenshot" />
         </div>
       ) : (
         <div className="marketing-content">
