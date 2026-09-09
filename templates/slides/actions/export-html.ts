@@ -58,14 +58,20 @@ function safeCssToken(
   if (!sanitized) return fallback;
   const resolved = sanitized
     .replace(/[{}<>;]/g, "")
-    .replace(
-      /var\(\s*(--[a-zA-Z][\w-]*)\s*\)/g,
-      (_, name: string) => builderTokenValues?.[name] ?? `var(${name})`,
-    )
+    .replace(/var\(\s*(--[a-zA-Z][\w-]*)\s*\)/g, (_, name: string) => {
+      const replacement = builderTokenValues?.[name];
+      const safeReplacement = replacement
+        ? sanitizeCssValue(replacement)
+        : null;
+      return safeReplacement && !/[{}<>;]/.test(safeReplacement)
+        ? safeReplacement
+        : `var(${name})`;
+    })
     .trim();
-  return /var\(\s*--/i.test(resolved)
+  const finalValue = sanitizeCssValue(resolved)?.replace(/[{}<>;]/g, "");
+  return !finalValue || /var\(\s*--/i.test(finalValue)
     ? fallback
-    : resolved.slice(0, 240) || fallback;
+    : finalValue.slice(0, 240) || fallback;
 }
 
 const STANDALONE_TAILWIND_BACKGROUNDS: Record<string, string> = {
@@ -85,32 +91,115 @@ const STANDALONE_TAILWIND_BACKGROUNDS: Record<string, string> = {
   "bg-neutral-900": "#171717",
   // guard:allow-raw-color - standalone Tailwind background compatibility
   "bg-stone-900": "#1C1917",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-red-500": "#EF4444",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-orange-500": "#F97316",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-amber-500": "#F59E0B",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-yellow-400": "#FACC15",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-lime-500": "#84CC16",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-green-500": "#22C55E",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-emerald-500": "#10B981",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-teal-500": "#14B8A6",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-cyan-500": "#06B6D4",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-sky-500": "#0EA5E9",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-blue-500": "#3B82F6",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-indigo-500": "#6366F1",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-indigo-950": "#1E1B4B",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-violet-500": "#8B5CF6",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-purple-600": "#9333EA",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-fuchsia-500": "#D946EF",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-pink-500": "#EC4899",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-rose-500": "#F43F5E",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-slate-700": "#334155",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-slate-800": "#1E293B",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-zinc-50": "#FAFAFA",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-gray-100": "#F3F4F6",
+};
+
+const TAILWIND_GRADIENT_DIRECTIONS: Record<string, string> = {
+  "bg-gradient-to-t": "to top",
+  "bg-gradient-to-tr": "to top right",
+  "bg-gradient-to-r": "to right",
+  "bg-gradient-to-br": "to bottom right",
+  "bg-gradient-to-b": "to bottom",
+  "bg-gradient-to-bl": "to bottom left",
+  "bg-gradient-to-l": "to left",
+  "bg-gradient-to-tl": "to top left",
 };
 
 function standaloneBackgroundCssValue(value: string): string {
-  return (
-    backgroundCssValue(value) ??
-    STANDALONE_TAILWIND_BACKGROUNDS[value] ??
-    DEFAULT_SLIDE_BACKGROUND
+  const cssValue = backgroundCssValue(value);
+  if (cssValue) return cssValue;
+  const classes = value.split(/\s+/);
+  const solidBackground = classes.find(
+    (className) => STANDALONE_TAILWIND_BACKGROUNDS[className],
   );
+  if (solidBackground) return STANDALONE_TAILWIND_BACKGROUNDS[solidBackground];
+  const direction = classes.find(
+    (className) => TAILWIND_GRADIENT_DIRECTIONS[className],
+  );
+  if (direction) {
+    const stops = classes
+      .filter((className) => /^(?:from|via|to)-/.test(className))
+      .map((className) => {
+        const [, color, shade] =
+          className.match(/^(?:from|via|to)-([\w]+)-([\d]+)$/) ?? [];
+        return color && shade
+          ? STANDALONE_TAILWIND_BACKGROUNDS[`bg-${color}-${shade}`]
+          : undefined;
+      })
+      .filter((stop): stop is string => Boolean(stop));
+    if (stops.length >= 2) {
+      return `linear-gradient(${TAILWIND_GRADIENT_DIRECTIONS[direction]}, ${stops.join(", ")})`;
+    }
+  }
+  return STANDALONE_TAILWIND_BACKGROUNDS[value] ?? DEFAULT_SLIDE_BACKGROUND;
 }
 
 function isDarkStandaloneBackground(value: string): boolean {
-  return (
-    // guard:allow-raw-color - named Tailwind background compatibility
-    value === "bg-black" ||
-    /^bg-(?:slate|gray|zinc|neutral|stone)-(?:900|950)$/i.test(value) ||
-    (() => {
-      const hex = value.match(/^#([\da-f]{6})$/i)?.[1];
-      if (!hex) return false;
-      const channels = [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)].map(
-        (channel) => parseInt(channel, 16),
-      );
-      return (
-        channels[0] * 0.299 + channels[1] * 0.587 + channels[2] * 0.114 < 128
-      );
-    })()
-  );
+  const colors = [
+    ...value.matchAll(/#([\da-f]{3,8})\b/gi),
+    ...value.matchAll(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/gi),
+  ];
+  if (colors.length === 0) return false;
+  return colors.every((match) => {
+    const channels = match[0].startsWith("#")
+      ? match[1].length === 3 || match[1].length === 4
+        ? match[1]
+            .slice(0, 3)
+            .split("")
+            .map((channel) => parseInt(channel + channel, 16))
+        : [
+            match[1].slice(0, 2),
+            match[1].slice(2, 4),
+            match[1].slice(4, 6),
+          ].map((channel) => parseInt(channel, 16))
+      : match.slice(1, 4).map(Number);
+    return (
+      channels[0] * 0.299 + channels[1] * 0.587 + channels[2] * 0.114 < 128
+    );
+  });
 }
 
 function googleFontHref(font: unknown): string | undefined {
@@ -147,9 +236,15 @@ function standaloneDesignSystemVars(
   const colors = designSystem?.colors;
   const typography = designSystem?.typography;
   const borders = designSystem?.borders;
-  const darkBackground = isDarkStandaloneBackground(slideBackground);
+  const standaloneBackground = standaloneBackgroundCssValue(slideBackground);
+  const safeBackground = safeCssToken(
+    standaloneBackground,
+    DEFAULT_SLIDE_BACKGROUND,
+    builderTokenValues,
+  );
+  const darkBackground = isDarkStandaloneBackground(safeBackground);
   return [
-    `--ds-bg: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND)}`,
+    `--ds-bg: ${safeBackground}`,
     // guard:allow-raw-color - standalone export fallback palette
     // guard:allow-raw-color - standalone export dark-background fallback
     `--ds-text: ${safeCssToken(colors?.text, darkBackground ? "#FFFFFF" : "#1F2933", builderTokenValues)}`,
@@ -198,7 +293,7 @@ function buildStandaloneHtml(
         slide.background,
         designSystem,
       );
-      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
+      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
       return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideContent(slide.content)}</section>`;
     })
     .join("\n");

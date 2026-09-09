@@ -4506,7 +4506,7 @@ export default function SlideEditor({
       enterInlineEdit(box);
       return box;
     },
-    [enterInlineEdit],
+    [designSystem?.typography.bodyFont, enterInlineEdit],
   );
 
   const pastePlainTextAsTextBox = useCallback(
