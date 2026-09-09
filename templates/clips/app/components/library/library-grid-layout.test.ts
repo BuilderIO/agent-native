@@ -139,11 +139,9 @@ describe("selected library actions layout", () => {
     expect(feedbackSource).toContain(
       "h-auto w-full justify-start gap-2 bg-transparent px-2 py-1.5 text-xs font-normal",
     );
-    expect(feedbackSource).toContain("IconMoodSmile");
-    expect(feedbackSource).toContain("clips-feedback-nudge");
-    expect(globalStyles).toContain("@keyframes clips-feedback-nudge");
-    expect(globalStyles).toContain(".clips-feedback-nudge {");
-    expect(globalStyles).toContain("animation: none");
+    expect(feedbackSource).toContain("IconMessageCircle");
+    expect(feedbackSource).not.toContain("clips-feedback-nudge");
+    expect(globalStyles).not.toContain("clips-feedback-nudge");
     expect(feedbackSource).not.toContain("bg-primary/5");
     expect(layoutSource).toContain('currentAppId="clips"');
     expect(feedbackSource).toContain("openBugReportDialog");

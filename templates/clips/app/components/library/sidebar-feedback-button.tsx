@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconMoodSmile } from "@tabler/icons-react";
+import { IconMessageCircle } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -32,7 +32,7 @@ export function SidebarFeedbackButton({
           : "h-auto w-full justify-start gap-2 bg-transparent px-2 py-1.5 text-xs font-normal text-primary hover:bg-accent/60 hover:text-primary"
       }
     >
-      <IconMoodSmile className="clips-feedback-nudge size-4 shrink-0 text-primary" />
+      <IconMessageCircle className="size-4 shrink-0 text-primary" />
       {!collapsed && <span>{label}</span>}
     </Button>
   );
