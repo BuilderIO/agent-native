@@ -177,7 +177,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
       <div className="w-full text-start">
         <div
           ref={sliderRef}
-          className="flex snap-x snap-mandatory overflow-x-auto border border-[var(--docs-border)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex snap-x snap-mandatory overflow-x-auto border-t border-[var(--docs-border)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {CLIP_PREVIEWS.map((clip, index) => (
             <a
@@ -789,7 +789,7 @@ export default function ClipsTemplate() {
           </div>
         </div>
 
-        <div className="border-x border-[var(--docs-border)] pb-16">
+        <div className="border-x border-[var(--docs-border)]">
           <ClipPreviewSlider ref={sliderHandleRef} />
         </div>
 
