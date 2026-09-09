@@ -122,6 +122,10 @@
      the body; drifting from those values shows up as a seam. */
   --bg: #faf9f5;
   --bg-secondary: #f0efeb;
+  /* One step above the page, below --bg-secondary; mirrors the brand
+     --b-bg-elevated / --b-bg-raised. Large emphasis surfaces read as a lift
+     rather than a control at this value. */
+  --bg-subtle: #f4f3ef;
   /* The one content measure for every full-width page: docs landings, the
      template detail shell, and the redesign page grid all read this, so the
      gridlines, the header, and the page body can't drift apart. */
@@ -153,6 +157,7 @@
   --fg-secondary: #a0a0a0;
   --bg: #0a0a0a;
   --bg-secondary: #1a1a1a;
+  --bg-subtle: #0f0f0f;
   --docs-border: #1f1f1f;
   --sidebar-seam: #1a1a1a;
   --docs-accent: #52a8ff;
@@ -175,6 +180,7 @@
     --fg-secondary: #a0a0a0;
     --bg: #0a0a0a;
     --bg-secondary: #1a1a1a;
+    --bg-subtle: #0f0f0f;
     --docs-border: #1f1f1f;
     --sidebar-seam: #1a1a1a;
     --docs-accent: #52a8ff;
@@ -306,18 +312,6 @@ body {
 
 .template-detail-cta-actions {
   background-color: var(--bg);
-  background-image:
-    linear-gradient(
-      to right,
-      color-mix(in srgb, var(--docs-border) 70%, transparent) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      to bottom,
-      color-mix(in srgb, var(--docs-border) 70%, transparent) 1px,
-      transparent 1px
-    );
-  background-size: 48px 48px;
 }
 
 [data-template-cli-copy] {
@@ -2264,7 +2258,6 @@ html.dark .shiki span {
   text-decoration: none;
 }
 
-.template-detail-page button,
 .template-detail-page .primary-button,
 .template-detail-page .secondary-button,
 .template-detail-page .template-detail-cta-actions a,

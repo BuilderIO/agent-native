@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.177.1",
+  "version": "0.178.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {

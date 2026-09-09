@@ -1032,7 +1032,6 @@ const frFR = {
       s058: "Gratuit et open source",
       s059: "Commencez maintenant",
       s060: "Choisissez ce que vous souhaitez capturer, puis commencez à enregistrer dans Clips.",
-      s061: "Voir plus d’applications",
       s062: "Afficher tous les modèles",
       faq: {
         question1: "Clips est-il gratuit et open source ?",

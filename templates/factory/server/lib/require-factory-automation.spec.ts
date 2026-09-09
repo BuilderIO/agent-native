@@ -121,6 +121,7 @@ describe("requireFactoryAutomation", () => {
       "factory-github-issues",
       "factory-pr-governance",
       "factory-pr-babysit",
+      "factory-pr-babysit-2",
     ] as const) {
       findFactoryAutomationDefinitionMock.mockResolvedValue(
         nestedJob(leafName),

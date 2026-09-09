@@ -119,10 +119,23 @@ function envDatabaseValue(key: string): string | undefined {
   return value || undefined;
 }
 
+function isUsableRuntimeDatabaseUrl(value: string): boolean {
+  if (isPgliteUrl(value)) return true;
+  if (!/^postgres(?:ql)?:\/\//i.test(value)) return false;
+  return URL.canParse(value) && Boolean(new URL(value).hostname);
+}
+
+function usableRuntimeDatabaseValue(key: string): string | undefined {
+  const value = envDatabaseValue(key);
+  return value && isUsableRuntimeDatabaseUrl(value) ? value : undefined;
+}
+
 function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
   const appName = getAppEnvPrefix();
   if (appName) {
-    const appUnpooled = envDatabaseValue(`${appName}_DATABASE_URL_UNPOOLED`);
+    const appUnpooled = usableRuntimeDatabaseValue(
+      `${appName}_DATABASE_URL_UNPOOLED`,
+    );
     if (appUnpooled) {
       return {
         url: stripNeonPooler(appUnpooled),
@@ -130,7 +143,7 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
       };
     }
 
-    const appUrl = envDatabaseValue(`${appName}_DATABASE_URL`);
+    const appUrl = usableRuntimeDatabaseValue(`${appName}_DATABASE_URL`);
     if (appUrl) {
       return {
         url: isServerlessRuntime() ? stripNeonPooler(appUrl) : appUrl,
@@ -140,9 +153,13 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
   }
 
   const configuredUnpooled = getAppConfig().runtime.databaseUrlUnpooled;
-  if (configuredUnpooled) {
-    const netlifyUnpooled = envDatabaseValue("NETLIFY_DATABASE_URL_UNPOOLED");
-    const databaseUnpooled = envDatabaseValue("DATABASE_URL_UNPOOLED");
+  if (configuredUnpooled && isUsableRuntimeDatabaseUrl(configuredUnpooled)) {
+    const netlifyUnpooled = usableRuntimeDatabaseValue(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+    );
+    const databaseUnpooled = usableRuntimeDatabaseValue(
+      "DATABASE_URL_UNPOOLED",
+    );
     return {
       url: stripNeonPooler(configuredUnpooled),
       source:
@@ -154,7 +171,9 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
     };
   }
 
-  const netlifyUnpooled = envDatabaseValue("NETLIFY_DATABASE_URL_UNPOOLED");
+  const netlifyUnpooled = usableRuntimeDatabaseValue(
+    "NETLIFY_DATABASE_URL_UNPOOLED",
+  );
   if (netlifyUnpooled) {
     return {
       url: stripNeonPooler(netlifyUnpooled),
@@ -162,7 +181,7 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
     };
   }
 
-  const databaseUnpooled = envDatabaseValue("DATABASE_URL_UNPOOLED");
+  const databaseUnpooled = usableRuntimeDatabaseValue("DATABASE_URL_UNPOOLED");
   if (databaseUnpooled) {
     return {
       url: stripNeonPooler(databaseUnpooled),
@@ -170,12 +189,14 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
     };
   }
 
-  const url = getDatabaseUrl(fallback);
+  const databaseUrl = usableRuntimeDatabaseValue("DATABASE_URL");
+  const netlifyDatabaseUrl = usableRuntimeDatabaseValue("NETLIFY_DATABASE_URL");
+  const url = databaseUrl || netlifyDatabaseUrl || fallback;
   return {
     url: isServerlessRuntime() ? stripNeonPooler(url) : url,
-    source: envDatabaseValue("DATABASE_URL")
+    source: databaseUrl
       ? "DATABASE_URL"
-      : envDatabaseValue("NETLIFY_DATABASE_URL")
+      : netlifyDatabaseUrl
         ? "NETLIFY_DATABASE_URL"
         : "default",
   };
@@ -322,16 +343,16 @@ type PgliteProcessLock = {
 };
 type PgliteProcessLockRegistry = Map<string, PgliteProcessLock>;
 
-const pgliteGlobal = globalThis as typeof globalThis & {
+const pgliteProcess = process as NodeJS.Process & {
   __agentNativePgliteClients?: PgliteClientRegistry;
   __agentNativePgliteProcessLocks?: PgliteProcessLockRegistry;
   __agentNativePgliteProcessExitCleanupRegistered?: boolean;
 };
-const _pgliteClients = (pgliteGlobal.__agentNativePgliteClients ??= new Map<
+const _pgliteClients = (pgliteProcess.__agentNativePgliteClients ??= new Map<
   string,
   Promise<any>
 >());
-const _pgliteProcessLocks = (pgliteGlobal.__agentNativePgliteProcessLocks ??=
+const _pgliteProcessLocks = (pgliteProcess.__agentNativePgliteProcessLocks ??=
   new Map<string, PgliteProcessLock>());
 
 function pgliteClientKey(dataDir: string): string {
@@ -411,8 +432,8 @@ function releasePgliteProcessLock(lock: PgliteProcessLock): void {
 }
 
 function registerPgliteProcessExitCleanup(): void {
-  if (pgliteGlobal.__agentNativePgliteProcessExitCleanupRegistered) return;
-  pgliteGlobal.__agentNativePgliteProcessExitCleanupRegistered = true;
+  if (pgliteProcess.__agentNativePgliteProcessExitCleanupRegistered) return;
+  pgliteProcess.__agentNativePgliteProcessExitCleanupRegistered = true;
   process.once("exit", () => {
     for (const lock of _pgliteProcessLocks.values()) {
       releasePgliteProcessLock(lock);

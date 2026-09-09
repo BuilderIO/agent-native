@@ -5,7 +5,7 @@ description: >-
   for any user-facing UI change: new surfaces, screenshot-driven feedback,
   copy/density cleanup, settings, control placement, or a "make this look
   good" pass. Do not load it only for purely mechanical wiring or formatting.
-scope: dev
+scope: both
 license: Complete terms in LICENSE.txt
 source: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md
 local-changes: >-
@@ -53,6 +53,22 @@ choose a deliberate direction based on the domain and compare sibling apps
 before selecting its accent family. Shared behavior and semantic token names
 should stay consistent; palette, density, composition, type contrast, and
 shape language should not be identical by default.
+
+## Interaction Responsiveness
+
+Use the Nielsen response-time limits, Google RAIL, and the Doherty threshold as
+product defaults:
+
+- Make every interaction produce visible feedback immediately, targeting a
+  response within 100 ms so it feels instantaneous. Keep input handling under
+  50 ms where possible so the browser can paint that response in time.
+- If the operation cannot finish within 100 ms, show local or optimistic state,
+  a focused loading/progress state, or a clear working state before then and no
+  later than 400 ms. Never wait for a network round-trip before acknowledging
+  the interaction; reconcile success or roll back on failure.
+- Keep ordinary view and navigation changes within 1 second. Work that takes
+  longer needs visible progress and an interruption or cancellation path when
+  the operation supports one.
 
 ## Default Surface Density
 

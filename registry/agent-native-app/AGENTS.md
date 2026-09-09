@@ -6,6 +6,7 @@ the agent can use.
 
 ## Core Contract
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Data lives in SQL through Drizzle. Keep schemas provider agnostic.
 - Normal app data must flow through actions. Define operations in `actions/`
   with `defineAction`; mark reads with `http: { method: "GET" }`; call them

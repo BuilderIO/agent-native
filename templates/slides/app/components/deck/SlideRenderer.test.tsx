@@ -377,6 +377,23 @@ describe("SlideInner autofit", () => {
     expect(canvas?.querySelector(".fmd-slide--title")).toBeTruthy();
   });
 
+  it("uses the neutral fallback background when no design system is linked", () => {
+    const slide: Slide = {
+      id: "neutral-fallback",
+      layout: "blank",
+      notes: "",
+      content: '<div class="fmd-slide"><h1>Readable by default</h1></div>',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    expect(
+      document.querySelector<HTMLElement>(
+        '[data-slide-canvas="neutral-fallback"]',
+      )?.style.background,
+    ).toBe("#F5F2EA");
+  });
+
   it("reports vertical overflow for markdown slides too", async () => {
     const slide: Slide = {
       id: "markdown",

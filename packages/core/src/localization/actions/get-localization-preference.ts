@@ -10,7 +10,7 @@ import {
 
 export default defineAction({
   description:
-    "Get the current user's interface language preference. Returns { locale }, where locale is 'system' or a supported BCP-47 locale.",
+    "Get the current user's interface language preference. Returns { locale }, where locale is 'system' or a valid BCP-47 locale registered by the app.",
   schema: z.object({}),
   http: { method: "GET" },
   run: async (_args, ctx): Promise<ResolvedLocalizationPreference> => {

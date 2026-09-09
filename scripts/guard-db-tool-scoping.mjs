@@ -47,6 +47,8 @@ const SKIP_DIRS = new Set([
 // access is mediated through a scoped parent, custom action, public token, or
 // cache pathway. Key format: "<template>:<sql_table_name>".
 const INTENTIONAL_RAW_DB_DENYLIST = {
+  "content:content_database_setup_receipts":
+    "actor-scoped retry receipts; access is rechecked through database setup actions",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
   "analytics:first_party_analytics_cache":
     "internal query cache, accessed through scoped analytics queries",

@@ -13,7 +13,12 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn(async () => undefined),
 }));
 
-import { getEmailSendStats, listEmailLog, recordEmailSend } from "./log.js";
+import {
+  getEmailLogEntryBody,
+  getEmailSendStats,
+  listEmailLog,
+  recordEmailSend,
+} from "./log.js";
 
 describe("email log app scoping", () => {
   beforeEach(() => {
@@ -47,6 +52,13 @@ describe("email log app scoping", () => {
         args: ["org-1", "calendar", "calendar.booking-confirmed", 25, 0],
       }),
     );
+  });
+
+  it("never selects the html/text body columns", async () => {
+    await listEmailLog({ orgId: "org-1", app: "calendar" });
+    const call = execute.mock.calls[0][0] as { sql: string };
+    expect(call.sql).not.toContain("html_body");
+    expect(call.sql).not.toContain("text_body");
   });
 
   it("combines exact template inclusion with bound multi-template exclusions", async () => {
@@ -251,5 +263,37 @@ describe("email log app scoping", () => {
         ]),
       }),
     );
+  });
+
+  it("fetches a body scoped to its organization and app", async () => {
+    execute.mockResolvedValueOnce({
+      rows: [{ html_body: "<p>Hi</p>", text_body: "Hi" }],
+    });
+
+    const body = await getEmailLogEntryBody({
+      orgId: "org-1",
+      app: "calendar",
+      id: "log-1",
+    });
+
+    expect(body).toEqual({ htmlBody: "<p>Hi</p>", textBody: "Hi" });
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("WHERE id = ? AND org_id = ? AND app = ?"),
+        args: ["log-1", "org-1", "calendar"],
+      }),
+    );
+  });
+
+  it("returns null for a body fetch outside the caller organization/app scope", async () => {
+    execute.mockResolvedValueOnce({ rows: [] });
+
+    const body = await getEmailLogEntryBody({
+      orgId: "org-2",
+      app: "calendar",
+      id: "log-1",
+    });
+
+    expect(body).toBeNull();
   });
 });

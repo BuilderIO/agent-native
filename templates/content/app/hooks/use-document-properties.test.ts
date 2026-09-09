@@ -22,6 +22,7 @@ vi.mock("sonner", () => ({
 
 import {
   documentPropertiesResponseMatchesScope,
+  useConfigureDocumentProperty,
   useSetDocumentProperty,
   useUpdateDatabaseItems,
 } from "./use-document-properties";
@@ -119,6 +120,355 @@ describe("useUpdateDatabaseItems", () => {
       subscriptions.forEach((unsubscribe) => unsubscribe());
       queryClient.clear();
     }
+  });
+});
+
+describe("useConfigureDocumentProperty", () => {
+  beforeEach(() => {
+    useActionMutation.mockReset();
+    useActionQuery.mockReset();
+    useQueryClient.mockReset();
+  });
+
+  it("adapts a rendered ordinary option edit to the guarded setup contract", async () => {
+    const transportMutateAsync = vi.fn(async () => undefined);
+    const queryClient = {
+      getQueriesData: vi.fn(() => [
+        [
+          ["action", "get-content-database"],
+          {
+            database: { id: "database-1" },
+            mutationContract: {
+              target: {
+                authorityScope: { kind: "personal", id: "owner@test.dev" },
+                spaceId: "space-1",
+                databaseId: "database-1",
+                databaseDocumentId: "database-page-1",
+              },
+              schemaRevision: "schema-rendered",
+            },
+            properties: [
+              {
+                definition: {
+                  id: "status",
+                  databaseId: "database-1",
+                  name: "Status",
+                  description: "",
+                  type: "status",
+                  visibility: "always_show",
+                  systemRole: null,
+                  options: {
+                    options: [{ id: "draft", name: "Draft", color: "gray" }],
+                  },
+                },
+                value: null,
+                editable: true,
+              },
+            ],
+          },
+        ],
+      ]),
+      setQueriesData: vi.fn(),
+      invalidateQueries: vi.fn(),
+    };
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockReturnValue({
+      mutate: vi.fn(),
+      mutateAsync: transportMutateAsync,
+    });
+
+    const configure = useConfigureDocumentProperty(
+      "database-page-1",
+      "database-1",
+    );
+    await configure.mutateAsync({
+      id: "status",
+      documentId: "database-page-1",
+      name: "Workflow",
+      type: "status",
+      visibility: "always_show",
+      options: {
+        options: [
+          { id: "draft", name: "Drafting", color: "blue" },
+          { id: "ready", name: "Ready", color: "green" },
+        ],
+      },
+    });
+
+    expect(transportMutateAsync).toHaveBeenCalledWith(
+      {
+        operation: "update",
+        target: {
+          spaceId: "space-1",
+          databaseId: "database-1",
+          databaseDocumentId: "database-page-1",
+        },
+        expectedSchemaRevision: "schema-rendered",
+        idempotencyKey: expect.any(String),
+        propertyId: "status",
+        patch: {
+          name: "Workflow",
+          optionEdits: [
+            {
+              operation: "update",
+              optionId: "draft",
+              patch: { name: "Drafting", color: "blue" },
+            },
+            {
+              operation: "add",
+              option: { id: "ready", name: "Ready", color: "green" },
+            },
+            {
+              operation: "reorder",
+              optionIds: ["draft", "ready"],
+            },
+          ],
+        },
+      },
+      undefined,
+    );
+  });
+
+  it("uses the synchronous receipt cache for a second metadata edit before rerender", async () => {
+    const queryClient = new QueryClient();
+    useQueryClient.mockReturnValue(queryClient);
+    const key = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page-1" },
+    ];
+    const definition = {
+      id: "text-1",
+      databaseId: "database-1",
+      name: "Name",
+      description: "",
+      type: "text",
+      visibility: "always_show",
+      systemRole: null,
+      options: null,
+    };
+    queryClient.setQueryData(key, {
+      database: { id: "database-1" },
+      mutationContract: {
+        target: {
+          spaceId: "space-1",
+          databaseId: "database-1",
+          databaseDocumentId: "database-page-1",
+        },
+        schemaRevision: "S0",
+      },
+      configurationRevision: "C0",
+      properties: [{ definition, value: null, editable: true }],
+      items: [],
+    });
+    let onSuccess!: (data: unknown) => void;
+    const transport = vi.fn(async (_input: unknown) => {
+      onSuccess({
+        value: { ...definition, name: "Renamed" },
+        receipt: { revisions: { schemaAfter: "S1", configurationAfter: "C1" } },
+      });
+    });
+    useActionMutation.mockImplementation((_name, options) => {
+      onSuccess = options.onSuccess;
+      return { mutateAsync: transport };
+    });
+    const configure = useConfigureDocumentProperty(
+      "database-page-1",
+      "database-1",
+    );
+    await configure.mutateAsync({
+      documentId: "database-page-1",
+      id: "text-1",
+      name: "Renamed",
+      type: "text",
+    });
+    await configure.mutateAsync({
+      documentId: "database-page-1",
+      id: "text-1",
+      name: "Renamed",
+      description: "Details",
+      type: "text",
+    });
+    expect(transport.mock.calls[0][0]).toMatchObject({
+      expectedSchemaRevision: "S0",
+    });
+    expect(transport.mock.calls[1][0]).toMatchObject({
+      expectedSchemaRevision: "S1",
+      patch: { description: "Details" },
+    });
+  });
+
+  it("preserves the legacy request for computed property editing", async () => {
+    const transportMutateAsync = vi.fn(async () => undefined);
+    useQueryClient.mockReturnValue({
+      getQueriesData: vi.fn(() => []),
+      setQueriesData: vi.fn(),
+      invalidateQueries: vi.fn(),
+    });
+    useActionMutation.mockReturnValue({
+      mutate: vi.fn(),
+      mutateAsync: transportMutateAsync,
+    });
+    const configure = useConfigureDocumentProperty(
+      "database-page-1",
+      "database-1",
+    );
+
+    await configure.mutateAsync({
+      id: "formula-1",
+      documentId: "database-page-1",
+      name: "Score",
+      type: "formula",
+      options: { formula: "1 + 1" },
+    });
+
+    expect(transportMutateAsync).toHaveBeenCalledWith(
+      {
+        id: "formula-1",
+        documentId: "database-page-1",
+        databaseId: "database-1",
+        name: "Score",
+        type: "formula",
+        options: { formula: "1 + 1" },
+      },
+      undefined,
+    );
+  });
+
+  it("rejects ordinary option removal without sending a legacy replacement", () => {
+    const transportMutateAsync = vi.fn(async () => undefined);
+    useQueryClient.mockReturnValue({
+      getQueriesData: vi.fn(() => [
+        [
+          ["action", "get-content-database"],
+          {
+            database: { id: "database-1" },
+            mutationContract: {
+              target: {
+                authorityScope: { kind: "personal", id: "owner@test.dev" },
+                spaceId: "space-1",
+                databaseId: "database-1",
+                databaseDocumentId: "database-page-1",
+              },
+              schemaRevision: "schema-rendered",
+            },
+            properties: [
+              {
+                definition: {
+                  id: "status",
+                  databaseId: "database-1",
+                  name: "Status",
+                  description: "",
+                  type: "status",
+                  visibility: "always_show",
+                  systemRole: null,
+                  options: {
+                    options: [
+                      { id: "draft", name: "Draft", color: "gray" },
+                      { id: "ready", name: "Ready", color: "green" },
+                    ],
+                  },
+                },
+                value: null,
+                editable: true,
+              },
+            ],
+          },
+        ],
+      ]),
+      setQueriesData: vi.fn(),
+      invalidateQueries: vi.fn(),
+    });
+    useActionMutation.mockReturnValue({
+      mutate: vi.fn(),
+      mutateAsync: transportMutateAsync,
+    });
+    const configure = useConfigureDocumentProperty(
+      "database-page-1",
+      "database-1",
+    );
+
+    expect(() =>
+      configure.mutateAsync({
+        id: "status",
+        documentId: "database-page-1",
+        name: "Status",
+        type: "status",
+        visibility: "always_show",
+        options: {
+          options: [{ id: "draft", name: "Draft", color: "gray" }],
+        },
+      }),
+    ).toThrow("Removing property options is unavailable");
+    expect(transportMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("sends an ordinary semantic no-op through schema CAS", async () => {
+    const transportMutateAsync = vi.fn(async () => undefined);
+    useQueryClient.mockReturnValue({
+      getQueriesData: vi.fn(() => [
+        [
+          ["action", "get-content-database"],
+          {
+            database: { id: "database-1" },
+            mutationContract: {
+              target: {
+                authorityScope: { kind: "personal", id: "owner@test.dev" },
+                spaceId: "space-1",
+                databaseId: "database-1",
+                databaseDocumentId: "database-page-1",
+              },
+              schemaRevision: "schema-rendered",
+            },
+            properties: [
+              {
+                definition: {
+                  id: "publish-date",
+                  databaseId: "database-1",
+                  name: "Publish date",
+                  description: "",
+                  type: "date",
+                  visibility: "always_show",
+                  systemRole: null,
+                  options: {},
+                },
+                value: null,
+                editable: true,
+              },
+            ],
+          },
+        ],
+      ]),
+      setQueriesData: vi.fn(),
+      invalidateQueries: vi.fn(),
+    });
+    useActionMutation.mockReturnValue({
+      mutate: vi.fn(),
+      mutateAsync: transportMutateAsync,
+    });
+    const configure = useConfigureDocumentProperty(
+      "database-page-1",
+      "database-1",
+    );
+
+    await configure.mutateAsync({
+      id: "publish-date",
+      documentId: "database-page-1",
+      name: "Publish date",
+      type: "date",
+      visibility: "always_show",
+      options: {},
+    });
+
+    expect(transportMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "update",
+        expectedSchemaRevision: "schema-rendered",
+        propertyId: "publish-date",
+        patch: { name: "Publish date" },
+      }),
+      undefined,
+    );
   });
 });
 

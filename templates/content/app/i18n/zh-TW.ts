@@ -63,6 +63,11 @@ const messages = {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
     openAgentSettings: "管理代理",
+    experiments: "實驗功能",
+    experimentsIntro: "在正式發布前預覽實驗性功能。",
+    experimentCreativeContext: "創意上下文",
+    experimentCreativeContextDescription:
+      "在 Content 中連接並重複使用受管治的參考上下文。",
   },
   chat: {
     publicEmptyState: "向我詢問有關此檔案的任何問題",
@@ -1227,7 +1232,7 @@ const messages = {
     importedLocalFiles: "匯入的本機檔案",
     importedSource: "匯入的來源",
     lastSync: "上次同步",
-    localFolders: "本機資料夾",
+    localFolders: "資料夾",
     mainFolder: "主資料夾",
     metaTitle: "本機檔案 - Content",
     noFoldersLinked: "未連結資料夾",

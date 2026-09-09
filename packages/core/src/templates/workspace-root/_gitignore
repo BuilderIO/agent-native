@@ -32,7 +32,7 @@ pnpm-debug.log*
 node-compile-cache/
 
 # Local workspace data
-data/
+**/data/
 
 # Personal agent memory — per-developer, not shared
 learnings.md

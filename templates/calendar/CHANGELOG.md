@@ -3,6 +3,25 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-09
+
+### Improved
+
+- Calendar can color Google events by meeting type again
+- Connected account avatars use a slimmer border.
+
+## 2026-09-08
+
+### Improved
+
+- Login pages use the same mouse-reactive wave background as the docs and booking experiences.
+
+### Fixed
+
+- Calendar overlay status now queries a valid one-day range
+- Calendar shows proposed-time actions for Google event invitations
+- Provider-supplied full-day meetings stay in the compact top bar.
+
 ## 2026-09-05
 
 ### Improved

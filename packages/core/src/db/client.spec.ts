@@ -1,6 +1,56 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // We test the pure functions that don't require database initialization.
+
+describe("PGlite dev reloads", () => {
+  const processState = process as NodeJS.Process & {
+    __agentNativePgliteClients?: Map<string, Promise<unknown>>;
+    __agentNativePgliteProcessLocks?: Map<string, unknown>;
+    __agentNativePgliteProcessExitCleanupRegistered?: boolean;
+  };
+  let dataDir = "";
+
+  afterEach(async () => {
+    const { closePgliteClients } = await import("./client.js");
+    await closePgliteClients();
+    delete processState.__agentNativePgliteClients;
+    delete processState.__agentNativePgliteProcessLocks;
+    delete processState.__agentNativePgliteProcessExitCleanupRegistered;
+    vi.doUnmock("@electric-sql/pglite");
+    vi.resetModules();
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it("reuses one client when a Vite reload gets a fresh global realm", async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "agent-native-pglite-reload-"));
+    const client = { close: vi.fn(async () => {}) };
+    const create = vi.fn(async () => client);
+    vi.doMock("@electric-sql/pglite", () => ({ PGlite: { create } }));
+
+    const firstModule = await import("./client.js");
+    const first = await firstModule.getPgliteClient(`pglite:${dataDir}`);
+
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__agentNativePgliteClients",
+    );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__agentNativePgliteProcessLocks",
+    );
+    vi.resetModules();
+
+    const reloadedModule = await import("./client.js");
+    const reloaded = await reloadedModule.getPgliteClient(`pglite:${dataDir}`);
+
+    expect(reloaded).toBe(first);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("db/client Postgres URL handling", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -238,6 +288,34 @@ describe("getRuntimeDatabaseUrl", () => {
 
     expect(getRuntimeDatabaseUrl()).toBe("postgres://direct.example/db");
     expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL_UNPOOLED");
+  });
+
+  it("ignores a malformed unpooled alias and falls back to DATABASE_URL", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("DATABASE_URL", "postgres://pooled.example/db");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "postgresql://");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { getRuntimeDatabaseSource, getRuntimeDatabaseUrl } =
+      await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://pooled.example/db");
+    expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL");
+  });
+
+  it("ignores a malformed DATABASE_URL and falls back to Netlify's runtime URL", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("DATABASE_URL", "postgresql://");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { getRuntimeDatabaseSource, getRuntimeDatabaseUrl } =
+      await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://netlify.example/db");
+    expect(getRuntimeDatabaseSource()).toBe("NETLIFY_DATABASE_URL");
   });
 
   it("keeps pooled URLs unchanged outside serverless runtimes", async () => {
