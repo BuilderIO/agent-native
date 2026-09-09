@@ -29,7 +29,6 @@ import {
   IconMenu2,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconLayoutSidebarRight,
   IconShare,
   IconDots,
   IconEdit,
@@ -117,12 +116,7 @@ function readSidebarCollapsedPreference() {
 }
 
 function ClipsAgentToggleButton() {
-  return (
-    <AgentToggleButton
-      showWhenOpen
-      icon={<IconLayoutSidebarRight className="size-5" aria-hidden />}
-    />
-  );
+  return <AgentToggleButton showWhenOpen />;
 }
 
 interface ExpandedSidebarNavGroupProps {

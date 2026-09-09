@@ -232,7 +232,7 @@ describe("direct recording route shell cue", () => {
     expect(layout).toContain("showCollapseButton={isMobile}");
     expect(layout).toContain("<AgentToggleButton");
     expect(layout).toContain("showWhenOpen");
-    expect(layout).toContain("<IconLayoutSidebarRight");
+    expect(layout).not.toContain("IconLayoutSidebarRight");
     expect(layout).toContain("<ClipsAgentToggleButton />");
     expect(layout).toContain("[&>.agent-sidebar-shell]:h-full");
     expect(layout).toContain("showAgentSidebar = true");
