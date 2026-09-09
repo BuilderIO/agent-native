@@ -59,6 +59,7 @@ export function resolveDocumentHistoryCause(
   if (
     ctx?.caller === "tool" ||
     ctx?.caller === "mcp" ||
+    ctx?.caller === "webmcp" ||
     ctx?.caller === "a2a"
   ) {
     const causalId = ctx.runId ?? ctx.turnId;

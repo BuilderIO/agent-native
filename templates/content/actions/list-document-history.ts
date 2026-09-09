@@ -61,18 +61,22 @@ export default defineAction({
     const endedAt = max(
       sql<string>`coalesce(${schema.documentVersions.updatedAt}, ${schema.documentVersions.createdAt})`,
     );
-    const rows = await getDb()
+    const page = getDb()
       .select({
-        id: groupId,
-        kind: sql<string>`coalesce(max(${schema.documentVersions.groupKind}), 'legacy')`,
-        actorEmail: max(schema.documentVersions.actorEmail),
-        actorKind: sql<string>`coalesce(max(${schema.documentVersions.actorKind}), 'unknown')`,
-        origin: max(schema.documentVersions.origin),
-        operation: max(schema.documentVersions.operation),
-        startedAt,
-        endedAt,
-        checkpointCount: sql<number>`count(*)::integer`,
-        latestCheckpointId: sql<string>`(array_agg(${schema.documentVersions.id} order by ${schema.documentVersions.createdAt} desc, case when ${schema.documentVersions.checkpointKind} = 'after' then 0 else 1 end, ${schema.documentVersions.id} desc))[1]`,
+        id: groupId.as("group_id"),
+        kind: sql<string>`coalesce(max(${schema.documentVersions.groupKind}), 'legacy')`.as(
+          "kind",
+        ),
+        actorEmail: max(schema.documentVersions.actorEmail).as("actor_email"),
+        actorKind:
+          sql<string>`coalesce(max(${schema.documentVersions.actorKind}), 'unknown')`.as(
+            "actor_kind",
+          ),
+        origin: max(schema.documentVersions.origin).as("origin"),
+        operation: max(schema.documentVersions.operation).as("operation"),
+        startedAt: startedAt.as("started_at"),
+        endedAt: endedAt.as("ended_at"),
+        checkpointCount: sql<number>`count(*)::integer`.as("checkpoint_count"),
       })
       .from(schema.documentVersions)
       .where(
@@ -88,7 +92,29 @@ export default defineAction({
           : undefined,
       )
       .orderBy(desc(startedAt), desc(groupId))
-      .limit(args.limit + 1);
+      .limit(args.limit + 1)
+      .as("history_page");
+    const rows = await getDb()
+      .select({
+        id: page.id,
+        kind: page.kind,
+        actorEmail: page.actorEmail,
+        actorKind: page.actorKind,
+        origin: page.origin,
+        operation: page.operation,
+        startedAt: page.startedAt,
+        endedAt: page.endedAt,
+        checkpointCount: page.checkpointCount,
+        latestCheckpointId: sql<string>`(select checkpoint.id from document_versions checkpoint
+          where checkpoint.owner_email = ${ownerEmail}
+            and checkpoint.document_id = ${args.documentId}
+            and coalesce(checkpoint.group_id, checkpoint.id) = ${page.id}
+          order by checkpoint.created_at desc,
+            case when checkpoint.checkpoint_kind = 'after' then 0 else 1 end, checkpoint.id desc
+          limit 1)`,
+      })
+      .from(page)
+      .orderBy(desc(page.startedAt), desc(page.id));
     const hasMore = rows.length > args.limit;
     const pageRows = rows.slice(0, args.limit);
     const last = pageRows[pageRows.length - 1];

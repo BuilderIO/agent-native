@@ -10,6 +10,7 @@ import type { DocumentSyncStatus } from "../../shared/api.js";
 import { canonicalizeNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
 import { bodyRevisionForContent } from "./document-body-revision.js";
+import { nextDocumentUpdatedAt } from "./document-updated-at.js";
 import { getCurrentOwnerEmail } from "./documents.js";
 import {
   createNotionPageWithMarkdown,
@@ -997,7 +998,9 @@ async function pullDocumentFromNotionInner(
   // Only bump documents.updated_at when something actually changed. A no-op
   // pull must not move the local-clock forward, otherwise the next conflict
   // check will mistake the unchanged document for a fresh local edit.
-  const updatedAt = contentChanged ? nowIso() : freshDocument.updatedAt;
+  const updatedAt = contentChanged
+    ? nextDocumentUpdatedAt(freshDocument.updatedAt)
+    : freshDocument.updatedAt;
   if (contentChanged) {
     // Snapshot + compare-and-swap are one transaction: only the winning
     // replacement gets a recovery version, and snapshot failure rolls it back.
@@ -1249,7 +1252,9 @@ async function pushDocumentToNotionInner(
     newTitle !== freshDocument.title ||
     newContent !== freshDocument.content ||
     newIcon !== freshDocument.icon;
-  const pushedAt = contentChanged ? nowIso() : freshDocument.updatedAt;
+  const pushedAt = contentChanged
+    ? nextDocumentUpdatedAt(freshDocument.updatedAt)
+    : freshDocument.updatedAt;
   // Tracks whatever content the `documents` row actually ends up holding, so
   // the baseline hash we persist below is never out of sync with the row —
   // otherwise Notion normalizing anything makes every later status check

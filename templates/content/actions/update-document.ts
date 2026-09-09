@@ -80,15 +80,6 @@ function isFavoriteOnlyUpdate(args: {
   );
 }
 
-function nanoid(size = 12): string {
-  const chars =
-    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  let id = "";
-  const bytes = crypto.getRandomValues(new Uint8Array(size));
-  for (const byte of bytes) id += chars[byte % chars.length];
-  return id;
-}
-
 const reuseLabelSchema = z.object({
   itemId: z.string().min(1).optional(),
   itemVersionId: z.string().min(1).optional(),

@@ -164,8 +164,10 @@ async function clickButton(label: string, exact = true) {
 
 function ControlledPanel({
   documentId = "document-1",
+  restoreReady = true,
 }: {
   documentId?: string;
+  restoreReady?: boolean;
 }) {
   const [open, setOpen] = useState(true);
   return (
@@ -176,6 +178,7 @@ function ControlledPanel({
         mocks.onOpenChange(next);
         setOpen(next);
       }}
+      restoreReady={restoreReady}
       prepareRestore={mocks.prepareRestore}
       onRestored={mocks.onRestored}
     />
@@ -213,6 +216,24 @@ describe("VersionHistoryPanel restore flow", () => {
     expect(
       document.querySelector("[data-testid=history-preview]")?.textContent,
     ).toBe("Earlier content");
+  });
+
+  it("keeps Restore disabled until the editor controller is ready", async () => {
+    await act(async () => {
+      root.render(<ControlledPanel restoreReady={false} />);
+    });
+    const button = Array.from(document.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent?.trim() === "Restore this version",
+    ) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    button.click();
+    expect(mocks.prepareRestore).not.toHaveBeenCalled();
+    await act(async () => {
+      root.render(<ControlledPanel restoreReady />);
+    });
+    expect(button.disabled).toBe(false);
+    await clickButton("Restore this version");
+    expect(mocks.prepareRestore).toHaveBeenCalledOnce();
   });
 
   afterEach(() => {

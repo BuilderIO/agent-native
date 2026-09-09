@@ -37,12 +37,12 @@ beforeAll(async () => {
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL,
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
     identity_authority TEXT, identity_id TEXT
   )`);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
-    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL,
-    federation_removal_pending_at INTEGER
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at BIGINT
   )`);
 }, 60000);
 
@@ -126,6 +126,141 @@ describe("import-content-source descriptions", () => {
         }),
       ]),
     );
+  });
+
+  it("atomically preserves both outgoing states from concurrent imports", async () => {
+    const id = "doc_concurrent_import_history";
+    const path = `content/concurrent-import-history--${id}.mdx`;
+    const source = (content: string) =>
+      serializeContentSourceDocument({
+        id,
+        parentId: null,
+        title: "Concurrent import history",
+        content,
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility: "private",
+      });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: source("state A") },
+        dryRun: false,
+      }),
+    );
+    const [initial] = await getDb()
+      .select({ updatedAt: schema.documents.updatedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
+
+    const results = await Promise.all(
+      ["state B", "state C"].map((content) =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          importContentSourceAction.run({
+            files: { [path]: source(content) },
+            dryRun: false,
+          }),
+        ),
+      ),
+    );
+
+    expect(results.map((result) => result.updated)).toEqual([
+      [expect.objectContaining({ id, path })],
+      [expect.objectContaining({ id, path })],
+    ]);
+    const [current] = await getDb()
+      .select({
+        content: schema.documents.content,
+        updatedAt: schema.documents.updatedAt,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
+    const checkpoints = await getDb()
+      .select({ content: schema.documentVersions.content })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, id));
+
+    expect(
+      [
+        ...checkpoints.map((checkpoint: any) => checkpoint.content),
+        current.content,
+      ].sort(),
+    ).toEqual(["state A", "state B", "state C"]);
+    expect(new Date(current.updatedAt).getTime()).toBeGreaterThan(
+      new Date(initial.updatedAt).getTime(),
+    );
+  });
+
+  it("rolls back the history snapshot when the document replacement fails", async () => {
+    const id = "doc_import_history_rollback";
+    const path = `content/import-history-rollback--${id}.mdx`;
+    const source = (content: string) =>
+      serializeContentSourceDocument({
+        id,
+        parentId: null,
+        title: "Import history rollback",
+        content,
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility: "private",
+      });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: source("stable state") },
+        dryRun: false,
+      }),
+    );
+    const triggerName = `force_import_rollback_${Date.now()}`;
+    const functionName = `${triggerName}_fn`;
+    await getDbExec().execute(
+      `CREATE FUNCTION ${functionName}() RETURNS trigger
+       LANGUAGE plpgsql AS $import$
+       BEGIN
+         IF NEW.id = '${id}' THEN
+           RAISE EXCEPTION 'forced import rollback';
+         END IF;
+         RETURN NEW;
+       END;
+       $import$`,
+    );
+    await getDbExec().execute(
+      `CREATE TRIGGER ${triggerName}
+       BEFORE UPDATE ON documents
+       FOR EACH ROW EXECUTE FUNCTION ${functionName}()`,
+    );
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          importContentSourceAction.run({
+            files: { [path]: source("rejected state") },
+            dryRun: false,
+          }),
+        ),
+      ).rejects.toThrow(/forced import rollback|Failed query:/);
+    } finally {
+      await getDbExec().execute(
+        `DROP TRIGGER IF EXISTS ${triggerName} ON documents`,
+      );
+      await getDbExec().execute(`DROP FUNCTION IF EXISTS ${functionName}()`);
+    }
+
+    await expect(
+      getDb()
+        .select({ content: schema.documents.content })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id)),
+    ).resolves.toEqual([{ content: "stable state" }]);
+    await expect(
+      getDb()
+        .select({ content: schema.documentVersions.content })
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, id)),
+    ).resolves.toEqual([]);
   });
 
   it("creates and updates visibility while preserving it when omitted", async () => {

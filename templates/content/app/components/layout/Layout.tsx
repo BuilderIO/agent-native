@@ -12,6 +12,7 @@ import {
   HeaderActionsProvider,
   usePersistentSidebarCollapsed,
 } from "@agent-native/toolkit/app-shell";
+import type { Document } from "@shared/api";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   type CSSProperties,
@@ -22,11 +23,16 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigation } from "react-router";
+import { toast } from "sonner";
 
 import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
+import {
+  applyRegisteredDocumentHistoryRestore,
+  prepareRegisteredDocumentHistoryRestore,
+} from "@/lib/document-history-restore-controller";
 
 import { Header } from "./Header";
 
@@ -100,7 +106,8 @@ export function Layout({ children }: LayoutProps) {
     [activeDocumentId],
   );
   const documentChatHistory = useMemo<
-    AssistantChatHistoryConfig | undefined
+    | AssistantChatHistoryConfig<unknown, AssistantChatHistoryVersion, Document>
+    | undefined
   >(() => {
     if (!documentScope) return undefined;
     const documentId = documentScope.id;
@@ -120,13 +127,36 @@ export function Layout({ children }: LayoutProps) {
       },
       restore: {
         action: "restore-document-version",
-        args: (version: AssistantChatHistoryVersion) => ({
+        args: async (version: AssistantChatHistoryVersion) => ({
           documentId,
           versionId: version.id,
+          expectedUpdatedAt: await prepareRegisteredDocumentHistoryRestore(
+            documentId,
+            t("editor.historySaveBeforeRestoreFailed"),
+          ),
         }),
+        onRestored: async (restored) => {
+          if (restored.id !== documentId) {
+            toast.error(t("editor.historyRestoreAppliedRefreshFailed"));
+            return;
+          }
+          try {
+            const applied = await applyRegisteredDocumentHistoryRestore(
+              documentId,
+              restored,
+            );
+            if (applied) return;
+          } catch (error) {
+            console.warn(
+              "Could not apply the committed chat history restore",
+              error,
+            );
+          }
+          toast.error(t("editor.historyRestoreAppliedRefreshFailed"));
+        },
       },
     };
-  }, [documentScope]);
+  }, [documentScope, t]);
   const isCompactLayout = useIsCompactLayout();
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     usePersistentSidebarCollapsed({

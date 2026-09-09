@@ -470,6 +470,7 @@ interface DocumentToolbarProps {
   breadcrumbItems?: ToolbarBreadcrumbItem[];
   documentUpdatedAt?: string | null;
   prepareHistoryRestore?: () => Promise<string>;
+  historyRestoreReady?: boolean;
   onHistoryRestored?: (
     restored: Document,
   ) => HistoryRestoreApplyResult | Promise<HistoryRestoreApplyResult>;
@@ -505,6 +506,7 @@ export function DocumentToolbar({
   breadcrumbItems = [],
   documentUpdatedAt,
   prepareHistoryRestore,
+  historyRestoreReady = true,
   onHistoryRestored,
   restoreUnavailableReason,
   activeUsers,
@@ -995,6 +997,7 @@ export function DocumentToolbar({
                 open={historyOpen}
                 onOpenChange={setHistoryOpen}
                 canRestore={canEdit}
+                restoreReady={historyRestoreReady}
                 activeUsers={activeUsers}
                 prepareRestore={prepareHistoryRestore}
                 onRestored={onHistoryRestored}

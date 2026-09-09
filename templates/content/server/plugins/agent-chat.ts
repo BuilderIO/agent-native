@@ -3,10 +3,8 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
-import * as schema from "../db/schema.js";
 import {
   publicDocumentExtraContext,
   resolvePublicViewerOwner,

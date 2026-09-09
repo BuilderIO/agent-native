@@ -2,10 +2,28 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   applyHistoryToDocumentBody,
+  isHistoryRestoreReady,
   resolveAcknowledgedDocumentSnapshot,
 } from "./DocumentEditor";
 
 describe("document editor history", () => {
+  it("requires the active page's rich-text controller before preparing an ordinary Page restore", () => {
+    const controller = {
+      undo: vi.fn(),
+      redo: vi.fn(),
+      replaceWithAuthoritativeContent: vi.fn(() => true),
+    };
+
+    expect(isHistoryRestoreReady(false, null, null, "page-a")).toBe(false);
+    expect(isHistoryRestoreReady(false, controller, "page-b", "page-a")).toBe(
+      false,
+    );
+    expect(isHistoryRestoreReady(false, controller, "page-a", "page-a")).toBe(
+      true,
+    );
+    expect(isHistoryRestoreReady(true, null, null, "database-page")).toBe(true);
+  });
+
   it("applies database Page recovery without a rich-text controller while requiring one for ordinary Pages", () => {
     const restored = {
       content: "Earlier body",

@@ -86,6 +86,7 @@ import {
 } from "@/hooks/use-notion";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
+import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import {
   canWriteLinkedLocalSource,
   readDocumentFromLinkedLocalSource,
@@ -148,6 +149,17 @@ export function applyHistoryToDocumentBody(
       contentUpdatedAt: restored.updatedAt,
       contentRevision: restored.revision ?? null,
     }) ?? false
+  );
+}
+
+export function isHistoryRestoreReady(
+  hasDatabase: boolean,
+  controller: VisualEditorHistoryController | null,
+  controllerDocumentId: string | null,
+  documentId: string,
+) {
+  return (
+    hasDatabase || (controller !== null && controllerDocumentId === documentId)
   );
 }
 
@@ -859,6 +871,9 @@ function DocumentEditorBody({
     "checking" | "available" | "unavailable"
   >("checking");
   const [localFileSyncRevision, setLocalFileSyncRevision] = useState(0);
+  const editorHistoryControllerDocumentIdRef = useRef<string | null>(null);
+  const [editorHistoryControllerReady, setEditorHistoryControllerReady] =
+    useState(false);
   const editorHistoryControllerRef =
     useRef<VisualEditorHistoryController | null>(null);
   const [editorHistoryState, setEditorHistoryState] =
@@ -876,8 +891,12 @@ function DocumentEditorBody({
   const handleHistoryControllerChange = useCallback(
     (controller: VisualEditorHistoryController | null) => {
       editorHistoryControllerRef.current = controller;
+      editorHistoryControllerDocumentIdRef.current = controller
+        ? documentId
+        : null;
+      setEditorHistoryControllerReady(controller !== null);
     },
-    [],
+    [documentId],
   );
   const handleDeleteDocument = useCallback(async () => {
     try {
@@ -1708,6 +1727,16 @@ function DocumentEditorBody({
     [handleBackgroundSaveError],
   );
   const prepareHistoryRestore = useCallback(async (): Promise<string> => {
+    if (
+      !isHistoryRestoreReady(
+        Boolean(currentDocumentRef.current.database),
+        editorHistoryControllerRef.current,
+        editorHistoryControllerDocumentIdRef.current,
+        documentId,
+      )
+    ) {
+      throw new Error(t("editor.historySaveBeforeRestoreFailed"));
+    }
     const title = localTitleRef.current;
     const content = localContentRef.current;
     const pending = pendingDocumentSaveRef.current;
@@ -1741,6 +1770,12 @@ function DocumentEditorBody({
     }
     return current.updatedAt;
   }, [documentId, queueDocumentSave, t]);
+  const historyRestoreReady = isHistoryRestoreReady(
+    Boolean(document.database),
+    editorHistoryControllerRef.current,
+    editorHistoryControllerDocumentIdRef.current,
+    documentId,
+  );
   const handleHistoryRestored = useCallback((restored: Document) => {
     if (restored.id !== activeDocumentIdRef.current) {
       return { status: "committed-editor-refresh-required" } as const;
@@ -1778,6 +1813,18 @@ function DocumentEditorBody({
       ? ({ status: "applied" } as const)
       : ({ status: "committed-editor-refresh-required" } as const);
   }, []);
+  useEffect(() => {
+    if (!historyRestoreReady) return;
+    return registerDocumentHistoryRestoreController(documentId, {
+      prepareRestore: prepareHistoryRestore,
+      applyRestore: handleHistoryRestored,
+    });
+  }, [
+    documentId,
+    handleHistoryRestored,
+    historyRestoreReady,
+    prepareHistoryRestore,
+  ]);
 
   const debouncedSave = useCallback(
     (title: string, content: string) => {
@@ -2738,6 +2785,10 @@ function DocumentEditorBody({
             )}
             documentUpdatedAt={document.updatedAt}
             prepareHistoryRestore={prepareHistoryRestore}
+            historyRestoreReady={
+              historyRestoreReady &&
+              (Boolean(document.database) || editorHistoryControllerReady)
+            }
             onHistoryRestored={handleHistoryRestored}
             restoreUnavailableReason={
               isLinkedLocalSourceDocument

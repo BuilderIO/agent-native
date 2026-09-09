@@ -1,8 +1,5 @@
 import type { CollabUser } from "@agent-native/core/client/collab";
-import {
-  actionErrorMessage,
-  setClientAppState,
-} from "@agent-native/core/client/hooks";
+import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type { Document } from "@shared/api";
 import type {
@@ -53,6 +50,7 @@ import {
   useRestoreDocumentVersion,
 } from "@/hooks/use-document-versions";
 
+import { setHistoryApplicationState } from "./history-application-state";
 import { VisualEditor } from "./VisualEditor";
 
 export type HistoryRestoreApplyResult =
@@ -64,6 +62,7 @@ interface VersionHistoryPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   canRestore?: boolean;
+  restoreReady?: boolean;
   activeUsers?: CollabUser[];
   prepareRestore?: () => Promise<string>;
   restoreUnavailableReason?: string;
@@ -95,6 +94,7 @@ export function VersionHistoryPanel({
   open,
   onOpenChange,
   canRestore = true,
+  restoreReady = true,
   prepareRestore,
   restoreUnavailableReason,
   onRestored,
@@ -187,7 +187,7 @@ export function VersionHistoryPanel({
     [expandedGroupIds],
   );
   useEffect(() => {
-    void setClientAppState(
+    void setHistoryApplicationState(
       historyStateKey,
       open
         ? {
@@ -197,8 +197,9 @@ export function VersionHistoryPanel({
             selectedCheckpointId: selectedCheckpoint?.id ?? null,
           }
         : null,
-      { requestSource: "content-history" },
-    ).catch(() => {});
+    ).catch((error) =>
+      console.warn("Could not write history application state", error),
+    );
   }, [
     documentId,
     expandedGroupIdList,
@@ -208,10 +209,10 @@ export function VersionHistoryPanel({
   ]);
   useEffect(
     () => () => {
-      void setClientAppState(historyStateKey, null, {
-        keepalive: true,
-        requestSource: "content-history",
-      }).catch(() => {});
+      void setHistoryApplicationState(historyStateKey, null, true).catch(
+        (error) =>
+          console.warn("Could not clear history application state", error),
+      );
     },
     [historyStateKey],
   );
@@ -236,7 +237,7 @@ export function VersionHistoryPanel({
   const handleRestoreClick = async (
     checkpoint: DocumentHistoryCheckpointDetail,
   ) => {
-    if (!prepareRestore) return;
+    if (!prepareRestore || !restoreReady) return;
     const generation = operationContextRef.current.generation;
     setIsPreparingRestore(true);
     setRestoreError(null);
@@ -256,7 +257,7 @@ export function VersionHistoryPanel({
   };
 
   const doRestore = async () => {
-    if (!pendingRestore) return;
+    if (!pendingRestore || !restoreReady) return;
     const generation = operationContextRef.current.generation;
     let restored: Document;
     try {
@@ -298,6 +299,7 @@ export function VersionHistoryPanel({
   const detail = checkpointDetail.data?.checkpoint;
   const showRestore = canRestore;
   const restoreDisabled =
+    !restoreReady ||
     restoreApplyFailed ||
     !!restoreUnavailableReason ||
     !prepareRestore ||

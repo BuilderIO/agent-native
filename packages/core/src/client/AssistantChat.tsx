@@ -1987,6 +1987,34 @@ export interface AssistantChatAdapterContext {
   surface: AgentChatSurfaceKind;
 }
 
+export async function restoreAssistantChatHistoryVersion<
+  TVersion extends AssistantChatHistoryVersion,
+  TRestoreResult,
+>(options: {
+  history: AssistantChatHistoryConfig<unknown, TVersion, TRestoreResult>;
+  version: TVersion;
+  restore: (args: Record<string, unknown>) => Promise<TRestoreResult>;
+  refetch: () => Promise<unknown>;
+  onRefetchError: (error: unknown) => void;
+}) {
+  const args = await options.history.restore.args(options.version);
+  const restored = await options.restore(args);
+  let applicationFailed = false;
+  let applicationError: unknown;
+  try {
+    await options.history.restore.onRestored?.(restored, options.version);
+  } catch (error) {
+    applicationFailed = true;
+    applicationError = error;
+  }
+  try {
+    await options.refetch();
+  } catch (error) {
+    options.onRefetchError(error);
+  }
+  if (applicationFailed) throw applicationError;
+}
+
 export interface AssistantChatProps {
   /** API endpoint URL. Default: "/_agent-native/agent-chat" */
   apiUrl?: string;
@@ -2001,7 +2029,7 @@ export interface AssistantChatProps {
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
   /** Optional host-owned resource history used for chat-side reverts. */
-  chatHistory?: AssistantChatHistoryConfig<any, any>;
+  chatHistory?: AssistantChatHistoryConfig<any, any, any>;
   /** Restrict server-side thread restores to the supplied app scope. */
   isolateHistoryByScope?: boolean;
   /** Namespace used to hide ambient composer context from other host surfaces. */
@@ -3047,19 +3075,19 @@ const AssistantChatInner = forwardRef<
   const restoreChatHistoryVersion = useCallback(
     async (version: AssistantChatHistoryVersion) => {
       if (!chatHistory) return;
-      await restoreHistory(
-        chatHistory.restore.args(version) as Record<string, unknown>,
-      );
-      try {
-        await refetchChatHistory();
-      } catch (error) {
-        captureError(error, {
-          tags: {
-            source: "agent-chat-client",
-            phase: "chat-history-refetch-after-restore",
-          },
-        });
-      }
+      await restoreAssistantChatHistoryVersion({
+        history: chatHistory,
+        version,
+        restore: restoreHistory,
+        refetch: refetchChatHistory,
+        onRefetchError: (error) =>
+          captureError(error, {
+            tags: {
+              source: "agent-chat-client",
+              phase: "chat-history-refetch-after-restore",
+            },
+          }),
+      });
     },
     [chatHistory, refetchChatHistory, restoreHistory],
   );

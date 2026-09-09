@@ -197,37 +197,44 @@ describe("grouped document history", () => {
     });
   });
 
-  it("uses the agent run instead of a supplied browser session for attribution", async () => {
-    await recordDocumentHistoryTransition({
-      db: getDb(),
-      ownerEmail: OWNER,
-      documentId: DOCUMENT_ID,
-      before: { title: "Draft", content: "start" },
-      after: { title: "Agent title", content: "start" },
-      cause: {
-        historySessionId: "untrusted-human-session",
-        operation: "update-document",
-        ctx: {
-          caller: "tool",
-          userEmail: OWNER,
-          runId: "agent-run-1",
-          turnId: "turn-1",
+  it.each(["tool", "mcp", "webmcp", "a2a"] as const)(
+    "attributes %s to its agent run instead of a browser session",
+    async (caller) => {
+      await recordDocumentHistoryTransition({
+        db: getDb(),
+        ownerEmail: OWNER,
+        documentId: DOCUMENT_ID,
+        before: { title: "Draft", content: "start" },
+        after: { title: "Agent title", content: "start" },
+        cause: {
+          historySessionId: "untrusted-human-session",
+          operation: "update-document",
+          ctx: {
+            caller,
+            userEmail: OWNER,
+            runId: "agent-run-1",
+            turnId: "turn-1",
+          },
         },
-      },
-      now: new Date().toISOString(),
-    });
-    const [row] = await getDb()
-      .select()
-      .from(schema.documentVersions)
-      .where(eq(schema.documentVersions.checkpointKind, "after"));
-    expect(row).toMatchObject({
-      groupId: `agent:${OWNER}:agent-run-1`,
-      groupKind: "agent_run",
-      actorEmail: OWNER,
-      actorKind: "agent",
-      title: "Agent title",
-    });
-  });
+        now: new Date().toISOString(),
+      });
+      const [row] = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.checkpointKind, "after"));
+      expect(JSON.parse(row.chatContext!)).toMatchObject({
+        runId: "agent-run-1",
+        turnId: "turn-1",
+      });
+      expect(row).toMatchObject({
+        groupId: `agent:${OWNER}:agent-run-1`,
+        groupKind: "agent_run",
+        actorEmail: OWNER,
+        actorKind: "agent",
+        title: "Agent title",
+      });
+    },
+  );
 
   it("pages same-timestamp checkpoints with the after state first", async () => {
     const createdAt = new Date().toISOString();
