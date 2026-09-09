@@ -274,7 +274,7 @@ describe("CommandMenu docs group", () => {
     expect(input).toBeTruthy();
     expect(list).toBeTruthy();
     expect(dialog?.className).toContain("top-[15vh]");
-    expect(dialog?.className).toContain("!z-50");
+    expect(dialog?.className).toContain("z-[280]");
     expect(dialog?.className).toContain("!max-h-none");
     expect(dialog?.className).toContain("!translate-y-0");
     expect(dialog?.className).toContain("bg-popover");
@@ -282,7 +282,8 @@ describe("CommandMenu docs group", () => {
     expect(dialog?.style.transition).toBe("none");
     expect(dialog?.style.maxWidth).toBe("");
     expect(dialog?.style.backgroundColor).toBe("");
-    expect(overlay?.className).toContain("z-50");
+    expect(overlay?.className).toContain("z-[270]");
+    expect(overlay?.style.zIndex).toBe("");
     expect(overlay?.className).toContain("bg-black/50");
     expect(overlay?.style.backdropFilter).toBe("none");
     expect(overlay?.style.transition).toBe("none");

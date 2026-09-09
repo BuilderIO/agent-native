@@ -487,16 +487,15 @@ export function CommandMenu({
           aria-describedby={undefined}
           hideClose
           motion="instant"
-          overlayClassName="fixed inset-0 z-50 bg-black/50 backdrop-blur-none transition-none"
+          overlayClassName="fixed inset-0 bg-black/50 backdrop-blur-none transition-none"
           overlayStyle={{
-            zIndex: 50,
             backgroundColor: "rgb(0 0 0 / 0.5)",
             backdropFilter: "none",
             animation: "none",
             transition: "none",
           }}
           className={cn(
-            "fixed left-1/2 top-[15vh] !z-50 !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full max-w-lg",
+            "fixed left-1/2 top-[15vh] !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full max-w-lg",
             "rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-lg",
             className,
           )}
