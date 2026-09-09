@@ -2,6 +2,7 @@ import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { notifyActionChange } from "../../server/action-change.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { assertAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
@@ -9,6 +10,14 @@ import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
 } from "./extension-change.js";
+
+export interface UnshareResourceResult {
+  ok: true;
+  /** Marker persistence is acknowledged separately from the committed revoke. */
+  recipientInvalidation: {
+    status: "recorded" | "unconfirmed" | "not_applicable";
+  };
+}
 
 function normalizePrincipalId(
   principalType: "user" | "group" | "org",
@@ -40,7 +49,7 @@ export default defineAction({
     principalType: z.enum(["user", "group", "org"]),
     principalId: z.string(),
   }),
-  run: async (args) => {
+  run: async (args): Promise<UnshareResourceResult> => {
     const reg = requireShareableResource(args.resourceType);
     await assertAccess(args.resourceType, args.resourceId, "admin");
     const beforeExtensionTargets = await getExtensionShareChangeTargets(
@@ -52,7 +61,7 @@ export default defineAction({
       args.principalType,
       args.principalId,
     );
-    await db
+    const removed = await db
       .delete(reg.sharesTable)
       .where(
         and(
@@ -60,13 +69,34 @@ export default defineAction({
           eq(reg.sharesTable.principalType, args.principalType),
           principalIdMatches(reg.sharesTable, args.principalType, principalId),
         ),
-      );
+      )
+      .returning({ principalId: reg.sharesTable.principalId });
     invalidateCollabAccessCache(args.resourceType, args.resourceId);
     await notifyExtensionShareChanged(
       args.resourceType,
       args.resourceId,
       beforeExtensionTargets,
     );
-    return { ok: true };
+    let status: UnshareResourceResult["recipientInvalidation"]["status"] =
+      "not_applicable";
+    if (args.principalType === "user" && removed.length > 0) {
+      try {
+        await notifyActionChange({
+          actionName: "unshare-resource",
+          owner: principalId,
+        });
+        status = "recorded";
+      } catch (error) {
+        // The grant is already deleted; a marker failure must not roll back
+        // the caller's revoked-share UI or imply the grant still exists.
+        status = "unconfirmed";
+        console.error("[unshare-resource] recipient invalidation", {
+          event: "recipient_invalidation_unconfirmed",
+          status,
+          error,
+        });
+      }
+    }
+    return { ok: true, recipientInvalidation: { status } };
   },
 });

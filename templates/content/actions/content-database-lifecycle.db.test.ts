@@ -993,7 +993,7 @@ describe("document trash lifecycle", () => {
       runWithRequestContext({ userEmail: OWNER }, () =>
         getDocumentAction.run({ id: rootId }),
       ),
-    ).rejects.toMatchObject({ statusCode: 404 });
+    ).rejects.toMatchObject({ statusCode: 409, errorCode: "DOCUMENT_TRASHED" });
 
     const trash = await runWithRequestContext({ userEmail: OWNER }, () =>
       listTrashedDocumentsAction.run({}),
@@ -1804,12 +1804,12 @@ describe("content database soft-delete actions and reads", () => {
       runWithRequestContext({ userEmail: OWNER }, () =>
         getDocumentAction.run({ id: databaseDocumentId }),
       ),
-    ).rejects.toThrow(`Document "${databaseDocumentId}" not found`);
+    ).rejects.toMatchObject({ statusCode: 409, errorCode: "DOCUMENT_TRASHED" });
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
         getDocumentAction.run({ id: rowDocumentId }),
       ),
-    ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
+    ).rejects.toMatchObject({ statusCode: 409, errorCode: "DOCUMENT_TRASHED" });
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
         pullDocumentAction.run({ id: rowDocumentId, format: "markdown" }),

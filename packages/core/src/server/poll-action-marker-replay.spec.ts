@@ -115,6 +115,38 @@ describe("action marker replay on cold start", () => {
     expect(db.persisted.map((p) => p.owner)).toContain("recent@x.com");
   });
 
+  it("replays recipient revoke markers only to that user regardless of active org", async () => {
+    const db = makeDb([
+      {
+        session: "recipient@example.test",
+        ts: NOW - 5_000,
+        action: "unshare-resource",
+      },
+    ]);
+    const state = new AppSyncState({ getDb: () => db.exec as never });
+    await state.seedVersionFromDb();
+    await state.checkExternalDbChanges({ durableEvents: false });
+    expect(db.persisted).toEqual([
+      expect.objectContaining({
+        key: "unshare-resource",
+        owner: "recipient@example.test",
+      }),
+    ]);
+    expect(
+      state.getChangesSinceForUser(0, "recipient@example.test", "different-org")
+        .events,
+    ).toEqual([
+      expect.objectContaining({
+        key: "unshare-resource",
+        owner: "recipient@example.test",
+      }),
+    ]);
+    expect(
+      state.getChangesSinceForUser(0, "other@example.test", "different-org")
+        .events,
+    ).toEqual([]);
+  });
+
   it("still replays a marker written just before boot", async () => {
     // The rewind exists so a separate action process's write is not missed by
     // the first poll. Bounding the window must not break that.

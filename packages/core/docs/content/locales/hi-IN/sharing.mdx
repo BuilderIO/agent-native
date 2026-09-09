@@ -147,6 +147,8 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 
 एजेंट को बताएं "इस डिज़ाइन को संपादकों के रूप में मार्केटिंग टीम के साथ साझा करें" और यह UI द्वारा उपयोग किए जाने वाले उसी एंडपॉइंट के विरुद्ध `share-resource` को कॉल करता है। परिणाम अगले रेंडर पर शेयर डायलॉग में दिखाई देता है।
 
+सफल निरस्तीकरण के बाद `unshare-resource`, `ok: true` लौटाता है। हटाई गई प्रत्यक्ष उपयोगकर्ता अनुमति के लिए, प्राप्तकर्ता का सामान्य रीफ़्रेश मार्कर दर्ज होने पर `recipientInvalidation.status` का मान `recorded` होता है; रिकॉर्डिंग की पुष्टि न होने पर `unconfirmed` होता है। दोनों में से कोई भी डिलीवरी की गारंटी नहीं देता। `not_applicable` का अर्थ है कि कोई प्रत्यक्ष उपयोगकर्ता अनुमति नहीं हटाई गई। सूचना की अनिश्चितता निरस्तीकरण को पूर्ववत नहीं करती। मार्कर में संसाधन ID, शीर्षक या सामग्री नहीं होती।
+
 ## Agent-readable share links {#agent-readable-links}
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.

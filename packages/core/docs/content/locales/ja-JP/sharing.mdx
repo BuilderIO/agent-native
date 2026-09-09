@@ -147,6 +147,8 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 
 エージェントに「このデザインを編集者としてマーケティング チームと共有する」ように指示すると、エージェントは UI が使用するのと同じエンドポイントに対して `share-resource` を呼び出します。結果は、次回のレンダリング時に共有ダイアログに表示されます。
 
+`unshare-resource` は取り消しが成功すると `ok: true` を返します。直接のユーザー権限が削除された場合、受信者向けの汎用更新マーカーが記録されると `recipientInvalidation.status` は `recorded`、記録を確認できない場合は `unconfirmed` になります。どちらも配信を保証しません。`not_applicable` は直接のユーザー権限が削除されなかったことを示します。通知の不確実性によって取り消しが元に戻ることはありません。マーカーにリソース ID、タイトル、内容は含まれません。
+
 ## Agent-readable share links {#agent-readable-links}
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.

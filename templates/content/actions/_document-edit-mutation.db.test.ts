@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -37,7 +37,9 @@ beforeEach(async () => {
   await db.delete(schema.documentEditReceipts);
   await db.delete(schema.documentVersions);
   await db.delete(schema.documentShares);
-  await db.delete(schema.documents);
+  await db
+    .delete(schema.documents)
+    .where(eq(schema.documents.ownerEmail, OWNER));
   await db.insert(schema.documents).values({
     id: DOCUMENT_ID,
     ownerEmail: OWNER,
@@ -58,7 +60,12 @@ describe("revisioned document edit mutation", () => {
     await getDb()
       .update(schema.documents)
       .set({ trashedAt: new Date().toISOString() })
-      .where(eq(schema.documents.id, DOCUMENT_ID));
+      .where(
+        and(
+          eq(schema.documents.id, DOCUMENT_ID),
+          eq(schema.documents.ownerEmail, OWNER),
+        ),
+      );
     await expect(
       mutateDocumentBody({
         documentId: DOCUMENT_ID,
@@ -74,9 +81,14 @@ describe("revisioned document edit mutation", () => {
     expect(
       await getDb().select().from(schema.documentEditReceipts),
     ).toHaveLength(0);
-    expect((await getDb().select().from(schema.documents))[0].content).toBe(
-      "alpha beta",
-    );
+    expect(
+      (
+        await getDb()
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.ownerEmail, OWNER))
+      )[0].content,
+    ).toBe("alpha beta");
   });
 
   it("commits one revision/version/receipt and replays a double delivery", async () => {
@@ -103,7 +115,12 @@ describe("revisioned document edit mutation", () => {
     const [document] = await db
       .select()
       .from(schema.documents)
-      .where(eq(schema.documents.id, DOCUMENT_ID));
+      .where(
+        and(
+          eq(schema.documents.id, DOCUMENT_ID),
+          eq(schema.documents.ownerEmail, OWNER),
+        ),
+      );
     expect(document).toMatchObject({ content: "omega beta", bodyRevision: 1 });
     expect(await db.select().from(schema.documentVersions)).toHaveLength(2);
     expect(await db.select().from(schema.documentEditReceipts)).toHaveLength(1);
@@ -213,7 +230,7 @@ describe("revisioned document edit mutation", () => {
       BEGIN
         UPDATE documents
         SET content = 'legacy writer won'
-        WHERE id = '${DOCUMENT_ID}';
+        WHERE owner_email = 'document-editor@example.com' AND id = '${DOCUMENT_ID}';
         RETURN NEW;
       END;
       $legacy$
@@ -356,7 +373,12 @@ describe("revisioned document edit mutation", () => {
     const [document] = await getDb()
       .select()
       .from(schema.documents)
-      .where(eq(schema.documents.id, DOCUMENT_ID));
+      .where(
+        and(
+          eq(schema.documents.id, DOCUMENT_ID),
+          eq(schema.documents.ownerEmail, OWNER),
+        ),
+      );
     expect(document.content).toBe("beta gamma");
   });
 
@@ -364,7 +386,12 @@ describe("revisioned document edit mutation", () => {
     await getDb()
       .update(schema.documents)
       .set({ content: "legacy writer changed beta" })
-      .where(eq(schema.documents.id, DOCUMENT_ID));
+      .where(
+        and(
+          eq(schema.documents.id, DOCUMENT_ID),
+          eq(schema.documents.ownerEmail, OWNER),
+        ),
+      );
     await expect(
       mutateDocumentBody({
         documentId: DOCUMENT_ID,

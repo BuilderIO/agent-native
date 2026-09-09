@@ -147,6 +147,8 @@ A estrutura monta automaticamente esses actions em cada modelo — o agente os c
 
 Diga ao agente "compartilhe este design com a equipe de marketing como editores" e ele chamará `share-resource` no mesmo endpoint que UI usa. O resultado aparece na caixa de diálogo de compartilhamento na próxima renderização.
 
+`unshare-resource` retorna `ok: true` após uma revogação bem-sucedida. Para uma permissão direta de usuário removida, `recipientInvalidation.status` é `recorded` quando o sinal genérico de atualização do destinatário é registrado, ou `unconfirmed` quando o registro não pode ser confirmado; nenhum garante a entrega. `not_applicable` significa que nenhuma permissão direta de usuário foi removida. A incerteza da notificação não desfaz a revogação. O sinal não contém ID, título ou conteúdo do recurso.
+
 ## Agent-readable share links {#agent-readable-links}
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
