@@ -43,16 +43,28 @@ type MailPreferences = {
 
 async function resolveRootInboxHref(): Promise<string> {
   try {
-    const response = await fetch(
-      agentNativePath("/_agent-native/actions/get-mail-preferences"),
-    );
-    if (!response.ok) return "/inbox";
-    const settings = (await response.json()) as MailPreferences;
+    const [prefRes, googleRes] = await Promise.allSettled([
+      fetch(agentNativePath("/_agent-native/actions/get-mail-preferences")),
+      fetch(agentNativePath("/_agent-native/google/status")),
+    ]);
+    if (prefRes.status !== "fulfilled" || !prefRes.value.ok) return "/inbox";
+    const settings = (await prefRes.value.json()) as MailPreferences;
+    const isGoogleConnected =
+      googleRes.status === "fulfilled" && googleRes.value.ok
+        ? Boolean(
+            (
+              (await googleRes.value.json()) as {
+                connected?: boolean;
+                accounts?: unknown[];
+              }
+            )?.connected,
+          )
+        : false;
     return resolveDefaultMailHref({
       combineInbox: settings.combineInbox,
       pinnedLabels: settings.pinnedLabels,
       savedFilters: settings.savedFilters,
-      isGoogleConnected: true,
+      isGoogleConnected,
     });
   } catch {
     return "/inbox";

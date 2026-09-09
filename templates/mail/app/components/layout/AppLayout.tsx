@@ -873,8 +873,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return tabs;
   }, [activeLabel, labels, labelAliases, labelDisplayNames, visibleTabs]);
 
+  const initialForegroundEmailsReady =
+    !inboxIsFetching || rawInboxEmails.length > 0;
+
   useEffect(() => {
-    if (tabsLoading) return;
+    if (tabsLoading || !initialForegroundEmailsReady) return;
     const targets = new Map<string, MailPrefetchTarget>();
     for (const tab of visibleTabs) {
       if (tab.isActive) continue;
@@ -886,7 +889,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     void prefetchMailTabTargets([...targets.values()], (target) =>
       prefetchEmails(queryClient, target.view, target.search, target.label),
     );
-  }, [queryClient, savedFilters, tabsLoading, visibleTabs]);
+  }, [
+    initialForegroundEmailsReady,
+    queryClient,
+    savedFilters,
+    tabsLoading,
+    visibleTabs,
+  ]);
 
   // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(

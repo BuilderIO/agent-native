@@ -61,6 +61,8 @@ describe("Inbox navigation commands", () => {
     const source = inboxSource();
 
     expect(source).toContain("settingsLoading");
+    expect(source).toContain("settingsError ||");
+    expect(source).toContain("!settings ||");
     expect(source).toContain("resolveDefaultMailHref({");
     expect(source).toContain("navigate(defaultHref, { replace: true })");
     expect(source).toContain(

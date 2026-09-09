@@ -328,7 +328,11 @@ export function InboxPage() {
   const compose = useComposeState();
   const navState = useNavigationState();
   const [, setLastArchivedId] = useState<string | null>(null);
-  const { data: settings, isLoading: settingsLoading } = useSettings();
+  const {
+    data: settings,
+    isLoading: settingsLoading,
+    isError: settingsError,
+  } = useSettings();
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
@@ -408,6 +412,8 @@ export function InboxPage() {
   useEffect(() => {
     if (
       settingsLoading ||
+      settingsError ||
+      !settings ||
       view !== "inbox" ||
       routeThreadId ||
       activeLabel ||
@@ -436,7 +442,8 @@ export function InboxPage() {
     navigate,
     routeThreadId,
     searchQuery,
-    settings?.savedFilters,
+    settings,
+    settingsError,
     settingsLoading,
     userPinnedLabels,
     view,

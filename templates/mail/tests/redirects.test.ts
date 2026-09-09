@@ -8,18 +8,34 @@ afterEach(() => {
 
 function mockPreferences(
   result:
-    | { ok: true; pinnedLabels: string[] | undefined }
+    | {
+        ok: true;
+        pinnedLabels: string[] | undefined;
+        googleConnected?: boolean;
+      }
     | { ok: false; reject?: false }
     | { ok: false; reject: true },
 ) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => {
+    vi.fn(async (url: string | URL | Request) => {
+      const urlStr =
+        typeof url === "string"
+          ? url
+          : url instanceof URL
+            ? url.toString()
+            : (url as Request).url;
       if ("reject" in result && result.reject) {
         throw new Error("request failed");
       }
       if (!result.ok) {
         return new Response("fail", { status: 500 });
+      }
+      if (urlStr.includes("google/status")) {
+        return new Response(
+          JSON.stringify({ connected: result.googleConnected ?? true }),
+          { headers: { "content-type": "application/json" } },
+        );
       }
       return new Response(
         JSON.stringify({ pinnedLabels: result.pinnedLabels }),
@@ -34,7 +50,11 @@ function mockPreferences(
 async function expectInboxRedirect(
   routeLoader: typeof loader | typeof clientLoader,
   fetchResult:
-    | { ok: true; pinnedLabels: string[] | undefined }
+    | {
+        ok: true;
+        pinnedLabels: string[] | undefined;
+        googleConnected?: boolean;
+      }
     | { ok: false; reject?: false }
     | { ok: false; reject: true },
   expectedLocation: string,
@@ -68,6 +88,14 @@ describe("Mail private home route", () => {
       clientLoader,
       { ok: true, pinnedLabels: undefined },
       "/inbox?label=important",
+    );
+  });
+
+  it("does not synthesize Important when Google is disconnected", () => {
+    return expectInboxRedirect(
+      clientLoader,
+      { ok: true, pinnedLabels: undefined, googleConnected: false },
+      "/inbox",
     );
   });
 
