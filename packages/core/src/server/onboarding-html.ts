@@ -2310,7 +2310,7 @@ ${marketingStyles}
     margin-block: auto;
   }
   .auth-marketing-home .form-panel { min-width: 0; }
-  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
+  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; transform: translateY(-5vh); }
   @media (max-width: 900px) {
     body.has-marketing {
       align-items: flex-start;

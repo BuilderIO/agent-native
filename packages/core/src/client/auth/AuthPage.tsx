@@ -10,7 +10,7 @@ import {
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
-import { StarfieldBackground } from "../StarfieldBackground.js";
+import { OceanBackground } from "../ocean/OceanBackground.js";
 
 export type AuthView =
   | "signup"
@@ -2763,7 +2763,7 @@ export function AuthPage(props: AuthPageProps) {
       variant="auth"
       background={
         marketingCopy.screenshotSrc ? null : (
-          <StarfieldBackground className="auth-marketing-background" />
+          <OceanBackground className="auth-marketing-background" />
         )
       }
       topRight={
@@ -2803,7 +2803,7 @@ export function AuthPage(props: AuthPageProps) {
             aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
           }}
         >
-          <StarfieldBackground className="auth-marketing-screenshot" />
+          <OceanBackground className="auth-marketing-screenshot" />
         </div>
       ) : (
         <div className="marketing-content">
