@@ -207,8 +207,7 @@ export default defineAction({
       if (args.bcc) draft.bcc = args.bcc;
       if (args.replyToId) draft.replyToId = args.replyToId;
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
-      const accountEmail =
-        savedGmailDraft?.accountEmail ?? args.accountEmail ?? ownerEmail;
+      const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
       if (accountEmail) draft.accountEmail = accountEmail;
       await writeAppState(`compose-${id}`, draft);
       return {
@@ -242,6 +241,16 @@ export default defineAction({
           return [key, value];
         }),
       ) as Record<string, string>;
+      if (
+        draft.savedDraftId &&
+        args.accountEmail !== undefined &&
+        args.accountEmail !== draft.accountEmail
+      ) {
+        fail(`Cannot change the account for existing draft "${safeId}"`, {
+          errorCode: "draft_account_change",
+          statusCode: 400,
+        });
+      }
       for (const key of [
         "to",
         "cc",
@@ -256,11 +265,17 @@ export default defineAction({
         if ((args as any)[key] !== undefined)
           (draft as any)[key] = (args as any)[key];
       }
+      const accountEmail =
+        args.accountEmail ??
+        (draft.savedDraftId ? draft.accountEmail : undefined);
+      if (!draft.savedDraftId && args.accountEmail === undefined) {
+        delete draft.accountEmail;
+      }
       const ownerEmail = getRequestUserEmail();
       const savedGmailDraft = ownerEmail
         ? await saveGmailDraft({
             ownerEmail,
-            accountEmail: draft.accountEmail,
+            accountEmail,
             draftId: draft.savedDraftId,
             to: draft.to || "",
             cc: draft.cc,
