@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   commands: vi.fn(),
   update: vi.fn(),
   move: vi.fn(),
+  duplicate: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -20,6 +21,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: mocks.commands,
+  useActionMutation: () => ({ mutateAsync: mocks.duplicate, isPending: false }),
 }));
 vi.mock("@/hooks/use-documents", () => ({
   useDocument: mocks.document,
@@ -56,7 +58,7 @@ function loadedQuery(data: unknown) {
   };
 }
 
-async function render(command: "preview" | "rename" | "move") {
+async function render(command: "preview" | "rename" | "move" | "duplicate") {
   await act(async () => {
     root.render(
       <MemoryRouter>
@@ -104,6 +106,31 @@ afterEach(() => {
 });
 
 describe("sidebar command authority", () => {
+  it("reuses the same receipt key when retrying an uncertain duplicate", async () => {
+    mocks.duplicate.mockRejectedValue(new Error("Network response lost"));
+    await render("duplicate");
+    expect(document.body.textContent).toContain(
+      "sidebarCommands.duplicateTitle",
+    );
+    const submit = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "database.duplicate",
+    )!;
+    await act(async () => {
+      submit.click();
+    });
+    expect(document.body.textContent).toContain("sidebarCommands.failed");
+    await act(async () => {
+      submit.click();
+    });
+    expect(mocks.duplicate).toHaveBeenCalledTimes(2);
+    expect(mocks.duplicate.mock.calls[0][0]).toEqual(
+      mocks.duplicate.mock.calls[1][0],
+    );
+    expect(mocks.duplicate.mock.calls[0][0]).toEqual({
+      id: "page",
+      idempotencyKey: expect.any(String),
+    });
+  });
   it("withholds cached preview payload until the first authoritative fetch completes", async () => {
     documentQuery.isFetching = true;
     documentQuery.isFetchedAfterMount = false;

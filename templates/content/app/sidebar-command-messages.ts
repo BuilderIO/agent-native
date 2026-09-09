@@ -1,6 +1,11 @@
 import type { LocaleCode } from "@agent-native/core/client/i18n";
 
 const enUS = {
+  duplicateUnsupported:
+    "This page tree contains content that cannot be copied.",
+  duplicateDenied: "You cannot copy this page tree into this workspace.",
+  duplicateLimit: "This page tree is too large to copy in one operation.",
+  duplicateTitle: "Duplicate privately at workspace root",
   rename: "Rename",
   move: "Move to",
   preview: "Open in side preview",
@@ -26,6 +31,10 @@ const enUS = {
 export const sidebarCommandMessagesByLocale = {
   "en-US": enUS,
   "zh-CN": {
+    duplicateUnsupported: "此页面树包含无法复制的内容。",
+    duplicateDenied: "你无法将此页面树复制到此工作区。",
+    duplicateLimit: "此页面树过大，无法一次复制。",
+    duplicateTitle: "在工作区根目录创建私有副本",
     rename: "重命名",
     move: "移动到",
     preview: "在侧边预览中打开",
@@ -48,6 +57,10 @@ export const sidebarCommandMessagesByLocale = {
     changed: "页面已更改，请重试。",
   },
   "zh-TW": {
+    duplicateUnsupported: "此頁面樹包含無法複製的內容。",
+    duplicateDenied: "你無法將此頁面樹複製到此工作區。",
+    duplicateLimit: "此頁面樹過大，無法一次複製。",
+    duplicateTitle: "在工作區根目錄建立私人副本",
     rename: "重新命名",
     move: "移動至",
     preview: "在側邊預覽中開啟",
@@ -70,6 +83,12 @@ export const sidebarCommandMessagesByLocale = {
     changed: "頁面已變更，請再試一次。",
   },
   "es-ES": {
+    duplicateUnsupported:
+      "Este árbol de páginas contiene contenido que no se puede copiar.",
+    duplicateDenied: "No puedes copiar este árbol de páginas en este espacio.",
+    duplicateLimit:
+      "Este árbol de páginas es demasiado grande para copiarlo de una vez.",
+    duplicateTitle: "Duplicar de forma privada en la raíz del espacio",
     rename: "Cambiar nombre",
     move: "Mover a",
     preview: "Abrir en vista previa lateral",
@@ -92,6 +111,13 @@ export const sidebarCommandMessagesByLocale = {
     changed: "La página ha cambiado. Vuelve a intentarlo.",
   },
   "fr-FR": {
+    duplicateUnsupported:
+      "Cette arborescence contient du contenu qui ne peut pas être copié.",
+    duplicateDenied:
+      "Vous ne pouvez pas copier cette arborescence dans cet espace.",
+    duplicateLimit:
+      "Cette arborescence est trop grande pour être copiée en une seule fois.",
+    duplicateTitle: "Dupliquer en privé à la racine de l’espace",
     rename: "Renommer",
     move: "Déplacer vers",
     preview: "Ouvrir dans l’aperçu latéral",
@@ -114,6 +140,13 @@ export const sidebarCommandMessagesByLocale = {
     changed: "La page a été modifiée. Réessayez.",
   },
   "de-DE": {
+    duplicateUnsupported:
+      "Dieser Seitenbaum enthält Inhalte, die nicht kopiert werden können.",
+    duplicateDenied:
+      "Du kannst diesen Seitenbaum nicht in diesen Arbeitsbereich kopieren.",
+    duplicateLimit:
+      "Dieser Seitenbaum ist zu groß, um ihn auf einmal zu kopieren.",
+    duplicateTitle: "Privat im Stamm des Arbeitsbereichs duplizieren",
     rename: "Umbenennen",
     move: "Verschieben nach",
     preview: "In der seitlichen Vorschau öffnen",
@@ -136,6 +169,12 @@ export const sidebarCommandMessagesByLocale = {
     changed: "Die Seite wurde geändert. Versuche es erneut.",
   },
   "ja-JP": {
+    duplicateUnsupported:
+      "このページツリーには複製できないコンテンツが含まれています。",
+    duplicateDenied:
+      "このページツリーをこのワークスペースに複製する権限がありません。",
+    duplicateLimit: "このページツリーは大きすぎるため、一度に複製できません。",
+    duplicateTitle: "ワークスペースのルートに非公開の複製を作成",
     rename: "名前を変更",
     move: "移動先を選択",
     preview: "サイドプレビューで開く",
@@ -158,6 +197,12 @@ export const sidebarCommandMessagesByLocale = {
     changed: "ページが変更されました。もう一度お試しください。",
   },
   "ko-KR": {
+    duplicateUnsupported:
+      "이 페이지 트리에는 복사할 수 없는 콘텐츠가 있습니다.",
+    duplicateDenied:
+      "이 페이지 트리를 이 워크스페이스에 복사할 권한이 없습니다.",
+    duplicateLimit: "이 페이지 트리는 너무 커서 한 번에 복사할 수 없습니다.",
+    duplicateTitle: "워크스페이스 루트에 비공개 복제본 만들기",
     rename: "이름 바꾸기",
     move: "다음으로 이동",
     preview: "측면 미리보기에서 열기",
@@ -180,6 +225,13 @@ export const sidebarCommandMessagesByLocale = {
     changed: "페이지가 변경되었습니다. 다시 시도하세요.",
   },
   "pt-BR": {
+    duplicateUnsupported:
+      "Esta árvore de páginas contém conteúdo que não pode ser copiado.",
+    duplicateDenied:
+      "Você não pode copiar esta árvore de páginas para este espaço.",
+    duplicateLimit:
+      "Esta árvore de páginas é grande demais para copiar de uma vez.",
+    duplicateTitle: "Duplicar de forma privada na raiz do espaço",
     rename: "Renomear",
     move: "Mover para",
     preview: "Abrir na prévia lateral",
@@ -202,6 +254,11 @@ export const sidebarCommandMessagesByLocale = {
     changed: "A página foi alterada. Tente novamente.",
   },
   "hi-IN": {
+    duplicateUnsupported:
+      "इस पेज ट्री में ऐसी सामग्री है जिसकी प्रतिलिपि नहीं बनाई जा सकती।",
+    duplicateDenied: "आप इस पेज ट्री को इस कार्यक्षेत्र में कॉपी नहीं कर सकते।",
+    duplicateLimit: "यह पेज ट्री एक बार में कॉपी करने के लिए बहुत बड़ा है।",
+    duplicateTitle: "कार्यक्षेत्र के मूल में निजी प्रतिलिपि बनाएँ",
     rename: "नाम बदलें",
     move: "यहाँ ले जाएँ",
     preview: "साइड पूर्वावलोकन में खोलें",
@@ -224,6 +281,10 @@ export const sidebarCommandMessagesByLocale = {
     changed: "पेज बदल गया है। फिर से कोशिश करें।",
   },
   "ar-SA": {
+    duplicateUnsupported: "تحتوي شجرة الصفحات هذه على محتوى لا يمكن نسخه.",
+    duplicateDenied: "لا يمكنك نسخ شجرة الصفحات هذه إلى مساحة العمل هذه.",
+    duplicateLimit: "شجرة الصفحات هذه أكبر من أن تُنسخ في عملية واحدة.",
+    duplicateTitle: "إنشاء نسخة خاصة في جذر مساحة العمل",
     rename: "إعادة تسمية",
     move: "نقل إلى",
     preview: "فتح في المعاينة الجانبية",

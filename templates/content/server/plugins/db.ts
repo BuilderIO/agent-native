@@ -1086,6 +1086,21 @@ export const runContentMigrations = runMigrations(
   [
     ...contentMigrations,
     {
+      version: 91,
+      name: "content-document-subtree-duplication-receipts",
+      sql: `CREATE TABLE IF NOT EXISTS document_duplication_receipts (
+        id TEXT PRIMARY KEY,
+        caller_scope TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        payload_digest TEXT NOT NULL,
+        source_document_id TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS document_duplication_receipts_scope_key_unique
+        ON document_duplication_receipts (caller_scope, idempotency_key)`,
+    },
+    {
       version: 90,
       name: "content-document-history-grouping",
       sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS actor_email TEXT;

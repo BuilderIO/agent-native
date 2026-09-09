@@ -282,10 +282,61 @@ describe("database row batch actions", () => {
     ).toBe(true);
   });
 
+  it("serializes root copies across different databases and ordinary root writers", async () => {
+    const first = await createDatabaseWithRows(1);
+    const second = await createDatabaseWithRows(2);
+    const { withPositionLock, documentsPositionScope } =
+      await import("./_position-utils.js");
+    let release!: () => void;
+    let entered!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = withPositionLock(
+      documentsPositionScope(OWNER, null),
+      async () => {
+        entered();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await createDocument({ position: 9000 });
+      },
+    );
+    await ready;
+    const copies = Promise.all([
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        duplicateDatabaseItemAction.run({ itemId: first.rows[0].itemId }),
+      ),
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        duplicateDatabaseItemsAction.run({
+          databaseId: second.databaseId,
+          itemIds: second.rows.map((row) => row.itemId),
+        }),
+      ),
+    ]);
+    release();
+    await held;
+    const [single, batch] = await copies;
+    const ids = [single.duplicatedDocumentId, ...batch.duplicatedDocumentIds];
+    const copied = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, ids))
+      .orderBy(asc(schema.documents.position));
+    expect(copied.map((row: any) => row.position)).toEqual([9001, 9002, 9003]);
+    expect(copied.every((row: any) => row.parentId === null)).toBe(true);
+  });
+
   it("duplicates selected rows as one ordered block with copied values and inherited shares", async () => {
     const db = getDb();
     const { databaseId, databaseDocumentId, rows } =
       await createDatabaseWithRows(4);
+    await createDocument({ title: "Root sibling", position: 10000 });
+    await createDocument({
+      title: "True child",
+      parentId: databaseDocumentId,
+      position: 20000,
+    });
     const now = new Date().toISOString();
     const propertyId = nextId("property");
     await db.insert(schema.documentPropertyDefinitions).values({
@@ -367,9 +418,19 @@ describe("database row batch actions", () => {
       "Row 3",
     ]);
     expect(allRows.map((row) => row.itemPosition)).toEqual([0, 1, 2, 3, 4, 5]);
-    expect(allRows.map((row) => row.documentPosition)).toEqual([
-      0, 1, 2, 3, 4, 5,
-    ]);
+    expect(
+      allRows
+        .filter((row) =>
+          rows.some((source) => source.documentId === row.documentId),
+        )
+        .map((row) => row.documentPosition),
+    ).toEqual([0, 1, 2, 3]);
+    expect(
+      result.duplicatedItems?.every((item) => item.document.parentId === null),
+    ).toBe(true);
+    expect(
+      result.duplicatedItems?.map((item) => item.document.position),
+    ).toEqual([10001, 10002]);
 
     const copiedValues = await db
       .select({
@@ -509,7 +570,7 @@ describe("database row batch actions", () => {
     expect(single.duplicatedItems).toHaveLength(1);
     expect(single.duplicatedItems?.[0]).toMatchObject({
       id: single.duplicatedItemId,
-      document: { id: single.duplicatedDocumentId },
+      document: { id: single.duplicatedDocumentId, parentId: null },
     });
 
     const batch = await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -1261,7 +1322,7 @@ describe("database row batch actions", () => {
     const source = readFileSync(
       new URL("./duplicate-document-property.ts", import.meta.url),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
     const transactionStart = source.indexOf(
       "await db.transaction(async (tx) => {",
     );

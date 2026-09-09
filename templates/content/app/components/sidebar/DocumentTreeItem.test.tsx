@@ -200,12 +200,18 @@ describe("sidebar document permission menus", () => {
     expect(onCreateChildDatabase).not.toHaveBeenCalled();
 
     const menuItems = await openActions(container);
-    expect(menuItems.some((item) => item.textContent?.trim() === "Pin to sidebar")).toBe(true);
-    expect(menuItems.filter((item) => item.getAttribute("aria-disabled") === "true")).toHaveLength(2);
+    expect(
+      menuItems.some((item) => item.textContent?.trim() === "Pin to sidebar"),
+    ).toBe(true);
+    expect(
+      menuItems.filter((item) => item.getAttribute("aria-disabled") === "true"),
+    ).toHaveLength(3);
     expect(menuItems.some((item) => item.textContent === "Delete")).toBe(false);
 
     await act(async () => {
-      menuItems.find((item) => item.textContent?.trim() === "Pin to sidebar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      menuItems
+        .find((item) => item.textContent?.trim() === "Pin to sidebar")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
     expect(onToggleFavorite).toHaveBeenCalledOnce();

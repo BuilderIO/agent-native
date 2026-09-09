@@ -16,6 +16,11 @@ import {
   resolveDatabaseRowsForBatch,
 } from "./_database-row-batch.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  createAppendPositionAllocator,
+  documentsPositionScope,
+  withPositionLocks,
+} from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
 
 export default defineAction({
@@ -63,199 +68,222 @@ export default defineAction({
       duplicatedDocumentId: nanoid(),
     }));
 
-    await db.transaction(async (tx) => {
-      await lockContentDatabaseMutation(
-        tx as unknown as ReturnType<typeof getDb>,
-        database.id,
-      );
-      await touchContentDatabase(
-        tx as unknown as ReturnType<typeof getDb>,
-        database.id,
-        now,
-      );
-      const lockedRows = await tx
-        .select({
-          item: schema.contentDatabaseItems,
-          document: schema.documents,
-        })
-        .from(schema.contentDatabaseItems)
-        .innerJoin(
-          schema.documents,
-          eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-        )
-        .where(
-          and(
-            eq(schema.contentDatabaseItems.databaseId, database.id),
-            inArray(schema.contentDatabaseItems.id, sourceItemIds),
-            isNull(schema.documents.trashedAt),
-          ),
-        )
-        .orderBy(asc(schema.contentDatabaseItems.position));
-      const lockedRowsByItemId = new Map(
-        lockedRows.map((lockedRow) => [lockedRow.item.id, lockedRow]),
-      );
-      if (
-        lockedRows.length !== rows.length ||
-        rows.some(
-          (row) =>
-            lockedRowsByItemId.get(row.item.id)?.document.id !==
-            row.document.id,
-        )
-      ) {
-        throw new Error("Database rows changed while duplication was waiting.");
-      }
-      if (
-        lockedRows.some(
-          (lockedRow) => lockedRow.document.spaceId !== database.spaceId,
-        )
-      ) {
-        throw new Error(
-          "Cannot duplicate database rows across Content spaces.",
-        );
-      }
-      const [claimedSource] = await tx
-        .select({ id: schema.contentDatabaseItemKeyClaims.id })
-        .from(schema.contentDatabaseItemKeyClaims)
-        .where(
-          and(
-            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
-            inArray(
-              schema.contentDatabaseItemKeyClaims.documentId,
-              sourceDocumentIds,
-            ),
-          ),
-        )
-        .limit(1);
-      if (claimedSource) {
-        throw new Error(
-          "Rows with active stable-key claims cannot be duplicated.",
-        );
-      }
-      const insertionPosition =
-        Math.max(...lockedRows.map((lockedRow) => lockedRow.item.position)) + 1;
-      const lockedDuplicates = duplicates.map((duplicate, index) => ({
-        ...duplicate,
-        position: insertionPosition + index,
-        row: lockedRowsByItemId.get(duplicate.sourceItemId)!,
-      }));
-      const values =
-        sourceDocumentIds.length > 0
-          ? await tx
-              .select()
-              .from(schema.documentPropertyValues)
-              .where(
+    await withPositionLocks(
+      rows.map((row) => documentsPositionScope(row.document.ownerEmail, null)),
+      () =>
+        db.transaction(async (tx) => {
+          await lockContentDatabaseMutation(
+            tx as unknown as ReturnType<typeof getDb>,
+            database.id,
+          );
+          await touchContentDatabase(
+            tx as unknown as ReturnType<typeof getDb>,
+            database.id,
+            now,
+          );
+          const lockedRows = await tx
+            .select({
+              item: schema.contentDatabaseItems,
+              document: schema.documents,
+            })
+            .from(schema.contentDatabaseItems)
+            .innerJoin(
+              schema.documents,
+              eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+            )
+            .where(
+              and(
+                eq(schema.contentDatabaseItems.databaseId, database.id),
+                inArray(schema.contentDatabaseItems.id, sourceItemIds),
+                isNull(schema.documents.trashedAt),
+              ),
+            )
+            .orderBy(asc(schema.contentDatabaseItems.position));
+          const lockedRowsByItemId = new Map(
+            lockedRows.map((lockedRow) => [lockedRow.item.id, lockedRow]),
+          );
+          if (
+            lockedRows.length !== rows.length ||
+            rows.some(
+              (row) =>
+                lockedRowsByItemId.get(row.item.id)?.document.id !==
+                  row.document.id ||
+                lockedRowsByItemId.get(row.item.id)?.document.ownerEmail !==
+                  row.document.ownerEmail,
+            )
+          ) {
+            throw new Error(
+              "Database rows changed while duplication was waiting.",
+            );
+          }
+          if (
+            lockedRows.some(
+              (lockedRow) => lockedRow.document.spaceId !== database.spaceId,
+            )
+          ) {
+            throw new Error(
+              "Cannot duplicate database rows across Content spaces.",
+            );
+          }
+          const [claimedSource] = await tx
+            .select({ id: schema.contentDatabaseItemKeyClaims.id })
+            .from(schema.contentDatabaseItemKeyClaims)
+            .where(
+              and(
+                eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
                 inArray(
-                  schema.documentPropertyValues.documentId,
+                  schema.contentDatabaseItemKeyClaims.documentId,
                   sourceDocumentIds,
                 ),
-              )
-          : [];
-      const valuesByDocumentId = new Map<
-        string,
-        Array<typeof schema.documentPropertyValues.$inferSelect>
-      >();
-      for (const value of values) {
-        const list = valuesByDocumentId.get(value.documentId) ?? [];
-        list.push(value);
-        valuesByDocumentId.set(value.documentId, list);
-      }
-      await tx
-        .update(schema.contentDatabaseItems)
-        .set({
-          position: sql`${schema.contentDatabaseItems.position} + ${lockedDuplicates.length}`,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.contentDatabaseItems.databaseId, database.id),
-            gte(schema.contentDatabaseItems.position, insertionPosition),
-          ),
-        );
+              ),
+            )
+            .limit(1);
+          if (claimedSource) {
+            throw new Error(
+              "Rows with active stable-key claims cannot be duplicated.",
+            );
+          }
+          const insertionPosition =
+            Math.max(
+              ...lockedRows.map((lockedRow) => lockedRow.item.position),
+            ) + 1;
+          const lockedDuplicates = duplicates.map((duplicate, index) => ({
+            ...duplicate,
+            position: insertionPosition + index,
+            row: lockedRowsByItemId.get(duplicate.sourceItemId)!,
+          }));
+          const values =
+            sourceDocumentIds.length > 0
+              ? await tx
+                  .select()
+                  .from(schema.documentPropertyValues)
+                  .where(
+                    inArray(
+                      schema.documentPropertyValues.documentId,
+                      sourceDocumentIds,
+                    ),
+                  )
+              : [];
+          const valuesByDocumentId = new Map<
+            string,
+            Array<typeof schema.documentPropertyValues.$inferSelect>
+          >();
+          for (const value of values) {
+            const list = valuesByDocumentId.get(value.documentId) ?? [];
+            list.push(value);
+            valuesByDocumentId.set(value.documentId, list);
+          }
+          await tx
+            .update(schema.contentDatabaseItems)
+            .set({
+              position: sql`${schema.contentDatabaseItems.position} + ${lockedDuplicates.length}`,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(schema.contentDatabaseItems.databaseId, database.id),
+                gte(schema.contentDatabaseItems.position, insertionPosition),
+              ),
+            );
 
-      await tx
-        .update(schema.documents)
-        .set({
-          position: sql`${schema.documents.position} + ${lockedDuplicates.length}`,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.documents.ownerEmail, database.ownerEmail),
-            eq(schema.documents.parentId, database.documentId),
-            gte(schema.documents.position, insertionPosition),
-          ),
-        );
+          const nextDocumentPositions = new Map<string, () => number>();
+          for (const ownerEmail of new Set(
+            lockedDuplicates.map(
+              (duplicate) => duplicate.row.document.ownerEmail,
+            ),
+          )) {
+            const [maxDocumentPosition] = await tx
+              .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+              .from(schema.documents)
+              .where(
+                and(
+                  eq(schema.documents.ownerEmail, ownerEmail),
+                  isNull(schema.documents.parentId),
+                ),
+              );
+            nextDocumentPositions.set(
+              ownerEmail,
+              createAppendPositionAllocator(maxDocumentPosition?.max),
+            );
+          }
 
-      await tx.insert(schema.documents).values(
-        lockedDuplicates.map((duplicate) => ({
-          id: duplicate.duplicatedDocumentId,
-          spaceId: database.spaceId,
-          ownerEmail: duplicate.row.document.ownerEmail,
-          orgId: duplicate.row.document.orgId,
-          parentId: database.documentId,
-          title: `Copy of ${duplicate.row.document.title.trim() || "Untitled"}`,
-          content: duplicate.row.document.content,
-          icon: duplicate.row.document.icon,
-          position: duplicate.position,
-          isFavorite: 0,
-          hideFromSearch: duplicate.row.document.hideFromSearch,
-          visibility: duplicate.row.document.visibility,
-          createdAt: now,
-          updatedAt: now,
-        })),
-      );
+          await tx.insert(schema.documents).values(
+            lockedDuplicates.map((duplicate) => {
+              const ownerEmail = duplicate.row.document.ownerEmail;
+              const position = nextDocumentPositions.get(ownerEmail)!();
+              return {
+                id: duplicate.duplicatedDocumentId,
+                spaceId: database.spaceId,
+                ownerEmail: duplicate.row.document.ownerEmail,
+                orgId: duplicate.row.document.orgId,
+                parentId: null,
+                title: `Copy of ${duplicate.row.document.title.trim() || "Untitled"}`,
+                content: duplicate.row.document.content,
+                icon: duplicate.row.document.icon,
+                position,
+                isFavorite: 0,
+                hideFromSearch: duplicate.row.document.hideFromSearch,
+                visibility: duplicate.row.document.visibility,
+                createdAt: now,
+                updatedAt: now,
+              };
+            }),
+          );
 
-      await tx.insert(schema.contentDatabaseItems).values(
-        lockedDuplicates.map((duplicate) => ({
-          id: duplicate.duplicatedItemId,
-          ownerEmail: duplicate.row.item.ownerEmail,
-          orgId: duplicate.row.item.orgId,
-          databaseId: database.id,
-          documentId: duplicate.duplicatedDocumentId,
-          position: duplicate.position,
-          createdAt: now,
-          updatedAt: now,
-        })),
-      );
-
-      const duplicatedValues = lockedDuplicates.flatMap((duplicate) =>
-        (valuesByDocumentId.get(duplicate.sourceDocumentId) ?? []).map(
-          (value) => ({
-            id: nanoid(),
-            ownerEmail: duplicate.row.document.ownerEmail,
-            documentId: duplicate.duplicatedDocumentId,
-            propertyId: value.propertyId,
-            valueJson: value.valueJson,
-            createdAt: now,
-            updatedAt: now,
-          }),
-        ),
-      );
-      if (duplicatedValues.length > 0) {
-        await tx.insert(schema.documentPropertyValues).values(duplicatedValues);
-      }
-
-      if (inheritedShares.length > 0) {
-        await tx.insert(schema.documentShares).values(
-          lockedDuplicates.flatMap((duplicate) =>
-            inheritedShares.map((share) => ({
-              id: nanoid(),
-              resourceId: duplicate.duplicatedDocumentId,
-              principalType: share.principalType,
-              principalId: share.principalId,
-              role: share.role,
-              createdBy: currentUserEmail,
+          await tx.insert(schema.contentDatabaseItems).values(
+            lockedDuplicates.map((duplicate) => ({
+              id: duplicate.duplicatedItemId,
+              ownerEmail: duplicate.row.item.ownerEmail,
+              orgId: duplicate.row.item.orgId,
+              databaseId: database.id,
+              documentId: duplicate.duplicatedDocumentId,
+              position: duplicate.position,
               createdAt: now,
+              updatedAt: now,
             })),
-          ),
-        );
-      }
-      await ensureDocumentsFilesMembership(
-        tx,
-        lockedDuplicates.map((duplicate) => duplicate.duplicatedDocumentId),
-        now,
-      );
-    });
+          );
+
+          const duplicatedValues = lockedDuplicates.flatMap((duplicate) =>
+            (valuesByDocumentId.get(duplicate.sourceDocumentId) ?? []).map(
+              (value) => ({
+                id: nanoid(),
+                ownerEmail: duplicate.row.document.ownerEmail,
+                documentId: duplicate.duplicatedDocumentId,
+                propertyId: value.propertyId,
+                valueJson: value.valueJson,
+                createdAt: now,
+                updatedAt: now,
+              }),
+            ),
+          );
+          if (duplicatedValues.length > 0) {
+            await tx
+              .insert(schema.documentPropertyValues)
+              .values(duplicatedValues);
+          }
+
+          if (inheritedShares.length > 0) {
+            await tx.insert(schema.documentShares).values(
+              lockedDuplicates.flatMap((duplicate) =>
+                inheritedShares.map((share) => ({
+                  id: nanoid(),
+                  resourceId: duplicate.duplicatedDocumentId,
+                  principalType: share.principalType,
+                  principalId: share.principalId,
+                  role: share.role,
+                  createdBy: currentUserEmail,
+                  createdAt: now,
+                })),
+              ),
+            );
+          }
+          await ensureDocumentsFilesMembership(
+            tx,
+            lockedDuplicates.map((duplicate) => duplicate.duplicatedDocumentId),
+            now,
+          );
+        }),
+    );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

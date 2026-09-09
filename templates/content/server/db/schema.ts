@@ -690,3 +690,22 @@ export const documentBlocks = table(
 );
 
 export const documentShares = createSharesTable("document_shares");
+
+export const documentDuplicationReceipts = table(
+  "document_duplication_receipts",
+  {
+    id: text("id").primaryKey(),
+    callerScope: text("caller_scope").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    sourceDocumentId: text("source_document_id").notNull(),
+    resultJson: text("result_json").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (receipt) => [
+    uniqueIndex("document_duplication_receipts_scope_key_unique").on(
+      receipt.callerScope,
+      receipt.idempotencyKey,
+    ),
+  ],
+);

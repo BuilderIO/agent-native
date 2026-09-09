@@ -673,16 +673,37 @@ export async function getContentDatabasePageResponse(
             )
         ).map((document) => document.id)
       : null;
-  const organizationFilesItemFilter =
+  const organizationFilesDocumentFilter =
     database.systemRole === "files" && database.orgId
-      ? sql`exists (
+      ? and(
+          eq(schema.documents.orgId, database.orgId),
+          or(
+            and(
+              or(
+                eq(schema.documents.visibility, "org"),
+                eq(schema.documents.visibility, "public"),
+              ),
+              or(
+                eq(schema.documents.hideFromSearch, 0),
+                isNull(schema.documents.hideFromSearch),
+              ),
+            ),
+            normalizedUserEmail
+              ? and(
+                  eq(schema.documents.visibility, "private"),
+                  sql`lower(${schema.documents.ownerEmail}) = ${normalizedUserEmail}`,
+                )
+              : undefined,
+          ),
+        )
+      : undefined;
+  const organizationFilesItemFilter = organizationFilesDocumentFilter
+    ? sql`exists (
           select 1 from ${schema.documents}
           where ${schema.documents.id} = ${schema.contentDatabaseItems.documentId}
-            and ${schema.documents.orgId} = ${database.orgId}
-            and ${schema.documents.visibility} in ('org', 'public')
-            and (${schema.documents.hideFromSearch} = 0 or ${schema.documents.hideFromSearch} is null)
+            and ${organizationFilesDocumentFilter}
         )`
-      : undefined;
+    : undefined;
   const visibleItemFilter = and(
     eq(schema.contentDatabaseItems.databaseId, databaseId),
     options.documentIds !== undefined
@@ -938,17 +959,7 @@ export async function getContentDatabasePageResponse(
                     ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
                     : sql`1 = 0`
                   : database.systemRole === "files" && database.orgId
-                    ? and(
-                        eq(schema.documents.orgId, database.orgId),
-                        or(
-                          eq(schema.documents.visibility, "org"),
-                          eq(schema.documents.visibility, "public"),
-                        ),
-                        or(
-                          eq(schema.documents.hideFromSearch, 0),
-                          isNull(schema.documents.hideFromSearch),
-                        ),
-                      )
+                    ? organizationFilesDocumentFilter
                     : eq(schema.documents.ownerEmail, database.ownerEmail),
             ),
           )

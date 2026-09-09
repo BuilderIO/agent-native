@@ -940,11 +940,22 @@ describe("DatabaseSidebarView", () => {
       document.querySelectorAll<HTMLElement>("[role=menuitem]"),
     );
     expect(menuItems.map((menuItem) => menuItem.textContent?.trim())).toEqual([
+      "New tab",
+      "Preview",
+      "Copy link",
       "Pin to sidebar",
+      "RenameRead only",
+      "MoveRead only",
+      "DuplicateRead only",
     ]);
+    expect(
+      menuItems
+        .slice(4)
+        .every((item) => item.getAttribute("aria-disabled") === "true"),
+    ).toBe(true);
 
     await act(async () => {
-      menuItems[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      menuItems[3]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
     expect(onToggleFavorite).toHaveBeenCalledOnce();

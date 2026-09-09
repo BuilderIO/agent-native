@@ -1,12 +1,8 @@
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import type { Document } from "@shared/api";
 import { IconDots } from "@tabler/icons-react";
-import {
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { useHref } from "react-router";
 import { toast } from "sonner";
 
@@ -29,7 +25,6 @@ import {
   sidebarWriteCommandReason,
   type SidebarCommandId,
 } from "./sidebar-commands";
-
 import CommandDialog from "./SidebarCommandDialog";
 
 export function SidebarRowMenu({
@@ -74,12 +69,12 @@ export function SidebarRowMenu({
     if (!command) returnFocus();
   };
   async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(
-        new URL(href, window.location.origin).href,
-      );
+    const copied = await writeClipboardText(
+      new URL(href, window.location.origin).href,
+    );
+    if (copied) {
       toast.success(t("sidebarCommands.copied"));
-    } catch {
+    } else {
       toast.error(t("sidebarCommands.copyFailed"));
     }
   }
@@ -127,6 +122,12 @@ export function SidebarRowMenu({
       label: t("sidebarCommands.move"),
       reason: reason ? t(`sidebarCommands.${reason}`) : undefined,
       run: () => setCommand("move"),
+    },
+    {
+      id: "duplicate",
+      label: t("database.duplicate"),
+      reason: reason ? t(`sidebarCommands.${reason}`) : undefined,
+      run: () => setCommand("duplicate"),
     },
     ...(onAddContext
       ? [
@@ -245,10 +246,10 @@ export function SidebarRowMenu({
       </ContextMenu>
       {command && (
         <CommandDialog
-            document={document}
-            command={command}
-            onClose={() => setCommand(null)}
-            returnFocus={returnFocus}
+          document={document}
+          command={command}
+          onClose={() => setCommand(null)}
+          returnFocus={returnFocus}
         />
       )}
     </>

@@ -1,9 +1,13 @@
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useActionQuery } from "@agent-native/core/client/hooks";
 import type { Document } from "@shared/api";
+import type { DuplicateDocumentResult } from "@shared/duplicate-document";
 import type { SidebarCommandsResponse } from "@shared/sidebar-commands";
 import { lazy, Suspense, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +31,7 @@ import {
 } from "@/hooks/use-documents";
 
 import {
+  sidebarDuplicateErrorKey,
   type SidebarCommandId,
 } from "./sidebar-commands";
 
@@ -58,11 +63,18 @@ export default function SidebarCommandDialog({
   returnFocus: () => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
   const query = useDocument(initialDocument.id);
   const commands = useActionQuery<SidebarCommandsResponse>(
     "get-document-sidebar-commands",
     { documentId: initialDocument.id, includeDestinations: command === "move" },
-    { enabled: command !== "preview", staleTime: 0, refetchOnMount: "always", retry: false },
+    {
+      enabled: command !== "preview",
+      staleTime: 0,
+      refetchOnMount: "always",
+      retry: false,
+    },
   );
   const document = query.data;
   const [editedTitle, setTitle] = useState<string | null>(null);
@@ -70,11 +82,23 @@ export default function SidebarCommandDialog({
   const [error, setError] = useState<string | null>(null);
   const update = useUpdateDocument();
   const move = useMoveDocument();
-  const pending = update.isPending || move.isPending;
-  const awaitingDocument = query.isLoading || (query.isFetching && !query.isFetchedAfterMount);
-  const awaitingCommands = command !== "preview" && (commands.isLoading || (commands.isFetching && !commands.isFetchedAfterMount));
+  const duplicate = useActionMutation<
+    DuplicateDocumentResult,
+    { id: string; idempotencyKey: string }
+  >("duplicate-document");
+  const pending = update.isPending || move.isPending || duplicate.isPending;
+  const awaitingDocument =
+    query.isLoading || (query.isFetching && !query.isFetchedAfterMount);
+  const awaitingCommands =
+    command !== "preview" &&
+    (commands.isLoading ||
+      (commands.isFetching && !commands.isFetchedAfterMount));
   const reason = commands.data?.writeReason;
-  const unavailable = query.isError || !document || document.canView === false || (command !== "preview" && (commands.isError || !commands.data));
+  const unavailable =
+    query.isError ||
+    !document ||
+    document.canView === false ||
+    (command !== "preview" && (commands.isError || !commands.data));
   const close = () => {
     if (!pending) onClose();
   };
@@ -84,7 +108,14 @@ export default function SidebarCommandDialog({
   };
 
   async function rename() {
-    if (awaitingDocument || awaitingCommands || unavailable || reason || !title.trim()) return;
+    if (
+      awaitingDocument ||
+      awaitingCommands ||
+      unavailable ||
+      reason ||
+      !title.trim()
+    )
+      return;
     setError(null);
     try {
       const result = await update.mutateAsync({
@@ -112,16 +143,38 @@ export default function SidebarCommandDialog({
     }
   }
 
-  const status = awaitingDocument || awaitingCommands ? (
-    <PreviewSkeleton />
-  ) : unavailable ? (
-    <div role="alert" className="grid gap-3">
-      <p>{t("sidebarCommands.unavailable")}</p>
-      <Button variant="outline" onClick={() => { void query.refetch(); if (command !== "preview") void commands.refetch(); }}>
-        {t("sidebarCommands.retry")}
-      </Button>
-    </div>
-  ) : null;
+  async function duplicatePage() {
+    if (awaitingDocument || awaitingCommands || unavailable || reason) return;
+    setError(null);
+    try {
+      const result = await duplicate.mutateAsync({
+        id: initialDocument.id,
+        idempotencyKey,
+      });
+      onClose();
+      navigate(`/page/${result.id}`);
+    } catch (error) {
+      setError(t(sidebarDuplicateErrorKey(error)));
+    }
+  }
+
+  const status =
+    awaitingDocument || awaitingCommands ? (
+      <PreviewSkeleton />
+    ) : unavailable ? (
+      <div role="alert" className="grid gap-3">
+        <p>{t("sidebarCommands.unavailable")}</p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            void query.refetch();
+            if (command !== "preview") void commands.refetch();
+          }}
+        >
+          {t("sidebarCommands.retry")}
+        </Button>
+      </div>
+    ) : null;
 
   if (command === "preview") {
     return (
@@ -195,15 +248,26 @@ export default function SidebarCommandDialog({
         <DialogHeader>
           <DialogTitle>
             {t(
-              command === "rename"
-                ? "sidebarCommands.rename"
-                : "sidebarCommands.move",
+              command === "duplicate"
+                ? "sidebarCommands.duplicateTitle"
+                : command === "rename"
+                  ? "sidebarCommands.rename"
+                  : "sidebarCommands.move",
             )}
           </DialogTitle>
         </DialogHeader>
         {status ||
           (reason ? (
             <p role="alert">{t(`sidebarCommands.${reason}`)}</p>
+          ) : command === "duplicate" ? (
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={close} disabled={pending}>
+                {t("sidebarCommands.cancel")}
+              </Button>
+              <Button onClick={() => void duplicatePage()} disabled={pending}>
+                {t("database.duplicate")}
+              </Button>
+            </div>
           ) : command === "rename" ? (
             <form
               className="grid gap-4"
@@ -266,9 +330,8 @@ function MoveTargets({
 }) {
   const t = useT();
   const [search, setSearch] = useState("");
-  const targets = commands.destinations.filter(
-    (target) =>
-      target.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
+  const targets = commands.destinations.filter((target) =>
+    target.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
   );
   return (
     <div className="grid gap-3">

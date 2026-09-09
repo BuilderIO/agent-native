@@ -1,12 +1,9 @@
 # Documents — Agent Guide
 
-Documents is an agent-native editor for docs, comments, media blocks, databases,
-sharing, and Notion-connected content; the agent and the UI share the same
-actions and application state.
+Documents edits pages, comments, media, databases, and connected content.
+The agent and UI share actions and application state.
 
 ## Skills
-
-Read the relevant skill before deeper work:
 
 - `content` — Markdown/MDX authoring, local folder sources, databases, intake
   forms, and Slack/A2A artifact replies.
@@ -77,6 +74,8 @@ Read the relevant skill before deeper work:
 | `pull-document` | Flush live collab state, then read (external edits) |
 | `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |
 | `create-document` | Create a page, optionally under a parent |
+| `duplicate-document` | Private same-space root copy of a native Page tree; same retry key replays the receipt |
+| `get-document-sidebar-commands` | Current title, write eligibility, and optional authorized Move destinations |
 | `resolve-content-landing` | Restore the caller's last authorized page or ensure their private Personal welcome page |
 | `edit-document` | Find/replace edit — preferred for small changes |
 | `update-document` | Full rewrite of title, content, or description |
@@ -85,10 +84,8 @@ Read the relevant skill before deeper work:
 | `mutate-content-database-block` | Insert, update, upsert, delete, or reorder one supported stable block |
 | `migrate-content-database-rows` | Validate/apply/verify; terminal phases use `manage-content-database-migration` |
 
-Every action carries its own schema, and the rest of the app-specific surface
-(comments, sharing, databases, Notion, local file sources such as
-`remove-local-file-source`) is registered too — use `tool-search` instead of
-scanning a table here.
+Use `tool-search` for other registered actions and their schemas, including
+comments, sharing, databases, Notion, and local file sources.
 
 Sidebar ordering has two meanings. Reordering Pinned or workspace roots moves
 the exact `databaseId` + `itemId` membership, never the document. Files Custom

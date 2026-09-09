@@ -100,6 +100,18 @@ export function documentsPositionScope(
   return `documents:${ownerEmail}:${parentId ?? "root"}`;
 }
 
+export function withPositionLocks<T>(
+  scopeKeys: string[],
+  fn: () => Promise<T>,
+): Promise<T> {
+  const scopes = [...new Set(scopeKeys)].sort();
+  const acquire = (index: number): Promise<T> =>
+    index === scopes.length
+      ? fn()
+      : withPositionLock(scopes[index], () => acquire(index + 1));
+  return acquire(0);
+}
+
 /**
  * Lock scope for `content_database_items.position` rows within one
  * database.
