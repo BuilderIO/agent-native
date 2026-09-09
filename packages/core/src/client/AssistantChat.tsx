@@ -150,7 +150,7 @@ import {
   PlanModeCallout,
   getLoopLimitMetadata,
   getRunErrorMetadata,
-  getRequestModeMetadata,
+  canImplementLatestPlan,
   isBuilderReconnectRunError,
   runErrorKey,
   type BuilderSetupCardLayout,
@@ -5786,16 +5786,18 @@ const AssistantChatInner = forwardRef<
   }, [addToQueue, pendingReconnectRecovery]);
 
   const latestMessage = messages[messages.length - 1];
-  const latestMessageRole = latestMessage?.role;
-  const latestAssistantWasPlan =
-    latestMessageRole === "assistant" &&
-    getRequestModeMetadata(latestMessage) === "plan";
   const showPlanModeCallout =
     execMode === "plan" &&
     !planModeDisabled &&
     !isComposerDisabled &&
     !showRunningInUI;
-  const canImplementPlan = showPlanModeCallout && latestAssistantWasPlan;
+  const canImplementPlan = canImplementLatestPlan({
+    execMode,
+    planModeDisabled,
+    isComposerDisabled,
+    showRunningInUI,
+    latestMessage,
+  });
   const handleImplementPlan = useCallback(() => {
     if (!canImplementPlan) return false;
     onExecModeChange?.("build");

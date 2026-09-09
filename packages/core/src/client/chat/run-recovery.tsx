@@ -154,6 +154,28 @@ export function getRequestModeMetadata(
   return requestMode === "act" || requestMode === "plan" ? requestMode : null;
 }
 
+/**
+ * `/act` and the plan-mode callout both implement the latest plan rather than
+ * only switching modes. The plan being implemented is the last assistant turn,
+ * so a thread that already holds a deck's earlier work still qualifies: only
+ * the tail of the thread decides, never how many turns preceded it.
+ */
+export function canImplementLatestPlan(state: {
+  execMode?: "build" | "plan";
+  planModeDisabled?: boolean;
+  isComposerDisabled?: boolean;
+  showRunningInUI?: boolean;
+  latestMessage?: unknown;
+}): boolean {
+  if (state.execMode !== "plan") return false;
+  if (state.planModeDisabled === true) return false;
+  if (state.isComposerDisabled === true) return false;
+  if (state.showRunningInUI === true) return false;
+  const latest = state.latestMessage as { role?: unknown } | undefined;
+  if (latest?.role !== "assistant") return false;
+  return getRequestModeMetadata(latest) === "plan";
+}
+
 // ─── Run error classifiers ────────────────────────────────────────────────────
 
 export function isBuilderReconnectRunError(info: RunErrorInfo): boolean {

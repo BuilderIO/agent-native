@@ -178,7 +178,97 @@ import {
   BuilderSetupContent,
   LoopLimitContinueCard,
   RunErrorRecoveryCard,
+  canImplementLatestPlan,
 } from "./run-recovery.js";
+
+describe("canImplementLatestPlan", () => {
+  const planTurn = {
+    role: "assistant",
+    metadata: { custom: { requestMode: "plan" } },
+  };
+  const ready = {
+    execMode: "plan" as const,
+    planModeDisabled: false,
+    isComposerDisabled: false,
+    showRunningInUI: false,
+    latestMessage: planTurn,
+  };
+
+  it("implements the plan for a deck whose thread already has turns", () => {
+    expect(canImplementLatestPlan(ready)).toBe(true);
+  });
+
+  it("stays true no matter how much earlier work the thread holds", () => {
+    // Reported repro: a deck built up over several turns (5 slides, then a
+    // 6th) before the plan for 2 more. Only the tail turn may decide.
+    const messages = [
+      { role: "user" },
+      { role: "assistant", metadata: { custom: { requestMode: "act" } } },
+      { role: "user" },
+      { role: "assistant", metadata: { custom: { requestMode: "act" } } },
+      { role: "user" },
+      planTurn,
+    ];
+    expect(
+      canImplementLatestPlan({
+        ...ready,
+        latestMessage: messages[messages.length - 1],
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts requestMode written at the top level of metadata", () => {
+    expect(
+      canImplementLatestPlan({
+        ...ready,
+        latestMessage: { role: "assistant", metadata: { requestMode: "plan" } },
+      }),
+    ).toBe(true);
+  });
+
+  it("refuses when the latest turn is not a plan", () => {
+    expect(
+      canImplementLatestPlan({
+        ...ready,
+        latestMessage: {
+          role: "assistant",
+          metadata: { custom: { requestMode: "act" } },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("refuses when the latest turn is the user's own message", () => {
+    expect(
+      canImplementLatestPlan({ ...ready, latestMessage: { role: "user" } }),
+    ).toBe(false);
+  });
+
+  it("refuses on an empty thread", () => {
+    expect(canImplementLatestPlan({ ...ready, latestMessage: undefined })).toBe(
+      false,
+    );
+  });
+
+  it("refuses while a run is still streaming", () => {
+    expect(canImplementLatestPlan({ ...ready, showRunningInUI: true })).toBe(
+      false,
+    );
+  });
+
+  it("refuses outside plan mode", () => {
+    expect(canImplementLatestPlan({ ...ready, execMode: "build" })).toBe(false);
+  });
+
+  it("refuses when plan mode or the composer is disabled", () => {
+    expect(canImplementLatestPlan({ ...ready, planModeDisabled: true })).toBe(
+      false,
+    );
+    expect(canImplementLatestPlan({ ...ready, isComposerDisabled: true })).toBe(
+      false,
+    );
+  });
+});
 
 describe("run recovery surfaces", () => {
   let container: HTMLDivElement;
