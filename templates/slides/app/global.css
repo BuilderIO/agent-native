@@ -438,9 +438,10 @@ button[title="Open agent sidebar"] {
   height: 100%;
   display: flex;
   flex-direction: column;
-  color: var(--ds-text, #ffffff);
-  background: var(--ds-bg, #0b0b0d);
-  font-family: var(--ds-body-font, "Poppins", sans-serif);
+  padding: 64px 80px;
+  color: var(--ds-text, #1f2933);
+  background: var(--ds-bg, #f5f2ea);
+  font-family: var(--ds-body-font, "Inter", sans-serif);
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -452,7 +453,7 @@ button[title="Open agent sidebar"] {
   justify-content: center;
   align-items: flex-start;
   gap: 24px;
-  padding: 80px 110px;
+  padding: 64px 80px;
 }
 
 .fmd-slide.fmd-slide--content,
@@ -477,10 +478,10 @@ button[title="Open agent sidebar"] {
 .fmd-slide.fmd-slide--two-column h2,
 .fmd-slide.fmd-slide--statement h1,
 .fmd-slide.fmd-slide--statement h2 {
-  color: var(--ds-text, #ffffff);
+  color: var(--ds-text, #1f2933);
   font-family: var(
     --ds-heading-font,
-    var(--ds-body-font, "Poppins", sans-serif)
+    var(--ds-body-font, "Inter", sans-serif)
   );
   font-weight: 700;
   letter-spacing: -0.03em;
@@ -511,7 +512,7 @@ button[title="Open agent sidebar"] {
 
 .fmd-slide .fmd-subtitle,
 .fmd-slide .fmd-muted {
-  color: var(--ds-text-muted, rgba(255, 255, 255, 0.7));
+  color: var(--ds-text-muted, #667085);
 }
 
 .fmd-slide .fmd-subtitle {
@@ -536,7 +537,7 @@ button[title="Open agent sidebar"] {
 
 .fmd-slide .fmd-accent,
 .fmd-slide .fmd-cyan {
-  color: var(--ds-accent, #00e5ff);
+  color: var(--ds-accent, #2457d6);
 }
 
 .fmd-autofit-scale {

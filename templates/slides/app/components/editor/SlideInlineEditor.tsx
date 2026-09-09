@@ -56,7 +56,10 @@ function resolveBackground(bg?: string): {
   bgClass: string;
   bgStyle?: React.CSSProperties;
 } {
-  if (!bg) return { bgClass: "bg-[#000000]" };
+  if (!bg)
+    return {
+      bgStyle: { background: "#F5F2EA" }, // guard:allow-raw-color - default slide canvas fallback
+    };
   if (bg.startsWith("bg-")) return { bgClass: bg };
   return { bgClass: "", bgStyle: { background: bg } };
 }

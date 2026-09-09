@@ -962,7 +962,11 @@ export function SlideInner({
     height: dims.height,
   };
 
-  const bg = slide.background || "bg-[#000000]";
+  const bg =
+    slide.background ??
+    designSystem?.slideDefaults.background ??
+    designSystem?.colors.background ??
+    "#F5F2EA"; // guard:allow-raw-color - default slide canvas fallback
   const isGradientClass = bg.startsWith("bg-");
   const safeBackground = !isGradientClass ? sanitizeCssValue(bg) : null;
   const bgStyle = safeBackground ? { background: safeBackground } : undefined;
@@ -978,6 +982,8 @@ export function SlideInner({
         "--ds-heading-font": designSystem.typography.headingFont,
         "--ds-body-font": designSystem.typography.bodyFont,
         "--ds-primary": designSystem.colors.primary,
+        "--ds-secondary": designSystem.colors.secondary,
+        "--ds-surface": designSystem.colors.surface,
         "--ds-radius": designSystem.borders.radius,
       } as React.CSSProperties)
     : {};
