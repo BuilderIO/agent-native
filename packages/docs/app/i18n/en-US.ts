@@ -971,7 +971,6 @@ const enUS = {
       s058: "Free & open source",
       s059: "Need to see more first?",
       s060: "Choose what to capture, then start recording in Clips.",
-      s061: "View more apps",
       s062: "View all apps",
       faq: {
         question1: "Is Clips free?",
