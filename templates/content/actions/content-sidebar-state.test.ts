@@ -20,7 +20,8 @@ describe("normalizeContentSidebarState", () => {
     });
   });
 
-  it("ignores unknown or stale stored values", () => {
-    expect(normalizeContentSidebarState({ version: 0 })).toBeNull();
+  it("distinguishes absent state from unreadable saved state", () => {
+    expect(normalizeContentSidebarState(null)).toBeNull();
+    expect(() => normalizeContentSidebarState({ version: 0 })).toThrow();
   });
 });

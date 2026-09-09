@@ -1,27 +1,29 @@
 import { defineAction } from "@agent-native/core/action";
-import { putUserSetting } from "@agent-native/core/settings";
+import { mutateUserSetting } from "@agent-native/core/settings";
 
 import {
   CONTENT_SIDEBAR_STATE_SETTING_KEY,
   contentSidebarStateSchema,
+  normalizeContentSidebarState,
 } from "./_content-sidebar-state.js";
 
 export default defineAction({
   description: "Persist the current user's Content sidebar expansion state.",
-  schema: contentSidebarStateSchema,
+  schema: contentSidebarStateSchema.partial().required({ version: true }),
   agentTool: false,
   run: async (state, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
-    const normalized = {
-      ...state,
-      expandedWorkspaceIds: [...new Set(state.expandedWorkspaceIds)],
-      expandedDocumentIds: [...new Set(state.expandedDocumentIds)],
-    };
-    await putUserSetting(
+    const saved = await mutateUserSetting(
       ctx.userEmail,
       CONTENT_SIDEBAR_STATE_SETTING_KEY,
-      normalized,
+      (current) =>
+        normalizeContentSidebarState({
+          expandedWorkspaceIds: [],
+          expandedDocumentIds: [],
+          ...normalizeContentSidebarState(current),
+          ...state,
+        })!,
     );
-    return { state: normalized };
+    return { state: normalizeContentSidebarState(saved) };
   },
 });

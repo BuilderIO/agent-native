@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { contentSidebarSectionsSchema } from "../shared/content-personal-navigation.js";
+
 export const CONTENT_SIDEBAR_STATE_VERSION = 1;
 export const CONTENT_SIDEBAR_STATE_SETTING_KEY = "content-sidebar-state";
 
@@ -9,16 +11,17 @@ export const contentSidebarStateSchema = z.object({
   version: z.literal(CONTENT_SIDEBAR_STATE_VERSION),
   expandedWorkspaceIds: z.array(expandedIdSchema).max(1_000),
   expandedDocumentIds: z.array(expandedIdSchema).max(5_000),
+  sections: contentSidebarSectionsSchema.optional(),
 });
 
 export type ContentSidebarState = z.infer<typeof contentSidebarStateSchema>;
 
 export function normalizeContentSidebarState(value: unknown) {
-  const parsed = contentSidebarStateSchema.safeParse(value);
-  if (!parsed.success) return null;
+  if (value === null) return null;
+  const data = contentSidebarStateSchema.parse(value);
   return {
-    ...parsed.data,
-    expandedWorkspaceIds: [...new Set(parsed.data.expandedWorkspaceIds)],
-    expandedDocumentIds: [...new Set(parsed.data.expandedDocumentIds)],
+    ...data,
+    expandedWorkspaceIds: [...new Set(data.expandedWorkspaceIds)],
+    expandedDocumentIds: [...new Set(data.expandedDocumentIds)],
   };
 }

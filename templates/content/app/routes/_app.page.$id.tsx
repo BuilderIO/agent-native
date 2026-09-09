@@ -26,6 +26,8 @@ export default function DocumentPage() {
   return id ? (
     <DocumentEditor
       documentId={id}
+      foreground
+      requestedViewId={searchParams.get("viewId")}
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
     />
