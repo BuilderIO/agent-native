@@ -672,7 +672,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(planNetlify, /agentNativePrebuiltDatabaseUrl/);
     assert.match(
       planNetlify,
-      /unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED/,
+      /export DATABASE_URL=\$\{NETLIFY_DATABASE_URL:-\$DATABASE_URL\}.*&& unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED/,
     );
     assert.match(
       planNetlify,
