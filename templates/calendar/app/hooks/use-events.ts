@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
+import { addDaysToDateKey } from "@shared/timezone";
 import {
   useQueryClient,
   useQuery,
@@ -345,7 +346,7 @@ export function useOverlayCalendarStatus(overlayEmails: string[]) {
     "list-events",
     {
       from: today,
-      to: today,
+      to: addDaysToDateKey(today, 1),
       sources: ["overlays"],
       overlayEmails,
       format: "inventory",

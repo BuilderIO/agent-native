@@ -144,6 +144,8 @@ export const documentComments = table("document_comments", {
   mentionsJson: text("mentions_json"),
   authorEmail: text("author_email").notNull(),
   authorName: text("author_name"),
+  submissionSource: text("submission_source"),
+  submissionRunId: text("submission_run_id"),
   resolved: integer("resolved").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),

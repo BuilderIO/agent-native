@@ -217,7 +217,12 @@ export function StarfieldBackground({
       const root = document.documentElement;
       if (root.classList.contains("dark")) return true;
       if (root.classList.contains("light")) return false;
-      return root.getAttribute("data-theme") === "dark";
+      const dataTheme = root.getAttribute("data-theme");
+      if (dataTheme === "dark") return true;
+      if (dataTheme === "light") return false;
+      return (
+        window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false
+      );
     }
 
     function readTheme() {
@@ -401,6 +406,7 @@ export function StarfieldBackground({
       aria-hidden="true"
       className={className}
       style={{ width: "100%", height: "100%", pointerEvents: "none" }}
+      data-agent-native-starfield
     >
       <canvas
         ref={canvasRef}

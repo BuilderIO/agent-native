@@ -1,4 +1,7 @@
-import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
+import {
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
+} from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -92,6 +95,30 @@ describe("Clips share metadata", () => {
     expect(meta).toContainEqual({
       name: "twitter:card",
       content: "summary_large_image",
+    });
+  });
+
+  it("advertises the JPEG MIME type for the default social image fallback", () => {
+    const meta = buildClipsShareMeta({
+      origin: "https://clips.example.com",
+      recording: {
+        id: "rec-1",
+        title: "Launch notes",
+        thumbnailUrl: null,
+        animatedThumbnailUrl: null,
+        visibility: "public",
+        status: "ready",
+        isLoomEmbedBacked: true,
+      },
+    });
+
+    expect(meta).toContainEqual({
+      property: "og:image",
+      content: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+    });
+    expect(meta).toContainEqual({
+      property: "og:image:type",
+      content: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
     });
   });
 
