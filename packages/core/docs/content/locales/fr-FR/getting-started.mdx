@@ -45,8 +45,8 @@ Démarrez le serveur de développement :
 pnpm dev
 ```
 
-L’interface de navigateur s’ouvre sur `http://localhost:8080`. Si elle ne s’ouvre pas
-automatiquement, accédez à cette URL dans votre navigateur.
+L’interface s’ouvre automatiquement. Sinon, utilisez l’URL locale affichée par
+`pnpm dev` ; le port augmente si une autre application utilise déjà 8080.
 
 <Callout tone="info">
 
@@ -145,7 +145,7 @@ export default function HelloRoute() {
 <Callout tone="warning">
 
 Redémarrez le serveur de développement afin qu’il détecte la nouvelle route,
-puis ouvrez `http://localhost:8080/hello`.
+puis ouvrez `http://localhost:<port>/hello`.
 
 </Callout>
 
@@ -209,5 +209,10 @@ l’accès et la synchronisation en direct s’articulent.
 Définissez des actions pour les lectures, les écritures et les approbations,
 puis appelez-les depuis l’interface utilisateur, les agents et les clients
 externes.
+
+### [Déployer une application](/docs/deploy-an-app)
+
+Passez du développement local à une base persistante, une authentification de
+production et une cible de déploiement prise en charge.
 
 </Cards>

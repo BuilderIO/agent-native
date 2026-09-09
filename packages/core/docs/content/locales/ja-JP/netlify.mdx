@@ -15,6 +15,13 @@ export default defineConfig({
 
 …もしくはビルド時に `NITRO_PRESET=netlify` を設定します。
 
+スタンドアロンアプリでは、Netlify出力をビルドして静的アセットとfunctionsをデプロイします。
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
 ワークスペースの場合、次を実行して 1 つの Netlify サイトからすべてのアプリをデプロイします。
 
 ```bash

@@ -40,7 +40,7 @@ pnpm install
 pnpm dev
 ```
 
-브라우저 UI는 `http://localhost:8080`에서 열립니다. 자동으로 열리지 않으면 브라우저에서 해당 URL로 이동하세요.
+브라우저 UI가 자동으로 열립니다. 열리지 않으면 `pnpm dev`가 출력한 로컬 URL을 사용하세요. 8080이 사용 중이면 포트 번호가 증가합니다.
 
 <Callout tone="info">
 
@@ -128,7 +128,7 @@ export default function HelloRoute() {
 
 <Callout tone="warning">
 
-새 라우트를 찾을 수 있도록 개발 서버를 다시 시작한 다음 `http://localhost:8080/hello`를 여세요.
+새 라우트를 찾을 수 있도록 개발 서버를 다시 시작한 다음 `http://localhost:<port>/hello`를 여세요.
 
 </Callout>
 
@@ -176,5 +176,9 @@ UI와 에이전트가 액션, 데이터, 컨텍스트를 공유하는 이유를 
 ### [액션](/docs/actions-overview)
 
 읽기, 쓰기, 승인을 위한 액션을 정의하고 UI, 에이전트, 외부 클라이언트에서 호출합니다.
+
+### [앱 배포](/docs/deploy-an-app)
+
+로컬 개발에서 영구 데이터베이스, 프로덕션 인증, 지원되는 배포 대상으로 이동합니다.
 
 </Cards>

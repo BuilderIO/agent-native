@@ -45,8 +45,8 @@ Inicia el servidor de desarrollo:
 pnpm dev
 ```
 
-La interfaz del navegador se abre en `http://localhost:8080`. Si no se abre
-automáticamente, visita esa URL en tu navegador.
+La interfaz del navegador se abre automáticamente. Si no lo hace, usa la URL
+local que imprime `pnpm dev`; el puerto aumenta si otra aplicación usa 8080.
 
 <Callout tone="info">
 
@@ -146,7 +146,7 @@ export default function HelloRoute() {
 <Callout tone="warning">
 
 Reinicia el servidor de desarrollo para que detecte la nueva ruta y abre
-`http://localhost:8080/hello`.
+`http://localhost:<port>/hello`.
 
 </Callout>
 
@@ -209,5 +209,10 @@ el acceso y la sincronización en tiempo real.
 
 Define acciones de lectura, escritura y aprobación, y después llámalas desde la
 interfaz de usuario, los agentes y clientes externos.
+
+### [Implementar una aplicación](/docs/deploy-an-app)
+
+Pasa del desarrollo local a una base de datos persistente, autenticación de
+producción y un destino de implementación compatible.
 
 </Cards>

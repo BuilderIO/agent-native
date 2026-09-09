@@ -42,7 +42,7 @@ pnpm install
 pnpm dev
 ```
 
-ブラウザUIは`http://localhost:8080`で開きます。自動で開かない場合は、ブラウザでそのURLにアクセスしてください。
+ブラウザUIは自動で開きます。開かない場合は`pnpm dev`が表示するローカルURLを使ってください。8080が使用中ならポート番号が増えます。
 
 <Callout tone="info">
 
@@ -130,7 +130,7 @@ export default function HelloRoute() {
 
 <Callout tone="warning">
 
-新しいルートを検出できるように開発サーバーを再起動してから、`http://localhost:8080/hello`を開いてください。
+新しいルートを検出できるように開発サーバーを再起動してから、`http://localhost:<port>/hello`を開いてください。
 
 </Callout>
 
@@ -178,5 +178,9 @@ UIとエージェントがアクション、データ、コンテキストを共
 ### [アクション](/docs/actions-overview)
 
 読み取り、書き込み、承認のアクションを定義し、UI、エージェント、外部クライアントから呼び出します。
+
+### [アプリをデプロイ](/docs/deploy-an-app)
+
+ローカル開発から、永続データベース、本番認証、対応するデプロイ先へ進みます。
 
 </Cards>

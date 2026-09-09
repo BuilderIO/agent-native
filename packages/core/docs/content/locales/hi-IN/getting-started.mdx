@@ -43,7 +43,7 @@ Development server शुरू करें:
 pnpm dev
 ```
 
-Browser UI `http://localhost:8080` पर खुलेगा। अगर वह अपने आप न खुले, तो browser में उस URL पर जाएं।
+Browser UI अपने आप खुलेगा। अगर ऐसा न हो, तो `pnpm dev` द्वारा दिखाई गई local URL खोलें; अगर 8080 उपयोग में है तो port बढ़ जाता है।
 
 <Callout tone="info">
 
@@ -137,7 +137,7 @@ export default function HelloRoute() {
 <Callout tone="warning">
 
 नया route खोजने के लिए development server restart करें, फिर
-`http://localhost:8080/hello` खोलें।
+`http://localhost:<port>/hello` खोलें।
 
 </Callout>
 
@@ -192,5 +192,9 @@ action इसी pattern का पालन करता है।
 ### [Actions](/docs/actions-overview)
 
 Reads, writes और approvals के लिए actions define करें, फिर उन्हें UI, agents और external clients से call करें।
+
+### [ऐप deploy करें](/docs/deploy-an-app)
+
+Local development से persistent database, production auth और supported deployment target पर जाएं।
 
 </Cards>

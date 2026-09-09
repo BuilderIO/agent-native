@@ -15,6 +15,13 @@ export default defineConfig({
 
 …o establece `NITRO_PRESET=netlify` en el momento de la compilación.
 
+Para una aplicación independiente, compila la salida de Netlify e implementa los activos y las funciones:
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
 Para un espacio de trabajo, implementa todas las aplicaciones desde un único sitio de Netlify ejecutando:
 
 ```bash

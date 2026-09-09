@@ -37,7 +37,7 @@ pnpm install
 pnpm dev
 ```
 
-瀏覽器 UI 會在 `http://localhost:8080` 開啟。若未自動開啟，請在瀏覽器中造訪該 URL。
+瀏覽器 UI 會自動開啟。若未開啟，請使用 `pnpm dev` 顯示的本機 URL；若 8080 已被使用，連接埠號碼會遞增。
 
 <Callout tone="info">
 
@@ -125,7 +125,7 @@ export default function HelloRoute() {
 
 <Callout tone="warning">
 
-重新啟動開發伺服器，讓它探索新路由，然後開啟 `http://localhost:8080/hello`。
+重新啟動開發伺服器，讓它探索新路由，然後開啟 `http://localhost:<port>/hello`。
 
 </Callout>
 
@@ -173,5 +173,9 @@ return { message: `Welcome, ${name}.` };
 ### [Actions](/docs/actions-overview)
 
 定義讀取、寫入和核准 actions，接著從 UI、代理和外部用戶端呼叫它們。
+
+### [部署應用程式](/docs/deploy-an-app)
+
+從本機開發移至持久性資料庫、正式環境驗證與支援的部署目標。
 
 </Cards>

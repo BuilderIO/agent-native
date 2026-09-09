@@ -45,8 +45,8 @@ Starten Sie den Entwicklungsserver:
 pnpm dev
 ```
 
-Die Browser-UI wird unter `http://localhost:8080` geöffnet. Falls sie nicht
-automatisch geöffnet wird, rufen Sie diese URL im Browser auf.
+Die Browser-UI wird automatisch geöffnet. Falls nicht, verwenden Sie die von
+`pnpm dev` ausgegebene lokale URL; der Port wird erhöht, wenn 8080 belegt ist.
 
 <Callout tone="info">
 
@@ -144,7 +144,7 @@ export default function HelloRoute() {
 <Callout tone="warning">
 
 Starten Sie den Entwicklungsserver neu, damit er die neue Route erkennt, und
-öffnen Sie anschließend `http://localhost:8080/hello`.
+öffnen Sie anschließend `http://localhost:<port>/hello`.
 
 </Callout>
 
@@ -206,5 +206,10 @@ zusammenwirken.
 
 Definieren Sie Actions für Lesevorgänge, Schreibvorgänge und Freigaben und
 rufen Sie sie anschließend über UI, Agenten und externe Clients auf.
+
+### [Eine App bereitstellen](/docs/deploy-an-app)
+
+Wechseln Sie von lokaler Entwicklung zu einer dauerhaften Datenbank,
+Produktions-Authentifizierung und einem unterstützten Ziel.
 
 </Cards>

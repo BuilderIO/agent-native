@@ -4982,6 +4982,7 @@ export interface NitroBuildPipelineOptions {
   publicOutputDir: string | undefined;
   appBasePath: string;
   cwd: string;
+  includeImmutableAssetRouteRules?: boolean;
 }
 
 const DRIZZLE_MIGRATIONS_SOURCE_DIR = path.join("server", "db", "migrations");
@@ -5036,10 +5037,18 @@ export function copyDrizzleMigrationAssets(
 export async function runNitroBuildPipeline(
   opts: NitroBuildPipelineOptions,
 ): Promise<void> {
-  const { nitro, hooks, clientDir, publicOutputDir, appBasePath, cwd } = opts;
+  const {
+    nitro,
+    hooks,
+    clientDir,
+    publicOutputDir,
+    appBasePath,
+    cwd,
+    includeImmutableAssetRouteRules = true,
+  } = opts;
   const hasClientBuild = fs.existsSync(clientDir) && Boolean(publicOutputDir);
 
-  if (hasClientBuild) {
+  if (hasClientBuild && includeImmutableAssetRouteRules) {
     // Install hashed-asset route rules before Nitro prepares platform output.
     // Some presets materialize headers during prepare/copy phases, not only in
     // nitroBuild; adding these later leaves Netlify/Vercel static assets without
@@ -5502,6 +5511,7 @@ export default bundle;
     publicOutputDir: nitro.options.output.publicDir,
     appBasePath,
     cwd,
+    includeImmutableAssetRouteRules: !isCloudflareModulePreset(preset),
   });
 
   const drizzleMigrationFiles = copyDrizzleMigrationAssets(

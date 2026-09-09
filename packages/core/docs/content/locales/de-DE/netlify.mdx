@@ -15,6 +15,13 @@ export default defineConfig({
 
 … oder legen Sie `NITRO_PRESET=netlify` zur Build-Zeit fest.
 
+Für eine Standalone-App bauen Sie die Netlify-Ausgabe und stellen Assets und Funktionen bereit:
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
 Stellen Sie für einen Arbeitsbereich jede App von einer Netlify-Site bereit, indem Sie Folgendes ausführen:
 
 ```bash

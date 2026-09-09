@@ -15,6 +15,13 @@ export default defineConfig({
 
 …soit définissez `NITRO_PRESET=netlify` au moment du build.
 
+Pour une application autonome, construisez la sortie Netlify puis déployez les assets et les fonctions :
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
 Pour un workspace, déployez chaque application depuis un seul site Netlify en exécutant :
 
 ```bash

@@ -15,6 +15,13 @@ export default defineConfig({
 
 ……或者在构建时设置 `NITRO_PRESET=netlify`。
 
+对于独立应用，请构建 Netlify 输出并部署静态资源和函数：
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
 对于工作区,通过运行以下命令从同一个 Netlify 站点部署每个应用:
 
 ```bash

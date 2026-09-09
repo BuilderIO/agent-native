@@ -15,6 +15,13 @@ export default defineConfig({
 
 ...أو تضبط `NITRO_PRESET=netlify` عند وقت البناء.
 
+للتطبيق المستقل، ابنِ مخرجات Netlify وانشر الأصول والدوال:
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
 بالنسبة لمساحة عمل، انشر كل تطبيق من موقع Netlify واحد عن طريق تشغيل:
 
 ```bash

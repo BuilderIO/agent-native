@@ -15,6 +15,13 @@ export default defineConfig({
 
 …또는 빌드 시점에 `NITRO_PRESET=netlify`를 설정하세요.
 
+독립 앱은 Netlify 출력을 빌드한 뒤 정적 자산과 함수를 배포합니다:
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
 작업 공간의 경우, 다음을 실행해 하나의 Netlify 사이트에서 모든 앱을 배포하세요:
 
 ```bash

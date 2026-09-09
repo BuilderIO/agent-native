@@ -44,8 +44,8 @@ Start the development server:
 pnpm dev
 ```
 
-The browser UI opens at `http://localhost:8080`. If it doesn't open
-automatically, visit that URL in your browser.
+The browser UI opens automatically. If it does not, open the local URL printed
+by `pnpm dev`; the port increments when another app is already using 8080.
 
 <Callout tone="info">
 
@@ -140,8 +140,8 @@ export default function HelloRoute() {
 
 <Callout tone="warning">
 
-Restart the development server so it discovers the new route, then open
-`http://localhost:8080/hello`.
+Restart the development server so it discovers the new route, then append
+`/hello` to the local URL printed by `pnpm dev`.
 
 </Callout>
 
@@ -200,5 +200,10 @@ together.
 
 Define actions for reads, writes, and approvals, then call them from the UI,
 agents, and external clients.
+
+### [Deploy an app](/docs/deploy-an-app)
+
+Move from local development to a persistent database, production auth, and a
+supported deployment target.
 
 </Cards>
