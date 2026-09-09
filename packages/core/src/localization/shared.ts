@@ -230,9 +230,15 @@ export function normalizeLocaleCode(
 
 export function normalizeLocalePreference(
   value: unknown,
+  supportedLocales?: readonly LocaleCode[],
 ): LocalePreference | null {
   if (value === "system") return "system";
-  return normalizeLocaleCode(value) ?? canonicalizeLocaleCode(value);
+  const canonical = canonicalizeLocaleCode(value);
+  if (!canonical) return null;
+  return (
+    normalizeLocaleCode(canonical, supportedLocales ?? SUPPORTED_LOCALES) ??
+    (supportedLocales ? null : canonical)
+  );
 }
 
 export function normalizeTimezonePreference(
@@ -251,17 +257,19 @@ export function normalizeTimezonePreference(
 
 export function normalizeLocalizationPreference(
   value: unknown,
+  supportedLocales?: readonly LocaleCode[],
 ): ResolvedLocalizationPreference {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const record = value as { locale?: unknown; timezone?: unknown };
     // The two fields are independent: setting a timezone must not require
     // also picking a language, which is the usual case.
     return {
-      locale: normalizeLocalePreference(record.locale) ?? "system",
+      locale:
+        normalizeLocalePreference(record.locale, supportedLocales) ?? "system",
       timezone: normalizeTimezonePreference(record.timezone),
     };
   }
-  const locale = normalizeLocalePreference(value);
+  const locale = normalizeLocalePreference(value, supportedLocales);
   return { locale: locale ?? "system", timezone: "system" };
 }
 
@@ -280,7 +288,9 @@ export function resolveLocaleFromCandidates(
     const normalized = normalizeLocaleCode(candidate, supportedLocales);
     if (normalized) return normalized;
   }
-  return DEFAULT_LOCALE;
+  return (
+    normalizeLocaleCode(supportedLocales[0], supportedLocales) ?? DEFAULT_LOCALE
+  );
 }
 
 export function resolveLocaleFromPreference(

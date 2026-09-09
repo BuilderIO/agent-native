@@ -74,7 +74,9 @@ export const i18nCatalog = createAgentNativeI18nCatalog({
 支援的十種區域設定中的一部分提供翻譯，而不是全部都提供時，就設定
 `supportedLocales`。它預設為框架支援的每一個區域設定。`LanguagePicker`
 只會列出這個集合中的區域設定，任何在此集合之外被偵測到或被要求的
-區域設定都會回退到 `sourceLocale`。
+區域設定都會回退到 `sourceLocale`。即使 `supportedLocales` 限制了內建區域
+設定，已在 `locales` 中註冊的區域設定也會加入此列表。`agent-native.json`
+中的 `translations.locales` 是應用程式的明確允許清單，優先於目錄註冊。
 
 ## UI
 

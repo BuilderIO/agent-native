@@ -4,6 +4,8 @@ import {
   localeDisplayName,
   normalizeLocaleCode,
   normalizeLocalePreference,
+  normalizeLocalizationPreference,
+  resolveLocaleFromCandidates,
 } from "./shared.js";
 
 describe("localization shared helpers", () => {
@@ -41,5 +43,12 @@ describe("localization shared helpers", () => {
         },
       }),
     ).toBe("Italiano");
+  });
+
+  it("keeps preferences and fallbacks inside an app registry", () => {
+    expect(normalizeLocalizationPreference("it-IT", ["en-US"]).locale).toBe(
+      "system",
+    );
+    expect(resolveLocaleFromCandidates([], ["it-IT"])).toBe("it-IT");
   });
 });

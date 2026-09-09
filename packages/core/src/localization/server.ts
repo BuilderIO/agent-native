@@ -7,6 +7,7 @@ import {
   localeDirection,
   normalizeLocaleCode,
   normalizeLocalizationPreference,
+  resolveLocaleFromCandidates,
   resolveLocaleFromPreference,
   type LocaleCode,
   type LocaleMetadata,
@@ -119,6 +120,7 @@ export function resolveLocaleFromRequest(
   const localeMetadata = normalizeLocaleMetadata(options.localeMetadata);
   const preference = normalizeLocalizationPreference(
     options.preference ?? { locale: "system" },
+    supportedLocales,
   );
   const locale =
     preference.locale === "system"
@@ -128,8 +130,10 @@ export function resolveLocaleFromRequest(
           supportedLocales,
         )
       : (normalizeLocaleCode(preference.locale, supportedLocales) ??
-        normalizeLocaleCode(options.fallback, supportedLocales) ??
-        DEFAULT_LOCALE);
+        resolveLocaleFromCandidates(
+          [options.fallback ?? DEFAULT_LOCALE],
+          supportedLocales,
+        ));
   return {
     locale,
     preference,
@@ -141,10 +145,12 @@ export function getLocaleInitScript(options: LocaleInitScriptOptions = {}) {
   const supportedLocales = normalizeSupportedLocales(options.supportedLocales);
   const localeMetadata = normalizeLocaleMetadata(options.localeMetadata);
   const safeLocale =
-    normalizeLocaleCode(options.locale, supportedLocales) ?? DEFAULT_LOCALE;
+    normalizeLocaleCode(options.locale, supportedLocales) ??
+    resolveLocaleFromCandidates([], supportedLocales);
   const shouldStorePreference = options.preference !== undefined;
   const safePreference = normalizeLocalizationPreference(
     options.preference ?? { locale: "system" },
+    supportedLocales,
   );
   // Translations are deliberately absent here: this script is render-blocking in
   // <head>, and the provider already receives the same catalog through loader
@@ -165,7 +171,7 @@ export function getLocaleInitScript(options: LocaleInitScriptOptions = {}) {
   )};function valid(x){return supported.indexOf(x)>=0}function direction(x){return localeMetadata[x]&&localeMetadata[x].dir==='rtl'?'rtl':'ltr'}function canon(x){if(typeof x!=='string'||!x)return null;try{var c=Intl.getCanonicalLocales(x)[0];if(valid(c))return c;var lang=c&&c.split('-')[0].toLowerCase();for(var i=0;i<supported.length;i++){if(supported[i].split('-')[0].toLowerCase()===lang)return supported[i]}}catch(e){}return null}function storageGet(k){try{return window.localStorage.getItem(k)}catch(e){return null}}function storageSet(k,v){try{window.localStorage.setItem(k,v)}catch(e){}}var stored=storageGet(${JSON.stringify(
     LOCALE_STORAGE_KEY,
   )});var pref=payload.preference&&payload.preference.locale;var locale=payload.locale;if(!valid(locale)){locale=null}if(!locale&&stored&&stored!=='system'){locale=canon(stored)}if(!locale&&pref&&pref!=='system'){locale=canon(pref)}if(!locale){var langs=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language];for(var j=0;j<langs.length&&!locale;j++){locale=canon(langs[j])}}if(!locale)locale=${JSON.stringify(
-    DEFAULT_LOCALE,
+    safeLocale,
   )};var root=document.documentElement;root.setAttribute('lang',locale);root.setAttribute('dir',direction(locale));root.setAttribute('data-locale',locale);payload.locale=locale;payload.dir=direction(locale);window[${JSON.stringify(
     LOCALE_HYDRATION_GLOBAL,
   )}]=payload;if(shouldStorePreference&&pref){storageSet(${JSON.stringify(

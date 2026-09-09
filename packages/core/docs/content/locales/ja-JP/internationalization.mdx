@@ -62,7 +62,7 @@ export const i18nCatalog = createAgentNativeI18nCatalog({
 できます。任意のフレームワーク翻訳には `coreMessageOverrides` を使い、欠落
 したキーは英語にフォールバックします。
 
-`createAgentNativeI18nCatalog` は、デフォルトで `en-US` となる省略可能な `sourceLocale` と、省略可能な `supportedLocales` 配列も受け取ります。アプリがフレームワークの 10 個のロケールすべてではなく一部だけの翻訳を提供する場合は `supportedLocales` を設定します。デフォルトではフレームワークがサポートするすべてのロケールになります。`LanguagePicker` はこのセット内のロケールのみを一覧表示し、検出または要求されたロケールがこのセットの外にある場合は `sourceLocale` にフォールバックします。
+`createAgentNativeI18nCatalog` は、デフォルトで `en-US` となる省略可能な `sourceLocale` と、省略可能な `supportedLocales` 配列も受け取ります。アプリがフレームワークの 10 個のロケールすべてではなく一部だけの翻訳を提供する場合は `supportedLocales` を設定します。デフォルトではフレームワークがサポートするすべてのロケールになります。`LanguagePicker` はこのセット内のロケールのみを一覧表示し、検出または要求されたロケールがこのセットの外にある場合は `sourceLocale` にフォールバックします。`supportedLocales` で組み込みロケールを制限している場合でも、`locales` に登録されたロケールはこの一覧に追加されます。`agent-native.json` の `translations.locales` はアプリの明示的な許可リストであり、カタログ登録より優先されます。
 
 ## UI
 

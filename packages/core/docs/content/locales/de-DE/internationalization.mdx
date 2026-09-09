@@ -83,7 +83,11 @@ Schlüssel fallen auf Englisch zurück.
 alle zehn ausliefert. Der Standardwert umfasst jedes vom Framework
 unterstützte Gebietsschema. `LanguagePicker` listet nur Gebietsschemata aus
 dieser Menge auf, und jedes erkannte oder angeforderte Gebietsschema
-außerhalb dieser Menge fällt auf `sourceLocale` zurück.
+außerhalb dieser Menge fällt auf `sourceLocale` zurück. Registrierte
+`locales` werden dieser Liste hinzugefügt, auch wenn `supportedLocales` die
+integrierten Gebietsschemata einschränkt. `translations.locales` in
+`agent-native.json` ist eine ausdrückliche App-Allowlist und hat Vorrang vor
+der Katalogregistrierung.
 
 ## UI
 

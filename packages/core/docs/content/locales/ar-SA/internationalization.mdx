@@ -78,6 +78,9 @@ export const i18nCatalog = createAgentNativeI18nCatalog({
 من العشر لغات كلها. تكون قيمته الافتراضية كل لغة يدعمها إطار العمل. لا يسرد
 `LanguagePicker` سوى اللغات ضمن هذه المجموعة، وأي لغة مكتشفة أو مطلوبة خارج
 هذه المجموعة تعود إلى `sourceLocale`.
+تُضاف اللغات المسجلة في `locales` إلى هذه القائمة حتى عند تقييد اللغات
+المدمجة عبر `supportedLocales`. أما `translations.locales` في
+`agent-native.json` فهي قائمة سماح صريحة للتطبيق وتتقدم على تسجيل الكتالوج.
 
 ## UI
 

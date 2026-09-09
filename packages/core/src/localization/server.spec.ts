@@ -58,6 +58,29 @@ describe("localization server helpers", () => {
     ).toMatchObject({ locale: "ar-EG", dir: "rtl" });
   });
 
+  it("keeps invalid preferences and fallbacks inside the app registry", () => {
+    expect(
+      resolveLocaleFromRequest({
+        acceptLanguage: "fr-FR",
+        preference: { locale: "de-DE" },
+        fallback: "en-US",
+        supportedLocales: ["it-IT"],
+      }),
+    ).toMatchObject({ locale: "it-IT", preference: { locale: "system" } });
+
+    new Function(
+      getLocaleInitScript({
+        preference: { locale: "de-DE" },
+        supportedLocales: ["it-IT"],
+      }),
+    )();
+    expect(document.documentElement.getAttribute("lang")).toBe("it-IT");
+    expect(readHydrationPayload()).toMatchObject({
+      locale: "it-IT",
+      preference: { locale: "system" },
+    });
+  });
+
   it("initializes document lang and dir before hydration", () => {
     new Function(getLocaleInitScript({ locale: "ar-SA" }))();
 

@@ -80,6 +80,10 @@ de las diez. Por defecto incluye todas las configuraciones regionales que
 admite el framework. `LanguagePicker` solo lista las configuraciones
 regionales de este conjunto, y cualquier configuración regional detectada o
 solicitada que quede fuera de él recurre a `sourceLocale`.
+Las configuraciones regionales registradas en `locales` se agregan a esta
+lista incluso cuando `supportedLocales` restringe las integradas.
+`translations.locales` en `agent-native.json` es una lista de permitidos
+explícita de la aplicación y tiene prioridad sobre el registro del catálogo.
 
 ## UI
 

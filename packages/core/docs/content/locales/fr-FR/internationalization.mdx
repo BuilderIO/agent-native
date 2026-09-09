@@ -81,7 +81,11 @@ traductions que pour une partie des paramètres régionaux du framework plutôt 
 les dix. Par défaut, il inclut tous les paramètres régionaux pris en charge par le
 framework. `LanguagePicker` n'affiche que les paramètres régionaux présents dans cet
 ensemble, et tout paramètre régional détecté ou demandé en dehors de celui-ci revient à
-`sourceLocale`.
+`sourceLocale`. Les paramètres régionaux enregistrés dans `locales` sont
+ajoutés à cette liste même lorsque `supportedLocales` limite les paramètres
+intégrés. `translations.locales` dans `agent-native.json` est une liste
+d'autorisation explicite de l'application et prend priorité sur l'inscription
+du catalogue.
 
 ## UI
 

@@ -74,11 +74,11 @@ and English names and text direction.
 `createAgentNativeI18nCatalog` also accepts an optional `sourceLocale`,
 which defaults to `en-US`, and an optional `supportedLocales` array. Set
 `supportedLocales` when an app ships translations for only some of the
-framework's locales instead of all ten. The default merges the built-in
-locales with the codes in `locales`. `LanguagePicker` only lists locales in
-this set, and any detected or requested locale outside it falls back to
-`sourceLocale`. `translations.locales` in `agent-native.json` is an
-explicit app-level allowlist and takes precedence when provided.
+framework's locales instead of all ten. Registered `locales` are added to
+that list even when `supportedLocales` restricts the built-ins. `LanguagePicker`
+only lists locales in this set, and any detected or requested locale outside it
+falls back to `sourceLocale`. `translations.locales` in `agent-native.json` is
+an explicit app-level allowlist and takes precedence over catalog registration.
 
 Register app-owned locale metadata and optional framework overrides alongside
 the app catalog:

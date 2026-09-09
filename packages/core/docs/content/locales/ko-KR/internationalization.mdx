@@ -62,7 +62,7 @@ export const i18nCatalog = createAgentNativeI18nCatalog({
 있습니다. 선택적 프레임워크 번역에는 `coreMessageOverrides`를 사용하며, 누락된
 키는 영어로 대체됩니다.
 
-`createAgentNativeI18nCatalog`는 기본값이 `en-US`인 선택적 `sourceLocale`과 선택적 `supportedLocales` 배열도 받습니다. 앱이 열 개 로케일 전부가 아니라 프레임워크가 지원하는 로케일 중 일부에 대해서만 번역을 제공한다면 `supportedLocales`를 설정하세요. 기본값은 프레임워크가 지원하는 모든 로케일입니다. `LanguagePicker`는 이 집합에 속한 로케일만 나열하며, 감지되거나 요청된 로케일이 이 집합 밖에 있으면 `sourceLocale`로 대체됩니다.
+`createAgentNativeI18nCatalog`는 기본값이 `en-US`인 선택적 `sourceLocale`과 선택적 `supportedLocales` 배열도 받습니다. 앱이 열 개 로케일 전부가 아니라 프레임워크가 지원하는 로케일 중 일부에 대해서만 번역을 제공한다면 `supportedLocales`를 설정하세요. 기본값은 프레임워크가 지원하는 모든 로케일입니다. `LanguagePicker`는 이 집합에 속한 로케일만 나열하며, 감지되거나 요청된 로케일이 이 집합 밖에 있으면 `sourceLocale`로 대체됩니다. `supportedLocales`가 기본 제공 로케일을 제한하더라도 `locales`에 등록된 로케일은 이 목록에 추가됩니다. `agent-native.json`의 `translations.locales`는 앱의 명시적 허용 목록이며 카탈로그 등록보다 우선합니다.
 
 ## UI
 

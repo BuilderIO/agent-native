@@ -82,6 +82,10 @@ das localidades da estrutura, em vez de todas as dez. O padrão é usar todas
 as localidades que a estrutura suporta. `LanguagePicker` lista apenas as
 localidades desse conjunto, e qualquer localidade detectada ou solicitada
 fora dele recorre a `sourceLocale`.
+As localidades registradas em `locales` são adicionadas a essa lista mesmo
+quando `supportedLocales` restringe as localidades integradas.
+`translations.locales` em `agent-native.json` é uma lista de permissão explícita
+do aplicativo e tem prioridade sobre o registro do catálogo.
 
 ## UI
 

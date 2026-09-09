@@ -78,7 +78,10 @@ export const i18nCatalog = createAgentNativeI18nCatalog({
 कुछ के लिए ही अनुवाद प्रदान करता हो। यह डिफ़ॉल्ट रूप से फ्रेमवर्क द्वारा समर्थित हर
 locale को शामिल करता है। `LanguagePicker` केवल इसी सेट में मौजूद locales को
 सूचीबद्ध करता है, और इसके बाहर पहचाना गया या अनुरोधित कोई भी locale `sourceLocale`
-पर वापस आ जाता है।
+पर वापस आ जाता है। `locales` में पंजीकृत locales इस सूची में जोड़े जाते हैं,
+भले ही `supportedLocales` built-in locales को सीमित करे। `agent-native.json` में
+`translations.locales` ऐप की स्पष्ट allowlist है और catalog registration पर
+प्राथमिकता रखती है।
 
 ## UI
 

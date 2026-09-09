@@ -376,6 +376,7 @@ describe("LanguagePicker", () => {
               },
             ],
             loadMessages: async () => ({}),
+            supportedLocales: ["en-US"],
             coreMessageOverrides: {
               "it-IT": async () => ({
                 agentChat: { status: { thinking: "Sta pensando" } },

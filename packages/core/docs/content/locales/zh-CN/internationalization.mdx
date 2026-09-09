@@ -72,7 +72,9 @@ BCP-47 区域设置，例如本地名称、英文名称和文字方向。对于�
 的部分区域设置（而不是全部十种）提供翻译时，需要设置
 `supportedLocales`。它默认包含框架支持的所有区域设置。`LanguagePicker`
 只会列出这个集合中的区域设置，任何检测到或请求的区域设置如果不在
-其中，都会回退到 `sourceLocale`。
+其中，都会回退到 `sourceLocale`。即使 `supportedLocales` 限制了内置区域
+设置，已在 `locales` 中注册的区域设置也会加入此列表。`agent-native.json`
+中的 `translations.locales` 是应用的显式允许列表，优先于目录注册。
 
 ## UI
 

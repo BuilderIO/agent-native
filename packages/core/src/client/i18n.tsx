@@ -265,11 +265,14 @@ function browserLanguageCandidates(): string[] {
       : [];
 }
 
-function readStoredPreference(): LocalePreference | null {
+function readStoredPreference(
+  supportedLocales?: readonly LocaleCode[],
+): LocalePreference | null {
   if (typeof window === "undefined") return null;
   try {
     return normalizeLocalizationPreference(
       window.localStorage.getItem(LOCALE_STORAGE_KEY),
+      supportedLocales,
     ).locale;
   } catch {
     return null;
@@ -298,7 +301,10 @@ function resolveInitialState(args: {
 }): { locale: LocaleCode; preference: LocalePreference } {
   const hydration = readHydrationPayload();
   const preference = normalizeLocalizationPreference(
-    args.initialPreference ?? hydration.preference ?? readStoredPreference(),
+    args.initialPreference ??
+      hydration.preference ??
+      readStoredPreference(args.supportedLocales),
+    args.supportedLocales,
   ).locale;
   const requestedLocale =
     args.initialLocale ??
@@ -320,8 +326,10 @@ function resolveSupportedLocales(args: {
 }): readonly LocaleCode[] {
   const configured = injectedAgentNativeConfig().translations?.locales;
   const catalogLocales = args.catalog?.locales?.map(({ code }) => code) ?? [];
-  const candidates = configured ??
-    args.catalog?.supportedLocales ?? [...SUPPORTED_LOCALES, ...catalogLocales];
+  const candidates = configured ?? [
+    ...(args.catalog?.supportedLocales ?? SUPPORTED_LOCALES),
+    ...catalogLocales,
+  ];
   const sourceCandidates = [...candidates, args.sourceLocale];
   const supported = sourceCandidates
     .map((locale) => normalizeLocaleCode(locale, sourceCandidates))
@@ -640,7 +648,10 @@ export function AgentNativeI18nProvider({
     )
       .then((value) => {
         if (cancelled) return;
-        const normalized = normalizeLocalizationPreference(value).locale;
+        const normalized = normalizeLocalizationPreference(
+          value,
+          supportedLocales,
+        ).locale;
         setPreferenceState(normalized);
         writeStoredPreference(normalized);
       })
@@ -650,19 +661,20 @@ export function AgentNativeI18nProvider({
     return () => {
       cancelled = true;
     };
-  }, [persistPreference]);
+  }, [persistPreference, supportedLocales]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onStorage = (event: StorageEvent) => {
       if (event.key !== LOCALE_STORAGE_KEY || event.newValue == null) return;
       setPreferenceState(
-        normalizeLocalizationPreference(event.newValue).locale,
+        normalizeLocalizationPreference(event.newValue, supportedLocales)
+          .locale,
       );
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [supportedLocales]);
 
   useEffect(() => {
     if (!persistPreference) return;
@@ -681,7 +693,10 @@ export function AgentNativeI18nProvider({
 
   const setPreference = useCallback(
     async (next: LocalePreference) => {
-      const normalized = normalizeLocalizationPreference(next).locale;
+      const normalized = normalizeLocalizationPreference(
+        next,
+        supportedLocales,
+      ).locale;
       setPreferenceState(normalized);
       writeStoredPreference(normalized);
       if (!persistPreference) return;
@@ -699,7 +714,7 @@ export function AgentNativeI18nProvider({
         }
       }
     },
-    [persistPreference],
+    [persistPreference, supportedLocales],
   );
 
   const context = useMemo<LocaleContextValue>(
