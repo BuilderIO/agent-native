@@ -7,6 +7,7 @@
 
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
+import { withCollabLifecycleWrite } from "./lifecycle.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -98,22 +99,23 @@ export async function trySaveYDocState(
   expectedVersion: number | null,
 ): Promise<boolean> {
   await ensureTable();
-  const client = getDbExec();
-  const b64 = uint8ArrayToBase64(state);
-  const nowExpr = "NOW()::text";
-  if (expectedVersion === null) {
+  return withCollabLifecycleWrite(docId, async (client) => {
+    const b64 = uint8ArrayToBase64(state);
+    const nowExpr = "NOW()::text";
+    if (expectedVersion === null) {
+      const result = await client.execute({
+        sql: `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`,
+        args: [docId, b64, textSnapshot],
+      });
+      return result.rowsAffected > 0;
+    }
+
     const result = await client.execute({
-      sql: `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`,
-      args: [docId, b64, textSnapshot],
+      sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ? AND version = ?`,
+      args: [b64, textSnapshot, docId, expectedVersion],
     });
     return result.rowsAffected > 0;
-  }
-
-  const result = await client.execute({
-    sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ? AND version = ?`,
-    args: [b64, textSnapshot, docId, expectedVersion],
   });
-  return result.rowsAffected > 0;
 }
 
 /** Save Yjs state (Uint8Array) and a plain-text snapshot. */
@@ -123,24 +125,25 @@ export async function saveYDocState(
   textSnapshot: string,
 ): Promise<void> {
   await ensureTable();
-  const client = getDbExec();
-  const b64 = uint8ArrayToBase64(state);
-  const nowExpr = "NOW()::text";
-  const updated = await client.execute({
-    sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ?`,
-    args: [b64, textSnapshot, docId],
-  });
-  if (updated.rowsAffected > 0) return;
+  return withCollabLifecycleWrite(docId, async (client) => {
+    const b64 = uint8ArrayToBase64(state);
+    const nowExpr = "NOW()::text";
+    const updated = await client.execute({
+      sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ?`,
+      args: [b64, textSnapshot, docId],
+    });
+    if (updated.rowsAffected > 0) return;
 
-  const inserted = await client.execute({
-    sql: `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`,
-    args: [docId, b64, textSnapshot],
-  });
-  if (inserted.rowsAffected > 0) return;
+    const inserted = await client.execute({
+      sql: `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`,
+      args: [docId, b64, textSnapshot],
+    });
+    if (inserted.rowsAffected > 0) return;
 
-  await client.execute({
-    sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ?`,
-    args: [b64, textSnapshot, docId],
+    await client.execute({
+      sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ?`,
+      args: [b64, textSnapshot, docId],
+    });
   });
 }
 

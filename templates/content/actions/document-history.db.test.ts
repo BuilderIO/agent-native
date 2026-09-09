@@ -59,6 +59,7 @@ beforeEach(async () => {
   writeAppStateMock.mockReset();
   writeAppStateMock.mockResolvedValue(undefined);
   await getDb().delete(schema.documentVersions);
+  await getDb().delete(schema.documentShares);
   await getDb().delete(schema.documents);
   const now = new Date(Date.now() - 60_000).toISOString();
   await getDb().insert(schema.documents).values({
@@ -104,6 +105,71 @@ function inlineDatabaseBlock(args: {
 }
 
 describe("grouped document history", () => {
+  it.each(["trash", "revoke"] as const)(
+    "rejects a history restore when %s commits after access was checked",
+    async (change) => {
+      const db = getDb();
+      const editor = "pending-history-editor@example.com";
+      await db.insert(schema.documentShares).values({
+        id: `pending-history-share-${change}`,
+        resourceId: DOCUMENT_ID,
+        principalType: "user",
+        principalId: editor,
+        role: "editor",
+        createdBy: OWNER,
+      });
+      await db.insert(schema.documentVersions).values({
+        id: "pending-history-target",
+        ownerEmail: OWNER,
+        documentId: DOCUMENT_ID,
+        title: "Earlier",
+        content: "earlier body",
+        createdAt: new Date().toISOString(),
+      });
+      const before = await currentDocument();
+      const originalTransaction = db.transaction.bind(db);
+      const transaction = vi
+        .spyOn(db, "transaction")
+        .mockImplementationOnce(async (callback: any, config?: any) => {
+          if (change === "trash")
+            await db
+              .update(schema.documents)
+              .set({ trashedAt: new Date().toISOString() })
+              .where(eq(schema.documents.id, DOCUMENT_ID));
+          else
+            await db
+              .delete(schema.documentShares)
+              .where(
+                eq(schema.documentShares.id, `pending-history-share-${change}`),
+              );
+          return originalTransaction(callback, config);
+        });
+      try {
+        await expect(
+          runWithRequestContext({ userEmail: editor }, () =>
+            restoreDocumentVersion.run({
+              documentId: DOCUMENT_ID,
+              versionId: "pending-history-target",
+              expectedUpdatedAt: before.updatedAt,
+            }),
+          ),
+        ).rejects.toMatchObject({
+          errorCode:
+            change === "trash"
+              ? "DOCUMENT_TRASHED"
+              : "DOCUMENT_MUTATION_ACCESS_CHANGED",
+        });
+      } finally {
+        transaction.mockRestore();
+      }
+      expect(await currentDocument()).toMatchObject({
+        title: before.title,
+        content: before.content,
+      });
+      expect(await db.select().from(schema.documentVersions)).toHaveLength(1);
+    },
+  );
+
   it("retains every saved checkpoint in session A and attributes session B to its own result", async () => {
     let current = await currentDocument();
     for (const content of ["session A first", "session A final"]) {

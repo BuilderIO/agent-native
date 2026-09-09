@@ -11,7 +11,7 @@ import {
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -30,9 +30,11 @@ import {
 } from "./_blocks-field-identity.js";
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import {
   favoriteDocumentIds,
+  favoritesSystemIds,
   setFavoriteMembership,
 } from "./_content-favorites.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
@@ -40,6 +42,11 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
+import {
+  documentTrashedError,
+  lockLiveDocuments,
+} from "./_document-lifecycle.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import { serializeDocumentSource } from "./_document-source.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
@@ -415,6 +422,7 @@ export default defineAction({
       : await assertAccess("document", id, "editor");
     if (!access) throw new Error(`Document "${id}" not found`);
     const existing = access.resource;
+    if (existing.trashedAt) throw documentTrashedError();
     const ownerEmail = existing.ownerEmail as string;
 
     const db = getDb();
@@ -533,11 +541,58 @@ export default defineAction({
       let committedContentChanged = false;
       let committedContentBefore = existing.content;
       await db.transaction(async (tx) => {
-        await tx
-          .select({ id: schema.documents.id })
-          .from(schema.documents)
-          .where(eq(schema.documents.id, id))
-          .for("update");
+        const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+        const databases = await tx
+          .select({
+            id: schema.contentDatabases.id,
+            spaceId: schema.contentDatabases.spaceId,
+            systemRole: schema.contentDatabases.systemRole,
+          })
+          .from(schema.contentDatabases)
+          .where(eq(schema.contentDatabases.documentId, id));
+        const databaseIds = new Set(databases.map((database) => database.id));
+        if (favoriteChanged)
+          databaseIds.add(
+            favoritesSystemIds(requestUserEmail as string).databaseId,
+          );
+        for (const databaseId of [...databaseIds].sort()) {
+          await lockContentDatabaseMutation(transactionDb, databaseId);
+        }
+        const renamedSpaceIds =
+          args.title !== undefined
+            ? databases.flatMap((database) =>
+                database.systemRole === "files" && database.spaceId
+                  ? [database.spaceId]
+                  : [],
+              )
+            : [];
+        const catalogReferences =
+          renamedSpaceIds.length > 0
+            ? await tx
+                .select({
+                  documentId: schema.contentSpaceCatalogItems.documentId,
+                })
+                .from(schema.contentSpaceCatalogItems)
+                .where(
+                  inArray(
+                    schema.contentSpaceCatalogItems.spaceId,
+                    renamedSpaceIds,
+                  ),
+                )
+            : [];
+        const primaryBlocksFields = await lockPrimaryBlocksFields(
+          transactionDb,
+          id,
+        );
+        await lockLiveDocuments(transactionDb, [
+          id,
+          ...catalogReferences.map((reference) => reference.documentId),
+        ]);
+        await assertDocumentMutationAccess(
+          transactionDb,
+          [id],
+          favoriteOnly ? "viewer" : "editor",
+        );
         const [historyBefore] = await tx
           .select({
             title: schema.documents.title,
@@ -574,12 +629,6 @@ export default defineAction({
           updates.bodyRevision = historyBefore.bodyRevision + 1;
         }
         if (lockedIconChanged) updates.icon = args.icon;
-        const primaryBlocksFields = lockedContentChanged
-          ? await lockPrimaryBlocksFields(
-              tx as unknown as ReturnType<typeof getDb>,
-              id,
-            )
-          : [];
         if (useContentCas) {
           const applied = await tx
             .update(schema.documents)

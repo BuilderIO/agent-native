@@ -23,6 +23,11 @@ import {
 import { postAwareness, getActiveUsers } from "../collab/awareness.js";
 import { getCollabEmitter } from "../collab/emitter.js";
 import {
+  CollabDocumentLifecycleError,
+  registerCollabLifecycle,
+  type CollabLifecyclePolicy,
+} from "../collab/lifecycle.js";
+import {
   getCollabState,
   postCollabUpdate,
   postCollabText,
@@ -105,6 +110,11 @@ export interface CollabPluginOptions {
   contentColumn?: string;
   /** Column name for the document ID. Default: "id" */
   idColumn?: string;
+  /** Reject persistence when the source row is missing or its deletion column is non-null. */
+  lifecycle?: Pick<
+    CollabLifecyclePolicy,
+    "deletedAtColumn" | "resolveSourceId"
+  >;
   /** Whether to auto-seed existing documents on startup. Default: true */
   autoSeed?: boolean;
   /** Map a source-table id to the id used by the collab document store. */
@@ -226,6 +236,14 @@ export function createCollabPlugin(
   } = options;
   const resolveCollabDocumentId =
     options.resolveCollabDocumentId ?? ((sourceId: string) => sourceId);
+  if (options.lifecycle) {
+    if (options.resolveCollabDocumentId && !options.lifecycle.resolveSourceId) {
+      throw new Error(
+        "Collaboration lifecycle requires resolveSourceId when document IDs are mapped.",
+      );
+    }
+    registerCollabLifecycle({ table, idColumn, ...options.lifecycle });
+  }
   const resourceType =
     normalizedAccess.mode === "resource"
       ? normalizedAccess.resourceType
@@ -356,130 +374,136 @@ export function createCollabPlugin(
         const userEmail = session.email;
         const orgId = orgCtx?.orgId ?? undefined;
 
-        return runWithRequestContext({ userEmail, orgId }, async () => {
-          // Access check — require at least viewer for reads, editor for writes.
-          // Awareness routes (POST awareness / GET users) require the same
-          // level as other reads so that knowledge of who is editing a doc
-          // doesn't leak to users without access.
-          if (resourceType) {
-            const resourceId = resolveResourceId
-              ? await resolveResourceId(docId)
-              : docId;
-            if (!resourceId) {
-              setResponseStatus(event, 404);
-              return { error: "Not found" };
+        try {
+          return await runWithRequestContext({ userEmail, orgId }, async () => {
+            // Access check — require at least viewer for reads, editor for writes.
+            // Awareness routes (POST awareness / GET users) require the same
+            // level as other reads so that knowledge of who is editing a doc
+            // doesn't leak to users without access.
+            if (resourceType) {
+              const resourceId = resolveResourceId
+                ? await resolveResourceId(docId)
+                : docId;
+              if (!resourceId) {
+                setResponseStatus(event, 404);
+                return { error: "Not found" };
+              }
+              const isWrite =
+                (action === "update" && method === "POST") ||
+                (action === "text" && method === "POST") ||
+                (action === "search-replace" && method === "POST") ||
+                (action === "json" && method === "POST") ||
+                (action === "patch" && method === "POST");
+
+              if (isWrite) {
+                // assertAccess throws ForbiddenError (→ 403) if no editor access.
+                // Projected: only ownerEmail/orgId are read below, and a collab
+                // resource's body is the largest column it has — loading it here
+                // means every keystroke-driven update read the whole document
+                // twice, once for the ACL and once for the edit itself.
+                const access = await assertAccess(
+                  resourceType,
+                  resourceId,
+                  "editor",
+                  undefined,
+                  { skipResourceBody: true },
+                );
+                const resource = access.resource;
+                const awarenessScope: CollabAwarenessScope = {
+                  resourceType,
+                  resourceId,
+                  ...(typeof resource.ownerEmail === "string"
+                    ? { owner: resource.ownerEmail }
+                    : {}),
+                  ...(typeof resource.orgId === "string"
+                    ? { orgId: resource.orgId }
+                    : {}),
+                };
+                if (event.context) {
+                  event.context._collabAwarenessScope = awarenessScope;
+                }
+              } else {
+                // resolveAccess returns null when no access; return 404 to avoid leaking existence.
+                // Projected: only ownerEmail/orgId are read below, and a collab
+                // resource's body is the largest column it has.
+                const access = await resolveAccess(
+                  resourceType,
+                  resourceId,
+                  undefined,
+                  { skipResourceBody: true },
+                );
+                if (!access) {
+                  setResponseStatus(event, 404);
+                  return { error: "Not found" };
+                }
+                const resource = access.resource;
+                const awarenessScope: CollabAwarenessScope = {
+                  resourceType,
+                  resourceId,
+                  ...(typeof resource.ownerEmail === "string"
+                    ? { owner: resource.ownerEmail }
+                    : {}),
+                  ...(typeof resource.orgId === "string"
+                    ? { orgId: resource.orgId }
+                    : {}),
+                };
+                if (event.context) {
+                  event.context._collabAwarenessScope = awarenessScope;
+                }
+              }
             }
-            const isWrite =
+
+            // Payload size limit for write operations
+            const isWriteAction =
               (action === "update" && method === "POST") ||
               (action === "text" && method === "POST") ||
               (action === "search-replace" && method === "POST") ||
               (action === "json" && method === "POST") ||
               (action === "patch" && method === "POST");
 
-            if (isWrite) {
-              // assertAccess throws ForbiddenError (→ 403) if no editor access.
-              // Projected: only ownerEmail/orgId are read below, and a collab
-              // resource's body is the largest column it has — loading it here
-              // means every keystroke-driven update read the whole document
-              // twice, once for the ACL and once for the edit itself.
-              const access = await assertAccess(
-                resourceType,
-                resourceId,
-                "editor",
-                undefined,
-                { skipResourceBody: true },
+            if (isWriteAction) {
+              const contentLength = Number(
+                event.headers?.get?.("content-length") ?? NaN,
               );
-              const resource = access.resource;
-              const awarenessScope: CollabAwarenessScope = {
-                resourceType,
-                resourceId,
-                ...(typeof resource.ownerEmail === "string"
-                  ? { owner: resource.ownerEmail }
-                  : {}),
-                ...(typeof resource.orgId === "string"
-                  ? { orgId: resource.orgId }
-                  : {}),
-              };
+              if (!isNaN(contentLength) && contentLength > maxPayloadBytes) {
+                setResponseStatus(event, 413);
+                return {
+                  error: `Payload too large. Maximum is ${maxPayloadBytes} bytes.`,
+                };
+              }
+              // Store limit in context so route handlers can enforce it on the
+              // parsed body when content-length is absent or spoofed.
               if (event.context) {
-                event.context._collabAwarenessScope = awarenessScope;
-              }
-            } else {
-              // resolveAccess returns null when no access; return 404 to avoid leaking existence.
-              // Projected: only ownerEmail/orgId are read below, and a collab
-              // resource's body is the largest column it has.
-              const access = await resolveAccess(
-                resourceType,
-                resourceId,
-                undefined,
-                { skipResourceBody: true },
-              );
-              if (!access) {
-                setResponseStatus(event, 404);
-                return { error: "Not found" };
-              }
-              const resource = access.resource;
-              const awarenessScope: CollabAwarenessScope = {
-                resourceType,
-                resourceId,
-                ...(typeof resource.ownerEmail === "string"
-                  ? { owner: resource.ownerEmail }
-                  : {}),
-                ...(typeof resource.orgId === "string"
-                  ? { orgId: resource.orgId }
-                  : {}),
-              };
-              if (event.context) {
-                event.context._collabAwarenessScope = awarenessScope;
+                event.context._collabMaxPayloadBytes = maxPayloadBytes;
               }
             }
-          }
 
-          // Payload size limit for write operations
-          const isWriteAction =
-            (action === "update" && method === "POST") ||
-            (action === "text" && method === "POST") ||
-            (action === "search-replace" && method === "POST") ||
-            (action === "json" && method === "POST") ||
-            (action === "patch" && method === "POST");
-
-          if (isWriteAction) {
-            const contentLength = Number(
-              event.headers?.get?.("content-length") ?? NaN,
-            );
-            if (!isNaN(contentLength) && contentLength > maxPayloadBytes) {
-              setResponseStatus(event, 413);
-              return {
-                error: `Payload too large. Maximum is ${maxPayloadBytes} bytes.`,
-              };
-            }
-            // Store limit in context so route handlers can enforce it on the
-            // parsed body when content-length is absent or spoofed.
-            if (event.context) {
-              event.context._collabMaxPayloadBytes = maxPayloadBytes;
-            }
-          }
-
-          if (action === "state" && method === "GET")
-            return getCollabState(event);
-          if (action === "update" && method === "POST")
-            return postCollabUpdate(event);
-          if (action === "text" && method === "POST")
-            return postCollabText(event);
-          if (action === "search-replace" && method === "POST")
-            return postCollabSearchReplace(event);
-          if (action === "json" && method === "POST")
-            return postCollabJson(event);
-          if (action === "json" && method === "GET")
-            return getCollabJson(event);
-          if (action === "patch" && method === "POST")
-            return postCollabPatch(event);
-          if (action === "awareness" && method === "POST")
-            return postAwareness(event);
-          if (action === "users" && method === "GET")
-            return getActiveUsers(event);
-          setResponseStatus(event, 404);
-          return { error: "Not found" };
-        });
+            if (action === "state" && method === "GET")
+              return getCollabState(event);
+            if (action === "update" && method === "POST")
+              return postCollabUpdate(event);
+            if (action === "text" && method === "POST")
+              return postCollabText(event);
+            if (action === "search-replace" && method === "POST")
+              return postCollabSearchReplace(event);
+            if (action === "json" && method === "POST")
+              return postCollabJson(event);
+            if (action === "json" && method === "GET")
+              return getCollabJson(event);
+            if (action === "patch" && method === "POST")
+              return postCollabPatch(event);
+            if (action === "awareness" && method === "POST")
+              return postAwareness(event);
+            if (action === "users" && method === "GET")
+              return getActiveUsers(event);
+            setResponseStatus(event, 404);
+            return { error: "Not found" };
+          });
+        } catch (error) {
+          if (!(error instanceof CollabDocumentLifecycleError)) throw error;
+          setResponseStatus(event, error.statusCode);
+          return { error: error.message, errorCode: error.errorCode };
+        }
       }),
     );
 

@@ -18,11 +18,17 @@ import type {
   DocumentTreeNode,
 } from "@shared/api";
 import type { QueryClient } from "@tanstack/react-query";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
 import {
+  documentFetchCount,
+  subscribeDocumentFetch,
+} from "../lib/document-fetch-state";
+import {
+  documentQueryKey,
   documentQueryFilter,
   type DocumentQueryContext,
 } from "../lib/document-query";
@@ -523,7 +529,23 @@ export function useDocument(
   id: string | null,
   context: DocumentQueryContext = {},
 ) {
-  return useActionQuery<Document>(
+  const cache = useQueryClient().getQueryCache();
+  const queryHash = hashKey(documentQueryKey(id ?? "", context));
+  const subscribe = useCallback(
+    (onChange: () => void) =>
+      subscribeDocumentFetch(cache, queryHash, onChange),
+    [cache, queryHash],
+  );
+  const getSnapshot = useCallback(
+    () => documentFetchCount(cache, queryHash),
+    [cache, queryHash],
+  );
+  const authoritativeFetchCount = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+  const query = useActionQuery<Document>(
     "get-document",
     id
       ? {
@@ -541,6 +563,7 @@ export function useDocument(
       ...DOCUMENT_QUERY_FRESHNESS_OPTIONS,
     },
   );
+  return { ...query, authoritativeFetchCount };
 }
 
 export interface PreviewDocumentDraftRecord {
@@ -732,6 +755,9 @@ export function useUpdateDocument() {
           documentUpdateSuccessPatch(data, variables),
         );
         if (variables.title !== undefined) {
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-content-recent"],
+          });
           void queryClient.invalidateQueries(
             contentDatabaseConstrainedQueryFilter(),
           );
@@ -784,30 +810,55 @@ export function useUpdateDocument() {
   );
 }
 
+export interface DocumentLifecycleResult {
+  affectedDocumentIds: string[];
+  affectedDatabaseIds: string[];
+}
+
+export async function refreshDocumentLifecycle(
+  queryClient: QueryClient,
+  result: Partial<DocumentLifecycleResult>,
+) {
+  const affected = result.affectedDocumentIds;
+  const pageFilter = {
+    queryKey: ["action", "get-document"],
+    predicate: (query: { queryKey: readonly unknown[] }) => {
+      if (!affected) return true;
+      const args = query.queryKey[2] as { id?: string } | undefined;
+      return typeof args?.id === "string" && affected.includes(args.id);
+    },
+  };
+  await queryClient.cancelQueries(pageFilter);
+  await Promise.all([
+    queryClient.invalidateQueries(pageFilter),
+    ...[
+      "list-documents",
+      "get-content-database",
+      "query-content-database-items",
+      "get-content-recent",
+      "list-content-spaces",
+      "list-trashed-content-databases",
+      "list-trashed-documents",
+      "list-content-trash",
+      "get-trashed-document",
+      "plan-content-trash-recovery",
+    ].map((action) =>
+      queryClient.invalidateQueries({ queryKey: ["action", action] }),
+    ),
+  ]);
+}
+
 export function useDeleteDocument() {
   const queryClient = useQueryClient();
   return useActionMutation<
-    { success: boolean; deleted: number; removed?: number },
+    {
+      success: boolean;
+      deleted: number;
+      removed?: number;
+    } & Partial<DocumentLifecycleResult>,
     { id: string; databaseDocumentId?: string }
   >("delete-document", {
-    onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      void queryClient.invalidateQueries(documentQueryFilter(variables.id));
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-content-spaces"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-documents"],
-      });
-    },
+    onSuccess: (data) => refreshDocumentLifecycle(queryClient, data),
   });
 }
 
@@ -821,23 +872,14 @@ export function useTrashedDocuments() {
 export function useRestoreDocument() {
   const queryClient = useQueryClient();
   return useActionMutation<
-    { success: boolean; restored: number; documentId: string },
+    {
+      success: boolean;
+      restored: number;
+      documentId: string;
+    } & Partial<DocumentLifecycleResult>,
     { id: string }
   >("restore-document", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
-    },
+    onSuccess: (data) => refreshDocumentLifecycle(queryClient, data),
   });
 }
 

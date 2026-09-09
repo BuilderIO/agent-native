@@ -44,6 +44,7 @@ let db: ReturnType<typeof import("../server/db/index.js").getDb>;
 let schema: typeof import("../server/db/schema.js");
 let add: typeof import("./add-comment.js").default;
 let update: typeof import("./update-comment.js").default;
+let remove: typeof import("./delete-comment.js").default;
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${dbPath}`;
   const module = await import("../server/db/index.js");
@@ -52,6 +53,12 @@ beforeAll(async () => {
   await (await import("../server/plugins/db.js")).default(undefined as any);
   add = (await import("./add-comment.js")).default;
   update = (await import("./update-comment.js")).default;
+  remove = (await import("./delete-comment.js")).default;
+  await db.insert(schema.documents).values({
+    id: "receipt-fixture",
+    ownerEmail: "owner@example.test",
+    title: "Comment fixture",
+  });
 }, 60000);
 afterAll(() => rmSync(dbPath, { force: true, recursive: true }));
 const create = (args: Record<string, unknown>) =>
@@ -64,6 +71,67 @@ const resolve = (id: string) =>
   (update as any).run({ id, documentId: "receipt-fixture", resolved: true });
 
 describe("comment receipts and thread state on PostgreSQL-compatible storage", () => {
+  it.each(["add", "reply", "edit", "resolve", "reopen", "delete"])(
+    "rejects %s when Trash commits after access check and before the mutation transaction",
+    async (operation) => {
+      const documentId = `trash-comment-${operation}`;
+      await db.insert(schema.documents).values({
+        id: documentId,
+        ownerEmail: "owner@example.test",
+        title: "Comment lifecycle fixture",
+      });
+      const root = await create({ documentId });
+      if (operation === "reopen") {
+        await (update as any).run({ id: root.id, resolved: true });
+      }
+      const before = await db
+        .select()
+        .from(schema.documentComments)
+        .where(eq(schema.documentComments.documentId, documentId));
+      const { assertAccess } = await import("@agent-native/core/sharing");
+      vi.mocked(assertAccess).mockImplementationOnce(async () => {
+        await db
+          .update(schema.documents)
+          .set({
+            trashedAt: new Date().toISOString(),
+            trashRootId: documentId,
+          })
+          .where(eq(schema.documents.id, documentId));
+        return {
+          resource: {
+            ownerEmail: "owner@example.test",
+            title: "Fixture",
+            orgId: null,
+          },
+        } as Awaited<ReturnType<typeof assertAccess>>;
+      });
+      const attempt =
+        operation === "add"
+          ? create({ documentId, content: "Rejected new comment" })
+          : operation === "reply"
+            ? create({ documentId, threadId: root.id, parentId: root.id })
+            : operation === "delete"
+              ? (remove as any).run({ id: root.id, documentId })
+              : (update as any).run({
+                  id: root.id,
+                  documentId,
+                  ...(operation === "edit"
+                    ? { content: "Rejected edit" }
+                    : { resolved: operation === "resolve" }),
+                });
+      await expect(attempt).rejects.toMatchObject({
+        errorCode: "DOCUMENT_TRASHED",
+        statusCode: 409,
+      });
+      expect(
+        await db
+          .select()
+          .from(schema.documentComments)
+          .where(eq(schema.documentComments.documentId, documentId)),
+      ).toEqual(before);
+    },
+  );
+
   it("deduplicates overlapping UUID submissions in the database", async () => {
     const clientOperationId = crypto.randomUUID();
     const results = await Promise.all([

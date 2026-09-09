@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { lockLiveDocuments } from "./_document-lifecycle.js";
 
 type Mention = { email: string; name: string };
 
@@ -106,6 +107,9 @@ export default defineAction({
 
     if (args.resolved !== undefined) {
       await db.transaction(async (tx) => {
+        await lockLiveDocuments(tx as unknown as ReturnType<typeof getDb>, [
+          comment.documentId,
+        ]);
         // Serialize replies and resolution before either takes its write snapshot.
         await tx
           .select({ id: schema.documentComments.id })
@@ -143,15 +147,20 @@ export default defineAction({
       return { ok: true, resolved: args.resolved };
     }
 
-    await db
-      .update(schema.documentComments)
-      .set(contentUpdates)
-      .where(
-        and(
-          eq(schema.documentComments.id, args.id),
-          eq(schema.documentComments.documentId, comment.documentId),
-        ),
-      );
+    await db.transaction(async (tx) => {
+      await lockLiveDocuments(tx as unknown as ReturnType<typeof getDb>, [
+        comment.documentId,
+      ]);
+      await tx
+        .update(schema.documentComments)
+        .set(contentUpdates)
+        .where(
+          and(
+            eq(schema.documentComments.id, args.id),
+            eq(schema.documentComments.documentId, comment.documentId),
+          ),
+        );
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { ok: true };

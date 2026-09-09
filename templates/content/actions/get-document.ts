@@ -4,6 +4,7 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { roleSatisfies } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { documentTrashedError } from "./_document-lifecycle.js";
 import { getDb } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
@@ -85,9 +86,7 @@ export default defineAction({
       access.resource.trashedAt ||
       (await isSoftDeletedDatabaseDocument(args.id))
     ) {
-      throw Object.assign(new Error(`Document "${args.id}" not found`), {
-        statusCode: 404,
-      });
+      throw documentTrashedError();
     }
     const doc = access.resource;
     if (args.databaseDocumentId && !args.databaseId) {

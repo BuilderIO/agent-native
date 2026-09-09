@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -20,8 +21,13 @@ let documentRevisionToken: typeof import("./_document-edit-mutation.js").documen
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   ({ getDb, schema } = await import("../server/db/index.js"));
-  ({ mutateDocumentBody, documentRevisionToken } =
-    await import("./_document-edit-mutation.js"));
+  const mutations = await import("./_document-edit-mutation.js");
+  documentRevisionToken = mutations.documentRevisionToken;
+  mutateDocumentBody = (args) =>
+    runWithRequestContext(
+      { userEmail: args.ctx.userEmail, orgId: args.ctx.orgId },
+      () => mutations.mutateDocumentBody(args),
+    );
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as never);
 }, 60_000);
@@ -30,6 +36,7 @@ beforeEach(async () => {
   const db = getDb();
   await db.delete(schema.documentEditReceipts);
   await db.delete(schema.documentVersions);
+  await db.delete(schema.documentShares);
   await db.delete(schema.documents);
   await db.insert(schema.documents).values({
     id: DOCUMENT_ID,
@@ -47,6 +54,31 @@ afterAll(() => {
 const ctx = { caller: "mcp" as const, userEmail: OWNER };
 
 describe("revisioned document edit mutation", () => {
+  it("rejects a trashed page without creating history or an edit receipt", async () => {
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    await expect(
+      mutateDocumentBody({
+        documentId: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, "alpha beta"),
+        idempotencyKey: "trashed-edit",
+        edits: [{ find: "alpha", replace: "late" }],
+        ctx,
+      }),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_TRASHED" });
+    expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
+      0,
+    );
+    expect(
+      await getDb().select().from(schema.documentEditReceipts),
+    ).toHaveLength(0);
+    expect((await getDb().select().from(schema.documents))[0].content).toBe(
+      "alpha beta",
+    );
+  });
+
   it("commits one revision/version/receipt and replays a double delivery", async () => {
     const input = {
       documentId: DOCUMENT_ID,
@@ -139,6 +171,14 @@ describe("revisioned document edit mutation", () => {
   });
 
   it("keeps idempotency receipts distinct for users in the same organization", async () => {
+    await getDb().insert(schema.documentShares).values({
+      id: "another-editor-share",
+      resourceId: DOCUMENT_ID,
+      principalType: "user",
+      principalId: "another-editor@example.com",
+      role: "editor",
+      createdBy: OWNER,
+    });
     const base = {
       documentId: DOCUMENT_ID,
       baseRevision: documentRevisionToken(0, "alpha beta"),

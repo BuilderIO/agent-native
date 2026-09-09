@@ -4671,6 +4671,7 @@ function DatabaseItemPreview({
   const queryClient = useQueryClient();
   const contentSpaces = useContentSpaces();
   const deleteDocument = useDeleteDocument();
+  const updatePreviewDocument = useUpdateDocument();
   const deleteContentSpace = useDeleteContentSpace();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
   const { data: document } = useDocument(item.document.id, {
@@ -4715,13 +4716,14 @@ function DatabaseItemPreview({
     await sessionRef.current?.flush();
     if (isWorkspaceCatalog && workspaceSpace?.kind === "user") {
       await deleteContentSpace.mutateAsync({ spaceId: workspaceSpace.id });
+    } else if (removeFavorite) {
+      await updatePreviewDocument.mutateAsync({
+        id: item.document.id,
+        isFavorite: false,
+      });
     } else {
       await deleteDocument.mutateAsync({
         id: item.document.id,
-        databaseDocumentId:
-          removesFavoriteMembership && !removeFavorite
-            ? undefined
-            : databaseDocumentId,
       });
     }
     // The deleted Page's pending queue was settled before deletion.

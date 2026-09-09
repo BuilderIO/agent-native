@@ -6,6 +6,66 @@ import {
 } from "./content-action-refresh";
 
 describe("contentActionInvalidatePredicate", () => {
+  it("refreshes Recent scope caches after lifecycle, access, and View changes on any route", () => {
+    for (const pathname of ["/home", "/page/document-1", "/settings"]) {
+      const predicate = contentActionInvalidatePredicate(pathname);
+      for (const scopeKey of ["global", "personal", "workspace-1"]) {
+        const query = {
+          queryKey: ["action", "get-content-recent", { scopeKey }],
+        };
+        for (const key of [
+          "delete-document",
+          "trash-documents",
+          "restore-document",
+          "permanently-delete-document",
+          "unshare-resource",
+          "delete-content-database",
+          "restore-content-database",
+          "update-content-database-view",
+        ]) {
+          expect(predicate(query, [{ source: "action", key }])).toBe(true);
+          expect(predicate(query, [{ source: "settings", key }])).toBe(false);
+        }
+        expect(
+          predicate(query, [{ source: "action", key: "update-comment" }]),
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("refreshes only mounted preview and database queries off page routes after lifecycle changes", () => {
+    const predicate = contentActionInvalidatePredicate("/home");
+    for (const name of [
+      "get-document",
+      "list-comments",
+      "list-document-properties",
+      "get-content-database",
+      "query-content-database-items",
+    ]) {
+      for (const key of [
+        "trash-documents",
+        "restore-document",
+        "permanently-delete-document",
+        "unshare-resource",
+      ]) {
+        const query = {
+          queryKey: ["action", name, { id: "row", documentId: "row" }],
+        };
+        expect(
+          predicate({ ...query, isActive: () => true }, [
+            { source: "action", key },
+          ]),
+        ).toBe(true);
+        expect(
+          predicate({ ...query, isActive: () => false }, [
+            { source: "action", key },
+          ]),
+        ).toBe(false);
+        expect(predicate(query, [{ source: "action", key }])).toBe(false);
+      }
+    }
+  });
+
   it("refreshes the current document and comments after matching mutations", () => {
     const predicate = contentActionInvalidatePredicate("/page/document-1");
 

@@ -25,6 +25,9 @@ const mockAssertAccess = vi.hoisted(() =>
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
+vi.mock("./_document-lifecycle.js", () => ({
+  lockLiveDocuments: vi.fn(async () => []),
+}));
 vi.mock("@agent-native/core/server", () => ({
   getRequestRunContext: () => ({ runId: "run-1" }),
   getRequestUserEmail: () => "author@example.com",

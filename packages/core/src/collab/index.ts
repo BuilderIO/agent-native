@@ -2,6 +2,12 @@
 
 // Storage
 export {
+  CollabDocumentLifecycleError,
+  registerCollabLifecycle,
+  type CollabLifecyclePolicy,
+} from "./lifecycle.js";
+
+export {
   loadYDocState,
   saveYDocState,
   hasCollabState,

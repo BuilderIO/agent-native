@@ -37,6 +37,19 @@ export function PageDraftRecovery({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const draft = drafts.data?.draft;
+  const [conflict, setConflict] = useState<{
+    document: Document;
+    draftVersion: number;
+    draftTitle: string;
+    draftContent: string;
+  } | null>(null);
+  const reviewedConflict =
+    conflict &&
+    conflict.draftVersion === draft?.version &&
+    conflict.draftTitle === draft.title &&
+    conflict.draftContent === draft.content
+      ? conflict.document
+      : null;
 
   async function settleDraft(restore: boolean) {
     if (!draft || busy) return;
@@ -47,22 +60,31 @@ export function PageDraftRecovery({
         restore &&
         (draft.title !== document.title || draft.content !== document.content)
       ) {
-        if (!draft.baseDocumentUpdatedAt) {
+        const baseUpdatedAt =
+          reviewedConflict?.updatedAt ?? draft.baseDocumentUpdatedAt;
+        if (!baseUpdatedAt) {
           throw new Error("The draft has no original document version.");
         }
         const saved = await update.mutateAsync({
           id: document.id,
           title: draft.title,
           content: draft.content,
-          baseUpdatedAt: draft.baseDocumentUpdatedAt,
-          loadedUpdatedAt: draft.baseDocumentUpdatedAt,
-          loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
+          baseUpdatedAt,
+          loadedUpdatedAt: baseUpdatedAt,
+          loadedContentWasEmpty: reviewedConflict
+            ? reviewedConflict.content.length === 0
+            : draft.loadedContentWasEmpty === 1,
         });
-        if (
-          isDocumentUpdateConflict(saved) ||
-          saved.content !== draft.content ||
-          saved.title !== draft.title
-        ) {
+        if (isDocumentUpdateConflict(saved)) {
+          setConflict({
+            document: saved.document,
+            draftVersion: draft.version,
+            draftTitle: draft.title,
+            draftContent: draft.content,
+          });
+          return;
+        }
+        if (saved.content !== draft.content || saved.title !== draft.title) {
           throw new Error("Draft restoration was not confirmed.");
         }
       }
@@ -108,6 +130,22 @@ export function PageDraftRecovery({
           {draft.content}
         </pre>
       </div>
+      {reviewedConflict ? (
+        <>
+          <p role="alert" className="text-sm text-destructive">
+            {t("editor.toolbar.conflict")}
+          </p>
+          <section className="rounded-md border p-3">
+            <h3 className="mb-2 text-sm font-semibold">
+              {t("editor.savedPageRecovery")}
+            </h3>
+            <p className="font-medium break-words">{reviewedConflict.title}</p>
+            <pre className="mt-2 whitespace-pre-wrap break-words text-sm">
+              {reviewedConflict.content}
+            </pre>
+          </section>
+        </>
+      ) : null}
       {failed ? (
         <p role="alert" className="text-sm text-destructive">
           {t("empty.genericError")}
@@ -119,7 +157,11 @@ export function PageDraftRecovery({
           disabled={busy || documentBodyHydrationIsPending(document)}
           onClick={() => void settleDraft(true)}
         >
-          {t("editor.restorePreviewDraft")}
+          {t(
+            reviewedConflict
+              ? "editor.keepLocalDraft"
+              : "editor.restorePreviewDraft",
+          )}
         </Button>
         <Button
           size="sm"

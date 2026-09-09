@@ -2,7 +2,7 @@ import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -19,10 +19,13 @@ import {
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "./_content-database-lifecycle.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
+import { lockLiveDocuments } from "./_document-lifecycle.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 
 function isLinkedLocalSource(
   documentId: string,
@@ -80,33 +83,50 @@ export default defineAction({
     const db = getDb();
     let softDeletedDatabaseIds: string[] = [];
     const updated = await db.transaction(async (rawTx) => {
-      const tx = rawTx as any;
-      await tx
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
+      const tx = rawTx as unknown as ReturnType<typeof getDb>;
+      const databases = await tx
+        .select({
+          id: schema.contentDatabases.id,
+          spaceId: schema.contentDatabases.spaceId,
+          systemRole: schema.contentDatabases.systemRole,
+        })
+        .from(schema.contentDatabases)
         .where(
-          and(
-            eq(schema.documents.id, documentId),
-            eq(schema.documents.ownerEmail, ownerEmail),
+          or(
+            eq(schema.contentDatabases.documentId, documentId),
+            eq(schema.contentDatabases.ownerDocumentId, documentId),
           ),
-        )
-        .for("update");
-      const [current] = await tx
-        .select()
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.id, documentId),
-            eq(schema.documents.ownerEmail, ownerEmail),
-          ),
-        )
-        .limit(1);
-      if (!current) {
-        throw new ActionContractError("Document not found.", {
-          errorCode: "DOCUMENT_NOT_FOUND",
-          statusCode: 404,
-        });
+        );
+      for (const databaseId of databases
+        .map((database) => database.id)
+        .sort()) {
+        await lockContentDatabaseMutation(tx, databaseId);
       }
+      const spaceIds = databases.flatMap((database) =>
+        database.systemRole === "files" && database.spaceId
+          ? [database.spaceId]
+          : [],
+      );
+      const references =
+        spaceIds.length > 0
+          ? await tx
+              .select({
+                documentId: schema.contentSpaceCatalogItems.documentId,
+              })
+              .from(schema.contentSpaceCatalogItems)
+              .where(inArray(schema.contentSpaceCatalogItems.spaceId, spaceIds))
+          : [];
+      const primaryBlocksFields = await lockPrimaryBlocksFields(tx, documentId);
+      const lockedDocuments = await lockLiveDocuments(tx, [
+        documentId,
+        ...references.map(
+          (reference: { documentId: string }) => reference.documentId,
+        ),
+      ]);
+      await assertDocumentMutationAccess(tx, [documentId], "editor");
+      const current = lockedDocuments.find(
+        (document) => document.id === documentId,
+      )!;
       if (isLinkedLocalSource(documentId, current)) {
         linkedLocalRestoreUnsupported();
       }
@@ -147,10 +167,6 @@ export default defineAction({
         return current;
       }
       const now = nextDocumentUpdatedAt(current.updatedAt);
-      const primaryBlocksFields = await lockPrimaryBlocksFields(
-        tx as unknown as ReturnType<typeof getDb>,
-        documentId,
-      );
       const applied = await tx
         .update(schema.documents)
         .set({

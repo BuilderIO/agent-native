@@ -81,7 +81,11 @@ export type CollabInitializationErrorCategory =
 export type CollabInitializationState =
   | { status: "loading" }
   | { status: "ready" }
-  | { status: "error"; category: CollabInitializationErrorCategory };
+  | {
+      status: "error";
+      category: CollabInitializationErrorCategory;
+      errorCode?: "DOCUMENT_TRASHED" | "DOCUMENT_NOT_FOUND";
+    };
 
 export interface UseCollaborativeDocResult {
   /** The Yjs document instance. Stable per docId — never changes identity. */
@@ -345,6 +349,7 @@ class CollabDocConnection {
   /** Immutable snapshot of the shared reactive state (replaced on change). */
   snapshot: CollabDocSnapshot;
   disposed = false;
+  quarantined = false;
 
   private subscribers = new Map<symbol, CollabDocSubscription>();
   private disposeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -355,6 +360,7 @@ class CollabDocConnection {
 
   // Local-update batching (debounced + coalesced with Y.mergeUpdates).
   private pendingUpdates: Uint8Array[] = [];
+  private updateInFlight = false;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private updateHandlerAttached = false;
 
@@ -447,7 +453,8 @@ class CollabDocConnection {
       // live consumer while empty. Do not let a queued presence push escape
       // after the last subscriber has gone away.
       cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
-      this.scheduleDispose();
+      if (this.quarantined) this.dispose();
+      else this.scheduleDispose();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
       this.reschedulePoll();
@@ -553,7 +560,7 @@ class CollabDocConnection {
    * multiple subscribers for the same user don't re-emit awareness updates.
    */
   setUser(user: CollabUser): void {
-    if (this.disposed) return;
+    if (this.disposed || this.quarantined) return;
     const prev = this.lastSetUser;
     if (
       prev &&
@@ -672,7 +679,7 @@ class CollabDocConnection {
     // even when the doc is missing (matches the previous per-hook behavior).
     this.unsubscribeAwarenessEvents = subscribeSyncEvents({
       onEvents: (events) => {
-        if (this.disposed) return;
+        if (this.disposed || this.quarantined) return;
         for (const data of events) this.applyAwarenessEvent(data);
       },
     });
@@ -681,7 +688,7 @@ class CollabDocConnection {
   private fetchInitialState(): void {
     fetch(`${this.baseUrl}/${this.docId}/state`).then(
       async (res) => {
-        if (this.disposed) return;
+        if (this.disposed || this.quarantined) return;
         if (res.status === 404 || res.status === 403) {
           this.markInitializationFailed("forbidden-or-not-found");
           return;
@@ -693,7 +700,7 @@ class CollabDocConnection {
         const data = (await res.json().catch(() => null)) as {
           state?: string;
         } | null;
-        if (this.disposed) return;
+        if (this.disposed || this.quarantined) return;
         if (typeof data?.state !== "string" || data.state.length === 0) {
           this.markInitializationFailed("invalid-payload");
           return;
@@ -725,7 +732,7 @@ class CollabDocConnection {
         this.startTransport();
       },
       () => {
-        if (this.disposed) return;
+        if (this.disposed || this.quarantined) return;
         this.markInitializationFailed("network");
       },
     );
@@ -738,6 +745,7 @@ class CollabDocConnection {
    */
   private markInitializationFailed(
     category: CollabInitializationErrorCategory,
+    errorCode?: "DOCUMENT_TRASHED" | "DOCUMENT_NOT_FOUND",
   ): void {
     this.docMissing = true;
     this.pendingUpdates = [];
@@ -752,12 +760,16 @@ class CollabDocConnection {
     this.setSnapshot({
       isLoading: false,
       isSynced: false,
-      initialization: { status: "error", category },
+      initialization: {
+        status: "error",
+        category,
+        ...(errorCode ? { errorCode } : {}),
+      },
     });
   }
 
   private retryInitialization(): void {
-    if (this.disposed) return;
+    if (this.disposed || this.quarantined) return;
     this.detachUpdateHandler();
     this.stopSync();
     this.unsubscribeAwarenessEvents?.();
@@ -780,7 +792,7 @@ class CollabDocConnection {
   // -------------------------------------------------------------------------
 
   private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {
-    if (origin === "remote") return;
+    if (origin === "remote" || this.quarantined || this.disposed) return;
     this.pendingUpdates.push(update);
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = setTimeout(
@@ -816,11 +828,17 @@ class CollabDocConnection {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
-    if (this.pendingUpdates.length === 0) return;
+    if (
+      this.quarantined ||
+      this.updateInFlight ||
+      this.pendingUpdates.length === 0
+    )
+      return;
     const toSend = this.pendingUpdates;
     this.pendingUpdates = [];
 
     const merged = toSend.length === 1 ? toSend[0] : Y.mergeUpdates(toSend);
+    this.updateInFlight = true;
     fetch(`${this.baseUrl}/${this.docId}/update`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -829,7 +847,36 @@ class CollabDocConnection {
         requestSource: this.requestSource,
       }),
       ...(keepalive ? { keepalive: true } : {}),
-    }).catch(() => {});
+    })
+      .then(async (res) => {
+        if (res.ok || (res.status !== 409 && res.status !== 404)) return;
+        const payload = await res.json();
+        const code =
+          payload?.errorCode ?? payload?.data?.errorCode ?? payload?.code;
+        if (code === "DOCUMENT_TRASHED" || code === "DOCUMENT_NOT_FOUND") {
+          this.quarantine(code);
+        }
+      })
+      .catch(() => {
+        // Network failures remain recoverable through the application's save path.
+      })
+      .finally(() => {
+        this.updateInFlight = false;
+        if (!this.quarantined) this.flushPendingUpdates(this.disposed);
+      });
+  }
+
+  private quarantine(
+    errorCode: "DOCUMENT_TRASHED" | "DOCUMENT_NOT_FOUND",
+  ): void {
+    this.quarantined = true;
+    if (collabConnectionRegistry.get(this.registryKey) === this) {
+      collabConnectionRegistry.delete(this.registryKey);
+    }
+    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+    this.markInitializationFailed("forbidden-or-not-found", errorCode);
+    // Current consumers retain their rejected document for draft recovery.
+    if (this.subscribers.size === 0) this.dispose();
   }
 
   // -------------------------------------------------------------------------
@@ -989,7 +1036,7 @@ class CollabDocConnection {
         const stateData = (await stateRes.json().catch(() => null)) as {
           state?: string;
         } | null;
-        if (this.disposed) return;
+        if (this.disposed || this.quarantined) return;
         if (stateData?.state) {
           const binary = base64ToUint8Array(stateData.state);
           if (binary.length > 2) {
@@ -1096,7 +1143,7 @@ class CollabDocConnection {
                 // Invalid state — skip
               }
             }
-            if (this.disposed) return;
+            if (this.disposed || this.quarantined) return;
             const changes = reconcileRemoteAwarenessStates(
               this.awareness.getStates() as Map<number, unknown>,
               this.ydoc.clientID,
@@ -1355,7 +1402,7 @@ export function useCollaborativeDoc(
     initialization: snapshot.initialization,
     retry: conn
       ? () => {
-          if (conn.disposed) {
+          if (conn.disposed || conn.quarantined) {
             setGeneration((current) => current + 1);
             return;
           }

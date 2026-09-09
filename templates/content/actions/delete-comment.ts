@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { lockLiveDocuments } from "./_document-lifecycle.js";
 
 export default defineAction({
   description:
@@ -39,14 +40,19 @@ export default defineAction({
       await assertAccess("document", comment.documentId, "editor");
     }
 
-    await db
-      .delete(schema.documentComments)
-      .where(
-        and(
-          eq(schema.documentComments.id, args.id),
-          eq(schema.documentComments.documentId, comment.documentId),
-        ),
-      );
+    await db.transaction(async (tx) => {
+      await lockLiveDocuments(tx as unknown as ReturnType<typeof getDb>, [
+        comment.documentId,
+      ]);
+      await tx
+        .delete(schema.documentComments)
+        .where(
+          and(
+            eq(schema.documentComments.id, args.id),
+            eq(schema.documentComments.documentId, comment.documentId),
+          ),
+        );
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { ok: true };

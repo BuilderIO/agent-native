@@ -75,6 +75,120 @@ async function documentRow(documentId: string) {
 }
 
 describe("update-document compare-and-swap", () => {
+  it.each(["trash", "delete", "revoke"] as const)(
+    "rejects a pending body write when %s wins before the transaction",
+    async (change) => {
+      const documentId = await createDocument({ content: "original" });
+      const db = getDb();
+      const shareId = nextId("pending-editor-share");
+      await db.insert(schema.documentShares).values({
+        id: shareId,
+        resourceId: documentId,
+        principalType: "user",
+        principalId: EDITOR,
+        role: "editor",
+        createdBy: OWNER,
+      });
+      const originalTransaction = db.transaction.bind(db);
+      const transaction = vi
+        .spyOn(db, "transaction")
+        .mockImplementationOnce(async (callback: any, config?: any) => {
+          if (change === "trash")
+            await db
+              .update(schema.documents)
+              .set({ trashedAt: new Date().toISOString() })
+              .where(eq(schema.documents.id, documentId));
+          else if (change === "delete")
+            await db
+              .delete(schema.documents)
+              .where(eq(schema.documents.id, documentId));
+          else
+            await db
+              .delete(schema.documentShares)
+              .where(eq(schema.documentShares.id, shareId));
+          return originalTransaction(callback, config);
+        });
+      try {
+        await expect(
+          runWithRequestContext({ userEmail: EDITOR }, () =>
+            updateDocumentAction.run({ id: documentId, content: "late body" }),
+          ),
+        ).rejects.toMatchObject({
+          errorCode:
+            change === "trash"
+              ? "DOCUMENT_TRASHED"
+              : change === "delete"
+                ? "DOCUMENT_NOT_FOUND"
+                : "DOCUMENT_MUTATION_ACCESS_CHANGED",
+        });
+      } finally {
+        transaction.mockRestore();
+      }
+      expect((await documentRow(documentId))?.content).toBe(
+        change === "delete" ? undefined : "original",
+      );
+      expect(
+        await db
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, documentId)),
+      ).toHaveLength(0);
+    },
+  );
+
+  it("allows a viewer to favorite a known public page", async () => {
+    const documentId = await createDocument({ content: "public body" });
+    await getDb()
+      .update(schema.documents)
+      .set({ visibility: "public" })
+      .where(eq(schema.documents.id, documentId));
+    const result = await runWithRequestContext({ userEmail: VIEWER }, () =>
+      updateDocumentAction.run({ id: documentId, isFavorite: true }),
+    );
+    expect(result).toMatchObject({ isFavorite: true, content: "public body" });
+  });
+
+  it("preserves favorite access through another organization membership", async () => {
+    const documentId = await createDocument({ content: "organization body" });
+    const { provisionContentSpaces } = await import("./_content-spaces.js");
+    await runWithRequestContext({ userEmail: VIEWER }, () =>
+      provisionContentSpaces(getDb(), VIEWER),
+    );
+    const { organizations, orgMembers, ORG_MIGRATIONS } =
+      await import("@agent-native/core/org");
+    const { runMigrations } = await import("@agent-native/core/db");
+    await runMigrations(ORG_MIGRATIONS, { table: "example_org_migrations" })(
+      undefined as never,
+    );
+    const orgId = nextId("example-organization");
+    await getDb().insert(organizations).values({
+      id: orgId,
+      name: "Example organization",
+      createdBy: OWNER,
+      createdAt: Date.now(),
+    });
+    await getDb()
+      .insert(orgMembers)
+      .values({
+        id: nextId("example-membership"),
+        orgId,
+        email: VIEWER,
+        role: "member",
+        joinedAt: Date.now(),
+      });
+    await getDb()
+      .update(schema.documents)
+      .set({ visibility: "org", orgId })
+      .where(eq(schema.documents.id, documentId));
+    const result = await runWithRequestContext({ userEmail: VIEWER }, () =>
+      updateDocumentAction.run({ id: documentId, isFavorite: true }),
+    );
+    expect(result).toMatchObject({
+      isFavorite: true,
+      content: "organization body",
+    });
+  });
+
   it("rejects external full-body writes outside the revisioned edit protocol", async () => {
     const documentId = await createDocument({ content: "original" });
 

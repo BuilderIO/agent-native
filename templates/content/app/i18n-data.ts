@@ -3275,6 +3275,7 @@ const enUS = {
     useDiskVersion: "Use disk version",
     keepLocalDraft: "Keep my version",
     previewDraftRecovery: "Unsaved page draft",
+    savedPageRecovery: "Saved page",
     restorePreviewDraft: "Restore draft",
     pageSaveBeforeNavigationFailed:
       "Your latest page edits could not be saved. Try again before leaving this page.",
@@ -3683,6 +3684,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       useDiskVersion: "使用磁盘版本",
       keepLocalDraft: "保留我的版本",
       previewDraftRecovery: "未保存的页面草稿",
+      savedPageRecovery: "已保存的页面",
       restorePreviewDraft: "恢复草稿",
       pageSaveBeforeNavigationFailed:
         "无法保存最新的页面编辑。请重试后再离开此页面。",
@@ -3925,6 +3927,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       useDiskVersion: "Usar la versión del disco",
       keepLocalDraft: "Conservar mi versión",
       previewDraftRecovery: "Borrador de página sin guardar",
+      savedPageRecovery: "Página guardada",
       restorePreviewDraft: "Restaurar borrador",
       pageSaveBeforeNavigationFailed:
         "No se pudieron guardar los últimos cambios. Vuelve a intentarlo antes de salir de esta página.",
@@ -4144,6 +4147,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       useDiskVersion: "Utiliser la version du disque",
       keepLocalDraft: "Conserver ma version",
       previewDraftRecovery: "Brouillon de page non enregistré",
+      savedPageRecovery: "Page enregistrée",
       restorePreviewDraft: "Restaurer le brouillon",
       pageSaveBeforeNavigationFailed:
         "Vos dernières modifications n’ont pas pu être enregistrées. Réessayez avant de quitter cette page.",
@@ -4195,6 +4199,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       useDiskVersion: "Version vom Datenträger verwenden",
       keepLocalDraft: "Meine Version behalten",
       previewDraftRecovery: "Ungespeicherter Seitenentwurf",
+      savedPageRecovery: "Gespeicherte Seite",
       restorePreviewDraft: "Entwurf wiederherstellen",
       pageSaveBeforeNavigationFailed:
         "Die letzten Änderungen konnten nicht gespeichert werden. Versuche es erneut, bevor du diese Seite verlässt.",
@@ -4245,6 +4250,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       useDiskVersion: "ディスク上の版を使用",
       keepLocalDraft: "自分のバージョンを保持",
       previewDraftRecovery: "未保存のページ下書き",
+      savedPageRecovery: "保存済みのページ",
       restorePreviewDraft: "下書きを復元",
       pageSaveBeforeNavigationFailed:
         "最新の編集を保存できませんでした。このページを離れる前にもう一度お試しください。",
@@ -4293,6 +4299,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       useDiskVersion: "디스크 버전 사용",
       keepLocalDraft: "내 버전 유지",
       previewDraftRecovery: "저장하지 않은 페이지 초안",
+      savedPageRecovery: "저장된 페이지",
       restorePreviewDraft: "초안 복원",
       pageSaveBeforeNavigationFailed:
         "최근 페이지 편집 내용을 저장하지 못했습니다. 이 페이지를 떠나기 전에 다시 시도하세요.",
@@ -4340,6 +4347,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       useDiskVersion: "Usar versão do disco",
       keepLocalDraft: "Manter minha versão",
       previewDraftRecovery: "Rascunho de página não salvo",
+      savedPageRecovery: "Página salva",
       restorePreviewDraft: "Restaurar rascunho",
       pageSaveBeforeNavigationFailed:
         "Não foi possível salvar as últimas alterações. Tente novamente antes de sair desta página.",
@@ -4389,6 +4397,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       useDiskVersion: "डिस्क वाला संस्करण उपयोग करें",
       keepLocalDraft: "मेरा संस्करण रखें",
       previewDraftRecovery: "पेज का सहेजा नहीं गया ड्राफ़्ट",
+      savedPageRecovery: "सहेजा गया पेज",
       restorePreviewDraft: "ड्राफ़्ट बहाल करें",
       pageSaveBeforeNavigationFailed:
         "आपके नवीनतम पेज बदलाव सहेजे नहीं जा सके। इस पेज से जाने से पहले फिर से कोशिश करें।",
@@ -4436,6 +4445,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       useDiskVersion: "استخدام نسخة القرص",
       keepLocalDraft: "الاحتفاظ بنسختي",
       previewDraftRecovery: "مسودة صفحة غير محفوظة",
+      savedPageRecovery: "الصفحة المحفوظة",
       restorePreviewDraft: "استعادة المسودة",
       pageSaveBeforeNavigationFailed:
         "تعذر حفظ آخر تعديلات الصفحة. حاول مرة أخرى قبل مغادرة هذه الصفحة.",

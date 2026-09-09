@@ -77,7 +77,7 @@ describe("Page draft recovery", () => {
     container.remove();
   });
   it("keeps a conflicting restoration visible and never deletes its draft", async () => {
-    state.update.mockResolvedValue({ conflict: true });
+    state.update.mockResolvedValue({ conflict: true, document: page });
     act(render);
     await act(async () =>
       container.querySelector<HTMLButtonElement>("button")!.click(),
@@ -93,6 +93,66 @@ describe("Page draft recovery", () => {
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
     expect(container.textContent).toContain("Draft body");
     expect(container.querySelector("textarea")).toBeNull();
+    expect(container.textContent).toContain("Saved body");
+    expect(container.textContent).toContain("editor.keepLocalDraft");
+  });
+  it("restores after Trash only when the user chooses the draft over the displayed saved version", async () => {
+    state.update.mockResolvedValueOnce({
+      conflict: true,
+      document: { ...page, updatedAt: "restored-version" },
+    });
+    act(render);
+    const restore = () =>
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    await act(async () => restore());
+    expect(state.update).toHaveBeenCalledTimes(1);
+    expect(state.remove).not.toHaveBeenCalled();
+    await act(async () => restore());
+    expect(state.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        baseUpdatedAt: "restored-version",
+        loadedUpdatedAt: "restored-version",
+        loadedContentWasEmpty: false,
+      }),
+    );
+    expect(state.remove).toHaveBeenCalledTimes(1);
+  });
+  it("requires another review when the saved page changes during the explicit choice", async () => {
+    state.update
+      .mockResolvedValueOnce({ conflict: true, document: page })
+      .mockResolvedValueOnce({
+        conflict: true,
+        document: { ...page, content: "Newer body", updatedAt: "v2" },
+      });
+    act(render);
+    const restore = () =>
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    await act(async () => restore());
+    await act(async () => restore());
+    expect(state.update).toHaveBeenCalledTimes(2);
+    expect(state.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ baseUpdatedAt: "v1" }),
+    );
+    expect(state.remove).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Newer body");
+    expect(container.querySelector("textarea")).toBeNull();
+  });
+  it("does not transfer a reviewed choice to a newer private draft", async () => {
+    state.update.mockResolvedValue({ conflict: true, document: page });
+    act(render);
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    state.draft = { ...state.draft!, version: 4, content: "New draft" };
+    act(render);
+    expect(container.textContent).not.toContain("editor.keepLocalDraft");
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    expect(state.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ baseUpdatedAt: "original-version" }),
+    );
+    expect(state.remove).not.toHaveBeenCalled();
   });
   it("retains a draft with an unknown original version without overwriting the Page", async () => {
     state.draft!.baseDocumentUpdatedAt = null;

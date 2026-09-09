@@ -22,6 +22,7 @@ import {
   patchContentSpaceNameCaches,
   patchDocumentInDatabaseCache,
   patchDocumentInListDocumentsCache,
+  refreshDocumentLifecycle,
   restoreQuerySnapshots,
   restoreDeletedDocumentSnapshots,
   restoreListDocumentsSnapshot,
@@ -31,6 +32,90 @@ import {
   seedDatabaseItemDocumentCaches,
   useDocuments,
 } from "./use-documents";
+
+describe("document lifecycle cache refresh", () => {
+  it("invalidates descendant contexts and every Recent scope without touching unrelated pages", async () => {
+    const client = new QueryClient();
+    const affectedKeys = [
+      documentQueryKey("root"),
+      documentQueryKey("child"),
+      documentQueryKey("child", {
+        databaseId: "database",
+        databaseDocumentId: "collection",
+      }),
+      documentQueryKey("grandchild", {
+        databaseDocumentId: "another-collection",
+      }),
+    ];
+    const recentKeys = ["global", "personal", "workspace-1"].map((scopeKey) => [
+      "action",
+      "get-content-recent",
+      { scopeKey },
+    ]);
+    const unrelatedKey = documentQueryKey("unaffected", {
+      databaseDocumentId: "collection",
+    });
+    for (const key of [...affectedKeys, ...recentKeys, unrelatedKey]) {
+      client.setQueryData(key, { snapshot: "before lifecycle mutation" });
+      expect(client.getQueryState(key)?.isInvalidated).toBe(false);
+    }
+
+    await refreshDocumentLifecycle(client, {
+      affectedDocumentIds: ["root", "child", "grandchild"],
+      affectedDatabaseIds: ["database"],
+    });
+
+    for (const key of [...affectedKeys, ...recentKeys]) {
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    }
+    expect(client.getQueryState(unrelatedKey)?.isInvalidated).toBe(false);
+    client.clear();
+  });
+
+  it("refreshes page caches when a legacy lifecycle response omits affected ids", async () => {
+    const client = new QueryClient();
+    const keys = [
+      documentQueryKey("root"),
+      documentQueryKey("descendant", { databaseDocumentId: "collection" }),
+    ];
+    for (const key of keys) client.setQueryData(key, { title: "cached" });
+
+    await refreshDocumentLifecycle(client, {});
+
+    for (const key of keys) {
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    }
+    client.clear();
+  });
+
+  it("cancels an affected in-flight read so its stale response cannot undo invalidation", async () => {
+    const client = new QueryClient();
+    const key = documentQueryKey("child", { databaseDocumentId: "collection" });
+    client.setQueryData(key, { title: "original" });
+    let finishRead!: (value: { title: string }) => void;
+    let requestSignal: AbortSignal | undefined;
+    const pending = client.fetchQuery({
+      queryKey: key,
+      queryFn: ({ signal }) => {
+        requestSignal = signal;
+        return new Promise<{ title: string }>((resolve) => {
+          finishRead = resolve;
+        });
+      },
+    });
+
+    await refreshDocumentLifecycle(client, {
+      affectedDocumentIds: ["root", "child"],
+    });
+    expect(requestSignal?.aborted).toBe(true);
+    expect(await pending).toEqual({ title: "original" });
+    finishRead({ title: "stale response from before deletion" });
+    await Promise.resolve();
+    expect(client.getQueryData(key)).toEqual({ title: "original" });
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    client.clear();
+  });
+});
 
 describe("complete document discovery", () => {
   it("rolls back only its own optimistic create", () => {
