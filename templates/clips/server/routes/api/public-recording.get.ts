@@ -456,10 +456,10 @@ export default defineEventHandler(async (event) => {
   // Mirrors the gate in `get-recording-player-data` exactly: the share page
   // auto-redirects on this flag, so a false positive bounces the viewer
   // between /share/:id and /r/:id forever. Only a resolved access role can
-  // open the direct page — the org-member fallback above is a display role,
+  // open the direct page - the org-member fallback above is a display role,
   // not access the player action would grant.
   const canOpenDashboard =
-    Boolean(session?.email) && viewerAccess && !recordingExpired
+    Boolean(session?.email) && viewerAccess
       ? canOpenDirectRecordingPage({
           role: viewerAccess.role as RecordingPageAccessRole,
           visibility: rec.visibility as RecordingVisibility,

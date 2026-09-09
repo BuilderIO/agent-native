@@ -114,8 +114,7 @@ import { cn } from "@/lib/utils";
 
 import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
-import { isRecordingExpiredForViewer } from "../../server/lib/recording-page-access";
-import { sameOwnerEmail } from "../../server/lib/recordings";
+import { isRecordingExpired } from "../../server/lib/recording-page-access";
 import {
   buildAgentApiUrls,
   buildAgentDiscoveryPayload,
@@ -271,20 +270,12 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
 
   if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
 
-  const userEmail = getRequestUserEmail();
-  const viewerIsOwner = Boolean(
-    userEmail && sameOwnerEmail(userEmail, rec.ownerEmail),
-  );
-  if (
-    isRecordingExpiredForViewer({
-      expiresAt: rec.expiresAt,
-      viewerIsOwner,
-    })
-  ) {
+  if (isRecordingExpired(rec.expiresAt)) {
     return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
   }
 
   if (rec.visibility !== "public" && !tokenGrantsAgentAccess) {
+    const userEmail = getRequestUserEmail();
     const access = userEmail ? await resolveAccess("recording", id) : null;
     if (!access) {
       const status = userEmail ? 403 : 401;
