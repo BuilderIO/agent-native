@@ -331,12 +331,13 @@ export default defineAction({
       .boolean()
       .default(false)
       .describe(
-        "True when the Slack parent already has eyes or robot_face. Records the skip without starting Builder work: received items become needs_manual so they leave needsReview; items that already started keep their status.",
+        "True when the Slack parent already has eyes or robot_face. Records the skip without starting Builder work: received items become needs_manual so they leave needsReview; items that already started keep their status. clearBug may be omitted or false.",
       ),
     clearBug: z
       .boolean()
+      .default(false)
       .describe(
-        "True when the item is a concrete, reproducible defect with enough evidence to investigate (including visual/UI defects such as a duplicate control, broken layout, or incorrect state). False for feature requests, vague questions, and incomplete threads. Do not use false to skip a parent that already has eyes or robot_face; pass alreadyClaimed true instead.",
+        "True when the item is a concrete, reproducible defect with enough evidence to investigate (including visual/UI defects such as a duplicate control, broken layout, or incorrect state). False for feature requests, vague questions, incomplete threads, and claimed Slack parents. May be omitted when alreadyClaimed is true.",
       ),
     reason: z.string().trim().min(1).max(4_000),
     productUxImplications: z

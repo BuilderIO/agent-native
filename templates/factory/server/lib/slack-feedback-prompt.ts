@@ -32,10 +32,22 @@ with no single correct fix, and a short reason. Pass reaction robot_face 🤖
 only when clearBug is true and the parent has neither eyes nor robot_face.
 Omit reaction on skips.`;
 
-export const SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS = `Look at the parent message reactions from get-slack-feedback-context. If the
+const RETIRED_CLAIMED_SKIP_OMITS_CLEAR_BUG = `Look at the parent message reactions from get-slack-feedback-context. If the
 parent already has eyes 👀 or robot_face 🤖, it has already been looked at:
 call dispatch-factory-item with alreadyClaimed true, omit reaction, and a short
 reason that names the existing marker. Do not start Builder work on it.
+
+For every other item, call dispatch-factory-item with clearBug true or false,
+productUxImplications false unless it is a pure product or design decision
+with no single correct fix, and a short reason. Pass reaction robot_face 🤖
+only when clearBug is true and the parent has neither eyes nor robot_face.
+Omit reaction on skips.`;
+
+export const SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS = `Look at the parent message reactions from get-slack-feedback-context. If the
+parent already has eyes 👀 or robot_face 🤖, it has already been looked at:
+call dispatch-factory-item with alreadyClaimed true (clearBug may be omitted
+or false), omit reaction, and a short reason that names the existing marker.
+Do not start Builder work on it.
 
 For every other item, call dispatch-factory-item with clearBug true or false,
 productUxImplications false unless it is a pure product or design decision
@@ -66,6 +78,9 @@ export function repairSlackFeedbackPrompt(content: string): string {
     .join(SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS);
   next = next
     .split(RETIRED_CLAIMED_SKIP_VIA_CLEAR_BUG_FALSE)
+    .join(SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS);
+  next = next
+    .split(RETIRED_CLAIMED_SKIP_OMITS_CLEAR_BUG)
     .join(SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS);
   return `${next.replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
 }

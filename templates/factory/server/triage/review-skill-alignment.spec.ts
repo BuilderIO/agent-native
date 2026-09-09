@@ -23,6 +23,7 @@ describe("Factory review skill alignment", () => {
     expect(prompt).toContain("already has eyes 👀 or robot_face 🤖");
     expect(prompt).toContain("Do not pass reaction eyes");
     expect(prompt).toContain("alreadyClaimed: true");
+    expect(prompt).toContain("clearBug` may be");
     expect(prompt).not.toContain("with `clearBug: false`, omit reaction");
     expect(prompt).not.toContain("that action adds 👀");
     expect(prompt.indexOf(markers.start)).toBeGreaterThan(-1);

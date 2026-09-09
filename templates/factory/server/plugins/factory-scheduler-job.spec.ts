@@ -138,6 +138,7 @@ Babysit pull requests.
     expect(prompt).toContain("visual/UI defects");
     expect(prompt).toContain("already has eyes 👀 or robot_face 🤖");
     expect(prompt).toContain("alreadyClaimed true");
+    expect(prompt).toContain("clearBug may be omitted");
     expect(prompt).toContain("neither eyes nor robot_face");
     expect(prompt).toContain("omit reaction");
     expect(prompt).not.toContain("limit 20");
