@@ -50,10 +50,12 @@ describe("SlideEditor layout overflow warning", () => {
   });
 
   it("asks the agent to repair against complete current slide HTML", () => {
-    expect(source).toContain("use `view-screen` to confirm the overflow");
-    expect(source).toContain("call `get-deck` with slideId");
-    expect(source).toContain("`update-slide --fullContent`");
-    expect(source).toContain("`baseContentHash`");
+    expect(source).toContain("to confirm the overflow, then call");
+    expect(source).toContain(
+      "to read the complete current HTML and contentHash",
+    );
+    expect(source).toContain("update-slide --fullContent");
+    expect(source).toContain("with that contentHash as");
   });
 
   it("keeps its controls from triggering canvas interactions", () => {
