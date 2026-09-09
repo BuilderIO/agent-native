@@ -5,9 +5,12 @@ import { describe, expect, it, afterEach, vi } from "vitest";
 
 import {
   consumeExternalEmailRefresh,
+  beginReadMutation,
+  confirmReadMutation,
   filterSuppressedThreads,
   markExternalEmailRefresh,
   rebasePinnedLabelsUpdate,
+  rollbackReadMutation,
   suppressThread,
   unsuppressThread,
 } from "./use-emails";
@@ -166,6 +169,22 @@ describe("useMarkRead", () => {
       "message.id === id ? { ...message, isRead } : message",
     );
     expect(hook).toContain("message.id === id && message.isRead === isRead");
+  });
+
+  it("rolls overlapping failures back to the confirmed server state", () => {
+    const first = beginReadMutation("message-overlap", true);
+    const second = beginReadMutation("message-overlap", false);
+
+    expect(rollbackReadMutation("message-overlap", first)).toBeUndefined();
+    expect(rollbackReadMutation("message-overlap", second)).toBe(true);
+  });
+
+  it("uses an earlier successful mutation as the later rollback baseline", () => {
+    const first = beginReadMutation("message-confirmed", true);
+    const second = beginReadMutation("message-confirmed", false);
+
+    confirmReadMutation("message-confirmed", first, false);
+    expect(rollbackReadMutation("message-confirmed", second)).toBe(false);
   });
 
   it("supersedes cold fetches before checking for cached messages", () => {

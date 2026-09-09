@@ -379,6 +379,49 @@ const optimisticOverrides = new Map<
 >();
 const OVERRIDE_DURATION = 60_000; // 60s — covers Gmail's consistency window
 
+const readMutations = new Map<
+  string,
+  { version: number; confirmedVersion: number; confirmedState?: boolean }
+>();
+
+export function beginReadMutation(
+  emailId: string,
+  currentState: boolean | undefined,
+): number {
+  const existing = readMutations.get(emailId);
+  const version = (existing?.version ?? 0) + 1;
+  readMutations.set(emailId, {
+    version,
+    confirmedVersion: existing?.confirmedVersion ?? 0,
+    confirmedState: existing?.confirmedState ?? currentState,
+  });
+  return version;
+}
+
+export function confirmReadMutation(
+  emailId: string,
+  version: number,
+  isRead: boolean,
+) {
+  const current = readMutations.get(emailId);
+  if (!current) return;
+  if (version > current.confirmedVersion) {
+    current.confirmedVersion = version;
+    current.confirmedState = isRead;
+  }
+  if (version === current.version) readMutations.delete(emailId);
+}
+
+export function rollbackReadMutation(
+  emailId: string,
+  version: number,
+): boolean | undefined {
+  const current = readMutations.get(emailId);
+  if (!current || version !== current.version) return undefined;
+  readMutations.delete(emailId);
+  return current.confirmedState;
+}
+
 /** Set optimistic property overrides for an email (read, star, etc.) */
 export function setOptimisticOverride(
   emailId: string,
@@ -740,6 +783,10 @@ export function useMarkRead() {
       const previousReadState = previousThread?.find(
         (message) => message.id === id,
       )?.isRead;
+      const mutationVersion = beginReadMutation(
+        id,
+        previousReadState ?? target?.isRead,
+      );
       setOptimisticOverride(id, { isRead });
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
@@ -757,20 +804,32 @@ export function useMarkRead() {
           );
         }
       }
-      return { previous, previousReadState, threadId: resolvedThreadId };
+      return { mutationVersion, threadId: resolvedThreadId };
+    },
+    onSuccess: (_data, { id, isRead }, context) => {
+      if (context) confirmReadMutation(id, context.mutationVersion, isRead);
     },
     onError: (_err, { id, isRead }, context) => {
-      clearOptimisticOverride(id);
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      const previousReadState = context?.previousReadState;
-      if (context?.threadId && previousReadState !== undefined) {
+      const confirmedState = context
+        ? rollbackReadMutation(id, context.mutationVersion)
+        : undefined;
+      if (confirmedState === undefined) return;
+      setOptimisticOverride(id, { isRead: confirmedState });
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.map((email) =>
+            email.id === id ? { ...email, isRead: confirmedState } : email,
+          ),
+        ),
+      );
+      if (context?.threadId) {
         const currentThread = getCachedThread(context.threadId);
         if (currentThread) {
           setCachedThread(
             context.threadId,
             currentThread.map((message) =>
               message.id === id && message.isRead === isRead
-                ? { ...message, isRead: previousReadState }
+                ? { ...message, isRead: confirmedState }
                 : message,
             ),
           );
