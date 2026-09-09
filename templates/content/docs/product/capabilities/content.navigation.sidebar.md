@@ -82,9 +82,13 @@ Personal section settings and bounded Recent navigation now use per-user Actions
 Recent stores target and exact View identity, resolves current labels under current
 context access, and records successful foreground visits rather than edits. Focused
 tests cover bounded recency, scope rejection, concurrent navigation patches, legacy
-preference migration, and preservation of inherited filters. Real-interface reload,
-keyboard, multi-user isolation, and composed lifecycle reconciliation remain required;
-the unit tests do not establish those workflows.
+preference migration, and preservation of inherited filters. Local authenticated UI
+checks cover exact Table/Board navigation, reload, pointer and keyboard pin order,
+retained keyboard focus, section settings, mobile drawer navigation, and independent
+owner/viewer preferences. Action reads confirm unchanged parentage, membership,
+shared View configuration, and access grants after personal navigation changes.
+Mounted rename reconciliation passed only with the separately owned lifecycle overlay;
+mounted revocation/deletion and failed-read/write UI recovery remain integration gates.
 
 ## Proof plan
 
