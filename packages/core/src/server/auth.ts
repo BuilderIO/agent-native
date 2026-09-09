@@ -219,6 +219,8 @@ import {
 import {
   getRequestContext,
   hasContinuationLocalRequestContext,
+  hasExplicitPersonalOrgScope,
+  markExplicitPersonalOrgScope,
   runWithRequestContext,
 } from "./request-context.js";
 import { captureAuthError } from "./sentry.js";
@@ -1013,7 +1015,7 @@ export async function getMcpOAuthBearerSession(
   if (!bearerToken) return null;
 
   try {
-    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveOrgIdFromDomain }] =
+    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveMcpIdentityOrgId }] =
       await Promise.all([
         import("../mcp/oauth-route.js"),
         import("../mcp/build-server.js"),
@@ -1024,8 +1026,8 @@ export async function getMcpOAuthBearerSession(
     });
     const identity = result.authed ? result.identity : undefined;
     if (!identity?.userEmail) return null;
-    const orgId =
-      identity.orgId ?? (await resolveOrgIdFromDomain(identity.orgDomain));
+    if (identity.orgId === null) markExplicitPersonalOrgScope(event);
+    const orgId = await resolveMcpIdentityOrgId(identity);
     return {
       email: identity.userEmail,
       token: bearerToken,
@@ -4256,7 +4258,7 @@ async function backfillSessionOrg(
   session: AuthSession,
   event: H3Event,
 ): Promise<AuthSession> {
-  if (session.orgId) return session;
+  if (session.orgId || hasExplicitPersonalOrgScope(event)) return session;
   // Event-aware variant: shares the per-request org_members lookup with
   // getOrgContext so one request never pays the membership query twice.
   const { resolveOrgIdForEmailViaEvent } = await import("../org/context.js");
