@@ -16,25 +16,37 @@ export function OceanBackground({
   const [background, setBackground] = useState<Background>("probing");
 
   useEffect(() => {
+    let cancelled = false;
+    let probeId = 0;
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-    if (reduced?.matches) {
-      setBackground("fallback");
-      return;
+    const probe = () => {
+      const currentProbe = ++probeId;
+      if (reduced?.matches) {
+        setBackground("fallback");
+        return;
+      }
+
+      setBackground("probing");
+      void probeWebgpuSupport().then((support) => {
+        if (!cancelled && currentProbe === probeId && !reduced?.matches)
+          setBackground(support === "supported" ? "ocean" : "fallback");
+      });
+    };
+
+    const handleReducedMotionChange = () => probe();
+    if (reduced) {
+      if (typeof reduced.addEventListener === "function")
+        reduced.addEventListener("change", handleReducedMotionChange);
+      else reduced.addListener(handleReducedMotionChange);
     }
 
-    let cancelled = false;
-    void probeWebgpuSupport().then((support) => {
-      if (!cancelled)
-        setBackground(support === "supported" ? "ocean" : "fallback");
-    });
-
-    const demoteToFallback = () => {
-      if (!cancelled) setBackground("fallback");
-    };
-    reduced?.addEventListener("change", demoteToFallback);
+    probe();
     return () => {
       cancelled = true;
-      reduced?.removeEventListener("change", demoteToFallback);
+      if (!reduced) return;
+      if (typeof reduced.removeEventListener === "function")
+        reduced.removeEventListener("change", handleReducedMotionChange);
+      else reduced.removeListener(handleReducedMotionChange);
     };
   }, []);
 

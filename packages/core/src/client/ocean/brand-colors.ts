@@ -44,8 +44,10 @@ export function readOceanColors(element: Element): OceanColors {
         ? true
         : root.getAttribute("data-theme") === "light"
           ? false
-          : (window.matchMedia?.("(prefers-color-scheme: dark)").matches ??
-            false);
+          : window.matchMedia?.("(prefers-color-scheme: dark)").matches ===
+              true ||
+            window.matchMedia?.("(prefers-color-scheme: light)").matches !==
+              true;
   const colors = dark ? DARK_COLORS : LIGHT_COLORS;
   const style = getComputedStyle(element);
   return {

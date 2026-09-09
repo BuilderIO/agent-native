@@ -166,7 +166,7 @@ export function HeroOceanBackground({
       className={className}
       data-agent-native-starfield
       style={{
-        opacity: ready ? 0.3 : 0,
+        opacity: ready ? "var(--b-hero-ocean-opacity, 0.15)" : 0,
         transition: `opacity ${FADE_IN_MS}ms ease-out`,
         ...(mask ? { maskImage: mask, WebkitMaskImage: mask } : {}),
       }}
