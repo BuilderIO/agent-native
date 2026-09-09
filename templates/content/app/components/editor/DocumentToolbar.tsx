@@ -84,6 +84,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCreativeContextExperiment } from "@/hooks/use-creative-context-experiment";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
@@ -558,6 +559,7 @@ export function DocumentToolbar({
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  const creativeContextEnabled = useCreativeContextExperiment();
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const openShareOnLoad =
@@ -991,29 +993,33 @@ export function DocumentToolbar({
                   onCheckedChange: handleHideFromSearchChange,
                 }}
                 variant="compact"
-                shareTabs={{
-                  tabs: [
-                    {
-                      value: "context",
-                      label: t("creativeContext.share.tabLabel"),
-                      content: (
-                        <CreativeContextShareTab
-                          resource={{
-                            appId: "content",
-                            resourceType: "document",
-                            resourceId: documentId,
-                            title: documentTitle || "Untitled",
-                            updatedAt: documentUpdatedAt ?? undefined,
-                            preview: {
-                              kind: "document",
-                              label: t("root.commandDocumentsHeading"),
-                            },
-                          }}
-                        />
-                      ),
-                    },
-                  ],
-                }}
+                shareTabs={
+                  creativeContextEnabled
+                    ? {
+                        tabs: [
+                          {
+                            value: "context",
+                            label: t("creativeContext.share.tabLabel"),
+                            content: (
+                              <CreativeContextShareTab
+                                resource={{
+                                  appId: "content",
+                                  resourceType: "document",
+                                  resourceId: documentId,
+                                  title: documentTitle || "Untitled",
+                                  updatedAt: documentUpdatedAt ?? undefined,
+                                  preview: {
+                                    kind: "document",
+                                    label: t("root.commandDocumentsHeading"),
+                                  },
+                                }}
+                              />
+                            ),
+                          },
+                        ],
+                      }
+                    : undefined
+                }
               />
 
               <VersionHistoryPanel
