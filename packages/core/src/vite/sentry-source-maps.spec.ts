@@ -184,6 +184,9 @@ describe("vite/sentry-source-maps", () => {
 
     it("removes source maps and completes when upload fails", async () => {
       const { entryPath, mapPath, publishDirectory } = temporaryBuild();
+      const warning = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
       sentryUpload.mockImplementation(async () => {
         expect(existsSync(mapPath)).toBe(true);
         throw new Error("upload rejected");
@@ -194,7 +197,14 @@ describe("vite/sentry-source-maps", () => {
         SENTRY_PROJECT: "web",
       });
 
-      await runViteBuild(entryPath, publishDirectory, plugins);
+      try {
+        await runViteBuild(entryPath, publishDirectory, plugins);
+        expect(warning).toHaveBeenCalledWith(
+          expect.stringContaining("upload rejected"),
+        );
+      } finally {
+        warning.mockRestore();
+      }
 
       expect(sentryUpload).toHaveBeenCalledOnce();
       expect(existsSync(mapPath)).toBe(false);

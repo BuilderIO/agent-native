@@ -121,9 +121,12 @@ export function createSentrySourceMapUploadPlugin(
     // A source-map upload is optional observability work. The cleanup plugin
     // still removes maps when this handler returns, so a bad token cannot
     // block the deploy or publish source contents.
-    errorHandler: () => {
+    errorHandler: (error) => {
+      const message = (
+        error instanceof Error ? error.message : String(error)
+      ).replaceAll(config.authToken, "[redacted]");
       console.warn(
-        "Sentry source map upload failed; continuing without publishing source maps.",
+        `Sentry source map upload failed; continuing without publishing source maps: ${message}`,
       );
     },
   }) as Plugin[];
