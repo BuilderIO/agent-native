@@ -501,15 +501,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   } = useEmails("inbox", activeSavedFilter?.query, undefined, {
     enabled: Boolean(activeSavedFilter),
   });
-  const {
-    data: rawInboxEmails = [],
-    isLoading: emailsLoading,
-    isFetching: inboxIsFetching,
-  } = useEmails("inbox");
-  const { data: rawAllLocalEmails = [], isLoading: allLocalEmailsLoading } =
-    useEmails("all", undefined, undefined, {
+  const { data: rawInboxEmails = [], isFetching: inboxIsFetching } =
+    useEmails("inbox");
+  const { data: rawAllLocalEmails = [] } = useEmails(
+    "all",
+    undefined,
+    undefined,
+    {
       enabled: googleStatusReady && !hasAccounts,
-    });
+    },
+  );
   const hasLocalMailboxData =
     !hasAccounts &&
     (rawAllLocalEmails.length > 0 ||
