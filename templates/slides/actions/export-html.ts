@@ -55,6 +55,33 @@ function safeCssToken(value: unknown, fallback: string): string {
   return sanitized.replace(/[{}<>;]/g, "").slice(0, 240) || fallback;
 }
 
+const STANDALONE_TAILWIND_BACKGROUNDS: Record<string, string> = {
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-black": "#000000",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-white": "#FFFFFF",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-slate-900": "#0F172A",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-slate-950": "#020617",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-gray-900": "#111827",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-zinc-900": "#18181B",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-neutral-900": "#171717",
+  // guard:allow-raw-color - standalone Tailwind background compatibility
+  "bg-stone-900": "#1C1917",
+};
+
+function standaloneBackgroundCssValue(value: string): string {
+  return (
+    backgroundCssValue(value) ??
+    STANDALONE_TAILWIND_BACKGROUNDS[value] ??
+    DEFAULT_SLIDE_BACKGROUND
+  );
+}
+
 function googleFontHref(font: unknown): string | undefined {
   if (typeof font !== "string") return undefined;
   const family = font.split(",", 1)[0]?.replace(/["']/g, "").trim();
@@ -90,7 +117,7 @@ function standaloneDesignSystemVars(
   const typography = designSystem?.typography;
   const borders = designSystem?.borders;
   return [
-    `--ds-bg: ${safeCssToken(slideBackground, DEFAULT_SLIDE_BACKGROUND)}`,
+    `--ds-bg: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND)}`,
     // guard:allow-raw-color - standalone export fallback palette
     `--ds-text: ${safeCssToken(colors?.text, "#1F2933")}`,
     // guard:allow-raw-color - standalone export fallback palette
@@ -134,7 +161,7 @@ function buildStandaloneHtml(
         slide.background,
         designSystem,
       );
-      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(backgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
+      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
       return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideContent(slide.content)}</section>`;
     })
     .join("\n");
@@ -146,8 +173,8 @@ function buildStandaloneHtml(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)}</title>
   ${[
-    googleFontHref(designSystem?.typography.headingFont),
-    googleFontHref(designSystem?.typography.bodyFont),
+    googleFontHref(designSystem?.typography?.headingFont),
+    googleFontHref(designSystem?.typography?.bodyFont),
   ]
     .filter(
       (href, index, all): href is string =>

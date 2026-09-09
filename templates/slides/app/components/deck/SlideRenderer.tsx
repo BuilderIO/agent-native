@@ -23,7 +23,10 @@ import {
 } from "@/lib/sanitize-slide-html";
 
 import type { DesignSystemData } from "../../../shared/api";
-import { resolveSlideBackground } from "../../../shared/slide-background";
+import {
+  backgroundCssValue,
+  resolveSlideBackground,
+} from "../../../shared/slide-background";
 import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
 import { MermaidRenderer } from "./MermaidRenderer";
 
@@ -985,7 +988,8 @@ export function SlideInner({
 
   const bg = resolveSlideBackground(slide.background, designSystem);
   const isGradientClass = bg.startsWith("bg-");
-  const safeBackground = !isGradientClass ? sanitizeCssValue(bg) : null;
+  const cssBackground = isGradientClass ? backgroundCssValue(bg) : bg;
+  const safeBackground = cssBackground ? sanitizeCssValue(cssBackground) : null;
   const bgStyle = safeBackground ? { background: safeBackground } : undefined;
   const bgClass = isGradientClass ? bg : "";
   const isCentered = slide.layout === "title";

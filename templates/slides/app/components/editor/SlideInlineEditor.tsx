@@ -1,6 +1,6 @@
 import { isReconcileLeadClient } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
-import { DEFAULT_SLIDE_BACKGROUND } from "@shared/slide-background";
+import { resolveSlideBackground } from "@shared/slide-background";
 import { Extension } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
@@ -55,17 +55,16 @@ interface SlideInlineEditorProps {
 }
 
 /** Resolve bg class / style from slide.background */
-function resolveBackground(bg?: string): {
+function resolveBackground(
+  bg?: string,
+  designSystem?: DesignSystemData,
+): {
   bgClass: string;
   bgStyle?: React.CSSProperties;
 } {
-  if (!bg)
-    return {
-      bgClass: "",
-      bgStyle: { background: DEFAULT_SLIDE_BACKGROUND },
-    };
-  if (bg.startsWith("bg-")) return { bgClass: bg };
-  return { bgClass: "", bgStyle: { background: bg } };
+  const resolved = resolveSlideBackground(bg, designSystem);
+  if (resolved.startsWith("bg-")) return { bgClass: resolved };
+  return { bgClass: "", bgStyle: { background: resolved } };
 }
 
 /**
@@ -203,7 +202,10 @@ export function SlideInlineEditor({
   onComment,
 }: SlideInlineEditorProps) {
   const t = useT();
-  const { bgClass, bgStyle } = resolveBackground(slide.background);
+  const { bgClass, bgStyle } = resolveBackground(
+    slide.background,
+    designSystem,
+  );
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Guard flag: prevents the seeding setContent from triggering onContentChange
   const isSettingContent = useRef(false);
