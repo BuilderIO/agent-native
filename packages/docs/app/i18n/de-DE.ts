@@ -982,7 +982,6 @@ const deDE = {
       s058: "Kostenlos und Open Source",
       s059: "Jetzt starten",
       s060: "Wählen Sie aus, was Sie aufnehmen möchten, und starten Sie dann die Aufnahme in Clips.",
-      s061: "Weitere Apps ansehen",
       s062: "Alle Vorlagen anzeigen",
       faq: {
         question1: "Ist Clips kostenlos?",

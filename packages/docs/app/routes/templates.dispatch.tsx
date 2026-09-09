@@ -101,7 +101,7 @@ export default function DispatchTemplate() {
     <TemplateLandingShell>
       <TemplateHero
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("common.freeAndOpenSource")}
           </span>
         }
@@ -150,10 +150,7 @@ export default function DispatchTemplate() {
             { number: "Cron", label: t("templateLanding.dispatch.s005") },
           ].map((stat) => (
             <TemplateStatOrStepsGridItem key={stat.label}>
-              <div
-                className="text-3xl font-medium tracking-tight sm:text-4xl"
-                style={{ color: template.color }}
-              >
+              <div className="text-3xl font-medium tracking-tight sm:text-4xl text-[var(--fg-secondary)]">
                 {stat.number}
               </div>
               <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
@@ -187,10 +184,7 @@ export default function DispatchTemplate() {
                 : ""
             } ${index === 1 ? "sm:!border-e-0" : ""}`}
           >
-            <div
-              className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
-              style={{ color: template.color }}
-            >
+            <div className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)]">
               <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
             </div>
             <div className="flex flex-col gap-2">
@@ -221,9 +215,8 @@ export default function DispatchTemplate() {
                 <li key={key} className="flex items-start gap-3 py-2">
                   <IconCheck
                     aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
+                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
                     stroke={2}
-                    style={{ color: template.color }}
                   />
                   {t(`templateLanding.dispatch.${key}`)}
                 </li>
@@ -244,9 +237,8 @@ export default function DispatchTemplate() {
                 <li key={key} className="flex items-start gap-3 py-2">
                   <IconCheck
                     aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
+                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
                     stroke={2}
-                    style={{ color: template.color }}
                   />
                   {t(`templateLanding.dispatch.${key}`)}
                 </li>
@@ -272,9 +264,8 @@ export default function DispatchTemplate() {
                 <li key={key} className="flex items-start gap-3 py-2">
                   <IconCheck
                     aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
+                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
                     stroke={2}
-                    style={{ color: template.color }}
                   />
                   {t(`templateLanding.dispatch.${key}`)}
                 </li>
@@ -290,20 +281,20 @@ export default function DispatchTemplate() {
               </div>
               <div className="grid min-w-[28rem] gap-3 text-[var(--fg)]">
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  route --target slides
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action route --target slides
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  schedule --cron "0 9 * * 1-5"
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action schedule --cron "0 9 * * 1-5"
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  remember --scope user
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action remember --scope user
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  approve --action send-email
+                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
+                  action approve --action send-email
                 </div>
               </div>
             </div>
@@ -331,7 +322,7 @@ export default function DispatchTemplate() {
             {
               id: "agent-native",
               emphasized: true,
-              agentNative: { color: template.color, name: template.name },
+              agentNative: { name: template.name },
             },
           ]}
           rows={[
@@ -386,10 +377,7 @@ export default function DispatchTemplate() {
 
       <TemplateFinalCta
         eyebrow={
-          <span
-            className="font-mono text-sm font-semibold tracking-[0.14em]"
-            style={{ color: template.color }}
-          >
+          <span className="font-mono text-sm font-semibold tracking-[0.14em] text-[var(--fg-secondary)]">
             {t("common.freeAndOpenSource")}
           </span>
         }
@@ -404,7 +392,7 @@ export default function DispatchTemplate() {
       <TemplateLandingFaq
         idPrefix="dispatch-faq"
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("templateLanding.faq.eyebrow")}
           </span>
         }
