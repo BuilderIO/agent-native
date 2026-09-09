@@ -28,11 +28,10 @@ vi.mock("../../../../actions/export-html.js", () => ({
   default: { run: (...args: unknown[]) => mockRun(...args) },
 }));
 
+const mockResolveAuth = vi.hoisted(() => vi.fn());
+
 vi.mock("../../../handlers/request-auth-context.js", () => ({
-  resolveSlidesRequestAuth: vi.fn(async () => ({
-    ok: true,
-    context: { email: "user@example.com", orgId: "org-1" },
-  })),
+  resolveSlidesRequestAuth: (...args: unknown[]) => mockResolveAuth(...args),
 }));
 
 const contractError = (
@@ -50,6 +49,11 @@ describe("slides html export route", () => {
   beforeEach(() => {
     mockSetResponseStatus.mockClear();
     mockRun.mockReset();
+    mockResolveAuth.mockReset();
+    mockResolveAuth.mockResolvedValue({
+      ok: true,
+      context: { email: "user@example.com", orgId: "org-1" },
+    });
   });
 
   const handler = async () =>
@@ -69,15 +73,43 @@ describe("slides html export route", () => {
     });
   });
 
-  it("preserves a 401 contract status instead of flattening it to 500", async () => {
+  // 403 rather than 401 on purpose: the route's own auth gate returns 401
+  // before the action runs (covered below), so a 401 here would prove nothing
+  // about production. 403 also has no legacy message fallback, so passing this
+  // means the contract branch did the work, not the "Deck not found" prefix.
+  it("preserves a contract status that has no legacy message fallback", async () => {
     mockRun.mockRejectedValue(
-      contractError("no authenticated user", "not_authenticated", 401),
+      contractError("Requires editor role on deck deck-1", "forbidden", 403),
     );
 
     const result = await handler();
 
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 403);
+    expect(result).toMatchObject({ errorCode: "forbidden" });
+  });
+
+  it("returns 401 without invoking the action when the session has no email", async () => {
+    mockResolveAuth.mockResolvedValue({ ok: true, context: { orgId: "org-1" } });
+
+    const result = await handler();
+
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 401);
-    expect(result).toMatchObject({ errorCode: "not_authenticated" });
+    expect(result).toEqual({ error: "Unauthorized" });
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it("returns the resolver's status without invoking the action when auth fails", async () => {
+    mockResolveAuth.mockResolvedValue({
+      ok: false,
+      statusCode: 403,
+      error: "Forbidden",
+    });
+
+    const result = await handler();
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 403);
+    expect(result).toEqual({ error: "Forbidden" });
+    expect(mockRun).not.toHaveBeenCalled();
   });
 
   it("still maps an untyped legacy 'Deck not found' throw to 404", async () => {

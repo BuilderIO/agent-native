@@ -806,6 +806,10 @@ export default defineAction({
         .where(eq(schema.decks.id, deckId))
         .limit(1);
 
+      // Reachable only in the narrow window where access resolved and the row
+      // was deleted before this select. A wrong deck id never gets here:
+      // assertAccess throws Forbidden first, on purpose, so a non-member
+      // cannot probe a deck id for existence. Do not delete this as dead.
       if (!row)
         fail(`Deck ${deckId} not found`, {
           errorCode: "deck_not_found",
