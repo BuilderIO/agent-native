@@ -12,6 +12,8 @@ import {
   IconChevronUp,
   IconChevronDown,
   IconExternalLink,
+  IconMail,
+  IconMailOpened,
   IconMailOff,
   IconX,
   IconArrowBackUp,
@@ -1242,6 +1244,41 @@ export function EmailThread({
                       : t("mail.aiFilter.filterButton")}
                   </TooltipContent>
                 </Tooltip>
+                {email && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          markRead.mutate({
+                            id: email.id,
+                            isRead: !email.isRead,
+                            accountEmail: email.accountEmail,
+                          })
+                        }
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        aria-label={t(
+                          email.isRead
+                            ? "mail.actions.markUnread"
+                            : "mail.actions.markRead",
+                        )}
+                      >
+                        {email.isRead ? (
+                          <IconMail className="h-4 w-4" />
+                        ) : (
+                          <IconMailOpened className="h-4 w-4" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t(
+                        email.isRead
+                          ? "mail.actions.markUnread"
+                          : "mail.actions.markRead",
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
