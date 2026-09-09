@@ -15,6 +15,20 @@ const COMMENT_MUTATIONS = new Set([
   "update-comment",
 ]);
 
+const RELATIONSHIP_MUTATIONS = new Set([
+  "configure-content-relation-property",
+  "mutate-content-relationships",
+  "remove-content-relation-property",
+  "undo-content-relationship-revision",
+]);
+
+const RELATIONSHIP_QUERIES = new Set([
+  "list-content-relation-candidates",
+  "list-content-relationship-history",
+  "list-content-relationship-types",
+  "list-content-relationships",
+]);
+
 const DOCUMENT_MUTATIONS = new Set([
   "create-and-link-notion-page",
   "delete-document",
@@ -75,6 +89,7 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "update-content-database-view",
   "update-document",
   "upsert-database-item-by-key",
+  ...RELATIONSHIP_MUTATIONS,
 ]);
 
 const DATABASE_PRESENTATION_MUTATIONS = new Set([
@@ -113,6 +128,14 @@ function isDatabaseQuery(query: ActionQuery): boolean {
     return false;
   }
   return true;
+}
+
+function isRelationshipQuery(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" &&
+    typeof query.queryKey[1] === "string" &&
+    RELATIONSHIP_QUERIES.has(query.queryKey[1])
+  );
 }
 
 function queryTargetsDatabase(query: ActionQuery, documentId: string): boolean {
@@ -159,6 +182,14 @@ export function contentActionInvalidatePredicate(
     if (documentId === undefined) {
       return false;
     }
+    if (isRelationshipQuery(query)) {
+      return events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          RELATIONSHIP_MUTATIONS.has(event.key),
+      );
+    }
     if (
       typeof targetId === "string" &&
       queryTargetsDocument(query, targetId) &&
@@ -170,7 +201,9 @@ export function contentActionInvalidatePredicate(
         (event) =>
           event.source === "action" &&
           typeof event.key === "string" &&
-          CONTENT_MUTATIONS.has(event.key),
+          (CONTENT_MUTATIONS.has(event.key) ||
+            (query.queryKey[1] === "list-document-properties" &&
+              RELATIONSHIP_MUTATIONS.has(event.key))),
       );
     }
     if (queryTargetsDatabase(query, documentId)) {

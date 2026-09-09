@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { assertNotCanonicalRelationProjection } from "./_canonical-relation-guard.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -661,6 +662,14 @@ export async function runMigration(args: MigrationInput) {
       const rollback = parseJson(receipt.rollbackJson);
       const now = new Date().toISOString();
       if (args.phase === "rollback") {
+        const ids: string[] = rollback.createdPropertyIds ?? [];
+        for (const definition of current.definitions) {
+          if (!ids.includes(definition.id)) continue;
+          assertNotCanonicalRelationProjection(
+            definition,
+            "Canonical relationship projections cannot be removed by migration rollback.",
+          );
+        }
         for (const prior of rollback.versions ?? []) {
           const [version] = await tx
             .select()
@@ -687,7 +696,6 @@ export async function runMigration(args: MigrationInput) {
               `Rollback row ${prior.documentId} changed concurrently.`,
             );
         }
-        const ids = rollback.createdPropertyIds ?? [];
         if (ids.length) {
           await tx
             .delete(schema.documentPropertyValues)
@@ -761,6 +769,12 @@ export async function runMigration(args: MigrationInput) {
         )
       )
         throw new Error("Legacy property is missing or unsafe to finalize.");
+      for (const definition of legacy) {
+        assertNotCanonicalRelationProjection(
+          definition,
+          "Canonical relationship projections cannot be removed by migration finalization.",
+        );
+      }
       if (legacyIds.length) {
         await tx
           .delete(schema.documentPropertyValues)

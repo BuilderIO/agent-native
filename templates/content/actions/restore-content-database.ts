@@ -39,7 +39,7 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().describe("Content database ID"),
   }),
-  run: async ({ databaseId }) => {
+  run: async ({ databaseId }, context) => {
     const ownership = await assertContentDatabaseLifecycleAccess(databaseId);
     const db = getDb();
     const now = new Date().toISOString();
@@ -71,6 +71,7 @@ export default defineAction({
         tx as unknown as ReturnType<typeof getDb>,
         ownership.database.documentId,
         ownership.database.ownerEmail,
+        context,
       );
       if (
         backingDocument.trashedAt &&

@@ -16,7 +16,7 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().describe("Content database ID"),
   }),
-  run: async ({ databaseId }) => {
+  run: async ({ databaseId }, context) => {
     const { database } = await assertContentDatabaseLifecycleAccess(databaseId);
     if (database.systemRole) {
       throw new Error("System Content databases cannot be deleted");
@@ -37,6 +37,7 @@ export default defineAction({
         database.ownerEmail,
         deletedAt,
         lockedDatabaseIds,
+        context,
       );
     });
 

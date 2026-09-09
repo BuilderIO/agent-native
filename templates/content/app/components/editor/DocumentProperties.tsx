@@ -108,6 +108,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuCheckboxItem,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -131,6 +132,13 @@ import {
 } from "@/components/ui/tooltip";
 import { useAddContentDatabaseSourceFieldProperty } from "@/hooks/use-content-database";
 import {
+  canonicalRelationOptions,
+  contentRelationshipOperationId,
+  isSupersededRelationshipMutationError,
+  relationshipMutationErrorMessage,
+  useConfigureContentRelationProperty,
+} from "@/hooks/use-content-relationships";
+import {
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
@@ -140,6 +148,11 @@ import {
 } from "@/hooks/use-document-properties";
 import { cn } from "@/lib/utils";
 
+import {
+  RelationPropertyDeletionDialog,
+  RelationValueEditor,
+  RelationValueSummary,
+} from "./ContentRelationships";
 import { ColumnPresentationMenuItems } from "./database/DatabaseColumnPresentation";
 import {
   clearDatabaseFiltersForColumn,
@@ -150,6 +163,7 @@ import {
 } from "./database/filter-sort";
 import type { DatabaseFilter, DatabaseSort } from "./database/types";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
+import { RelationPropertyConfigurationDialog } from "./RelationPropertyConfigurationDialog";
 
 type TFunction = ReturnType<typeof useT>;
 
@@ -1013,9 +1027,20 @@ function PropertyRow({
   t: TFunction;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
+  const canonicalRelation = canonicalRelationOptions(property);
   const value = (
     <div className="min-w-0 flex-1 whitespace-normal break-words text-left text-sm max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate">
-      {displayValue(property, t)}
+      {property.definition.type === "relation" ? (
+        <RelationValueSummary
+          property={property}
+          pageId={documentId}
+          navigable
+          showAll
+          fallback={displayValue(property, t)}
+        />
+      ) : (
+        displayValue(property, t)
+      )}
     </div>
   );
 
@@ -1050,7 +1075,22 @@ function PropertyRow({
           )}
         </div>
       )}
-      {canEditValues && property.editable ? (
+      {canonicalRelation ? (
+        <div className="flex min-w-0 items-start gap-1">
+          {value}
+          {canEditValues && property.editable ? (
+            <PropertyValuePopover
+              property={property}
+              documentId={documentId}
+              databaseDocumentId={databaseDocumentId}
+              portalled={popoversPortalled}
+              triggerClassName="size-6 w-6 shrink-0 justify-center"
+            >
+              <IconEdit className="size-3.5 text-muted-foreground" />
+            </PropertyValuePopover>
+          ) : null}
+        </div>
+      ) : canEditValues && property.editable ? (
         <PropertyValuePopover
           property={property}
           documentId={documentId}
@@ -1142,6 +1182,8 @@ export function PropertyManagementPopover({
     property.definition.type,
   );
   const configure = useConfigureDocumentProperty(documentId, databaseId);
+  const configureRelationMetadata = useConfigureContentRelationProperty();
+  const configureInverseRelation = useConfigureContentRelationProperty();
   const duplicate = useDuplicateDocumentProperty(documentId, databaseId);
   const remove = useDeleteDocumentProperty(documentId, databaseId);
   const { data: propertiesData } = useDocumentProperties(
@@ -1218,6 +1260,7 @@ export function PropertyManagementPopover({
     hasColumnMenu ? "quick" : "edit",
   );
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const canonicalRelation = canonicalRelationOptions(property);
   const [name, setName] = useState(property.definition.name);
   const [description, setDescription] = useState(
     property.definition.description,
@@ -1309,11 +1352,81 @@ export function PropertyManagementPopover({
   }
 
   persistMetadataSnapshotRef.current = (metadata) =>
-    configure.mutateAsync({
-      id: property.definition.id,
-      documentId,
-      ...metadata,
-    });
+    canonicalRelation
+      ? configureRelationMetadata.mutateAsync({
+          ownerDatabaseId: databaseId,
+          propertyId: property.definition.id,
+          alias: metadata.name,
+          description: metadata.description,
+          visibility: metadata.visibility,
+          definition: {
+            kind: "existing",
+            relationshipTypeId: canonicalRelation.relationshipTypeId,
+            direction: canonicalRelation.direction,
+          },
+          operationId: contentRelationshipOperationId(),
+        })
+      : configure.mutateAsync({
+          id: property.definition.id,
+          documentId,
+          ...metadata,
+        });
+
+  async function updateInverseEditing(editable: boolean) {
+    if (!canonicalRelation || canonicalRelation.direction !== "inverse") return;
+    try {
+      await configureInverseRelation.mutateAsync({
+        ownerDatabaseId: databaseId,
+        propertyId: property.definition.id,
+        alias: property.definition.name,
+        definition: {
+          kind: "existing",
+          relationshipTypeId: canonicalRelation.relationshipTypeId,
+          direction: "inverse",
+        },
+        editable,
+        operationId: contentRelationshipOperationId(),
+      });
+    } catch (caught) {
+      if (isSupersededRelationshipMutationError(caught)) return;
+      toast.error(
+        relationshipMutationErrorMessage(
+          caught,
+          t("relationships.requestInterrupted"),
+          t("relationships.configurationFailed"),
+        ),
+        configureInverseRelation.failedVariables
+          ? {
+              action: {
+                label: t("relationships.retrySavedChange"),
+                onClick: () => void retryInverseEditing(),
+              },
+            }
+          : undefined,
+      );
+    }
+  }
+
+  async function retryInverseEditing() {
+    try {
+      await configureInverseRelation.retryFailed();
+    } catch (caught) {
+      if (isSupersededRelationshipMutationError(caught)) return;
+      toast.error(
+        relationshipMutationErrorMessage(
+          caught,
+          t("relationships.requestInterrupted"),
+          t("relationships.configurationFailed"),
+        ),
+        {
+          action: {
+            label: t("relationships.retrySavedChange"),
+            onClick: () => void retryInverseEditing(),
+          },
+        },
+      );
+    }
+  }
 
   const optionDragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -1665,40 +1778,45 @@ export function PropertyManagementPopover({
                 />
               </div>
 
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <Icon className="mr-2 size-4 text-muted-foreground" />
-                  <span className="flex-1">{t("editor.properties.type")}</span>
-                  <span className="mr-2 text-muted-foreground">
-                    {t(`editor.propertyTypes.${property.definition.type}`)}
-                  </span>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="z-[310] max-h-80 w-56 overflow-auto">
-                  {CREATABLE_DOCUMENT_PROPERTY_TYPES.map((propertyType) => {
-                    const TypeIcon = TYPE_ICONS[propertyType];
-                    const selected = property.definition.type === propertyType;
-                    const disabled = typeIsLocked && !selected;
-                    return (
-                      <DropdownMenuItem
-                        key={propertyType}
-                        disabled={disabled}
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          void updateType(propertyType);
-                        }}
-                      >
-                        <TypeIcon className="mr-2 size-4 text-muted-foreground" />
-                        <span className="flex-1">
-                          {t(`editor.propertyTypes.${propertyType}`)}
-                        </span>
-                        {selected ? (
-                          <IconCheck className="size-4 text-muted-foreground" />
-                        ) : null}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+              {!canonicalRelation ? (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <Icon className="mr-2 size-4 text-muted-foreground" />
+                    <span className="flex-1">
+                      {t("editor.properties.type")}
+                    </span>
+                    <span className="mr-2 text-muted-foreground">
+                      {t(`editor.propertyTypes.${property.definition.type}`)}
+                    </span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="z-[310] max-h-80 w-56 overflow-auto">
+                    {CREATABLE_DOCUMENT_PROPERTY_TYPES.map((propertyType) => {
+                      const TypeIcon = TYPE_ICONS[propertyType];
+                      const selected =
+                        property.definition.type === propertyType;
+                      const disabled = typeIsLocked && !selected;
+                      return (
+                        <DropdownMenuItem
+                          key={propertyType}
+                          disabled={disabled}
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            void updateType(propertyType);
+                          }}
+                        >
+                          <TypeIcon className="mr-2 size-4 text-muted-foreground" />
+                          <span className="flex-1">
+                            {t(`editor.propertyTypes.${propertyType}`)}
+                          </span>
+                          {selected ? (
+                            <IconCheck className="size-4 text-muted-foreground" />
+                          ) : null}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              ) : null}
 
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
@@ -1903,17 +2021,31 @@ export function PropertyManagementPopover({
                 </>
               ) : null}
 
+              {canonicalRelation?.direction === "inverse" ? (
+                <DropdownMenuCheckboxItem
+                  checked={canonicalRelation.editable}
+                  disabled={configureInverseRelation.isPending}
+                  onSelect={(event) => event.preventDefault()}
+                  onCheckedChange={(editable) => {
+                    void updateInverseEditing(editable);
+                  }}
+                >
+                  {t("relationships.inverseEditable")}
+                </DropdownMenuCheckboxItem>
+              ) : null}
               <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={duplicate.isPending}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  void duplicateProperty();
-                }}
-              >
-                <IconCopy className="mr-2 size-4 text-muted-foreground" />
-                {t("editor.properties.duplicateProperty")}
-              </DropdownMenuItem>
+              {!canonicalRelation ? (
+                <DropdownMenuItem
+                  disabled={duplicate.isPending}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void duplicateProperty();
+                  }}
+                >
+                  <IconCopy className="mr-2 size-4 text-muted-foreground" />
+                  {t("editor.properties.duplicateProperty")}
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem
                 disabled={remove.isPending}
                 className="text-destructive focus:bg-destructive/10 focus:text-destructive"
@@ -1931,38 +2063,50 @@ export function PropertyManagementPopover({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent className="max-w-sm gap-0 rounded-lg p-5">
-          <AlertDialogHeader className="space-y-0 gap-1.5 text-start">
-            <AlertDialogTitle className="text-base leading-tight tracking-tight">
-              {t("editor.properties.deletePropertyQuestion")}
-            </AlertDialogTitle>
-            <AlertDialogDescription className="leading-normal [text-wrap:pretty]">
-              {t("editor.properties.deletePropertyDescriptionPrefix")}
-              <span className="font-medium text-foreground">
-                {property.definition.name}
-              </span>
-              {t("editor.properties.deletePropertyDescriptionSuffix")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {isOnlyBlocksField ? (
-            <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-800 dark:text-yellow-200">
-              {t("editor.properties.onlyBlocksPropertyWarning")}
-            </div>
-          ) : null}
-          <AlertDialogFooter className="mt-4 flex-row items-center justify-end gap-2 sm:space-x-0">
-            <AlertDialogCancel className="mt-0 h-8 px-3 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1">
-              {t("editor.properties.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="h-8 bg-destructive px-3 text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
-              onClick={() => void deleteProperty()}
-            >
-              {t("editor.properties.deleteProperty")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {canonicalRelation ? (
+        <RelationPropertyDeletionDialog
+          open={confirmDeleteOpen}
+          property={property}
+          onOpenChange={setConfirmDeleteOpen}
+          onDeleted={() => setOpen(false)}
+        />
+      ) : (
+        <AlertDialog
+          open={confirmDeleteOpen}
+          onOpenChange={setConfirmDeleteOpen}
+        >
+          <AlertDialogContent className="max-w-sm gap-0 rounded-lg p-5">
+            <AlertDialogHeader className="space-y-0 gap-1.5 text-start">
+              <AlertDialogTitle className="text-base leading-tight tracking-tight">
+                {t("editor.properties.deletePropertyQuestion")}
+              </AlertDialogTitle>
+              <AlertDialogDescription className="leading-normal [text-wrap:pretty]">
+                {t("editor.properties.deletePropertyDescriptionPrefix")}
+                <span className="font-medium text-foreground">
+                  {property.definition.name}
+                </span>
+                {t("editor.properties.deletePropertyDescriptionSuffix")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {isOnlyBlocksField ? (
+              <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-800 dark:text-yellow-200">
+                {t("editor.properties.onlyBlocksPropertyWarning")}
+              </div>
+            ) : null}
+            <AlertDialogFooter className="mt-4 flex-row items-center justify-end gap-2 sm:space-x-0">
+              <AlertDialogCancel className="mt-0 h-8 px-3 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1">
+                {t("editor.properties.cancel")}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="h-8 bg-destructive px-3 text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+                onClick={() => void deleteProperty()}
+              >
+                {t("editor.properties.deleteProperty")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </>
   );
 }
@@ -2128,12 +2272,14 @@ export function PropertyValuePopover({
   databaseDocumentId = documentId,
   children,
   portalled = true,
+  triggerClassName,
 }: {
   property: DocumentProperty;
   documentId: string;
   databaseDocumentId?: string;
   children: React.ReactNode;
   portalled?: boolean;
+  triggerClassName?: string;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -2146,7 +2292,10 @@ export function PropertyValuePopover({
           aria-label={t("editor.properties.editProperty", {
             name: property.definition.name,
           })}
-          className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            triggerClassName,
+          )}
         >
           {children}
         </button>
@@ -2175,6 +2324,15 @@ function PropertyValueEditor({
   onDone: () => void;
 }) {
   const type = property.definition.type;
+  if (type === "relation") {
+    return (
+      <RelationValueEditor
+        property={property}
+        pageId={documentId}
+        onDone={onDone}
+      />
+    );
+  }
   if (type === "select" || type === "status" || type === "multi_select") {
     return (
       <OptionValueEditor
@@ -3322,6 +3480,7 @@ export function AddProperty({
   const addSourceFieldProperty =
     useAddContentDatabaseSourceFieldProperty(documentId);
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [sourceHandoffClosing, setSourceHandoffClosing] = useState(false);
   const handledOpenRequestId = useRef(0);
   const [typeQuery, setTypeQuery] = useState("");
@@ -3362,6 +3521,8 @@ export function AddProperty({
     string | null
   >(null);
   const [addPropertyError, setAddPropertyError] = useState<string | null>(null);
+  const [relationConfigurationOpen, setRelationConfigurationOpen] =
+    useState(false);
   const isAddingProperty =
     configure.isPending ||
     addSourceFieldProperty.isPending ||
@@ -3407,6 +3568,13 @@ export function AddProperty({
   }
 
   async function add(type: DocumentPropertyType) {
+    if (type === "relation") {
+      setTypeQuery("");
+      setAddPropertyError(null);
+      setOpen(false);
+      setRelationConfigurationOpen(true);
+      return;
+    }
     const label = t(`editor.propertyTypes.${type}`);
     setPendingPropertyType(type);
     setPendingSourceFieldId(null);
@@ -3479,218 +3647,232 @@ export function AddProperty({
   }
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (nextOpen) {
-          setSourceHandoffClosing(false);
-          setOpen(true);
-        } else if (!isAddingProperty) {
-          closeAddPropertyPicker();
-        }
-      }}
-    >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={label ?? t("editor.properties.addProperty")}
+    <>
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (nextOpen) {
+            setSourceHandoffClosing(false);
+            setOpen(true);
+          } else if (!isAddingProperty) {
+            closeAddPropertyPicker();
+          }
+        }}
+      >
+        <PopoverTrigger asChild>
+          <button
+            ref={triggerRef}
+            type="button"
+            aria-label={label ?? t("editor.properties.addProperty")}
+            className={cn(
+              "flex h-8 items-center gap-2 rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+              variant === "icon" && "size-7 justify-center px-0",
+              variant === "header" && "h-7 px-2 text-xs font-medium",
+              variant === "default" && "mt-1 px-1 text-sm",
+            )}
+          >
+            <IconPlus className="size-4" />
+            {variant === "default" || variant === "header"
+              ? (label ?? t("editor.properties.addProperty"))
+              : null}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align={variant === "default" ? "start" : "end"}
+          collisionPadding={12}
+          portalled={popoversPortalled}
           className={cn(
-            "flex h-8 items-center gap-2 rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-            variant === "icon" && "size-7 justify-center px-0",
-            variant === "header" && "h-7 px-2 text-xs font-medium",
-            variant === "default" && "mt-1 px-1 text-sm",
+            "relative z-[300] w-80 p-2",
+            sourceHandoffClosing &&
+              "data-[state=closed]:hidden data-[state=closed]:animate-none",
           )}
         >
-          <IconPlus className="size-4" />
-          {variant === "default" || variant === "header"
-            ? (label ?? t("editor.properties.addProperty"))
-            : null}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align={variant === "default" ? "start" : "end"}
-        collisionPadding={12}
-        portalled={popoversPortalled}
-        className={cn(
-          "relative z-[300] w-80 p-2",
-          sourceHandoffClosing &&
-            "data-[state=closed]:hidden data-[state=closed]:animate-none",
-        )}
-      >
-        <div className="grid gap-2">
-          <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
-            <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
-            <Input
-              ref={addPropertySearchInputRef}
-              autoFocus
-              value={typeQuery}
-              placeholder={t("editor.properties.searchPropertyTypes")}
-              aria-label={t("editor.properties.searchPropertyTypes")}
-              onChange={(event) => setTypeQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && firstFilteredPropertyType) {
-                  event.preventDefault();
-                  void add(firstFilteredPropertyType);
-                } else if (event.key === "Enter" && connectSourceMatches) {
-                  event.preventDefault();
-                  connectSource();
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  closeAddPropertyPicker();
-                }
-              }}
-              className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <div className="max-h-80 overflow-auto rounded border p-1">
-            {connectSourceMatches ? (
-              <button
-                type="button"
-                className="mb-1 flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={connectSource}
-              >
-                <IconPlugConnected className="size-4 shrink-0 text-muted-foreground" />
-                <span className="flex-1">{connectSourceLabel}</span>
-              </button>
-            ) : null}
-            {sourceFieldGroups.map((group) => (
-              <div
-                key={group.source.id}
-                className="mb-1 border-b border-border pb-1"
-              >
-                <div className="truncate px-2 py-1 text-xs font-medium text-muted-foreground">
-                  {t("editor.properties.fromSource", {
-                    name: group.source.sourceName,
+          <div className="grid gap-2">
+            <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
+              <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
+              <Input
+                ref={addPropertySearchInputRef}
+                autoFocus
+                value={typeQuery}
+                placeholder={t("editor.properties.searchPropertyTypes")}
+                aria-label={t("editor.properties.searchPropertyTypes")}
+                onChange={(event) => setTypeQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && firstFilteredPropertyType) {
+                    event.preventDefault();
+                    void add(firstFilteredPropertyType);
+                  } else if (event.key === "Enter" && connectSourceMatches) {
+                    event.preventDefault();
+                    connectSource();
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeAddPropertyPicker();
+                  }
+                }}
+                className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
+              />
+            </div>
+            <div className="max-h-80 overflow-auto rounded border p-1">
+              {connectSourceMatches ? (
+                <button
+                  type="button"
+                  className="mb-1 flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={connectSource}
+                >
+                  <IconPlugConnected className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1">{connectSourceLabel}</span>
+                </button>
+              ) : null}
+              {sourceFieldGroups.map((group) => (
+                <div
+                  key={group.source.id}
+                  className="mb-1 border-b border-border pb-1"
+                >
+                  <div className="truncate px-2 py-1 text-xs font-medium text-muted-foreground">
+                    {t("editor.properties.fromSource", {
+                      name: group.source.sourceName,
+                    })}
+                  </div>
+                  {group.fields.map((field) => {
+                    const SourceFieldIcon =
+                      TYPE_ICONS[
+                        propertyTypeForSourceFieldType(field.sourceFieldType)
+                      ];
+                    return (
+                      <button
+                        key={field.id}
+                        type="button"
+                        aria-label={t("editor.properties.sourceField", {
+                          name: field.sourceFieldLabel,
+                        })}
+                        disabled={isAddingProperty}
+                        aria-busy={pendingSourceFieldId === field.id}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                        onPointerDownCapture={(event) =>
+                          activateAddPropertyItem(
+                            event,
+                            `source:${field.id}`,
+                            () => {
+                              void addFromSourceField(field.id);
+                            },
+                          )
+                        }
+                        onClick={(event) =>
+                          activateAddPropertyItem(
+                            event,
+                            `source:${field.id}`,
+                            () => {
+                              void addFromSourceField(field.id);
+                            },
+                          )
+                        }
+                        onKeyDown={(event) =>
+                          activateAddPropertyItemFromKeyboard(
+                            event,
+                            `source:${field.id}`,
+                            () => {
+                              void addFromSourceField(field.id);
+                            },
+                          )
+                        }
+                      >
+                        {pendingSourceFieldId === field.id ? (
+                          <Spinner className="size-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <SourceFieldIcon className="size-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="min-w-0 flex-1 truncate">
+                          {field.sourceFieldLabel}
+                        </span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {group.source.metadata.federation?.role ===
+                          "secondary"
+                            ? t("editor.properties.federated")
+                            : t("editor.properties.source")}
+                        </span>
+                      </button>
+                    );
                   })}
                 </div>
-                {group.fields.map((field) => {
-                  const SourceFieldIcon =
-                    TYPE_ICONS[
-                      propertyTypeForSourceFieldType(field.sourceFieldType)
-                    ];
-                  return (
-                    <button
-                      key={field.id}
-                      type="button"
-                      aria-label={t("editor.properties.sourceField", {
-                        name: field.sourceFieldLabel,
-                      })}
-                      disabled={isAddingProperty}
-                      aria-busy={pendingSourceFieldId === field.id}
-                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
-                      onPointerDownCapture={(event) =>
-                        activateAddPropertyItem(
-                          event,
-                          `source:${field.id}`,
-                          () => {
-                            void addFromSourceField(field.id);
-                          },
-                        )
-                      }
-                      onClick={(event) =>
-                        activateAddPropertyItem(
-                          event,
-                          `source:${field.id}`,
-                          () => {
-                            void addFromSourceField(field.id);
-                          },
-                        )
-                      }
-                      onKeyDown={(event) =>
-                        activateAddPropertyItemFromKeyboard(
-                          event,
-                          `source:${field.id}`,
-                          () => {
-                            void addFromSourceField(field.id);
-                          },
-                        )
-                      }
-                    >
-                      {pendingSourceFieldId === field.id ? (
-                        <Spinner className="size-4 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <SourceFieldIcon className="size-4 shrink-0 text-muted-foreground" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate">
-                        {field.sourceFieldLabel}
-                      </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {group.source.metadata.federation?.role === "secondary"
-                          ? t("editor.properties.federated")
-                          : t("editor.properties.source")}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-            {filteredPropertyTypes.length === 0 && !connectSourceMatches ? (
-              <div className="px-2 py-3 text-sm text-muted-foreground">
-                {t("editor.properties.noMatchingPropertyTypes")}
-              </div>
-            ) : null}
-            {filteredPropertyTypes.map((type) => {
-              const Icon = TYPE_ICONS[type];
-              return (
-                <button
-                  key={type}
-                  type="button"
-                  aria-label={t("editor.properties.addPropertyType", {
-                    type: t(`editor.propertyTypes.${type}`),
-                  })}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
-                  disabled={isAddingProperty}
-                  aria-busy={pendingPropertyType === type}
-                  onPointerDownCapture={(event) =>
-                    activateAddPropertyItem(event, `type:${type}`, () => {
-                      void add(type);
-                    })
-                  }
-                  onClick={(event) =>
-                    activateAddPropertyItem(event, `type:${type}`, () => {
-                      void add(type);
-                    })
-                  }
-                  onKeyDown={(event) =>
-                    activateAddPropertyItemFromKeyboard(
-                      event,
-                      `type:${type}`,
-                      () => {
+              ))}
+              {filteredPropertyTypes.length === 0 && !connectSourceMatches ? (
+                <div className="px-2 py-3 text-sm text-muted-foreground">
+                  {t("editor.properties.noMatchingPropertyTypes")}
+                </div>
+              ) : null}
+              {filteredPropertyTypes.map((type) => {
+                const Icon = TYPE_ICONS[type];
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    aria-label={t("editor.properties.addPropertyType", {
+                      type: t(`editor.propertyTypes.${type}`),
+                    })}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    disabled={isAddingProperty}
+                    aria-busy={pendingPropertyType === type}
+                    onPointerDownCapture={(event) =>
+                      activateAddPropertyItem(event, `type:${type}`, () => {
                         void add(type);
-                      },
-                    )
-                  }
-                >
-                  {pendingPropertyType === type ? (
-                    <Spinner className="size-4 text-muted-foreground" />
-                  ) : (
-                    <Icon className="size-4 text-muted-foreground" />
-                  )}
-                  <span className="flex-1">
-                    {t(`editor.propertyTypes.${type}`)}
-                  </span>
-                  {isComputedPropertyType(type) ? (
-                    <span className="text-xs text-muted-foreground">
-                      {t("editor.properties.computed")}
+                      })
+                    }
+                    onClick={(event) =>
+                      activateAddPropertyItem(event, `type:${type}`, () => {
+                        void add(type);
+                      })
+                    }
+                    onKeyDown={(event) =>
+                      activateAddPropertyItemFromKeyboard(
+                        event,
+                        `type:${type}`,
+                        () => {
+                          void add(type);
+                        },
+                      )
+                    }
+                  >
+                    {pendingPropertyType === type ? (
+                      <Spinner className="size-4 text-muted-foreground" />
+                    ) : (
+                      <Icon className="size-4 text-muted-foreground" />
+                    )}
+                    <span className="flex-1">
+                      {t(`editor.propertyTypes.${type}`)}
                     </span>
-                  ) : null}
-                </button>
-              );
-            })}
-            {addPropertyError !== null ? (
-              <div
-                role="alert"
-                className="px-2 py-1.5 text-xs text-destructive"
-              >
-                {t("editor.properties.addPropertyFailed")}
-                {addPropertyError ? ` ${addPropertyError}` : null}
-              </div>
-            ) : null}
+                    {isComputedPropertyType(type) ? (
+                      <span className="text-xs text-muted-foreground">
+                        {t("editor.properties.computed")}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+              {addPropertyError !== null ? (
+                <div
+                  role="alert"
+                  className="px-2 py-1.5 text-xs text-destructive"
+                >
+                  {t("editor.properties.addPropertyFailed")}
+                  {addPropertyError ? ` ${addPropertyError}` : null}
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+      <RelationPropertyConfigurationDialog
+        open={relationConfigurationOpen}
+        ownerDatabaseId={databaseId}
+        onOpenChange={(nextOpen) => {
+          setRelationConfigurationOpen(nextOpen);
+          if (!nextOpen) {
+            requestAnimationFrame(() => triggerRef.current?.focus());
+          }
+        }}
+      />
+    </>
   );
 }
 

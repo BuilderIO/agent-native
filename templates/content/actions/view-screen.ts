@@ -1,10 +1,10 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isActionContractError } from "@agent-native/core/action";
 import {
   readAppState,
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, asc, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -46,6 +46,151 @@ import {
   listPropertiesForDocument,
   serializeDatabase,
 } from "./_property-utils.js";
+import {
+  loadRelationshipDatabase,
+  loadRelationshipTypeBundle,
+  relationshipError,
+  resolveRelationshipDocumentAccess,
+} from "./_relationship-core.js";
+
+const relationshipScreenContextSchema = z
+  .object({
+    pageId: z.string().min(1).optional(),
+    propertyId: z.string().min(1).optional(),
+    typeId: z.string().min(1).optional(),
+    databaseId: z.string().min(1).optional(),
+    selectedPageIds: z.array(z.string().min(1)).max(100).optional(),
+    surface: z.enum([
+      "picker",
+      "connections",
+      "bulk",
+      "history",
+      "configuration",
+    ]),
+  })
+  .strict()
+  .superRefine((context, refinement) => {
+    if (context.typeId && !context.databaseId) {
+      refinement.addIssue({
+        code: "custom",
+        message: "A relationship type requires its database context.",
+        path: ["databaseId"],
+      });
+    }
+    if (context.propertyId && (!context.databaseId || !context.typeId)) {
+      refinement.addIssue({
+        code: "custom",
+        message: "A relation Property requires its database and type context.",
+        path: ["propertyId"],
+      });
+    }
+  });
+
+export async function resolveRelationshipScreenContext(state: unknown) {
+  if (state === null || state === undefined) return null;
+  const parsed = relationshipScreenContextSchema.safeParse(state);
+  if (!parsed.success) {
+    relationshipError(
+      "UNAVAILABLE",
+      "The relationship screen context is unreadable.",
+      { statusCode: 503 },
+    );
+  }
+  const context = parsed.data;
+  const db = getDb();
+  const pageIds = [
+    ...new Set([
+      ...(context.pageId ? [context.pageId] : []),
+      ...(context.selectedPageIds ?? []),
+    ]),
+  ];
+  try {
+    const accessiblePages = await Promise.all(
+      pageIds.map(async (pageId) => ({
+        pageId,
+        access: await resolveRelationshipDocumentAccess(pageId, { db }),
+      })),
+    );
+    const accessibleIds = new Set(
+      accessiblePages
+        .filter(({ access }) => access && !access.resource.trashedAt)
+        .map(({ pageId }) => pageId),
+    );
+    if (context.pageId && !accessibleIds.has(context.pageId)) return null;
+
+    if (context.databaseId) {
+      await loadRelationshipDatabase(context.databaseId, "viewer", db);
+    }
+    if (context.typeId) {
+      const bundle = await loadRelationshipTypeBundle(context.typeId, { db });
+      await Promise.all([
+        loadRelationshipDatabase(bundle.version.sourceDatabaseId, "viewer", db),
+        loadRelationshipDatabase(bundle.version.targetDatabaseId, "viewer", db),
+      ]);
+      if (
+        context.databaseId !== bundle.version.sourceDatabaseId &&
+        context.databaseId !== bundle.version.targetDatabaseId
+      ) {
+        relationshipError(
+          "UNAVAILABLE",
+          "The relationship screen context is unreadable.",
+          { statusCode: 503 },
+        );
+      }
+    }
+    if (context.propertyId) {
+      const [projection] = await db
+        .select({ id: schema.contentRelationshipProjections.id })
+        .from(schema.contentRelationshipProjections)
+        .where(
+          and(
+            eq(
+              schema.contentRelationshipProjections.propertyId,
+              context.propertyId,
+            ),
+            eq(
+              schema.contentRelationshipProjections.relationshipTypeId,
+              context.typeId!,
+            ),
+            eq(
+              schema.contentRelationshipProjections.databaseId,
+              context.databaseId!,
+            ),
+            isNull(schema.contentRelationshipProjections.archivedAt),
+          ),
+        );
+      if (!projection) {
+        relationshipError(
+          "UNAVAILABLE",
+          "The relationship screen context is unreadable.",
+          { statusCode: 503 },
+        );
+      }
+    }
+    return {
+      ...context,
+      selectedPageIds: context.selectedPageIds?.filter((id) =>
+        accessibleIds.has(id),
+      ),
+    };
+  } catch (error) {
+    if (
+      isActionContractError(error) &&
+      (error.errorCode === "NOT_ACCESSIBLE" ||
+        error.errorCode === "TYPE_UNAVAILABLE" ||
+        error.errorCode === "UNSUPPORTED_CONFIGURATION")
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function relationshipScreenContext() {
+  return resolveRelationshipScreenContext(
+    await readAppStateForCurrentTab("content-relationship-context"),
+  );
+}
 
 type ScreenTreeDocument = Pick<
   typeof schema.documents.$inferSelect,
@@ -827,6 +972,8 @@ export default defineAction({
     const selectionState = await readAppStateForCurrentTab("content-selection");
 
     const screen: Record<string, unknown> = {};
+    const relationshipContext = await relationshipScreenContext();
+    if (relationshipContext) screen.relationships = relationshipContext;
     if (navigation) screen.navigation = navigation;
     if (contentSpaceState) screen.contentSpace = contentSpaceState;
 

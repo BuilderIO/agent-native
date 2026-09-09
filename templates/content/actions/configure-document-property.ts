@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
@@ -17,6 +17,7 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
+import { assertNotCanonicalRelationDefinition } from "./_canonical-relation-guard.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
@@ -111,6 +112,14 @@ export default defineAction({
     const now = new Date().toISOString();
     const name = args.name.trim();
     const type = args.type as DocumentPropertyType;
+    if (type === "relation") {
+      throw new ActionContractError(
+        "Configure relations through configure-content-relation-property.",
+        {
+          errorCode: "USE_RELATIONSHIP_MUTATION",
+        },
+      );
+    }
     const propertyId = args.id ?? nanoid();
     const optionsJson = optionsForNewProperty(type, args.options as any);
     const database = await resolvePropertyDatabaseForDocument(
@@ -147,6 +156,7 @@ export default defineAction({
           ),
         );
       if (!existing) throw new Error(`Property "${args.id}" not found`);
+      await assertNotCanonicalRelationDefinition(db, existing);
       await db.transaction(async (tx) => {
         await lockContentDatabaseMutation(
           tx as unknown as ReturnType<typeof getDb>,
@@ -172,6 +182,10 @@ export default defineAction({
           );
         if (!lockedDefinition)
           throw new Error(`Property "${args.id}" not found`);
+        await assertNotCanonicalRelationDefinition(
+          tx as unknown as ReturnType<typeof getDb>,
+          lockedDefinition,
+        );
         if (
           lockedDatabase.naturalKeyPropertyId === args.id &&
           type !== "text"

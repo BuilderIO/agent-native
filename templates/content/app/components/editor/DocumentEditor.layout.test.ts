@@ -887,6 +887,9 @@ describe("document editor layout", () => {
     );
     expect(infoPanel).toContain("<DescriptionField");
     expect(infoPanel).toContain("<DocumentProperties");
+    expect(infoPanel).toContain("popoversPortalled = true");
+    expect(infoPanel).toContain("popoversPortalled={popoversPortalled}");
+    expect(source).toContain("popoversPortalled={!inSheet}");
     expect(infoPanel).toContain(
       "databaseId={databaseId ?? document.databaseMembership.databaseId}",
     );

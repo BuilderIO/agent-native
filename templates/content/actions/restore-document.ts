@@ -11,13 +11,14 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Trashed root document ID"),
   }),
-  run: async ({ id }) => {
+  run: async ({ id }, context) => {
     const access = await assertAccess("document", id, "admin");
     const restored = await getDb().transaction((tx) =>
       restoreDocumentSubtree(
         tx as unknown as ReturnType<typeof getDb>,
         id,
         access.resource.ownerEmail as string,
+        context,
       ),
     );
     if (restored.length === 0) throw new Error("Document is not in Trash");

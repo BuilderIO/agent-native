@@ -13,6 +13,7 @@ import {
   useDocumentProperties,
 } from "@/hooks/use-document-properties";
 
+import { ContentRelationshipHistorySection } from "./ContentRelationships";
 import { DescriptionField } from "./DescriptionField";
 import { DocumentProperties } from "./DocumentProperties";
 
@@ -23,6 +24,7 @@ interface DocumentInfoPanelProps {
   databaseId?: string | null;
   databaseDocumentId?: string | null;
   canEdit: boolean;
+  popoversPortalled?: boolean;
   onSaveDescription: (description: string) => Promise<unknown>;
 }
 
@@ -33,6 +35,7 @@ export function DocumentInfoPanel({
   databaseId,
   databaseDocumentId,
   canEdit,
+  popoversPortalled = true,
   onSaveDescription,
 }: DocumentInfoPanelProps) {
   const t = useT();
@@ -105,6 +108,9 @@ export function DocumentInfoPanel({
           </div>
         )}
       </section>
+      {!isLocalFileDocument ? (
+        <ContentRelationshipHistorySection pageId={document.id} />
+      ) : null}
       {document.databaseMembership && !isLocalFileDocument ? (
         <DocumentProperties
           documentId={document.id}
@@ -113,6 +119,7 @@ export function DocumentInfoPanel({
             databaseDocumentId ?? document.databaseMembership.databaseDocumentId
           }
           canEdit={canEdit}
+          popoversPortalled={popoversPortalled}
         />
       ) : null}
     </div>

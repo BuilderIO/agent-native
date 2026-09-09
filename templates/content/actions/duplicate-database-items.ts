@@ -5,6 +5,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRowsHaveNoCanonicalRelationships } from "./_canonical-relation-guard.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -113,6 +114,10 @@ export default defineAction({
           "Cannot duplicate database rows across Content spaces.",
         );
       }
+      await assertRowsHaveNoCanonicalRelationships(
+        tx as unknown as ReturnType<typeof getDb>,
+        sourceDocumentIds,
+      );
       const [claimedSource] = await tx
         .select({ id: schema.contentDatabaseItemKeyClaims.id })
         .from(schema.contentDatabaseItemKeyClaims)

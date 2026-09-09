@@ -57,7 +57,7 @@ describe("document property type picker", () => {
     expect(filterDocumentPropertyTypes("files")).toEqual(["files_media"]);
     expect(filterDocumentPropertyTypes("calculation")).toEqual([]);
     expect(filterDocumentPropertyTypes("formula")).toEqual([]);
-    expect(filterDocumentPropertyTypes("database")).toEqual([]);
+    expect(filterDocumentPropertyTypes("database")).toEqual(["relation"]);
     expect(filterDocumentPropertyTypes("aggregate")).toEqual([]);
     expect(filterDocumentPropertyTypes("multi select")).toEqual([
       "multi_select",
@@ -69,7 +69,7 @@ describe("document property type picker", () => {
     expect(filterDocumentPropertyTypes("")).toContain("person");
     expect(filterDocumentPropertyTypes("")).toContain("place");
     expect(filterDocumentPropertyTypes("")).toContain("files_media");
-    expect(filterDocumentPropertyTypes("")).not.toContain("relation");
+    expect(filterDocumentPropertyTypes("")).toContain("relation");
     expect(filterDocumentPropertyTypes("")).not.toContain("rollup");
     expect(filterDocumentPropertyTypes("")).not.toContain("formula");
     expect(filterDocumentPropertyTypes("")).toContain("last_edited_time");

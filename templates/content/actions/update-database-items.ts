@@ -13,6 +13,7 @@ import {
   databaseRowBatchSchema,
   resolveDatabaseRowsForBatch,
 } from "./_database-row-batch.js";
+import { assertCanonicalRelationPropertyValueWrite } from "./_relationship-compatibility.js";
 import setDocumentProperty from "./set-document-property.js";
 
 const actionSchema = z.intersection(
@@ -54,6 +55,10 @@ export default defineAction({
     if (isComputedPropertyType(definition.type as DocumentPropertyType)) {
       throw new Error("Computed properties cannot be edited.");
     }
+
+    await assertCanonicalRelationPropertyValueWrite({
+      propertyId: args.propertyId,
+    });
 
     const results: Array<{
       itemId: string;

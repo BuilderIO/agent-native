@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -26,6 +26,7 @@ import {
   nanoid,
   normalizedValueJson,
 } from "./_property-utils.js";
+import { assertCanonicalRelationPropertyValueWrite } from "./_relationship-compatibility.js";
 
 export default defineAction({
   description: "Set a Notion-style property value on a document.",
@@ -88,6 +89,7 @@ export default defineAction({
         ),
       );
     if (!membership) throw new Error("Document is not part of this database.");
+    await assertCanonicalRelationPropertyValueWrite({ propertyId });
     const type = definition.type as DocumentPropertyType;
     if (isComputedPropertyType(type)) {
       throw new Error("Computed properties cannot be edited.");
@@ -274,6 +276,15 @@ export default defineAction({
       }
       if (!lockedMembership) {
         throw new Error("Document is not part of this database.");
+      }
+      if (
+        parsePropertyOptions(lockedDefinition.optionsJson).relation
+          ?.relationshipTypeId
+      ) {
+        throw new ActionContractError(
+          "Use mutate-content-relationships for canonical relationship values.",
+          { errorCode: "USE_RELATIONSHIP_MUTATION" },
+        );
       }
       const lockedType = lockedDefinition.type as DocumentPropertyType;
       if (lockedType !== type) {

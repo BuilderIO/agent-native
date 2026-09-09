@@ -1,3 +1,5 @@
+import { fail } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   accessFilter,
   assertAccess,
@@ -50,6 +52,7 @@ import {
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import { readBlocksFieldIdentities } from "./_blocks-field-identity.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
   nextAppendPosition,
   propertyDefinitionsPositionScope,
@@ -636,6 +639,15 @@ export async function listPropertiesForDatabase(
   );
   const includeContainerDerivedValues =
     options.includeContainerDerivedValues !== false;
+  const relationValues =
+    valueDocument && includeContainerDerivedValues
+      ? await readRelationProjectionValues(
+          databaseId,
+          [valueDocument.id],
+          definitions,
+          values,
+        )
+      : new Map<string, DocumentPropertyValue>();
   const rowNumberByDocumentId =
     valueDocument && includeContainerDerivedValues
       ? await databaseRowNumbersByDocumentId(databaseId)
@@ -699,7 +711,15 @@ export async function listPropertiesForDatabase(
               documentBody: valueDocument.content,
               blockFieldContent: blockContentByPropertyId.get(definition.id),
             })
-          : parsePropertyValue(storedValue?.valueJson);
+          : type === "relation" &&
+              valueDocument &&
+              includeContainerDerivedValues
+            ? requiredRelationProjectionValue(
+                relationValues,
+                valueDocument.id,
+                definition.id,
+              )
+            : parsePropertyValue(storedValue?.valueJson);
     return {
       definition: {
         id: definition.id,
@@ -724,7 +744,9 @@ export async function listPropertiesForDatabase(
       editable:
         includeContainerDerivedValues &&
         !definition.systemRole &&
-        !isComputedPropertyType(type),
+        !isComputedPropertyType(type) &&
+        (!options.relation?.relationshipTypeId ||
+          options.relation.editable === true),
       ...(valueDocument && isBlocksPropertyType(type)
         ? {
             blocksField: blocksFieldIdentityById.get(
@@ -848,6 +870,13 @@ export async function listPropertiesForDatabaseDocuments(
     ]),
   );
 
+  const relationValues = await readRelationProjectionValues(
+    databaseId,
+    documentIds,
+    definitions,
+    values,
+  );
+
   const rowNumberByDocumentId = definitions.some((definition) =>
     isComputedPropertyType(definition.type as DocumentPropertyType),
   )
@@ -930,13 +959,21 @@ export async function listPropertiesForDatabaseDocuments(
                   propertyValueKey(document.id, definition.id),
                 ),
               })
-            : parsePropertyValue(storedValue?.valueJson);
+            : propertyDefinition.type === "relation"
+              ? requiredRelationProjectionValue(
+                  relationValues,
+                  document.id,
+                  definition.id,
+                )
+              : parsePropertyValue(storedValue?.valueJson);
       return {
         definition: propertyDefinition,
         value,
         editable:
           !definition.systemRole &&
-          !isComputedPropertyType(propertyDefinition.type),
+          !isComputedPropertyType(propertyDefinition.type) &&
+          (!propertyDefinition.options.relation?.relationshipTypeId ||
+            propertyDefinition.options.relation.editable === true),
         ...(isBlocksPropertyType(propertyDefinition.type)
           ? {
               blocksField: blocksFieldIdentityById.get(
@@ -978,6 +1015,136 @@ export async function listPropertiesForDatabaseDocuments(
   }
 
   return result;
+}
+
+function requiredRelationProjectionValue(
+  values: Map<string, DocumentPropertyValue>,
+  pageId: string,
+  propertyId: string,
+): DocumentPropertyValue {
+  const key = propertyValueKey(pageId, propertyId);
+  if (!values.has(key))
+    throw new Error("Relationship projection was not loaded.");
+  return values.get(key)!;
+}
+
+export async function readRelationProjectionValues(
+  databaseId: string,
+  pageIds: string[],
+  definitions: Array<{ id: string; type: string; optionsJson: string | null }>,
+  storedValues: Array<{
+    documentId: string;
+    propertyId: string;
+    valueJson: string | null;
+  }>,
+): Promise<Map<string, DocumentPropertyValue>> {
+  const relations = definitions.filter(
+    (definition) => definition.type === "relation",
+  );
+  const result = new Map<string, DocumentPropertyValue>();
+  if (!relations.length || !pageIds.length) return result;
+  const legacy = relations.filter(
+    (definition) =>
+      !parsePropertyOptions(definition.optionsJson).relation
+        ?.relationshipTypeId,
+  );
+  const byKey = new Map(
+    storedValues.map((value) => [
+      propertyValueKey(value.documentId, value.propertyId),
+      value,
+    ]),
+  );
+  const targetIds = new Set<string>();
+  for (const pageId of pageIds) {
+    for (const definition of legacy) {
+      const key = propertyValueKey(pageId, definition.id);
+      const stored = byKey.get(key);
+      const value = parseLegacyRelationValue(stored?.valueJson);
+      result.set(key, value);
+      for (const id of relationValueIds(value)) targetIds.add(id);
+    }
+  }
+  const visibleIds = new Set<string>();
+  const userEmail = getRequestUserEmail();
+  if (!userEmail)
+    throw new Error("Relationship reads require an authenticated actor.");
+  const memberships = targetIds.size
+    ? await listContentOrganizationMemberships(userEmail)
+    : [];
+  const relationAccess = or(
+    accessFilter(
+      schema.documents,
+      schema.documentShares,
+      { userEmail },
+      "viewer",
+      { includePublic: true },
+    ),
+    ...memberships.map(({ orgId }) =>
+      accessFilter(
+        schema.documents,
+        schema.documentShares,
+        { userEmail, orgId },
+        "viewer",
+        { includePublic: true },
+      ),
+    ),
+  );
+  for (const ids of chunks([...targetIds], 200)) {
+    const rows = await getDb()
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          inArray(schema.documents.id, ids),
+          isNull(schema.documents.trashedAt),
+          relationAccess,
+        ),
+      );
+    for (const row of rows) visibleIds.add(row.id);
+  }
+  for (const [key, value] of result) {
+    result.set(
+      key,
+      Array.isArray(value)
+        ? value.filter((id) => typeof id === "string" && visibleIds.has(id))
+        : typeof value === "string"
+          ? visibleIds.has(value)
+            ? value
+            : null
+          : value,
+    );
+  }
+  if (legacy.length !== relations.length) {
+    const { readCanonicalRelationPropertyValues } =
+      await import("./_relationship-compatibility.js");
+    const canonical = await readCanonicalRelationPropertyValues({
+      databaseId,
+      pageIds,
+    });
+    for (const [key, value] of canonical) result.set(key, value);
+  }
+  return result;
+}
+
+export function parseLegacyRelationValue(
+  valueJson: string | null | undefined,
+): string | string[] | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(valueJson ?? "null");
+  } catch {
+    fail("Legacy relationship data is unreadable; preserve it for migration.", {
+      errorCode: "UNSUPPORTED_CONFIGURATION",
+      statusCode: 422,
+    });
+  }
+  if (value === null || typeof value === "string") return value;
+  if (Array.isArray(value) && value.every((id) => typeof id === "string"))
+    return value;
+  fail("Legacy relationship value is unsupported; preserve it for migration.", {
+    errorCode: "UNSUPPORTED_CONFIGURATION",
+    statusCode: 422,
+  });
 }
 
 async function evaluatePropertyRollup(
@@ -1043,6 +1210,12 @@ async function propertyValuesForLinkedDocuments(
   documentIds: string[],
   property: DocumentProperty,
 ) {
+  if (property.definition.options.relation?.relationshipTypeId) {
+    fail("Rollups targeting a canonical Relation Property are not supported.", {
+      errorCode: "UNSUPPORTED_CONFIGURATION",
+      statusCode: 422,
+    });
+  }
   const db = getDb();
   const docs = await db
     .select()

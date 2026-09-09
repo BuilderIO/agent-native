@@ -59,6 +59,7 @@ import {
   chunks,
   processWithConcurrency,
 } from "./_batch-utils.js";
+import { assertNotCanonicalRelationProjection } from "./_canonical-relation-guard.js";
 import {
   LOCAL_FOLDER_SOURCE_TYPE,
   localFolderSourceIdentityFromMetadata,
@@ -6053,6 +6054,12 @@ export async function materializeSourceFieldPropertyValues(args: {
   const definitionById = new Map(
     definitions.map((definition) => [definition.id, definition]),
   );
+  for (const definition of definitions) {
+    assertNotCanonicalRelationProjection(
+      definition,
+      "Source fields cannot materialize canonical relationship projections. Use the relationship actions instead.",
+    );
+  }
   const scopedRows: Array<{
     documentId: string;
     sourceValuesJson: string;

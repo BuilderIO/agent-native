@@ -11,6 +11,7 @@ import {
   serializePropertyOptions,
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
+import { assertNotCanonicalRelationProjection } from "./_canonical-relation-guard.js";
 
 const propertyType = z.enum(["text", "url", "date", "multi_select"]);
 const option = z.object({
@@ -271,6 +272,10 @@ export function validatePlan(
     const definition = oldDefs.get(propertyId);
     if (!definition || definition.systemRole || definition.type === "blocks")
       throw new Error("Legacy property is missing or unsafe to finalize.");
+    assertNotCanonicalRelationProjection(
+      definition,
+      "Canonical relationship projections cannot be finalized as legacy migration properties.",
+    );
     if (
       snapshot.sourceFields.some(
         (field: any) => field.propertyId === propertyId,
@@ -323,6 +328,10 @@ export function validatePlan(
         ].includes(definition.type)
       )
         throw new Error("Unsafe protected property target.");
+      assertNotCanonicalRelationProjection(
+        definition,
+        "Canonical relationship projections cannot be copied as protected migration values.",
+      );
       const persistedValue =
         snapshot.values.find(
           (v: any) =>

@@ -202,6 +202,7 @@ import {
   useUpdateContentDatabaseView,
   writeBuilderAttachPreviewToCache,
 } from "@/hooks/use-content-database";
+import { canonicalRelationOptions } from "@/hooks/use-content-relationships";
 import {
   useContentSpaces,
   useDeleteContentSpace,
@@ -235,6 +236,10 @@ import {
   builderBodyHydrationRetryDelayMs,
   shouldPumpBuilderBodyHydration,
 } from "../builder-body-hydration-pump";
+import {
+  RelationBulkValueEditor,
+  RelationValueSummary,
+} from "../ContentRelationships";
 import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
@@ -15495,13 +15500,16 @@ function DatabaseBulkEditPopover({
           Edit
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[28rem] p-2">
+      <PopoverContent
+        align="start"
+        className="max-h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] max-w-[28rem] overflow-y-auto p-2"
+      >
         <div className="grid gap-2">
           <div className="px-1 text-xs font-medium text-muted-foreground">
             Edit {selectedCount} selected row{selectedCount === 1 ? "" : "s"}
           </div>
-          <div className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)] gap-2">
-            <div className="max-h-64 overflow-auto border-r border-border pr-1">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,11rem)_minmax(0,1fr)]">
+            <div className="max-h-40 overflow-auto border-b border-border pb-1 sm:max-h-64 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-1">
               {properties.map((property) => {
                 const Icon = TYPE_ICONS[property.definition.type];
                 const selected =
@@ -15560,6 +15568,21 @@ function DatabaseBulkPropertyValueEditor({
   onCancel: () => void;
 }) {
   const type = property.definition.type;
+
+  if (type === "relation") {
+    return (
+      <RelationBulkValueEditor
+        key={JSON.stringify([
+          property.definition.id,
+          selectedItems.map((item) => item.document.id).sort(),
+        ])}
+        property={property}
+        selectedItems={selectedItems}
+        disabled={disabled}
+        onDone={onCancel}
+      />
+    );
+  }
 
   if (type === "checkbox") {
     return (
@@ -18115,7 +18138,20 @@ function DatabaseTableRow({
                 "text-transparent",
             )}
           >
-            {databaseTableCellDisplayValue(itemProperty, item, wrapCells)}
+            {itemProperty.definition.type === "relation" ? (
+              <RelationValueSummary
+                property={itemProperty}
+                pageId={item.document.id}
+                navigable
+                fallback={databaseTableCellDisplayValue(
+                  itemProperty,
+                  item,
+                  wrapCells,
+                )}
+              />
+            ) : (
+              databaseTableCellDisplayValue(itemProperty, item, wrapCells)
+            )}
           </div>
         );
         const isEditableCheckbox =
@@ -18147,6 +18183,20 @@ function DatabaseTableRow({
               // Blocks cells are a read-only word count in the table; the body
               // is edited on the page, not inline.
               value
+            ) : canonicalRelationOptions(itemProperty) ? (
+              <div className="flex w-full min-w-0 items-start gap-1">
+                <div className="min-w-0 flex-1">{value}</div>
+                {canEdit && itemProperty.editable ? (
+                  <PropertyValuePopover
+                    property={itemProperty}
+                    documentId={item.document.id}
+                    databaseDocumentId={databaseDocumentId}
+                    triggerClassName="size-6 w-6 shrink-0 justify-center"
+                  >
+                    <IconPencil className="size-3.5 text-muted-foreground" />
+                  </PropertyValuePopover>
+                ) : null}
+              </div>
             ) : canEdit && itemProperty.editable ? (
               <PropertyValuePopover
                 property={itemProperty}

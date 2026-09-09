@@ -1,10 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { ContentDatabaseResponse, DocumentProperty } from "../shared/api";
 import {
   buildSelectionScreenSection,
   databaseCurrentViewSnapshot,
   documentContentPreview,
+  resolveRelationshipScreenContext,
   serializeDocumentTreeItemForScreen,
   SCREEN_DOCUMENT_PREVIEW_CHARS,
 } from "./view-screen";
@@ -65,6 +72,245 @@ describe("buildSelectionScreenSection", () => {
     expect(section?.hint).toContain("edit-document");
     expect(section?.hint).toContain("baseRevision");
     expect(section?.hint).toContain("idempotencyKey");
+  });
+});
+
+describe("view-screen relationship context", () => {
+  const databasePath = join(
+    tmpdir(),
+    `view-screen-relationships-${process.pid}-${Date.now()}.pglite`,
+  );
+  const prefix = `view-screen-relationships-${process.pid}-${Date.now()}`;
+  const owner = `${prefix}-owner@example.test`;
+  const viewer = `${prefix}-viewer@example.test`;
+  const spaceId = `${prefix}-space`;
+  const sourceDatabaseId = `${prefix}-source-database`;
+  const targetDatabaseId = `${prefix}-target-database`;
+  const sourceDatabasePageId = `${prefix}-source-database-page`;
+  const targetDatabasePageId = `${prefix}-target-database-page`;
+  const pageId = `${prefix}-page`;
+  const typeId = `${prefix}-type`;
+  const typeVersionId = `${prefix}-type-version`;
+  const archivedTypeId = `${prefix}-archived-type`;
+  const unsupportedTypeId = `${prefix}-unsupported-type`;
+  const unsupportedTypeVersionId = `${prefix}-unsupported-type-version`;
+  const propertyId = `${prefix}-property`;
+  let dbModule: typeof import("../server/db/index.js");
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = `pglite:${databasePath}`;
+    dbModule = await import("../server/db/index.js");
+    await (await import("../server/plugins/db.js")).default(undefined as never);
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.documents)
+      .values([
+        {
+          id: sourceDatabasePageId,
+          spaceId,
+          ownerEmail: owner,
+          title: "Source database",
+        },
+        {
+          id: targetDatabasePageId,
+          spaceId,
+          ownerEmail: owner,
+          title: "Target database",
+        },
+        {
+          id: pageId,
+          spaceId,
+          ownerEmail: owner,
+          title: "Readable page",
+        },
+      ]);
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.contentDatabases)
+      .values([
+        {
+          id: sourceDatabaseId,
+          documentId: sourceDatabasePageId,
+          spaceId,
+          ownerEmail: owner,
+          title: "Source database",
+          blocksSeeded: 1,
+        },
+        {
+          id: targetDatabaseId,
+          documentId: targetDatabasePageId,
+          spaceId,
+          ownerEmail: owner,
+          title: "Target database",
+          blocksSeeded: 1,
+        },
+      ]);
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.contentRelationshipTypes)
+      .values([
+        {
+          id: typeId,
+          ownerEmail: owner,
+          spaceId,
+          currentVersionId: typeVersionId,
+          createdBy: owner,
+        },
+        {
+          id: archivedTypeId,
+          ownerEmail: owner,
+          spaceId,
+          currentVersionId: `${prefix}-archived-type-version`,
+          state: "archived",
+          archivedAt: "2026-09-09T00:00:00.000Z",
+          createdBy: owner,
+        },
+        {
+          id: unsupportedTypeId,
+          ownerEmail: owner,
+          spaceId,
+          currentVersionId: unsupportedTypeVersionId,
+          createdBy: owner,
+        },
+      ]);
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.contentRelationshipTypeVersions)
+      .values([
+        {
+          id: typeVersionId,
+          ownerEmail: owner,
+          spaceId,
+          relationshipTypeId: typeId,
+          version: 1,
+          forwardLabel: "References",
+          inverseLabel: "Referenced by",
+          forwardCardinality: "many",
+          sourceDatabaseId,
+          targetDatabaseId,
+          createdBy: owner,
+        },
+        {
+          id: unsupportedTypeVersionId,
+          ownerEmail: owner,
+          spaceId,
+          relationshipTypeId: unsupportedTypeId,
+          version: 1,
+          forwardLabel: "Unsupported",
+          inverseLabel: "Unsupported by",
+          forwardCardinality: "many",
+          sourceDatabaseId,
+          targetDatabaseId,
+          selectorKind: "query",
+          createdBy: owner,
+        },
+      ]);
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.contentRelationshipProjections)
+      .values({
+        id: `${prefix}-projection`,
+        ownerEmail: owner,
+        spaceId,
+        propertyId,
+        databaseId: sourceDatabaseId,
+        relationshipTypeId: typeId,
+        direction: "forward",
+        editable: 1,
+        alias: "References",
+        createdBy: owner,
+      });
+  });
+
+  afterAll(() => {
+    delete process.env.DATABASE_URL;
+    rmSync(databasePath, { recursive: true, force: true });
+  });
+
+  it("returns database-only relationship configuration context", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: owner }, () =>
+        resolveRelationshipScreenContext({
+          databaseId: sourceDatabaseId,
+          surface: "configuration",
+        }),
+      ),
+    ).resolves.toEqual({
+      databaseId: sourceDatabaseId,
+      surface: "configuration",
+      selectedPageIds: undefined,
+    });
+  });
+
+  it("makes hidden-active, missing, archived, and unsupported type selectors indistinguishable", async () => {
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.documentShares)
+      .values(
+        [sourceDatabasePageId, targetDatabasePageId, pageId].map(
+          (resourceId, index) => ({
+            id: `${prefix}-share-${index}`,
+            resourceId,
+            principalType: "user",
+            principalId: viewer,
+            role: "viewer",
+            createdBy: owner,
+          }),
+        ),
+      );
+    const state = {
+      pageId,
+      databaseId: sourceDatabaseId,
+      typeId,
+      propertyId,
+      surface: "picker" as const,
+    };
+    await expect(
+      runWithRequestContext({ userEmail: viewer }, () =>
+        resolveRelationshipScreenContext(state),
+      ),
+    ).resolves.toMatchObject(state);
+
+    await dbModule
+      .getDb()
+      .delete(dbModule.schema.documentShares)
+      .where(
+        and(
+          eq(dbModule.schema.documentShares.resourceId, targetDatabasePageId),
+          eq(dbModule.schema.documentShares.principalId, viewer),
+        ),
+      );
+
+    await expect(
+      runWithRequestContext({ userEmail: viewer }, () =>
+        Promise.all(
+          [
+            typeId,
+            `${prefix}-missing-type`,
+            archivedTypeId,
+            unsupportedTypeId,
+          ].map((candidateTypeId) =>
+            resolveRelationshipScreenContext({
+              ...state,
+              typeId: candidateTypeId,
+            }),
+          ),
+        ),
+      ),
+    ).resolves.toEqual([null, null, null, null]);
+  });
+
+  it("reports malformed stored relationship context as unavailable", async () => {
+    await expect(
+      resolveRelationshipScreenContext({
+        databaseId: sourceDatabaseId,
+        surface: "configuration",
+        actorEmail: "forged@example.test",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "UNAVAILABLE",
+      message: "The relationship screen context is unreadable.",
+    });
   });
 });
 

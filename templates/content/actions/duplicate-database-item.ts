@@ -6,6 +6,7 @@ import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRowsHaveNoCanonicalRelationships } from "./_canonical-relation-guard.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -129,6 +130,10 @@ export default defineAction({
         .where(
           eq(schema.documentPropertyValues.documentId, lockedRow.document.id),
         );
+      await assertRowsHaveNoCanonicalRelationships(
+        tx as unknown as ReturnType<typeof getDb>,
+        [lockedRow.document.id],
+      );
       const [claimedSource] = await tx
         .select({ id: schema.contentDatabaseItemKeyClaims.id })
         .from(schema.contentDatabaseItemKeyClaims)

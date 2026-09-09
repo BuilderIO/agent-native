@@ -1,6 +1,7 @@
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
 import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
 
+import { backfillRelationshipRevisionDocuments } from "../actions/_relationship-core.js";
 import {
   runContentMigrations,
   runContentSourceMigrations,
@@ -18,6 +19,12 @@ async function main(): Promise<void> {
     await runFrameworkReleaseMigrations(null);
     await runContentMigrations(null);
     await runContentSourceMigrations(null);
+    while (
+      (await backfillRelationshipRevisionDocuments(undefined, 100)).processed >
+      0
+    ) {
+      // Each call is bounded; the release owns traversal until no gaps remain.
+    }
   });
 }
 

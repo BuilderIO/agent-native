@@ -6,7 +6,7 @@ name: "Typed Relationships"
 user_promise: "One typed edge substrate powers relation Properties, inline typed Page references, backlinks, Info, graph queries, and Graph editing"
 primary_user_job: "Connect two Pages once, give that connection a useful meaning, and manage it consistently from any Content surface."
 kind: "primitive"
-state: "approved_shape"
+state: "in_progress"
 publicness: "public"
 availability: "universal"
 dependencies:
@@ -35,7 +35,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-09"
 ---
 
 # Typed Relationships
@@ -48,7 +48,7 @@ Content instead stores one canonical typed Relationship between stable Page iden
 
 ## Example workflow
 
-A team has a Tasks Database and a Projects Database. Adding a `Project` Relation Property to Tasks creates a local Relationship type and its first visible projection. A task editor connects a task to a project from the cell. The project immediately shows the inverse connection in **Info → Connections**, and an optional inverse Relation Property can expose the same edge as an editable `Tasks` column.
+A team has a Tasks Database and a Projects Database. Adding a `Project` Relation Property to Tasks creates a local Relationship type and its first visible projection. A task editor connects a task to a project from the clickable field. If the editor also creates the optional reverse Relation Property, the project shows the same edge as a `Tasks` field; without that reverse column, the current slice does not display the relationship on the project side.
 
 Later, the team selects several tasks and assigns the same project in one bulk edit. Removing the `Project` column does not erase those relationships. If the team truly wants to remove both the column and its knowledge, the removal dialog offers **Remove Property and its N relationships**, reports the exact authorized impact, commits one Revision, and supports Undo.
 
@@ -66,7 +66,9 @@ Later, the team selects several tasks and assigns the same project in one bulk e
 ### Where people manage relationships
 
 - Adding an ordinary Relation column creates a local Relationship type and its first Property projection. It feels like adding any other column; no catalog ceremony is required.
-- **Info → Connections** is the universal relationship surface. It shows every accessible incoming and outgoing connection, including types not exposed as columns.
+- In the current approved slice, clickable Relation fields in tables and Page Info are the relationship UI. An optional reverse column exposes the same edge on the target side. There is no separate **Connections** or **Other connections** list, and removing the last applicable column leaves preserved edges out of the ordinary Page UI.
+- Authorized Actions can still inspect preserved edges when no column displays them. History remains independently available so an authorized person can recover a removed projection. Absence of a column is a presentation choice, not proof that an edge is absent or inaccessible.
+- A universal **Info → Connections** neighborhood remains a possible broader-roadmap projection alongside inline references, Graph, and Canvas. It is not part of the current slice and must not be presented as current behavior.
 - A Relation picker may use a Database or Query to narrow candidates, but the stored endpoint is the selected Page's stable ID. The edge remains if that Page later leaves the picker Query.
 - Ordinary Page mentions and transclusions create system-managed structural edges with their own mutation rules. An advanced inline action may create a semantic typed reference. Removing one anchored mention does not delete an independently asserted semantic Relationship.
 - In freeform Canvas mode, a drawn connector is view-local brainstorming state until someone explicitly promotes it to a Relationship type. In semantic Graph mode, the active edge tool requires a Relationship type before drawing commits an edge.
@@ -74,7 +76,7 @@ Later, the team selects several tasks and assigns the same project in one bulk e
 
 ### Local and governed definitions
 
-- A local Relationship type belongs to the Content space where it was created and remains resolvable in Connections after its last visible Property is removed.
+- A local Relationship type belongs to the Content space where it was created and remains resolvable through authorized Actions after its last visible Property is removed. A broader-roadmap Connections projection may expose it later.
 - **Save as Custom Property** promotes the definition into the governed Custom Properties catalog at an allowed Personal, Workspace, or Organization scope.
 - Another Database may adopt the governed Property, creating another projection of the same Relationship type rather than copying its semantic identity.
 - Each projection may choose a local display alias, formatting, renderer, and visibility without changing the shared definition.
@@ -92,14 +94,14 @@ Later, the team selects several tasks and assigns the same project in one bulk e
 - A directional type permits at most one live edge for the same type, source, and target. Adding it again is idempotent. Symmetric types treat `(A, B)` and `(B, A)` as the same pair.
 - Different Relationship types remain independent, and reversed directional edges may coexist. Cycle rules are explicit validation on types or workflows, not deduplication and not a universal ban.
 - Self-relationships are disabled by default and can be enabled as an advanced Relationship-type option.
-- Repeated anchored citations or mentions retain their own occurrences and history while Connections may summarize them as one Page-to-Page relationship.
+- Repeated anchored citations or mentions retain their own occurrences and history. A future neighborhood projection may summarize them as one Page-to-Page relationship without becoming another source of truth.
 - A connection that needs several independent instances with dates, roles, or state becomes an intermediate Page with Properties rather than several indistinguishable parallel edges.
 
 ## Permissions and authority
 
 - Editing a forward Relation Property requires **Can edit entries** in the Database owning that projection, access to the target Page, permission to use the Relationship type, and satisfaction of its constraints.
-- An explicitly editable inverse Relation Property grants the matching inverse-side editing route. An inverse shown only in Connections remains read-only from that side.
-- On an ordinary Page, **Can edit** permits outgoing directional Relationship changes through Connections. Incoming directional edges remain read-only unless the actor also has an authorized source-side or editable-inverse route.
+- An explicitly editable inverse Relation Property grants the matching inverse-side editing route. Merely reading an incoming edge through an Action grants no mutation authority.
+- On an ordinary Page, **Can edit** permits outgoing directional Relationship changes through the authorized Action route. Incoming directional edges remain read-only unless the actor also has an authorized source-side or editable-inverse route. Any future neighborhood UI must preserve the same decision.
 - A symmetric Relationship may be changed through an authorized edit route on either endpoint.
 - Seeing an endpoint or an incoming edge never grants authority to sever it. Owning a Relationship type does not grant access to every private edge that uses it.
 - Same-Organization cross-Workspace edges may be allowed by policy. Cross-Organization canonical edges are prohibited by default until federation can preserve both organizations' access, deletion, and governance guarantees.
@@ -109,6 +111,7 @@ Later, the team selects several tasks and assigns the same project in one bulk e
 ## Bulk operations, deletion, and concurrency
 
 - Multi-cell selection, row bulk edit, paste/fill, and filtered selection may add Relationships. Delete/Backspace, **Clear relationships**, target removal, and filtered bulk editing remove the exact selected edges.
+- The current bulk editor uses one clickable list with three states: checked means linked from every selected row, mixed means linked from some, and unchecked means linked from none. Apply submits the net toggles as one atomic mutation, preserves untouched assignments, and makes no change for a toggle returned to its original state. An unreadable or incomplete observation never appears as unchecked.
 - Bulk mutation preflights the complete selection. Ambiguous input or mixed permissions never produces a silent partial commit. Content identifies conflicts or locked items and lets the person narrow explicitly; an agent may narrow only when that remains faithful to the request and must report skipped scope.
 - A filtered bulk removal resolves exact edge IDs and activation states when the selection is made. New concurrent matches are not swept in later.
 - Removing a Relation Property preserves its Relationships by default. The destructive dialog offers **Remove Property** or **Remove Property and its N relationships**, with an access-scoped impact count, one attributable Revision, and Undo. **Manage relationships** opens a filterable collection before removal.
@@ -140,11 +143,11 @@ Later, the team selects several tasks and assigns the same project in one bulk e
 
 ### Create once and edit from either direction
 
-Given two authorized Pages and a directional Relationship type with forward and inverse projections, when an editor creates the edge from the forward Relation Property and later removes it through the editable inverse projection, then Info, both Properties, Queries, Graph, and the shared Action surface show one canonical edge and one coherent history.
+Given two authorized Pages and a directional Relationship type with forward and editable inverse projections, when an editor creates the edge from the forward Relation Property and later removes it through the inverse projection, then both clickable fields and the shared Action surface show one canonical edge and History records one coherent lineage. Queries, Graph, inline references, Canvas, and a possible Connections neighborhood remain broader-roadmap projections that must consume that same identity when implemented.
 
 ### Preserve knowledge when a column disappears
 
-Given a Relation Property containing several Relationships, when a Database editor removes only the Property, then the Relationships remain visible in authorized Connections and Queries. When the editor instead chooses **Remove Property and its N relationships**, the exact authorized edges are removed in one reversible Revision and newer concurrent edges are preserved.
+Given a Relation Property containing several Relationships, when a Database editor removes only the Property, then the Relationships remain available through authorized Actions but no fallback list appears in the ordinary Page UI. Independently available History can restore the same projection. When the editor instead chooses **Remove Property and its N relationships**, the exact authorized edges are removed in one reversible Revision and newer concurrent edges are preserved.
 
 ### Enforce directional cardinality atomically
 
@@ -152,23 +155,27 @@ Given a one-parent Relationship and a bulk paste containing several proposed par
 
 ### Keep authority attached to the route
 
-Given a person who may view both endpoints but may edit only the target Page, when they inspect an incoming directional edge in Connections, then they can see it but cannot remove it unless an editable inverse Property or other authorized route exists. Graph, Canvas, agents, and Rules return the same decision.
+Given a person who may view both endpoints but may edit only the target Page, when they inspect an incoming directional edge through an authorized Action or read-only projection, then they cannot remove it unless an editable inverse Property or other authorized route exists. Future Graph, Canvas, Connections, agents, and Rules return the same decision.
 
 ### Converge without inventing history
 
-Given one client removes the edge it observed while another concurrently re-adds it, when both commits settle, then the unseen addition remains live, no duplicate appears, and Versions shows the actual removal and re-add. A subsequent informed removal makes the edge inactive.
+Given one client removes the edge it observed while another concurrently re-adds it, when both commits settle, then the unseen addition remains live, no duplicate appears, and History shows the actual removal and re-add. A subsequent informed removal makes the edge inactive.
 
 ### Protect private neighborhoods
 
-Given an authorized Page related to an endpoint the viewer cannot access, when the viewer opens Connections, runs a Query, inspects Graph, calculates counts or rollups, or exports the Page, then the private endpoint and its existence do not leak. A known direct reference returns an honest access denial.
+Given an authorized Page related to an endpoint the viewer cannot access, when the viewer uses an authorized relationship Action or a future Connections, Query, Graph, count, rollup, or export projection, then the private endpoint and its existence do not leak. A known direct reference returns an honest access denial.
 
 ## Current evidence
 
-Current code can model and display some relation values, which is useful donor substrate. Relation is not yet a generally user-creatable Property, and the current Notion path treats relations as unsupported. No evidence currently proves the shared type identity, universal Connections editor, bulk/deletion semantics, cardinality, access closure, source policy, or causal concurrency contract. This Capability therefore remains `approved_shape`.
+The first implementation slice adds local directional types within one Content space, forward one/many and inverse many cardinality, Database admission constraints, canonical clickable Relation Property projections with an optional reverse column, bounded atomic Actions, a three-state bulk editor whose Apply commits net toggles atomically, and independently available relationship History and recovery. It deliberately has no separate Connections or Other connections UI. It is work in progress, not verification of this entire Capability.
+
+Focused local integration tests cover canonical projection hydration, access-filtered export, legacy write rejection, and Page lifecycle behavior. `actions/relationship-concurrency.postgres.test.ts` exercises separate PostgreSQL connections for duplicate additions, observed removals, operation replay/conflict, and max-one replacement. Technical tests do not establish real-interface acceptance or deployed availability.
+
+The narrower slice still requires completed access/recovery review and real UI/internal-agent/external-MCP workflow evidence before acceptance. Governed definitions, symmetric/self-enabled types, Query-backed candidate selection, inline semantic references, Graph/Canvas, and source/import/Rule adapters remain outside this slice and retain the proof requirements below. Existing source relation payloads are not automatically migrated into canonical edges.
 
 ## Proof plan
 
-Proof requires deterministic Action and persistence tests plus real-interface workflows:
+Verification of the entire broader-roadmap Capability requires deterministic Action and persistence tests plus real-interface workflows. The current slice proves only the projections and routes it exposes:
 
 1. Create local, governed, symmetric, directional, self-enabled, and source-backed Relationship types; rename and version them without changing stable identity.
 2. Create, edit, and remove the same edge through forward and inverse Properties, Connections, inline typed references, Graph, Canvas promotion, agents, Rules, and imports; verify identical permission and Event behavior.
@@ -180,4 +187,4 @@ Proof requires deterministic Action and persistence tests plus real-interface wo
 
 ## Open questions
 
-The core product behavior above is settled. Implementation may still choose storage layout, index strategy, causal metadata representation, and exact control placement provided those choices satisfy this contract. Federation must be separately designed before enabling canonical cross-Organization Relationships.
+The core product behavior above is settled. The current slice uses clickable fields, an optional reverse column, no standalone Connections fallback, the three-state bulk list, and independent History. Implementation may still choose storage layout, index strategy, and causal metadata representation provided those choices satisfy this contract. Broader-roadmap projection controls and federation require separate design before they are enabled.

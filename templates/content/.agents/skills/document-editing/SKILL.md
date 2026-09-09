@@ -101,6 +101,15 @@ pnpm action restore-document --id abc123
 pnpm action permanently-delete-document --id abc123
 ```
 
+## Relationships between Pages
+
+For assignments to People Pages and other typed Page connections, follow
+[Typed Relationships](references/typed-relationships.md). Relation columns and
+their optional reverse columns project canonical edges as clickable fields; use
+the relationship Actions for changes, including bulk work and recovery. The
+current slice has no separate Connections or Other connections list, and
+History remains available independently after the last projection is removed.
+
 ## Comments
 
 Comments are Notion/Google-Docs-style **inline comments**. Selecting text and commenting leaves the passage **highlighted inline** via a ProseMirror decoration overlay — nothing is written into the markdown body, so the document round-trips unchanged. Each thread stores the quoted text plus surrounding context (`anchorPrefix`/`anchorSuffix`) and an approximate `anchorStartOffset`, so the highlight follows the text as the document is edited, disambiguates repeated text, and degrades gracefully (the thread stays in the sidebar) when its text is deleted.

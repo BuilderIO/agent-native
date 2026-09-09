@@ -1,4 +1,6 @@
-import { defineAction } from "@agent-native/core/action";
+import { randomUUID } from "node:crypto";
+
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
@@ -14,6 +16,7 @@ import {
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
+import { applyRelationshipDocumentLifecycleInsideTransaction } from "./_relationship-lifecycle.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -340,6 +343,7 @@ export async function trashDocumentSubtree(
   ownerEmail: string,
   trashedAt = new Date().toISOString(),
   lockedDatabaseIds?: ReadonlySet<string>,
+  context?: ActionRunContext,
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, id, ownerEmail);
@@ -429,6 +433,13 @@ export async function trashDocumentSubtree(
     await touchContentDatabase(db, databaseId, trashedAt);
   }
 
+  await applyRelationshipDocumentLifecycleInsideTransaction(db, {
+    documentIds: activeDocumentIds,
+    operation: "trash",
+    operationId: randomUUID(),
+    context,
+  });
+
   for (const batch of chunks(activeDocumentIds, DELETE_BATCH_SIZE)) {
     await db
       .update(schema.documents)
@@ -459,6 +470,7 @@ export async function restoreDocumentSubtree(
   db: ReturnType<typeof getDb>,
   rootId: string,
   ownerEmail: string,
+  context?: ActionRunContext,
 ): Promise<string[]> {
   const collectRestoreScope = async () => {
     const documentIds = (
@@ -510,6 +522,12 @@ export async function restoreDocumentSubtree(
   const documentIds = restoreScope.documentIds;
   if (documentIds.length === 0) return [];
   const now = new Date().toISOString();
+  await applyRelationshipDocumentLifecycleInsideTransaction(db, {
+    documentIds,
+    operation: "restore",
+    operationId: randomUUID(),
+    context,
+  });
   for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
     await db
       .update(schema.documents)
@@ -572,12 +590,14 @@ export async function deleteDocumentRecursive(
   db: ReturnType<typeof getDb>,
   id: string,
   ownerEmail: string,
+  context?: ActionRunContext,
 ): Promise<string[]> {
   return db.transaction((tx) =>
     deleteDocumentRootsRecursive(
       tx as unknown as ReturnType<typeof getDb>,
       [id],
       ownerEmail,
+      context,
     ),
   );
 }
@@ -586,6 +606,7 @@ export async function deleteDocumentRootsRecursive(
   db: ReturnType<typeof getDb>,
   rootIds: string[],
   ownerEmail: string,
+  context?: ActionRunContext,
 ): Promise<string[]> {
   const collectScope = async () => {
     const documentIds = new Set<string>();
@@ -615,6 +636,7 @@ export async function deleteDocumentRootsRecursive(
     documentIds,
     ownedDatabaseIds,
     ownerEmail,
+    context,
   );
 }
 
@@ -623,8 +645,15 @@ async function deleteCollectedDocuments(
   documentIds: string[],
   ownedDatabaseIds: string[],
   ownerEmail: string,
+  context?: ActionRunContext,
 ): Promise<string[]> {
   await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
+  await applyRelationshipDocumentLifecycleInsideTransaction(db, {
+    documentIds,
+    operation: "permanent-delete",
+    operationId: randomUUID(),
+    context,
+  });
 
   const propertyDefinitionIds: string[] = [];
   await deleteWhereIn(ownedDatabaseIds, async (databaseIdBatch) => {
@@ -845,6 +874,7 @@ export async function deleteTrashedDocumentSubtree(
   db: ReturnType<typeof getDb>,
   id: string,
   ownerEmail: string,
+  context?: ActionRunContext,
 ): Promise<string[]> {
   const collectScope = async () => {
     const [root] = await db
@@ -924,6 +954,7 @@ export async function deleteTrashedDocumentSubtree(
     documentIds,
     ownedDatabaseIds,
     ownerEmail,
+    context,
   );
 }
 
@@ -937,7 +968,7 @@ export default defineAction({
       .optional()
       .describe("Database page the deletion was initiated from"),
   }),
-  run: async (args) => {
+  run: async (args, context) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
@@ -1006,6 +1037,7 @@ export default defineAction({
         existing.ownerEmail as string,
         undefined,
         lockedDatabaseIds,
+        context,
       );
     });
 
