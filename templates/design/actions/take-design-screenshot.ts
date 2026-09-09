@@ -604,6 +604,10 @@ export default defineAction({
             await route.abort("blockedbyclient");
           }
         });
+        // A static PNG never needs a live socket. Leaving a routed WebSocket
+        // unconnected blocks the separate WebSocket transport that
+        // BrowserContext.route("**/*") does not see.
+        await context.routeWebSocket("**/*", () => {});
         const page = await context.newPage();
         const consoleErrors: string[] = [];
         const fontLoadFailures: string[] = [];

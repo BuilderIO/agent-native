@@ -9,6 +9,10 @@ vi.mock("./take-design-screenshot.js", () => ({
 import action from "./export-png.js";
 
 describe("export-png", () => {
+  it("is marked as a mutation because it uploads the rendered image", () => {
+    expect(action.readOnly).toBe(false);
+  });
+
   it("requires a design or file target", () => {
     expect(action.schema.safeParse({}).success).toBe(false);
     expect(action.schema.safeParse({ designId: "design_1" }).success).toBe(

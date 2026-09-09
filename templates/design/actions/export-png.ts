@@ -58,7 +58,7 @@ export default defineAction({
       message: "Provide designId or fileId to select a screen.",
       path: ["designId"],
     }),
-  readOnly: true,
+  readOnly: false,
   http: { method: "POST" },
   run: async ({ designId, fileId, filename, width, height }, ctx) => {
     const result = await takeDesignScreenshot.run(
