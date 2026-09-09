@@ -8,7 +8,7 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import { ShareTrigger } from "@agent-native/toolkit/sharing";
-import type { DocumentSourceInfo } from "@shared/api";
+import type { Document, DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
@@ -84,6 +84,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCreativeContextExperiment } from "@/hooks/use-creative-context-experiment";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
@@ -107,7 +108,10 @@ import {
   DatabaseExportDialog,
   type DatabaseExportContext,
 } from "./database/DatabaseExportDialog";
-import { VersionHistoryPanel } from "./VersionHistoryPanel";
+import {
+  VersionHistoryPanel,
+  type HistoryRestoreApplyResult,
+} from "./VersionHistoryPanel";
 
 type ExportFormat = "pdf" | "markdown" | "html";
 
@@ -502,6 +506,12 @@ interface DocumentToolbarProps {
   documentContent?: string;
   breadcrumbItems?: ToolbarBreadcrumbItem[];
   documentUpdatedAt?: string | null;
+  prepareHistoryRestore?: () => Promise<string>;
+  historyRestoreReady?: boolean;
+  onHistoryRestored?: (
+    restored: Document,
+  ) => HistoryRestoreApplyResult | Promise<HistoryRestoreApplyResult>;
+  restoreUnavailableReason?: string;
   activeUsers?: CollabUser[];
   agentPresent?: boolean;
   agentActive?: boolean;
@@ -533,6 +543,10 @@ export function DocumentToolbar({
   documentContent,
   breadcrumbItems = [],
   documentUpdatedAt,
+  prepareHistoryRestore,
+  historyRestoreReady = true,
+  onHistoryRestored,
+  restoreUnavailableReason,
   activeUsers,
   agentPresent,
   agentActive,
@@ -560,6 +574,7 @@ export function DocumentToolbar({
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  const creativeContextEnabled = useCreativeContextExperiment();
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const openShareOnLoad =
@@ -994,29 +1009,33 @@ export function DocumentToolbar({
                   onCheckedChange: handleHideFromSearchChange,
                 }}
                 variant="compact"
-                shareTabs={{
-                  tabs: [
-                    {
-                      value: "context",
-                      label: t("creativeContext.share.tabLabel"),
-                      content: (
-                        <CreativeContextShareTab
-                          resource={{
-                            appId: "content",
-                            resourceType: "document",
-                            resourceId: documentId,
-                            title: documentTitle || "Untitled",
-                            updatedAt: documentUpdatedAt ?? undefined,
-                            preview: {
-                              kind: "document",
-                              label: t("root.commandDocumentsHeading"),
-                            },
-                          }}
-                        />
-                      ),
-                    },
-                  ],
-                }}
+                shareTabs={
+                  creativeContextEnabled
+                    ? {
+                        tabs: [
+                          {
+                            value: "context",
+                            label: t("creativeContext.share.tabLabel"),
+                            content: (
+                              <CreativeContextShareTab
+                                resource={{
+                                  appId: "content",
+                                  resourceType: "document",
+                                  resourceId: documentId,
+                                  title: documentTitle || "Untitled",
+                                  updatedAt: documentUpdatedAt ?? undefined,
+                                  preview: {
+                                    kind: "document",
+                                    label: t("root.commandDocumentsHeading"),
+                                  },
+                                }}
+                              />
+                            ),
+                          },
+                        ],
+                      }
+                    : undefined
+                }
               />
 
               <VersionHistoryPanel
@@ -1024,7 +1043,11 @@ export function DocumentToolbar({
                 open={historyOpen}
                 onOpenChange={setHistoryOpen}
                 canRestore={canEdit}
+                restoreReady={historyRestoreReady}
                 activeUsers={activeUsers}
+                prepareRestore={prepareHistoryRestore}
+                onRestored={onHistoryRestored}
+                restoreUnavailableReason={restoreUnavailableReason}
               />
             </>
           )}

@@ -34,7 +34,7 @@ import { getMethod, getHeader } from "h3";
 
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
-import { MCP_SETTINGS_MESSAGES } from "../localization/mcp-settings-messages.js";
+import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import {
   localeDirection,
@@ -493,7 +493,7 @@ function renderConnectPage(params: {
     requestedGuide,
   } = params;
   const direction = localeDirection(locale);
-  const messages = MCP_SETTINGS_MESSAGES[locale];
+  const messages = mcpSettingsMessagesForLocale(locale);
   const connectMessages = messages.mcpConnect;
   const guides = getMcpConnectGuides(locale);
   const staticTokenFallback = getMcpStaticTokenFallback(locale);

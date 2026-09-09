@@ -977,7 +977,6 @@ const ptBR = {
       s058: "Gratuito e de código aberto",
       s059: "Comece agora",
       s060: "Escolha o que capturar e comece a gravar no Clips.",
-      s061: "Ver mais aplicativos",
       s062: "Ver todos os modelos",
       faq: {
         question1: "O Clips é gratuito?",

@@ -16,6 +16,7 @@ import {
   getScopedEmailProviderCategory,
   recordEmailSend,
 } from "../email-catalog/log.js";
+import { redactSensitiveEmailBodyContent } from "../email-catalog/redact-body.js";
 import {
   readDeployCredentialEnv,
   resolveSecret,
@@ -333,12 +334,15 @@ class EmailProviderError extends Error {
 
 /**
  * Serialize a provider payload for the audit log, stripping attachment bytes
- * and message bodies. Attachment `content` is base64 file data with no
- * diagnostic value for "who did this go to". The HTML/text body is omitted
- * too: transactional emails routinely embed a one-time magic-link, password-
- * reset, or verification URL, which is bearer-token-equivalent — logging it
- * verbatim would let anyone with `email_log` read access sign in as the
- * recipient. `subject` and `templateId` already identify what was sent.
+ * and the duplicated HTML/text body. Attachment `content` is base64 file data
+ * with no diagnostic value for "who did this go to". The body itself is
+ * logged separately via `htmlBody`/`textBody` on `recordEmailSend` (below)
+ * rather than inline here, so it is stored once instead of once per provider
+ * shape. Before it is stored, `redactSensitiveEmailBodyContent` scrubs magic
+ * links, reset links, and OTP/verification codes, since `email_log` is
+ * readable by every org admin via `authorizeTransactionalEmailRead` and a
+ * live credential in the body would let any of them impersonate or reset the
+ * recipient.
  */
 const MAX_LOGGED_TEXT_LENGTH = 8_000;
 
@@ -577,6 +581,10 @@ async function sendEmailWithSignal(
     orgId: args.orgId ?? getRequestOrgId(),
     recipient: args.to,
     subject: args.subject,
+    htmlBody: truncateForLog(redactSensitiveEmailBodyContent(args.html)),
+    textBody: args.text
+      ? truncateForLog(redactSensitiveEmailBodyContent(args.text))
+      : undefined,
   };
   let outcome: DeliveryOutcome | undefined;
   try {

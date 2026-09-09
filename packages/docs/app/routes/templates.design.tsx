@@ -280,7 +280,7 @@ export default function DesignTemplate() {
             },
             {
               id: "design",
-              agentNative: { color: "var(--fg)", name: template.name },
+              agentNative: { name: template.name },
               emphasized: true,
             },
           ]}
@@ -348,7 +348,7 @@ export default function DesignTemplate() {
       <TemplateLandingFaq
         idPrefix="design-faq"
         eyebrow={
-          <span className="text-[var(--fg)]">
+          <span className="text-[var(--fg-secondary)]">
             {t("templateLanding.faq.eyebrow")}
           </span>
         }

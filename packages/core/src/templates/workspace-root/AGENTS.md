@@ -54,6 +54,7 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
 
 ## Lightweight defaults
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 New apps use English as the source locale and do not generate changelog
 entries. To opt into additional translations or changelog generation, edit
 `agent-native.config.ts` at the workspace root:

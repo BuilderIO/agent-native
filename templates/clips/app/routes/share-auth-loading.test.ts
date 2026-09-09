@@ -53,6 +53,14 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
 
+  it("keeps expired share loader data impersonal for CDN caching", () => {
+    const route = readRoute("share.$shareId.tsx");
+
+    expect(route).toContain("isRecordingExpired(rec.expiresAt)");
+    expect(route).not.toContain("isRecordingExpiredForViewer");
+    expect(route).not.toContain("sameOwnerEmail");
+  });
+
   it("waits for the browser session before the meeting share payload request", () => {
     const route = readRoute("share.meeting.$meetingId.tsx");
     expect(route).toContain('fetchPublicMeeting(meetingId ?? "", {');

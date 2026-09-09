@@ -17,6 +17,7 @@ the matching skill only when this app actually uses that workflow. The
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Follow the root framework contract: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
 - Store large file/blob payloads in configured file/blob storage, not SQL: no

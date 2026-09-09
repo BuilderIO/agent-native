@@ -126,6 +126,23 @@ describe("responsive Interact wiring", () => {
     );
   });
 
+  it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
+    expect(source).toContain(
+      "const minimalUiByDefault = embedded && !hostOwnsChrome;",
+    );
+    expect(source).toContain(
+      '<IconLayoutSidebar className="size-4 -scale-x-100" />',
+    );
+    expect(source).toContain('data-design-minimal-bar="interact"');
+    expect(source).toContain(
+      "grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)]",
+    );
+    expect(source).toContain(
+      'className="pointer-events-none flex min-w-0 justify-center"',
+    );
+    expect(source).toContain("isMobileViewport && minimalRightSidebarOpen");
+  });
+
   it("pushes editing safety live in addition to baking it", () => {
     // Editing safety stays BAKED into the gesture script (keyed on
     // interactMode). Un-baking it to keep the bridge key stable across

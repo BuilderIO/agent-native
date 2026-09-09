@@ -981,7 +981,6 @@ const esES = {
       s058: "Gratis y de código abierto",
       s059: "Empieza ahora",
       s060: "Elige qué quieres capturar y, después, empieza a grabar en Clips.",
-      s061: "Ver más aplicaciones",
       s062: "Ver todas las plantillas",
       faq: {
         question1: "¿Clips es gratis?",

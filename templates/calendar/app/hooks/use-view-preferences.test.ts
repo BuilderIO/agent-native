@@ -67,4 +67,18 @@ describe("source preference sequencing", () => {
     await Promise.all([color, mode]);
     expect(order).toEqual(["color-start", "color-end", "mode"]);
   });
+
+  it("preserves reverse-order rapid clicks for one calendar", async () => {
+    const chains: Record<string, Promise<unknown>> = {};
+    const order: string[] = [];
+    const mode = enqueueSourcePreferenceMutation(chains, "friends", async () =>
+      order.push("mode"),
+    );
+    const color = enqueueSourcePreferenceMutation(chains, "friends", async () =>
+      order.push("color"),
+    );
+
+    await Promise.all([mode, color]);
+    expect(order).toEqual(["mode", "color"]);
+  });
 });

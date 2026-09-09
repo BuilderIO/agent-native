@@ -16,11 +16,13 @@ import {
 
 export default defineAction({
   description:
-    "Set the current user's interface language and scheduling timezone. Locale is 'system' or a supported BCP-47 locale; timezone is 'system' or an IANA zone such as America/New_York.",
+    "Set the current user's interface language and scheduling timezone. Locale is 'system' or a valid BCP-47 locale registered by the app; timezone is 'system' or an IANA zone such as America/New_York.",
   schema: z.object({
     locale: z
       .string()
-      .describe("Language preference: 'system' or a supported BCP-47 locale.")
+      .describe(
+        "Language preference: 'system' or a valid BCP-47 locale registered by the app.",
+      )
       .optional(),
     timezone: z
       .string()
@@ -41,7 +43,7 @@ export default defineAction({
       const parsed = normalizeLocalePreference(args.locale);
       if (!parsed) {
         throw new Error(
-          `Unsupported locale. Use system, ${SUPPORTED_LOCALES.join(", ")}.`,
+          `Unsupported locale. Use system or a valid BCP-47 locale such as ${SUPPORTED_LOCALES[0]}.`,
         );
       }
       locale = parsed;

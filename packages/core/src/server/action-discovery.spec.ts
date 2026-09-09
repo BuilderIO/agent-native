@@ -571,6 +571,7 @@ describe("action discovery", () => {
         "list-transactional-emails",
         "render-transactional-email-preview",
         "list-email-log",
+        "get-email-log-body",
         "list-email-activity",
         "list-email-engagement",
       ],
