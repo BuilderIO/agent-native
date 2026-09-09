@@ -162,11 +162,13 @@ export function stateFromLocation(
     };
   }
 
-  // /dictate (optionally /dictate/:dictationId in the future)
+  // /dictate?dictationId=:dictationId (optionally /dictate/:dictationId in the future)
   const dictateMatch = p.match(/^\/dictate(?:\/([^/]+))?$/);
   if (dictateMatch) {
-    const dictationId = decodePathSegment(dictateMatch[1]);
-    if (dictateMatch[1] && !dictationId) return { view: "library" };
+    const pathDictationId = decodePathSegment(dictateMatch[1]);
+    if (dictateMatch[1] && !pathDictationId) return { view: "library" };
+    const queryDictationId = params.get("dictationId")?.trim() || undefined;
+    const dictationId = pathDictationId ?? queryDictationId;
     return {
       view: "dictate",
       ...(dictationId ? { dictationId } : {}),
@@ -263,7 +265,9 @@ export function pathFromCommand(cmd: NavigateCommand): string {
         ? `/meetings/${encodeURIComponent(cmd.meetingId)}`
         : "/meetings";
     case "dictate":
-      return "/dictate";
+      return cmd.dictationId
+        ? `/dictate?dictationId=${encodeURIComponent(cmd.dictationId)}`
+        : "/dictate";
     case "library":
     default:
       if (cmd.folderId) {

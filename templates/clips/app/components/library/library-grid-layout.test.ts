@@ -58,6 +58,9 @@ describe("selected library actions layout", () => {
     expect(gridSource).toContain('aria-labelledby="library-folders-heading"');
     expect(gridSource).toContain('t("navigation.recordings")');
     expect(gridSource).toContain("LibraryCanvasContextMenu");
+    expect(gridSource).toContain(
+      "onContextMenu={(event) => event.stopPropagation()}",
+    );
     expect(gridSource).toContain('t("navigation.newFolder")');
     expect(folderRouteSource).toContain("<LibraryPrimaryActions folderId");
     expect(spaceRouteSource).toContain("<LibraryPrimaryActions spaceId");

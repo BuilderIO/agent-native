@@ -93,4 +93,16 @@ describe("Clips shared navigation", () => {
       view: "library",
     });
   });
+
+  it("keeps a query-selected dictation in shared navigation state", () => {
+    expect(stateFromLocation("/dictate", "?dictationId=dictation%2F1")).toEqual(
+      {
+        view: "dictate",
+        dictationId: "dictation/1",
+      },
+    );
+    expect(
+      pathFromCommand({ view: "dictate", dictationId: "dictation/1" }),
+    ).toBe("/dictate?dictationId=dictation%2F1");
+  });
 });

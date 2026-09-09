@@ -1922,15 +1922,16 @@ export default function RecordingPage() {
     </section>
   );
 
-  const renderSidePanel = () => {
+  const renderSidePanel = (compact = false) => {
     return (
       <>
         {recording.enableComments ? (
           <TabsContent
+            forceMount
             value="comments"
-            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
           >
-            {renderCommentsSection()}
+            {renderCommentsSection(compact)}
           </TabsContent>
         ) : null}
         <TabsContent
@@ -2520,9 +2521,7 @@ export default function RecordingPage() {
                     className="mt-2 lg:hidden"
                     tabs={renderPanelTabs()}
                   >
-                    {panel === "comments"
-                      ? renderCommentsSection(true)
-                      : renderSidePanel()}
+                    {renderSidePanel(true)}
                   </RecordingSidePanel>
                 ) : null}
               </div>
