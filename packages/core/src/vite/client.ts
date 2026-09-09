@@ -74,6 +74,10 @@ import {
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
+import {
+  createSentrySourceMapUploadPlugin,
+  isSentrySourceMapUploadEnabled,
+} from "./sentry-source-maps.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -3645,6 +3649,10 @@ function createAgentNativePlugins(
     includeReactTransform ? createReactTransformPlugin() : null,
     createDesignSystemThemePlugin(options.designSystemTheme),
     createTailwindPlugin(options),
+    // No-ops (empty array) unless a Sentry auth token/org/project is
+    // configured. Safe to always include — its hooks only fire during a
+    // real `vite build`, never `vite dev`.
+    ...createSentrySourceMapUploadPlugin(options.outDir ?? "dist/spa"),
   ].filter(Boolean);
 }
 
@@ -3982,6 +3990,14 @@ function createAgentNativeConfig(
       // the standard property survives the production pipeline.
       cssMinify: userConfig.build?.cssMinify ?? "esbuild",
       cssTarget: userConfig.build?.cssTarget ?? ["es2020", "safari18"],
+      // "hidden" emits `.map` files for Sentry to upload without adding a
+      // `//# sourceMappingURL` comment to the shipped JS, so production
+      // never serves real source maps publicly. Only turned on when a
+      // Sentry source-map upload is actually configured — otherwise this
+      // stays `false`, unchanged from the previous default.
+      sourcemap:
+        userConfig.build?.sourcemap ??
+        (isSentrySourceMapUploadEnabled() ? "hidden" : false),
     },
     // Bundle all non-Node.js deps into the production SSR server build.
     // Edge runtimes (CF Workers, Deno) don't have node_modules at runtime.
