@@ -76,7 +76,7 @@ export default function TemplatesPage() {
             </div>
             {/* Breaks back out of the section's padding so the cards touch at
                 the full content measure, like the homepage app rail. */}
-            <div className="-mx-[15px] grid min-w-0 border-s border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-0 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
+            <div className="-mx-4 grid min-w-0 border-s border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-0 sm:-mx-6 sm:grid-cols-2 lg:grid-cols-3">
               {featuredTemplates.map((template) => (
                 <TemplateCard key={template.name} template={template} />
               ))}
@@ -158,7 +158,7 @@ export default function TemplatesPage() {
             {communityApps.length > 0 ? (
               // Keep community cards on the same touching grid as first-party
               // apps, while the card content retains its own internal padding.
-              <div className="-mx-[15px] grid min-w-0 border-s border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-0 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
+              <div className="-mx-4 grid min-w-0 border-s border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-0 sm:-mx-6 sm:grid-cols-2 lg:grid-cols-3">
                 {communityApps.map((app) => (
                   <CommunityAppCard key={app.slug} app={app} />
                 ))}
