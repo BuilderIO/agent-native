@@ -882,6 +882,8 @@ export function createAgentNativeWebMcpPageHelper(options?: {
   const pageOrigin =
     getDocument(targetDocument)?.defaultView?.location?.origin ??
     (typeof location === "undefined" ? undefined : location.origin);
+  const supportsToolChange = () =>
+    typeof getClientModelContext?.()?.addEventListener === "function";
   async function list(origin?: string): Promise<AgentNativeWebMcpTool[]> {
     // Discovery defaults to the page's own origin; a different origin needs
     // its own allow-listed listing, which is never cached. The page's own
@@ -895,13 +897,14 @@ export function createAgentNativeWebMcpPageHelper(options?: {
       listingContext = currentContext;
       invalidateListing();
     }
-    if (!cacheable) return client.listTools();
+    if (!cacheable || !supportsToolChange()) return client.listTools();
     if (listing) return listing;
     if (inflight) return inflight;
     // A toolchange during the await outdates this listing before it lands;
     // the generation check keeps a stale result out of the cache. Callers that
     // arrive mid-flight share the request instead of paying another wake-up.
-    const request = (async () => {
+    let request!: Promise<AgentNativeWebMcpTool[]>;
+    request = (async () => {
       let generation = listingGeneration;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const tools = await client.listTools();
@@ -916,10 +919,10 @@ export function createAgentNativeWebMcpPageHelper(options?: {
         }
         listingContext = currentContext;
         if (generation === listingGeneration) listing = tools;
-        inflight = undefined;
+        if (inflight === request) inflight = undefined;
         return tools;
       }
-      inflight = undefined;
+      if (inflight === request) inflight = undefined;
       throw new Error("WebMCP page context changed during tool listing");
     })();
     request.catch(() => {
