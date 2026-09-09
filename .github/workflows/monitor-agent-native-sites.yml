@@ -690,8 +690,11 @@ jobs:
 
           pagerduty_status=0
           page_oncall || pagerduty_status=$?
+          # Avoid GitHub's eventually consistent issue-search index here. A
+          # direct open-issue listing keeps one rolling incident even when a
+          # previous run created it moments ago.
           ISSUE_NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
-            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --limit 1000 --json number,title \
             --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)"
           if [ -z "$ISSUE_NUMBER" ]; then
             gh issue create --repo "${{ github.repository }}" \
@@ -732,7 +735,7 @@ jobs:
             echo "PagerDuty resolve skipped: PAGERDUTY_ROUTING_KEY is not configured."
           fi
           ISSUE_NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
-            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --limit 1000 --json number,title \
             --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)"
           if [ -n "$ISSUE_NUMBER" ]; then
             gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" \

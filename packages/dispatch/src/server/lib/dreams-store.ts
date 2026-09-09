@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   and,
   desc,
@@ -20,8 +21,10 @@ import {
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+import { ForbiddenError } from "@agent-native/core/sharing";
 
 import { getDb, schema } from "../../db/index.js";
+import { authorizeDispatchAdmin } from "./app-roles.js";
 import {
   createApprovalRequest,
   currentOrgId,
@@ -444,7 +447,10 @@ function scopeFor<T extends { ownerEmail: any; orgId: any }>(
   if (!ctx.orgId) {
     return and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId));
   }
-  return or(eq(table.ownerEmail, ctx.ownerEmail), eq(table.orgId, ctx.orgId));
+  return or(
+    and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId)),
+    eq(table.orgId, ctx.orgId),
+  );
 }
 
 function safeJson(value: unknown): string {
@@ -2392,6 +2398,36 @@ async function getProposalRow(
     )
     .limit(1);
   return row ?? null;
+}
+
+export async function authorizeDreamProposalMutation(
+  args: { id: string },
+  ctx?: ActionRunContext,
+): Promise<void> {
+  const ownerEmail =
+    ctx?.userEmail !== undefined ? ctx.userEmail : currentOwnerEmail();
+  const orgId = ctx?.orgId !== undefined ? ctx.orgId : currentOrgId();
+  const proposal = await getProposalRow(args.id, {
+    ownerEmail,
+    orgId: orgId?.trim() || null,
+  });
+  if (!proposal) {
+    throw new ForbiddenError("Dream proposal not found");
+  }
+
+  if (proposal.targetType === "personal-memory") {
+    if (
+      proposal.ownerEmail.trim().toLowerCase() !==
+      ownerEmail.trim().toLowerCase()
+    ) {
+      throw new ForbiddenError(
+        "Personal memory proposals can only be changed by their owner",
+      );
+    }
+    return;
+  }
+
+  await authorizeDispatchAdmin(args, ctx);
 }
 
 export async function createDreamReport(input: {

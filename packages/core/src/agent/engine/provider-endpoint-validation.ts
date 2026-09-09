@@ -22,9 +22,7 @@ export async function validateProviderBaseUrl(
 ): Promise<string> {
   const normalized = normalizeProviderBaseUrl(value);
   const allowLocalOllama =
-    options.allowLocalOllama === true &&
-    process.env.NODE_ENV === "development" &&
-    isLoopbackOllamaEndpoint(normalized);
+    options.allowLocalOllama === true && isLoopbackOllamaEndpoint(normalized);
   if (
     !options.allowPrivate &&
     !allowLocalOllama &&

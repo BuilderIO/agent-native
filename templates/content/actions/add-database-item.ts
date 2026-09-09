@@ -27,13 +27,15 @@ const schema = databaseMutationEnvelopeSchema.extend({
   propertyEntries: databasePropertyEntriesSchema,
 });
 const agentSchema = schema
-  .extend({ target: databaseMutationAgentTargetSchema })
-  .omit({ propertyValues: true });
+  .extend({ target: databaseMutationAgentTargetSchema.strict() })
+  .omit({ propertyValues: true })
+  .strict();
 
 export default defineAction({
   description:
     "Create one row in an exact ordinary Content database using the mutation target and schema revision from a fresh get-content-database read. Strictly validates every non-Blocks property, applies one new intent once per fresh idempotency key, and returns a verified receipt with stable membership and page identities.",
   mcpTool: true,
+  mcpApp: { structuredContent: true },
   agentInputSchema: agentSchema,
   publicAgent: {
     expose: true,
@@ -60,7 +62,8 @@ export default defineAction({
         : "Created Content database row";
     },
   },
-  run: async (args): Promise<ContentDatabaseRowMutationResult> => {
+  run: async (args, context): Promise<ContentDatabaseRowMutationResult> => {
+    if (context?.caller === "mcp") agentSchema.parse(args);
     const result = await createDatabaseRow(
       canonicalizeDatabasePropertyInput(args),
     );
@@ -81,14 +84,18 @@ export default defineAction({
     return { ...result, createdItem };
   },
   link: ({ result }) => {
-    const documentId = (result as ContentDatabaseRowMutationResult | null)
-      ?.receipt.row.documentId;
-    if (!documentId) return null;
+    const receipt = (result as ContentDatabaseRowMutationResult | null)
+      ?.receipt;
+    if (!receipt) return null;
     return {
       url: buildDeepLink({
         app: "content",
         view: "editor",
-        params: { documentId },
+        params: {
+          documentId: receipt.row.documentId,
+          databaseId: receipt.target.databaseId,
+          databaseDocumentId: receipt.target.databaseDocumentId,
+        },
       }),
       label: "Open database row",
       view: "editor",

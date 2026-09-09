@@ -9,6 +9,7 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import {
+  callAction,
   setClientAppState,
   useAvatarUrl,
   useDbSync,
@@ -26,7 +27,11 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  type QueryClient,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -89,6 +94,7 @@ import {
 } from "@/hooks/use-notion";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
+import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import {
   canWriteLinkedLocalSource,
   readDocumentFromLinkedLocalSource,
@@ -118,6 +124,7 @@ import {
 } from "./comment-drafts";
 import { CommentsSidebar } from "./CommentsSidebar";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
+import { createHistorySession } from "./document-history-session";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
@@ -153,10 +160,37 @@ import type {
 
 const TAB_ID = generateTabId();
 
+export function applyHistoryToDocumentBody(
+  hasDatabase: boolean,
+  controller: VisualEditorHistoryController | null,
+  restored: Pick<Document, "content" | "updatedAt" | "revision">,
+) {
+  if (hasDatabase) return true;
+  return (
+    controller?.replaceWithAuthoritativeContent({
+      content: restored.content,
+      contentUpdatedAt: restored.updatedAt,
+      contentRevision: restored.revision ?? null,
+    }) ?? false
+  );
+}
+
+export function isHistoryRestoreReady(
+  hasDatabase: boolean,
+  controller: VisualEditorHistoryController | null,
+  controllerDocumentId: string | null,
+  documentId: string,
+) {
+  return (
+    hasDatabase || (controller !== null && controllerDocumentId === documentId)
+  );
+}
+
 interface DocumentEditorProps {
   documentId: string;
   databaseId?: string | null;
   databaseDocumentId?: string | null;
+  viewId?: string | null;
 }
 
 export interface PageEditorSession {
@@ -204,6 +238,22 @@ export function titleMatchConfirmsSave(args: {
     args.pendingTitle === args.localTitle &&
     args.localTitle !== args.lastSavedTitle
   );
+}
+
+export function refreshUnchangedTitleSaveWatermark(args: {
+  serverTitle: string;
+  serverUpdatedAt: string | null;
+  lastSaved: FieldSaveWatermark;
+}): FieldSaveWatermark {
+  if (
+    args.serverTitle !== args.lastSaved.title ||
+    !args.serverUpdatedAt ||
+    (args.lastSaved.updatedAt &&
+      args.serverUpdatedAt <= args.lastSaved.updatedAt)
+  ) {
+    return args.lastSaved;
+  }
+  return { ...args.lastSaved, updatedAt: args.serverUpdatedAt };
 }
 
 export function refreshUnchangedContentSaveWatermark(args: {
@@ -315,12 +365,14 @@ export function DocumentEditor({
   documentId,
   databaseId,
   databaseDocumentId,
+  viewId,
 }: DocumentEditorProps) {
   return (
     <PageEditorSurface
       documentId={documentId}
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
+      viewId={viewId}
       host="page"
     />
   );
@@ -341,6 +393,7 @@ export function PageEditorSurface({
   documentId,
   databaseId,
   databaseDocumentId,
+  viewId,
   host,
   onSessionChange,
   onDelete,
@@ -363,6 +416,14 @@ export function PageEditorSurface({
   } = documentQuery;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const documentQueryKeyValue = documentQueryKey(documentId, {
+    databaseId,
+    databaseDocumentId,
+  });
+  const authoritativeSuccess = useAuthoritativeQuerySuccess(
+    queryClient,
+    documentQueryKeyValue,
+  );
   const [manualRetryDocumentId, setManualRetryDocumentId] = useState<
     string | null
   >(null);
@@ -378,6 +439,7 @@ export function PageEditorSurface({
     errorUpdateCount,
     errorUpdatedAt,
     isError,
+    authoritativeSuccess,
   });
   loadFailureRef.current = loadFailure;
   const loadState = documentEditorLoadState({
@@ -408,7 +470,9 @@ export function PageEditorSurface({
       });
       loadFailureRef.current = {
         documentId,
+        queryIdentity: authoritativeSuccess.queryIdentity,
         baselineErrorUpdateCount: errorUpdateCount,
+        baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
         failed: false,
       };
       await documentQuery.refetch();
@@ -460,6 +524,7 @@ export function PageEditorSurface({
         document={document}
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
+        viewId={viewId}
         host={host}
         onSessionChange={onSessionChange}
         onDelete={onDelete}
@@ -529,10 +594,19 @@ export function documentEditorLoadState({
   const activeAdmittedDocumentId =
     admittedDocumentId === documentId ? admittedDocumentId : null;
 
-  if (
-    hasDocument &&
-    (isDocumentCreationPending || activeAdmittedDocumentId === documentId)
-  ) {
+  if (hasDocument && isDocumentCreationPending) {
+    return {
+      view: "editor" as const,
+      admittedDocumentId: documentId,
+    };
+  }
+  if (!isFetching && isError && isDocumentLoadUnavailableError(error)) {
+    return {
+      view: "unavailable" as const,
+      admittedDocumentId: null,
+    };
+  }
+  if (hasDocument && activeAdmittedDocumentId === documentId) {
     return {
       view: "editor" as const,
       admittedDocumentId: documentId,
@@ -561,9 +635,68 @@ export function documentEditorLoadState({
 
 type DocumentLoadFailureState = {
   documentId: string;
+  queryIdentity: string;
   baselineErrorUpdateCount: number;
+  baselineAuthoritativeSuccessGeneration: number;
   failed: boolean;
 };
+
+export type AuthoritativeQuerySuccess = {
+  queryIdentity: string;
+  generation: number;
+  errorUpdateCount: number;
+};
+
+export function subscribeToAuthoritativeQuerySuccess(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+  onSuccess: (errorUpdateCount: number) => void,
+) {
+  const queryHash = hashKey(queryKey);
+  return queryClient.getQueryCache().subscribe((event) => {
+    if (
+      event.type === "updated" &&
+      event.query.queryHash === queryHash &&
+      event.action.type === "success" &&
+      event.action.manual !== true
+    ) {
+      onSuccess(event.query.state.errorUpdateCount);
+    }
+  });
+}
+
+function useAuthoritativeQuerySuccess(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+): AuthoritativeQuerySuccess {
+  const queryHash = hashKey(queryKey);
+  const [success, setSuccess] = useState({
+    queryHash,
+    generation: 0,
+    errorUpdateCount: 0,
+  });
+
+  useEffect(
+    () =>
+      subscribeToAuthoritativeQuerySuccess(
+        queryClient,
+        queryKey,
+        (errorUpdateCount) => {
+          setSuccess((current) => ({
+            queryHash,
+            generation:
+              current.queryHash === queryHash ? current.generation + 1 : 1,
+            errorUpdateCount,
+          }));
+        },
+      ),
+    [queryClient, queryHash],
+  );
+
+  return success.queryHash === queryHash
+    ? { ...success, queryIdentity: queryHash }
+    : { queryIdentity: queryHash, generation: 0, errorUpdateCount: 0 };
+}
 
 export function updateDocumentLoadFailureState({
   previous,
@@ -573,6 +706,7 @@ export function updateDocumentLoadFailureState({
   errorUpdateCount,
   errorUpdatedAt,
   isError,
+  authoritativeSuccess,
 }: {
   previous: DocumentLoadFailureState | null;
   documentId: string;
@@ -581,18 +715,41 @@ export function updateDocumentLoadFailureState({
   errorUpdateCount: number;
   errorUpdatedAt: number;
   isError: boolean;
+  authoritativeSuccess: AuthoritativeQuerySuccess;
 }): DocumentLoadFailureState {
-  if (previous?.documentId !== documentId) {
+  if (
+    previous?.documentId !== documentId ||
+    previous.queryIdentity !== authoritativeSuccess.queryIdentity
+  ) {
     return {
       documentId,
+      queryIdentity: authoritativeSuccess.queryIdentity,
       baselineErrorUpdateCount: errorUpdateCount,
+      baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
       failed:
         isError || (errorUpdateCount > 0 && errorUpdatedAt > dataUpdatedAt),
     };
   }
+  if (
+    !isError &&
+    authoritativeSuccess.generation >
+      previous.baselineAuthoritativeSuccessGeneration &&
+    authoritativeSuccess.errorUpdateCount >= errorUpdateCount
+  ) {
+    return {
+      ...previous,
+      baselineErrorUpdateCount: errorUpdateCount,
+      baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
+      failed: false,
+    };
+  }
   if (admitted || previous.failed) return previous;
   return errorUpdateCount > previous.baselineErrorUpdateCount
-    ? { ...previous, failed: true }
+    ? {
+        ...previous,
+        baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
+        failed: true,
+      }
     : previous;
 }
 
@@ -602,6 +759,28 @@ export function isDocumentLoadUnavailableError(error: unknown) {
       ? (error as { status?: unknown }).status
       : undefined;
   return status === 403 || status === 404;
+}
+
+export function resolveAcknowledgedDocumentSnapshot<
+  T extends { id: string; updatedAt: string },
+>(args: {
+  currentDocumentId: string;
+  incoming: T;
+  acknowledged: T | null;
+}): { document: T; acknowledged: T | null } {
+  if (!args.acknowledged) {
+    return { document: args.incoming, acknowledged: null };
+  }
+  if (args.acknowledged.id !== args.currentDocumentId) {
+    return { document: args.incoming, acknowledged: null };
+  }
+  if (args.incoming.updatedAt >= args.acknowledged.updatedAt) {
+    return { document: args.incoming, acknowledged: args.incoming };
+  }
+  return {
+    document: args.acknowledged,
+    acknowledged: args.acknowledged,
+  };
 }
 
 export function updateAdditionalBlockContents(args: {
@@ -647,6 +826,7 @@ interface DocumentEditorBodyProps {
   document: Document;
   databaseId?: string | null;
   databaseDocumentId?: string | null;
+  viewId?: string | null;
   host: "page" | "preview";
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
@@ -655,6 +835,7 @@ interface DocumentEditorBodyProps {
 }
 
 type PendingDocumentSave = {
+  historySessionId: string;
   title: string;
   content: string;
   save: (
@@ -668,6 +849,7 @@ type PendingDocumentSave = {
 };
 
 type DocumentSaveOptions = {
+  historySessionId?: string;
   allowQueuedSave?: boolean;
   expectedLocalSourceRevision?: string | null;
   adoptCurrentServerBase?: boolean;
@@ -813,6 +995,12 @@ export function documentEditorShowsInlineComments(args: {
       args.hasSelectedCommentThread ||
       args.hasPendingComment)
   );
+}
+
+export function utilityPanelAfterCommentFocusDismissal(
+  utilityPanel: DocumentUtilityPanel,
+): DocumentUtilityPanel {
+  return utilityPanel === "comments" ? null : utilityPanel;
 }
 
 export function documentEditorTitleRegionClassName(
@@ -1051,15 +1239,26 @@ export function documentEditorBreadcrumbNavigationItems(
 
 function PageEditorSessionBody({
   documentId,
-  document,
+  document: incomingDocument,
   databaseId,
   databaseDocumentId,
+  viewId,
   host,
   onSessionChange,
   onDelete,
   focusTitle,
   onTitleFocused,
 }: DocumentEditorBodyProps) {
+  const acknowledgedDocumentRef = useRef<Document | null>(null);
+  const resolvedDocument = resolveAcknowledgedDocumentSnapshot({
+    currentDocumentId: documentId,
+    incoming: incomingDocument,
+    acknowledged: acknowledgedDocumentRef.current,
+  });
+  acknowledgedDocumentRef.current = resolvedDocument.acknowledged;
+  const document = resolvedDocument.document;
+  const currentDocumentRef = useRef(document);
+  currentDocumentRef.current = document;
   const t = useT();
   const pageEditorOwner = pageEditorSessionKey({
     documentId,
@@ -1247,6 +1446,9 @@ function PageEditorSessionBody({
     "checking" | "available" | "unavailable"
   >("checking");
   const [localFileSyncRevision, setLocalFileSyncRevision] = useState(0);
+  const editorHistoryControllerDocumentIdRef = useRef<string | null>(null);
+  const [editorHistoryControllerReady, setEditorHistoryControllerReady] =
+    useState(false);
   const editorHistoryControllerRef =
     useRef<VisualEditorHistoryController | null>(null);
   const editorPersistenceControllerRef =
@@ -1266,8 +1468,12 @@ function PageEditorSessionBody({
   const handleHistoryControllerChange = useCallback(
     (controller: VisualEditorHistoryController | null) => {
       editorHistoryControllerRef.current = controller;
+      editorHistoryControllerDocumentIdRef.current = controller
+        ? documentId
+        : null;
+      setEditorHistoryControllerReady(controller !== null);
     },
-    [],
+    [documentId],
   );
   const handlePersistenceControllerChange = useCallback(
     (controller: VisualEditorPersistenceController | null) => {
@@ -1321,6 +1527,7 @@ function PageEditorSessionBody({
   // flush reader when its exact application-state key changes; it does not open
   // another EventSource or polling loop.
   useDbSync({ onEvent: handleFlushRequestEvent });
+  const historySessionRef = useRef(createHistorySession());
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promotedBuilderBodyRef = useRef<string | null>(null);
   const builderBodyRetryWakeRef = useRef<number | null>(null);
@@ -1584,6 +1791,7 @@ function PageEditorSessionBody({
   useEffect(() => {
     if (!document) return;
     if (prevDocIdRef.current !== documentId) {
+      historySessionRef.current.reset();
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
       setNewDocumentTypeChosen(false);
@@ -1630,7 +1838,14 @@ function PageEditorSessionBody({
     if (isLinkedLocalSourceDocument) return;
     const serverTitle = document.title;
     const lastSaved = lastSavedTitleRef.current;
-    if (serverTitle === lastSaved.title) return;
+    if (serverTitle === lastSaved.title) {
+      lastSavedTitleRef.current = refreshUnchangedTitleSaveWatermark({
+        serverTitle,
+        serverUpdatedAt: document.updatedAt ?? null,
+        lastSaved,
+      });
+      return;
+    }
     const adopt =
       localTitle === lastSaved.title ||
       (titleExternalIsNewer && !titleFocusedRef.current);
@@ -1848,6 +2063,9 @@ function PageEditorSessionBody({
                 )
               : undefined,
           ...updates,
+          historySessionId:
+            options.historySessionId ??
+            historySessionRef.current.activity(documentId),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
         });
       } catch (error) {
@@ -2265,12 +2483,113 @@ function PageEditorSessionBody({
       void Promise.resolve(
         pending.save(pending.title, pending.content, {
           allowQueuedSave: true,
+          historySessionId: pending.historySessionId,
           expectedLocalSourceRevision: pending.expectedLocalSourceRevision,
         }),
       ).catch(handleBackgroundSaveError);
     },
     [handleBackgroundSaveError],
   );
+  const prepareHistoryRestore = useCallback(async (): Promise<string> => {
+    if (
+      !isHistoryRestoreReady(
+        Boolean(currentDocumentRef.current.database),
+        editorHistoryControllerRef.current,
+        editorHistoryControllerDocumentIdRef.current,
+        documentId,
+      )
+    ) {
+      throw new Error(t("editor.historySaveBeforeRestoreFailed"));
+    }
+    const title = localTitleRef.current;
+    const content = localContentRef.current;
+    const pending = pendingDocumentSaveRef.current;
+    if (pending) {
+      clearTimeout(pending.timeout);
+      pendingDocumentSaveRef.current = null;
+      saveTimeoutRef.current = null;
+    }
+    const saved = await queueDocumentSave(title, content, {
+      historySessionId: pending?.historySessionId,
+    });
+    if (
+      !saved.contentPersisted ||
+      localTitleRef.current !== title ||
+      localContentRef.current !== content ||
+      localTitleRef.current !== lastSavedTitleRef.current.title
+    ) {
+      throw new Error(t("editor.historySaveBeforeRestoreFailed"));
+    }
+    const current = await callAction(
+      "get-document",
+      { id: documentId },
+      { method: "GET" },
+    );
+    if (
+      !current?.updatedAt ||
+      current.title !== lastSavedTitleRef.current.title ||
+      current.content !== lastSavedContentRef.current.content
+    ) {
+      throw new Error(t("editor.historySaveBeforeRestoreFailed"));
+    }
+    return current.updatedAt;
+  }, [documentId, queueDocumentSave, t]);
+  const historyRestoreReady = isHistoryRestoreReady(
+    Boolean(document.database),
+    editorHistoryControllerRef.current,
+    editorHistoryControllerDocumentIdRef.current,
+    documentId,
+  );
+  const handleHistoryRestored = useCallback((restored: Document) => {
+    if (restored.id !== activeDocumentIdRef.current) {
+      return { status: "committed-editor-refresh-required" } as const;
+    }
+    acknowledgedDocumentRef.current = {
+      ...currentDocumentRef.current,
+      ...restored,
+    };
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    pendingDocumentSaveRef.current = null;
+    const editorApplied = applyHistoryToDocumentBody(
+      Boolean(currentDocumentRef.current.database),
+      editorHistoryControllerRef.current,
+      restored,
+    );
+    localTitleRef.current = restored.title;
+    localContentRef.current = restored.content;
+    documentUpdatedAtRef.current = restored.updatedAt ?? null;
+    setLocalTitle(restored.title);
+    setLocalContent(restored.content);
+    setLocalContentUpdatedAt(restored.updatedAt ?? null);
+    lastSavedTitleRef.current = {
+      title: restored.title,
+      updatedAt: restored.updatedAt ?? null,
+    };
+    lastSavedContentRef.current = {
+      content: restored.content,
+      updatedAt: restored.updatedAt ?? null,
+    };
+    historySessionRef.current.reset();
+    return editorApplied
+      ? ({ status: "applied" } as const)
+      : ({ status: "committed-editor-refresh-required" } as const);
+  }, []);
+  useEffect(() => {
+    if (!historyRestoreReady) return;
+    return registerDocumentHistoryRestoreController(documentId, {
+      prepareRestore: prepareHistoryRestore,
+      applyRestore: handleHistoryRestored,
+    });
+  }, [
+    documentId,
+    handleHistoryRestored,
+    historyRestoreReady,
+    prepareHistoryRestore,
+  ]);
+
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (!canEditRef.current) return;
@@ -2282,6 +2601,7 @@ function PageEditorSessionBody({
         : undefined;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       const pending: PendingDocumentSave = {
+        historySessionId: historySessionRef.current.activity(documentId),
         title,
         content,
         save: queueDocumentSave,
@@ -2393,6 +2713,7 @@ function PageEditorSessionBody({
             : undefined;
         const body = JSON.stringify({
           id: documentId,
+          historySessionId: pending.historySessionId,
           ...updates,
           ...(loadedContentWasEmpty !== undefined
             ? { loadedContentWasEmpty }
@@ -2699,6 +3020,8 @@ function PageEditorSessionBody({
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
   const [lastUtilityPanel, setLastUtilityPanel] =
     useState<Exclude<DocumentUtilityPanel, null>>("comments");
+  const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
+    useState<HTMLElement | null>(null);
   const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
   const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
     useState(false);
@@ -2845,7 +3168,7 @@ function PageEditorSessionBody({
     clearCommentFocus();
     if (!hasUtilityRailSpace) {
       setCommentsBrowseOpen(false);
-      setUtilityPanel(null);
+      setUtilityPanel(utilityPanelAfterCommentFocusDismissal);
     }
   }, [clearCommentFocus, hasUtilityRailSpace]);
 
@@ -3295,6 +3618,7 @@ function PageEditorSessionBody({
   const renderUtilityPanelContent = (
     panel: Exclude<DocumentUtilityPanel, null>,
     inSheet = false,
+    popoverContainer?: HTMLElement | null,
   ) => {
     const utilityPanelTitle =
       panel === "info" ? t("editor.toolbar.info") : t("comments.title");
@@ -3352,6 +3676,7 @@ function PageEditorSessionBody({
             databaseId={databaseId}
             databaseDocumentId={databaseDocumentId}
             canEdit={editorCanEdit}
+            popoverContainer={popoverContainer}
             onSaveDescription={(description) =>
               persistDocumentUpdates({ description })
             }
@@ -3438,6 +3763,17 @@ function PageEditorSessionBody({
                 : []
             }
             documentUpdatedAt={document.updatedAt}
+            prepareHistoryRestore={prepareHistoryRestore}
+            historyRestoreReady={
+              historyRestoreReady &&
+              (Boolean(document.database) || editorHistoryControllerReady)
+            }
+            onHistoryRestored={handleHistoryRestored}
+            restoreUnavailableReason={
+              isLinkedLocalSourceDocument
+                ? t("editor.historyLinkedLocalRestoreUnavailable")
+                : undefined
+            }
             activeUsers={activeUsers}
             agentPresent={agentPresent}
             agentActive={agentActive}
@@ -3714,6 +4050,7 @@ function PageEditorSessionBody({
                     <DocumentDatabase
                       document={document}
                       canEdit={canEdit}
+                      viewId={viewId}
                       onExportContextChange={handleDatabaseExportContextChange}
                     />
                   </div>
@@ -4023,9 +4360,23 @@ function PageEditorSessionBody({
           }}
         >
           <SheetContent
+            ref={setUtilityPanelSheetContainer}
             side="right"
             className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]"
             aria-describedby={undefined}
+            onEscapeKeyDown={(event) => {
+              const target = event.target;
+              const nestedPopper =
+                target instanceof Element
+                  ? target.closest("[data-radix-popper-content-wrapper]")
+                  : null;
+              if (
+                nestedPopper &&
+                utilityPanelSheetContainer?.contains(nestedPopper)
+              ) {
+                event.preventDefault();
+              }
+            }}
           >
             <SheetHeader className="sr-only">
               <SheetTitle>
@@ -4036,11 +4387,19 @@ function PageEditorSessionBody({
             </SheetHeader>
             {lastUtilityPanel === "comments" ? (
               <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(lastUtilityPanel, true)}
+                {renderUtilityPanelContent(
+                  lastUtilityPanel,
+                  true,
+                  utilityPanelSheetContainer,
+                )}
               </CommentHistoryScrollContainer>
             ) : (
               <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(lastUtilityPanel, true)}
+                {renderUtilityPanelContent(
+                  lastUtilityPanel,
+                  true,
+                  utilityPanelSheetContainer,
+                )}
               </div>
             )}
           </SheetContent>

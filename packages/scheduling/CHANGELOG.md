@@ -1,5 +1,18 @@
 # @agent-native/scheduling
 
+## 0.1.60
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 8f0c972: Keep the event-type authorization test fixture in step with the shared shares
+  table, which now records when a share notification was sent.
+- Updated dependencies [e8b291e]
+- Updated dependencies [4915b82]
+- Updated dependencies
+- Updated dependencies [3bde94f]
+  - @agent-native/toolkit@0.19.6
+
 ## 0.1.59
 
 ### Patch Changes

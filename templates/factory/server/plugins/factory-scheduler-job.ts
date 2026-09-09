@@ -23,8 +23,8 @@ import { renameFactoryActionMentions } from "../lib/factory-action-names.js";
 import {
   applyAutomationConfigFrontmatter,
   buildGuardrailsText,
+  canonicalSeedLeafName,
   defaultAutomationConfig,
-  inferAutomationSource,
   readFactoryAutomationConfig,
   replaceUserPrompt,
   scheduleCron,
@@ -56,7 +56,10 @@ import {
   BABYSIT_SCOPE_INSTRUCTION,
   repairPrBabysitPrompt,
 } from "../lib/pr-babysit-prompt.js";
-import { repairSlackFeedbackPrompt } from "../lib/slack-feedback-prompt.js";
+import {
+  repairSlackFeedbackPrompt,
+  SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS,
+} from "../lib/slack-feedback-prompt.js";
 import {
   syncManagedReviewSkillAlignment,
   type FactoryAutomationName,
@@ -225,9 +228,7 @@ enough evidence to investigate — including visual/UI defects such as a
 duplicate control or broken layout. Feature requests, vague questions, and
 incomplete threads are not.
 
-For each item, call dispatch-factory-item with clearBug true or false,
-productUxImplications false unless it is a pure product or design decision
-with no single correct fix, a short reason, and reaction robot_face 🤖.
+${SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS}
 Cluster only items listed in this run: one dispatch with relatedItemIds. Do
 not dispatch needs_manual items or items that already started.
 
@@ -506,11 +507,23 @@ export async function ensureFactoryAutomations(
   _options?: { enabled?: boolean; enabledNames?: ReadonlySet<string> },
 ): Promise<void> {
   const owner = organizationResourceOwner(orgId);
+  const listed = await listFactoryAutomationDefinitions(orgId, factoryId);
+  const paths = new Set([
+    ...AUTOMATION_SEEDS.map((seed) =>
+      factoryAutomationJobPath(factoryId, seed.name),
+    ),
+    ...listed.map((entry) => entry.resource.path),
+  ]);
   await Promise.all(
-    AUTOMATION_SEEDS.map(async (seed) => {
-      const path = factoryAutomationJobPath(factoryId, seed.name);
+    [...paths].map(async (path) => {
       const existing = await resourceGetByPath(owner, path);
       if (!existing) {
+        return;
+      }
+      const leafName = factoryAutomationLeafName(path);
+      const seedName = canonicalSeedLeafName(leafName);
+      const seed = AUTOMATION_SEEDS.find((entry) => entry.name === seedName);
+      if (!seed) {
         return;
       }
 
@@ -549,6 +562,9 @@ export async function ensureFactoryAutomations(
       ) {
         repaired = setFrontmatterField(repaired, "schedule", seed.schedule);
       }
+      // Keyed by the seed, not the leaf: a copy like `factory-pr-babysit-2`
+      // runs the same review contract, and an unrecognized name would silently
+      // skip the alignment block instead of syncing it.
       repaired = syncManagedReviewSkillAlignment(
         repaired,
         seed.name as FactoryAutomationName,
@@ -560,15 +576,14 @@ export async function ensureFactoryAutomations(
         repaired = repairPrBabysitPrompt(repaired);
       }
       repaired = repairAutomationFactoryScopeInstruction(repaired, factoryId);
-      const inferredSource =
-        inferAutomationSource(seed.name, repaired) ?? "slack";
-      const existingConfig = readFactoryAutomationConfig(repaired, seed.name);
+      // Every row here matched a seed, so the leaf resolves a definite source.
+      // Nothing in this loop may fall back to a guess.
+      const existingConfig = readFactoryAutomationConfig(repaired, leafName);
       repaired = applyAutomationConfigFrontmatter(repaired, {
         ...existingConfig,
-        source: existingConfig.source || inferredSource,
         template:
           existingConfig.template === "blank"
-            ? templateIdForSeedName(seed.name)
+            ? templateIdForSeedName(leafName)
             : existingConfig.template,
       });
       repaired = replaceUserPrompt(

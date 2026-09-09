@@ -857,7 +857,7 @@ async function resolveProviderBaseUrl(
     ? validateProviderBaseUrl(raw, {
         allowLocalOllama:
           envVar === OLLAMA_BASE_URL_ENV_VAR &&
-          process.env.NODE_ENV === "development",
+          process.env.NODE_ENV !== "production",
       })
     : undefined;
 }
@@ -1043,7 +1043,7 @@ async function engineCreateConfigForEntry(
       safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL, {
         allowLocalOllama:
           entry.name === "ai-sdk:ollama" &&
-          process.env.NODE_ENV === "development",
+          process.env.NODE_ENV !== "production",
       });
     }
     if (safeExtra.baseUrl == null) {

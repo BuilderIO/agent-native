@@ -1,5 +1,7 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 
+import { getAudioStreamWithFallback } from "../lib/media-capture-constraints";
+
 // Number of points sampled across the wave line. Fewer points = wider, bigger
 // waves (each above/below pair is one hump); more = a tighter, busier line.
 export const WAVE_BARS = 10;
@@ -15,15 +17,6 @@ const CENTER_Y = VIEW_H / 2;
 const MAX_AMP = 11; // peak deflection from center, leaves a little headroom
 const FLAT_LINE = `M 0 ${CENTER_Y} L ${VIEW_W} ${CENTER_Y}`;
 const activeMeterCleanups = new Set<() => void>();
-
-function meterAudioConstraints(deviceId: string): MediaTrackConstraints {
-  return {
-    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-    echoCancellation: false,
-    noiseSuppression: false,
-    autoGainControl: false,
-  };
-}
 
 export function stopAllMicMeters(): void {
   for (const stop of Array.from(activeMeterCleanups)) {
@@ -127,10 +120,7 @@ export function useMicMeter({
 
     const start = async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: meterAudioConstraints(deviceId),
-          video: false,
-        });
+        stream = await getAudioStreamWithFallback(deviceId, undefined, false);
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           stream = null;

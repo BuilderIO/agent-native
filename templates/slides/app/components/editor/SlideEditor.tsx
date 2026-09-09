@@ -956,7 +956,8 @@ function SamePresenceAvatar({ user }: { user: CollabUser }) {
     <Tooltip>
       <TooltipTrigger asChild>
         <div
-          className="-ml-1.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-white ring-2 ring-popover first:ml-0"
+          // guard:allow-raw-color -- white initials preserve contrast on arbitrary collaborator colors
+          className="-ml-1.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-white ring-1 ring-popover first:ml-0"
           style={{
             backgroundColor: avatarUrl ? undefined : user.color,
             fontSize: 9,
@@ -1001,7 +1002,7 @@ function SameSlidePresenceIndicator({ users }: { users: CollabUser[] }) {
           <SamePresenceAvatar key={u.email} user={u} />
         ))}
         {overflow > 0 && (
-          <span className="-ml-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-[9px] font-medium leading-none text-muted-foreground ring-2 ring-popover">
+          <span className="-ml-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-[9px] font-medium leading-none text-muted-foreground ring-1 ring-popover">
             +{overflow}
           </span>
         )}
@@ -4491,7 +4492,8 @@ export default function SlideEditor({
       if (dragSized) box.style.height = `${geometry.height}px`;
       box.style.fontSize = "24px";
       box.style.color = getSlideTextBoxDefaultColor(target, positioningLayer);
-      box.style.fontFamily = "'Poppins', sans-serif";
+      box.style.fontFamily =
+        designSystem?.typography.bodyFont ?? "Inter, sans-serif";
       box.style.lineHeight = "1.3";
       if (text !== ZERO_WIDTH_SPACE) {
         box.style.whiteSpace = "pre-wrap";
@@ -4504,7 +4506,7 @@ export default function SlideEditor({
       enterInlineEdit(box);
       return box;
     },
-    [enterInlineEdit],
+    [designSystem?.typography.bodyFont, enterInlineEdit],
   );
 
   const pastePlainTextAsTextBox = useCallback(

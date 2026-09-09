@@ -318,4 +318,55 @@ Observe Slack.
     expect(omitted).not.toHaveProperty("repository");
     expect(action.schema.safeParse(omitted).success).toBe(true);
   });
+
+  it("writes github source for a PR babysit copy that lost YAML source", async () => {
+    const copyContent = `---
+schedule: "*/5 * * * *"
+enabled: false
+template: pr-babysit
+repository: acme/widgets
+---
+Babysit pull requests.
+`;
+    findFactoryAutomationDefinitionMock.mockResolvedValue({
+      name: "factories/support-triage/factory-pr-babysit-2",
+      body: "Babysit pull requests.",
+      resource: {
+        id: "resource-copy",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-pr-babysit-2.md",
+        content: copyContent,
+        updatedAt: 1,
+      },
+      meta: {
+        triggerType: "schedule",
+      },
+    });
+    resourceGetByPathMock.mockResolvedValue({
+      id: "resource-copy",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/support-triage/factory-pr-babysit-2.md",
+      content: copyContent,
+      updatedAt: 1,
+    });
+    const { default: action } = await import("./save-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-copy",
+        name: "factories/support-triage/factory-pr-babysit-2",
+        prompt: "Babysit pull requests.",
+        repository: "acme/widgets",
+        authorMode: "include",
+        authorIds: ["138030887"],
+        enabled: false,
+      },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, source: "github" });
+    const saved = resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
+    expect(saved).toMatch(/^source: github$/m);
+    expect(saved).not.toMatch(/^source: slack$/m);
+    expect(saved).toContain("authorIds: 138030887");
+  });
 });

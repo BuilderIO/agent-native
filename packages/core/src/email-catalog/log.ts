@@ -19,7 +19,12 @@ import { getRequestOrgId } from "../server/request-context.js";
 
 let _initPromise: Promise<void> | undefined;
 
-const ADDITIVE_TEXT_COLUMNS = ["request_payload", "response_body"] as const;
+const ADDITIVE_TEXT_COLUMNS = [
+  "request_payload",
+  "response_body",
+  "html_body",
+  "text_body",
+] as const;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -96,6 +101,15 @@ export interface RecordEmailSendArgs {
   responseStatus?: number;
   /** Raw HTTP response body text from the provider, when a response was received. */
   responseBody?: string;
+  /**
+   * Rendered HTML body of the message that was sent. Callers must pass this
+   * through `redactSensitiveEmailBodyContent` first — this table is org-admin
+   * readable, and an un-redacted body can carry a live magic-link, reset
+   * link, or OTP code.
+   */
+  htmlBody?: string;
+  /** Rendered plain-text body, when the send included one. Same redaction requirement as `htmlBody`. */
+  textBody?: string;
 }
 
 /**
@@ -114,8 +128,8 @@ export async function recordEmailSend(
     const orgId = args.orgId ?? getRequestOrgId() ?? null;
     await getDbExec().execute({
       sql: `INSERT INTO email_log
-        (id, org_id, template_id, app, recipient, sender, subject, status, error, provider, request_payload, response_status, response_body, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, org_id, template_id, app, recipient, sender, subject, status, error, provider, request_payload, response_status, response_body, html_body, text_body, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         randomUUID(),
         orgId,
@@ -130,6 +144,8 @@ export async function recordEmailSend(
         args.requestPayload ?? null,
         args.responseStatus ?? null,
         args.responseBody ?? null,
+        args.htmlBody ?? null,
+        args.textBody ?? null,
         Date.now(),
       ],
     });
@@ -227,7 +243,10 @@ function escapeLikePattern(value: string): string {
 /**
  * Most recent sends for one app, newest first, combinably filtered — modeled
  * on `queryAuditEvents` so this admin-facing query builds the same way every
- * other filterable log in the framework does.
+ * other filterable log in the framework does. Deliberately does NOT select
+ * `html_body`/`text_body`: at the 500-row page limit those columns alone can
+ * run into the megabytes, and the list UI never renders a body until one row
+ * is selected. Fetch a single row's body with `getEmailLogEntryBody` instead.
  */
 export async function listEmailLog(
   options: ListEmailLogFilters,
@@ -306,6 +325,38 @@ export async function listEmailLog(
     responseBody: row.response_body == null ? null : String(row.response_body),
     createdAt: Number(row.created_at),
   }));
+}
+
+export interface EmailLogEntryBody {
+  htmlBody: string | null;
+  textBody: string | null;
+}
+
+/**
+ * Fetch the redacted-at-write body for one send-log row, scoped to the same
+ * org/app the list view is scoped to so a guessed `id` from another
+ * organization or app can't be used to read a body cross-tenant. Returns
+ * `null` when the row doesn't exist or isn't visible in that scope — distinct
+ * from a row that exists but never had a body recorded (both `htmlBody` and
+ * `textBody` `null` on the returned object).
+ */
+export async function getEmailLogEntryBody(options: {
+  orgId: string;
+  app: string;
+  id: string;
+}): Promise<EmailLogEntryBody | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT html_body, text_body FROM email_log
+      WHERE id = ? AND org_id = ? AND app = ?`,
+    args: [options.id, options.orgId, options.app],
+  });
+  const row = rows[0] as { html_body: unknown; text_body: unknown } | undefined;
+  if (!row) return null;
+  return {
+    htmlBody: row.html_body == null ? null : String(row.html_body),
+    textBody: row.text_body == null ? null : String(row.text_body),
+  };
 }
 
 /** Provider category that is safe to query for one organization only. */

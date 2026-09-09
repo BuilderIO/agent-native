@@ -23,6 +23,7 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain(
       'view !== "main" || reserveCloseButton',
     );
+    expect(shareDialogSource).toContain("[&>button]:top-1.5");
     expect(shareDialogSource).toContain("h-8 w-full justify-start");
     expect(shareDialogSource).toContain("<ViewerSwitch");
     expect(shareUiSource).toContain("flex h-8 min-w-0 flex-1");

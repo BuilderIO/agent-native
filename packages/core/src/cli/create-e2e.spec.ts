@@ -310,7 +310,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     }
   });
 
-  it("allows Tesseract builds through pnpm-workspace.yaml", async () => {
+  it("allows required native builds through pnpm-workspace.yaml", async () => {
     await createApp("test-app", { template: "chat" });
     const root = path.join(tmpDir, "test-app");
     const pkg = readPkg(root);
@@ -321,6 +321,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
 
     expect(pkg.pnpm).toBeUndefined();
     expect(workspaceYaml).toContain("allowBuilds:");
+    expect(workspaceYaml).toContain("node-pty: true");
     expect(workspaceYaml).toContain("tesseract.js: true");
     expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
   });

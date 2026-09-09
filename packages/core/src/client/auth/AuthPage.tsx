@@ -1,6 +1,6 @@
 /** @jsxRuntime classic */
 
-import { MarketingHome, Starfield } from "@agent-native/toolkit/marketing";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
@@ -10,6 +10,7 @@ import {
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
+import { OceanBackground } from "../ocean/OceanBackground.js";
 
 export type AuthView =
   | "signup"
@@ -631,6 +632,13 @@ function headingKeys(view: AuthView): { heading: string; subtitle: string } {
     return { heading: "magicLinkTitle", subtitle: "magicLinkSubtitle" };
   }
   return { heading: "welcomeTitle", subtitle: "createAccountSubtitle" };
+}
+
+export function shouldHideAuthSubtitle(
+  view: AuthView,
+  localDevAvailable: boolean,
+): boolean {
+  return view === "signup" && localDevAvailable;
 }
 
 export function AuthPage(props: AuthPageProps) {
@@ -2293,7 +2301,12 @@ export function AuthPage(props: AuthPageProps) {
       <h1 id="heading" data-i18n={keys.heading}>
         {t(keys.heading)}
       </h1>
-      <p id="subtitle" className="subtitle" data-i18n={keys.subtitle}>
+      <p
+        id="subtitle"
+        className="subtitle"
+        data-i18n={keys.subtitle}
+        hidden={shouldHideAuthSubtitle(view, localDevAvailable)}
+      >
         {t(keys.subtitle)}
       </p>
       <p
@@ -2826,7 +2839,9 @@ export function AuthPage(props: AuthPageProps) {
       appName={marketingCopy.appName}
       variant="auth"
       background={
-        marketingCopy.screenshotSrc ? null : <Starfield id="starfield" />
+        marketingCopy.screenshotSrc ? null : (
+          <OceanBackground className="auth-marketing-background" />
+        )
       }
       topRight={
         marketingCopy.learnMoreUrl ? (
@@ -2865,15 +2880,7 @@ export function AuthPage(props: AuthPageProps) {
             aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
           }}
         >
-          <img
-            className="auth-marketing-screenshot"
-            src={marketingCopy.screenshotSrc}
-            alt={`${marketingCopy.appName} preview`}
-            width={marketingCopy.screenshotWidth}
-            height={marketingCopy.screenshotHeight}
-            fetchPriority="high"
-            decoding="async"
-          />
+          <OceanBackground className="auth-marketing-screenshot" />
         </div>
       ) : (
         <div className="marketing-content">

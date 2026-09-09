@@ -58,6 +58,7 @@ describe("dispatch-factory-item schema guidance", () => {
       action as {
         schema: {
           shape: {
+            alreadyClaimed: { description?: string };
             clearBug: { description?: string };
             productUxImplications: { description?: string };
           };
@@ -65,12 +66,38 @@ describe("dispatch-factory-item schema guidance", () => {
       }
     ).schema.shape;
     expect(shape.clearBug.description).toMatch(/visual\/UI defects/i);
+    expect(shape.clearBug.description).toMatch(/omitted when alreadyClaimed/i);
+    expect(shape.alreadyClaimed.description).toMatch(
+      /already started keep their status/i,
+    );
+    expect(shape.alreadyClaimed.description).toMatch(
+      /clearBug may be omitted/i,
+    );
     expect(shape.productUxImplications.description).toMatch(
       /Leave false for concrete reproducible bugs/i,
     );
     expect(shape.productUxImplications.description).toMatch(
       /do not set true just because the report mentions UI or UX/i,
     );
+  });
+
+  it("accepts alreadyClaimed without clearBug", () => {
+    const parsed = (
+      action as {
+        schema: {
+          parse: (value: unknown) => {
+            alreadyClaimed: boolean;
+            clearBug: boolean;
+          };
+        };
+      }
+    ).schema.parse({
+      itemId: "item-1",
+      alreadyClaimed: true,
+      reason: "Parent already has robot_face.",
+    });
+    expect(parsed.alreadyClaimed).toBe(true);
+    expect(parsed.clearBug).toBe(false);
   });
 });
 

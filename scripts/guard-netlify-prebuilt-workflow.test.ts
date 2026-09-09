@@ -252,6 +252,9 @@ describe("production Netlify site concurrency guard", () => {
       /git hash-object -t tree \/dev\/null/,
     );
     assert.match(String(schemaGateStep?.run), /git diff --name-only/);
+    assert.match(String(schemaGateStep?.run), /grep -E/);
+    assert.doesNotMatch(String(schemaGateStep?.run), /\brg\b/);
+    assert.match(String(schemaGateStep?.run), /\[\[ "\$status" -eq 1 \]\]/);
     assert.match(
       String(schemaGateStep?.run),
       /git tag --list 'agent-native-beta-pending\/\*'/,
@@ -672,7 +675,53 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(planNetlify, /agentNativePrebuiltDatabaseUrl/);
     assert.match(
       planNetlify,
+      /export DATABASE_URL=\$\{NETLIFY_DATABASE_URL:-\$DATABASE_URL\}.*&& unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED/,
+    );
+    assert.match(
+      planNetlify,
       /agentNativePrebuiltBuild:-\}.*migrate:production/,
+    );
+
+    const clearMaskedUrls = planNetlify.indexOf(
+      "unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED",
+    );
+    const normalDatabaseUrl = planNetlify.indexOf(
+      "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}",
+    );
+    assert.ok(normalDatabaseUrl >= 0 && normalDatabaseUrl < clearMaskedUrls);
+
+    const planDatabaseScript = [
+      'if [ "${agentNativePrebuiltBuild:-}" = "true" ]; then export DATABASE_URL="${agentNativePrebuiltDatabaseUrl:?}" BETTER_AUTH_SECRET="${agentNativePrebuiltAuthSecret:?}"; else export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}; fi',
+      "unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED",
+      'printf "%s\\n" "$DATABASE_URL"',
+    ].join("\n");
+    const runPlanDatabaseSelection = (env: NodeJS.ProcessEnv): string =>
+      execFileSync("bash", ["-c", planDatabaseScript], {
+        env,
+        encoding: "utf8",
+      }).trim();
+
+    assert.equal(
+      runPlanDatabaseSelection({
+        agentNativePrebuiltBuild: "true",
+        agentNativePrebuiltDatabaseUrl: "postgres://build.example/plan",
+        agentNativePrebuiltAuthSecret: "fake",
+        DATABASE_URL: "masked",
+        NETLIFY_DATABASE_URL: "masked",
+        NETLIFY_DATABASE_URL_UNPOOLED: "masked",
+        DATABASE_URL_UNPOOLED: "masked",
+      }),
+      "postgres://build.example/plan",
+    );
+    assert.equal(
+      runPlanDatabaseSelection({
+        agentNativePrebuiltBuild: "",
+        DATABASE_URL: "postgres://fallback.example/plan",
+        NETLIFY_DATABASE_URL: "postgres://beta.example/plan",
+        NETLIFY_DATABASE_URL_UNPOOLED: "masked",
+        DATABASE_URL_UNPOOLED: "masked",
+      }),
+      "postgres://beta.example/plan",
     );
   });
 

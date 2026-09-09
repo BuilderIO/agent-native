@@ -919,6 +919,57 @@ const frFR = {
     },
     clips: {
       s001: "Capture d'écran du modèle Clips",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle:
+        "Des enregistrements d'écran que votre agent IA peut voir et entendre",
+      heroDescription:
+        "Clips est un enregistreur d'écran gratuit et open source pour partager des bugs, des retours et des tutoriels avec des agents IA.",
+      heroCta: "Enregistrer un clip",
+      useCasesHeading: "Que pouvez-vous faire avec Clips ?",
+      useCasesBody:
+        "Commencez avec un clip que vous avez enregistré ou qu'on vous a partagé. Donnez le contexte à votre agent IA et dites-lui ce dont vous avez besoin.",
+      useCase1Title: "Agir sur un retour enregistré",
+      useCase1Body:
+        "Donnez à votre agent IA un retour enregistré à transformer en plan ou aidez-le à mettre en œuvre les modifications demandées.",
+      useCase2Title: "Enquêter sur un bug signalé",
+      useCase2Body:
+        "Partagez un enregistrement de bug avec votre agent IA pour qu'il enquête sur ce qui s'est mal passé et détermine les prochaines étapes.",
+      useCase3Title: "Créer à partir d'un brief enregistré",
+      useCase3Body:
+        "Utilisez un brief enregistré pour guider votre agent IA dans la création d'une présentation, d'un design, d'un contenu ou d'une modification d'application.",
+      keyFeaturesEyebrow: "Fonctionnalités clés",
+      keyFeaturesHeading:
+        "Tout ce qu'il faut pour enregistrer, transcrire et partager",
+      feature1Title: "Enregistrements lisibles par un agent",
+      feature1Body:
+        "Partagez la transcription et les images horodatées d'un clip avec votre agent IA via un seul lien lisible par un agent.",
+      feature2Title: "Transcriptions automatiques",
+      feature2Body:
+        "Obtenez les transcriptions des enregistrements, réunions et dictées. Cliquez sur une ligne de transcription pour revenir à ce moment.",
+      feature3Title: "Journaux de débogage du navigateur",
+      feature3Body:
+        "Capturez les erreurs de console et les requêtes échouées avec votre enregistrement grâce à l'extension Chrome de Clips.",
+      feature4Title: "Agent IA intégré",
+      feature4Body:
+        "Interrogez l'agent IA intégré sur un clip ou sur toute votre bibliothèque, et laissez-le modifier les transcriptions dans le chat.",
+      feature5Title: "Bibliothèque d'enregistrements consultable",
+      feature5Body:
+        "Trouvez des clips en recherchant dans leurs transcriptions. Organisez vos enregistrements avec des dossiers, des tags et des espaces d'équipe.",
+      feature6Title: "Dictée à réponse par pression",
+      feature6Body:
+        "Maintenez Fn dans l'application de bureau pour dicter dans d'autres applications. Retrouvez les transcriptions et le texte nettoyé dans votre historique.",
+      teammatesLine:
+        "Vos coéquipiers peuvent regarder le même enregistrement dans le lecteur.",
+      teammatesLinkLabel: "Lire le guide de partage avec les agents",
+      seeInActionHeading: "Voir Clips en action",
+      seeInActionBody:
+        "Regardez Clips en action, de l'enregistrement d'un workflow dans le navigateur à la démonstration d'une tâche à un agent IA.",
+      watchClipLabel: "Regarder le clip",
+      finalCtaHeading: "Mettez votre prochain clip au travail",
+      finalCtaBody:
+        "Enregistrez une explication ou apportez un clip partagé à votre agent IA.",
+      finalCtaButton: "Ouvrir Clips",
       s002: "Enregistrement d'écran",
       s003: "Journaux de débogage du navigateur",
       s004: "Dicter",
@@ -981,27 +1032,26 @@ const frFR = {
       s058: "Gratuit et open source",
       s059: "Commencez maintenant",
       s060: "Choisissez ce que vous souhaitez capturer, puis commencez à enregistrer dans Clips.",
-      s061: "Voir plus d’applications",
       s062: "Afficher tous les modèles",
       faq: {
-        question1: "Clips est-il gratuit ?",
-        answer1: "Oui. Clips est gratuit et open source.",
-        question2: "L’IA peut-elle lire un enregistrement d’écran ?",
+        question1: "Clips est-il gratuit et open source ?",
+        answer1:
+          "Oui. Clips est un logiciel gratuit et open source. Vous pouvez utiliser l'application ou personnaliser et auto-héberger votre propre version.",
+        question2:
+          "Puis-je partager des enregistrements avec Claude, ChatGPT ou Cursor ?",
         answer2:
-          "Oui. Chaque clip contient une transcription, un résumé et des images horodatées qu’un agent peut lire directement.",
-        question3: "En quoi Clips est-il différent de Loom ?",
+          "Clips fournit un lien lisible par un agent, avec une transcription et des images horodatées. Votre agent doit pouvoir ouvrir le contenu lié et lire les images pour utiliser les deux. Certains modes de chat peuvent lire la transcription mais nécessitent que vous téléchargiez une image séparément.",
+        question3:
+          "Ai-je besoin de l'extension Chrome pour enregistrer mon écran ?",
         answer3:
-          "Clips est open source, vous possédez vos données et chaque lien partagé peut être lu par des agents IA, pas seulement par des personnes.",
+          "Non. Vous pouvez enregistrer depuis l'application web Clips. Utilisez l'extension Chrome lorsque vous voulez aussi les messages de console et les diagnostics réseau de l'onglet que vous montrez.",
         question4:
-          "Un enregistrement d’écran peut-il capturer les erreurs de la console ?",
+          "Les agents IA peuvent-ils regarder mes enregistrements d'écran ?",
         answer4:
-          "Oui. Clips capture les erreurs de la console du navigateur et les requêtes réseau échouées avec l’enregistrement. Elles sont jointes au même lien partagé que la transcription et les images. Un agent peut déboguer à partir d’un clip, pas seulement le regarder.",
-        question5: "Clips fonctionne-t-il avec Claude, ChatGPT ou Cursor ?",
+          "Avec Clips, les agents IA compatibles peuvent comprendre votre enregistrement grâce à une transcription et des images horodatées. Ils utilisent le texte et les images plutôt que de lire la vidéo, ce qui vous permet de poser des questions sur ce qui s'est passé ou de confier une tâche à votre agent IA à partir de l'enregistrement.",
+        question5: "Qui peut accéder à un enregistrement partagé ?",
         answer5:
-          "Oui ! Aucun plugin ni clé API n’est nécessaire. Collez un lien Clips partagé dans n’importe quel agent pour qu’il lise directement la transcription, le résumé et les images.",
-        question6: "Où sont stockés mes enregistrements ?",
-        answer6:
-          "Là où vous les déployez. Clips auto-hébergé conserve vos vidéos, transcriptions et analyses dans votre propre infrastructure.",
+          "Les enregistrements utilisent des liens publics par défaut, sauf si votre organisation modifie ce paramètre. Toute personne disposant du lien peut y accéder. Des options d'accès privé et organisationnel sont disponibles, et les clips privés peuvent être partagés avec des agents via des liens temporaires sans rendre l'enregistrement public.",
       },
       quickStart: {
         recordingMode: "Mode d’enregistrement",

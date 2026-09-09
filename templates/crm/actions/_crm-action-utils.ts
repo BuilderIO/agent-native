@@ -36,9 +36,14 @@ export function requireCrmScope(ctx?: ActionRunContext) {
 
 export function crmInitiatedBy(ctx?: ActionRunContext) {
   if (ctx?.caller === "automation") return "automation" as const;
+  // A WebMCP call is a browser-side agent driving the page's tools, not a
+  // human directly at the keyboard — `decideCrmWritePolicy` treats "human" as
+  // exempt from approval for high-risk writes, so leaving "webmcp" out of
+  // this list would let a destructive merge run unapproved through it.
   return ctx?.caller === "tool" ||
     ctx?.caller === "mcp" ||
-    ctx?.caller === "a2a"
+    ctx?.caller === "a2a" ||
+    ctx?.caller === "webmcp"
     ? ("agent" as const)
     : ("human" as const);
 }

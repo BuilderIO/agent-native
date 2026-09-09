@@ -40,10 +40,12 @@ Read the relevant skill before deeper work in that area.
 | `present-design-variants` | Generate 2-5 variants for the user to pick and refine |
 | `view-screen` | Re-read the current design or selected file when context is stale |
 | `navigate` | Move the UI to a design, file, or panel |
-| `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Hand off a finished design |
+| `export-png` | Export screen as PNG |
+| `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export a finished design |
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
   base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
   thumbnails, or replay chunks in app tables, `application_state`, `settings`,

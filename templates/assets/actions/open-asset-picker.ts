@@ -177,7 +177,7 @@ function shouldWriteNavigateCommand(
 
 const action = defineAction({
   description:
-    'Open the image Library picker inline so a person can browse, search, generate, and select an image or video asset. When the user asks to create a specific image and choose the best one, pass prompt, autoGenerate: true, and count: 3 so the Library opens with generated candidates. If the host can only open a browser link (e.g. a CLI or code editor), surface that link: after the user picks, the page auto-copies a short paste-back summary — or the user can simply tell you which candidate they want (e.g. "use image A"). Use search-assets, generate-image, generate-video, and export-asset for unattended flows.',
+    "Open the Assets Library picker when the user needs to browse or choose an existing asset, or explicitly wants to compare generated candidates. Do not use this action for direct image generation from the app chat: call generate-image for one result or generate-image-batch for several, because those actions return completed assets. Only set autoGenerate when the user will choose from candidates in the picker. If the host can only open a browser link, surface that link and continue with the user's selection. Use search-assets, generate-image, generate-video, and export-asset for unattended flows.",
   schema,
   http: { method: "GET" },
   readOnly: true,

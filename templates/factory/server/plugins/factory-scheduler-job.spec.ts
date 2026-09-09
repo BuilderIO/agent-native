@@ -84,14 +84,65 @@ describe("ensureFactoryAutomations", () => {
     expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
   });
 
+  it("repairs a suffixed PR babysit copy back to GitHub", async () => {
+    const copyPath = "jobs/factories/support-triage/factory-pr-babysit-2.md";
+    const copyContent = `---
+schedule: "*/5 * * * *"
+enabled: false
+orgId: org-1
+appId: factory
+template: pr-babysit
+repository: acme/widgets
+source: slack
+---
+Babysit pull requests.
+`;
+    resourceListContentMock.mockResolvedValue([
+      {
+        id: "copy",
+        owner: "__organization__:org-1",
+        path: copyPath,
+        content: copyContent,
+      },
+    ]);
+    resourceGetByPathMock.mockImplementation((_owner: string, path: string) => {
+      if (path !== copyPath) return null;
+      return {
+        id: "copy",
+        owner: "__organization__:org-1",
+        path: copyPath,
+        content: copyContent,
+        updatedAt: 1,
+      };
+    });
+    resourcePutIfCurrentMock.mockResolvedValue({ id: "copy" });
+
+    await ensureFactoryAutomations(
+      "owner@example.com",
+      "org-1",
+      "support-triage",
+    );
+
+    const saved = resourcePutIfCurrentMock.mock.calls.find(
+      (call) => call[0]?.path === copyPath,
+    )?.[0]?.content as string | undefined;
+    expect(saved).toMatch(/^source: github$/m);
+    expect(saved).toMatch(/^template: pr-babysit$/m);
+  });
+
   it("keeps the Slack template prompt lean and names the reaction argument", () => {
     const prompt = factoryAutomationTemplatePrompt("slack-feedback", "slack");
     expect(prompt).toContain("reaction robot_face 🤖");
     expect(prompt).toContain("get-slack-feedback-context");
     expect(prompt).toContain("productUxImplications false");
     expect(prompt).toContain("visual/UI defects");
+    expect(prompt).toContain("already has eyes 👀 or robot_face 🤖");
+    expect(prompt).toContain("alreadyClaimed true");
+    expect(prompt).toContain("clearBug may be omitted");
+    expect(prompt).toContain("neither eyes nor robot_face");
+    expect(prompt).toContain("omit reaction");
     expect(prompt).not.toContain("limit 20");
-    expect(prompt).not.toContain("👀");
+    expect(prompt).not.toContain("that action adds 👀");
   });
 
   it("keeps the PR babysit prompt as a thin action playbook", () => {

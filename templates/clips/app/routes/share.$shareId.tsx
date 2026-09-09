@@ -114,6 +114,7 @@ import { cn } from "@/lib/utils";
 
 import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
+import { isRecordingExpired } from "../../server/lib/recording-page-access";
 import {
   buildAgentApiUrls,
   buildAgentDiscoveryPayload,
@@ -269,11 +270,8 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
 
   if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
 
-  if (rec.expiresAt) {
-    const expires = new Date(rec.expiresAt).getTime();
-    if (Number.isFinite(expires) && expires < Date.now()) {
-      return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
-    }
+  if (isRecordingExpired(rec.expiresAt)) {
+    return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
   }
 
   if (rec.visibility !== "public" && !tokenGrantsAgentAccess) {
@@ -465,6 +463,7 @@ export default function ShareRoute() {
   // page while everything refetches. Start where the server started and adopt
   // the stored password after mount.
   const [password, setPassword] = useState<string | null>(null);
+  const [hasHydrated, setHasHydrated] = useState(false);
 
   useEffect(() => {
     if (!shareId) return;
@@ -476,6 +475,7 @@ export default function ShareRoute() {
       // coercion-ok: the fallback is visible to the viewer, not swallowed.
     } catch {}
   }, [shareId]);
+  useEffect(() => setHasHydrated(true), []);
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(startMs);
   const [commentOpen, setCommentOpen] = useState(false);
@@ -819,7 +819,7 @@ export default function ShareRoute() {
     ownerEmail.charAt(0).toUpperCase() ||
     loaderData.recording?.ownerInitial ||
     "C";
-  const recordedOn = formatRecordedOn(recording?.createdAt);
+  const recordedOn = formatRecordedOn(recording?.createdAt, !hasHydrated);
   const visibilityLabel = recording
     ? t(`shareUi.visibility.${recording.visibility}.label`)
     : "";
@@ -1832,13 +1832,17 @@ function sanitizeFilename(name: string): string {
   );
 }
 
-function formatRecordedOn(value: string | null | undefined): string {
+function formatRecordedOn(
+  value: string | null | undefined,
+  stable = false,
+): string {
   if (!value) return "";
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
-    date,
-  );
+  return new Intl.DateTimeFormat(stable ? "en-US" : undefined, {
+    dateStyle: "medium",
+    ...(stable ? { timeZone: "UTC" } : {}),
+  }).format(date);
 }
 
 function PublicAgentEmptyState({

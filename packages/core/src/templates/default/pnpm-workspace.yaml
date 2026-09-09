@@ -49,4 +49,5 @@ overrides:
 
 allowBuilds:
   esbuild: true
+  node-pty: true
   tesseract.js: true

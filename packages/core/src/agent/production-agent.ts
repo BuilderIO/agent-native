@@ -40,6 +40,7 @@ import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import { isObjectOnly } from "../mcp/tool-input-schema.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
 import {
   completeRun as completeProgressRun,
@@ -3744,7 +3745,7 @@ function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
 ): EngineTool["inputSchema"] | null {
   if (!schema) return { type: "object", properties: {} };
-  if (schema.type !== "object") return null;
+  if (!isObjectOnly(schema)) return null;
   type ToolParams = NonNullable<ActionTool["parameters"]>;
   let cloned: ToolParams;
   try {
@@ -8430,7 +8431,18 @@ export async function chainServerDrivenContinuation(opts: {
     }
   };
 
-  if (turnRunCount !== null && turnRunLedgerExhausted(turnRunCount)) {
+  // Fail closed: an unreadable ledger must not allow unbounded chaining.
+  // Treating DB failure as "count unknown, keep going" is how runaway
+  // continuations survive the budget that exists to stop them.
+  if (turnRunCount === null) {
+    await stopTurn(
+      "turn_budget_unreadable",
+      `turn ${effectiveTurnId} run-count ledger unreadable — refusing to chain further`,
+      `I stopped because I could not verify this request's continuation budget.`,
+    );
+    return;
+  }
+  if (turnRunLedgerExhausted(turnRunCount)) {
     await stopTurn(
       "turn_continuation_budget_exhausted",
       `turn ${effectiveTurnId} consumed ${turnRunCount} runs — refusing to chain further`,
