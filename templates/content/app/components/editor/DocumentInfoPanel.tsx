@@ -13,7 +13,7 @@ import {
   useDocumentProperties,
 } from "@/hooks/use-document-properties";
 
-import { ContentConnectionsSection } from "./ContentRelationships";
+import { ContentRelationshipHistorySection } from "./ContentRelationships";
 import { DescriptionField } from "./DescriptionField";
 import { DocumentProperties } from "./DocumentProperties";
 
@@ -109,7 +109,7 @@ export function DocumentInfoPanel({
         )}
       </section>
       {!isLocalFileDocument ? (
-        <ContentConnectionsSection pageId={document.id} />
+        <ContentRelationshipHistorySection pageId={document.id} />
       ) : null}
       {document.databaseMembership && !isLocalFileDocument ? (
         <DocumentProperties

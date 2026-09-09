@@ -1027,12 +1027,15 @@ function PropertyRow({
   t: TFunction;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
+  const canonicalRelation = canonicalRelationOptions(property);
   const value = (
     <div className="min-w-0 flex-1 whitespace-normal break-words text-left text-sm max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate">
       {property.definition.type === "relation" ? (
         <RelationValueSummary
           property={property}
           pageId={documentId}
+          navigable
+          showAll
           fallback={displayValue(property, t)}
         />
       ) : (
@@ -1072,7 +1075,22 @@ function PropertyRow({
           )}
         </div>
       )}
-      {canEditValues && property.editable ? (
+      {canonicalRelation ? (
+        <div className="flex min-w-0 items-start gap-1">
+          {value}
+          {canEditValues && property.editable ? (
+            <PropertyValuePopover
+              property={property}
+              documentId={documentId}
+              databaseDocumentId={databaseDocumentId}
+              portalled={popoversPortalled}
+              triggerClassName="size-6 w-6 shrink-0 justify-center"
+            >
+              <IconEdit className="size-3.5 text-muted-foreground" />
+            </PropertyValuePopover>
+          ) : null}
+        </div>
+      ) : canEditValues && property.editable ? (
         <PropertyValuePopover
           property={property}
           documentId={documentId}
@@ -2254,12 +2272,14 @@ export function PropertyValuePopover({
   databaseDocumentId = documentId,
   children,
   portalled = true,
+  triggerClassName,
 }: {
   property: DocumentProperty;
   documentId: string;
   databaseDocumentId?: string;
   children: React.ReactNode;
   portalled?: boolean;
+  triggerClassName?: string;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -2272,7 +2292,10 @@ export function PropertyValuePopover({
           aria-label={t("editor.properties.editProperty", {
             name: property.definition.name,
           })}
-          className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            triggerClassName,
+          )}
         >
           {children}
         </button>

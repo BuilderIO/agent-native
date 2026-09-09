@@ -26,6 +26,18 @@ into partial commits. Retry an uncertain write with the same operation ID and
 same arguments. A new intended change needs a new operation ID. Verify through
 an authorized relationship read before declaring the assignment complete.
 
+In the UI, Relation fields are clickable Page links. A reverse column appears
+only when it is configured; without one, the relationship is not displayed on
+that side. There is no separate Connections or Other connections list. If the
+last projection is removed, authorized Actions can still read preserved edges
+and independently available History can restore the projection.
+
+Bulk editing uses one list with three states: checked means linked from every
+selected row, mixed means linked from some, and unchecked means linked from
+none. Apply sends only net additions and observed removals through the canonical
+mutation Action as one atomic request. Preserve untouched assignments, and do
+not treat a read failure or incomplete observation as unchecked.
+
 ## Configuration and recovery
 
 `configure-content-relation-property` creates a local directional type or

@@ -14,7 +14,7 @@ export interface ContentRelationshipContext {
   typeId?: string;
   databaseId?: string;
   selectedPageIds?: string[];
-  surface: "picker" | "connections" | "bulk" | "history" | "configuration";
+  surface: "picker" | "bulk" | "history" | "configuration";
 }
 
 interface RelationshipContextOwner {

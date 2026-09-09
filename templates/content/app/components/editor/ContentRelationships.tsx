@@ -6,14 +6,12 @@ import type {
   ContentRelationshipHistoryChange,
   ContentRelationshipHistoryItem,
   ContentRelationshipItem,
-  MutateContentRelationshipsResult,
   RemoveContentRelationPropertyInput,
   RemoveContentRelationPropertyResult,
   RelationshipChange,
   RelationshipRouteRef,
 } from "@shared/relationships";
 import {
-  IconArrowLeft,
   IconArrowRight,
   IconArrowsExchange,
   IconCheck,
@@ -21,10 +19,10 @@ import {
   IconClockFilled,
   IconHistory,
   IconLink,
+  IconMinus,
   IconRotate,
   IconSearch,
   IconTrash,
-  IconX,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
@@ -62,6 +60,15 @@ import {
 } from "@/hooks/use-content-relationships";
 import { useRelationshipAppState } from "@/hooks/use-relationship-app-state";
 import { cn } from "@/lib/utils";
+
+import {
+  effectiveRelationshipBulkSelectionState,
+  planRelationshipBulkChanges,
+  relationshipBulkCandidates,
+  relationshipBulkReadStatus,
+  toggleRelationshipBulkIntent,
+  type RelationshipBulkIntent,
+} from "./relationship-bulk";
 
 export function relationshipOppositeEndpoint(
   edge: ContentRelationshipItem,
@@ -340,10 +347,14 @@ export function RelationValueSummary({
   property,
   pageId,
   fallback,
+  navigable = false,
+  showAll = false,
 }: {
   property: DocumentProperty;
   pageId: string;
   fallback?: React.ReactNode;
+  navigable?: boolean;
+  showAll?: boolean;
 }) {
   const t = useT();
   const relation = canonicalRelationOptions(property);
@@ -379,7 +390,7 @@ export function RelationValueSummary({
 
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-1">
-      {items.slice(0, 3).map((edge) => {
+      {(showAll ? items : items.slice(0, 3)).map((edge) => {
         const endpoint = relationshipOppositeEndpoint(edge, pageId);
         return (
           <span
@@ -389,7 +400,16 @@ export function RelationValueSummary({
               edge.state !== "active" && "opacity-60",
             )}
           >
-            <span className="min-w-0 truncate">{endpoint.title}</span>
+            {navigable ? (
+              <Link
+                to={`/page/${endpoint.pageId}`}
+                className="min-w-0 truncate rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {endpoint.title}
+              </Link>
+            ) : (
+              <span className="min-w-0 truncate">{endpoint.title}</span>
+            )}
             {edge.state !== "active" ? (
               <span className="ms-1 shrink-0 font-normal text-muted-foreground">
                 · {t(`relationships.states.${edge.state}`)}
@@ -398,7 +418,7 @@ export function RelationValueSummary({
           </span>
         );
       })}
-      {items.length > 3 ? (
+      {!showAll && items.length > 3 ? (
         <span className="text-xs text-muted-foreground">
           {t("relationships.moreCount", { count: items.length - 3 })}
         </span>
@@ -773,142 +793,25 @@ export function RelationValueEditor({
   );
 }
 
-function ConnectionRow({
-  edge,
+export function ContentRelationshipHistorySection({
   pageId,
-  onRemove,
-  pending,
 }: {
-  edge: ContentRelationshipItem;
   pageId: string;
-  onRemove: (edge: ContentRelationshipItem) => void;
-  pending: boolean;
 }) {
   const t = useT();
-  const endpoint = relationshipOppositeEndpoint(edge, pageId);
-  const canRemove =
-    edge.routes.length > 0 && edge.observedActivationIds.length > 0;
-  return (
-    <div className="group flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50">
-      {edge.direction === "outgoing" ? (
-        <IconArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
-      ) : (
-        <IconArrowLeft className="size-3.5 shrink-0 text-muted-foreground" />
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[11px] text-muted-foreground">
-          {edge.relationship.label}
-        </div>
-        <Link
-          to={`/page/${endpoint.pageId}`}
-          className="block truncate rounded text-sm font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {endpoint.title}
-        </Link>
-      </div>
-      {edge.state !== "active" ? (
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          {t(`relationships.states.${edge.state}`)}
-        </span>
-      ) : null}
-      {canRemove ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-          aria-label={t("relationships.removeConnection", {
-            name: endpoint.title,
-          })}
-          disabled={pending}
-          onClick={() => onRemove(edge)}
-        >
-          <IconX className="size-3.5" />
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
-export function ContentConnectionsSection({ pageId }: { pageId: string }) {
-  const t = useT();
   const formatters = useFormatters();
-  const relationships = useContentRelationships({
-    pageId,
-    direction: "both",
-    limit: 100,
-  });
   const history = useContentRelationshipHistory({ pageId, limit: 50 });
-  const mutate = useMutateContentRelationships();
   const undo = useUndoContentRelationshipRevision();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useRelationshipAppState({
-    pageId,
-    surface: historyOpen ? "history" : "connections",
-  });
-
-  async function finishRemoval(
-    result: MutateContentRelationshipsResult,
-    routes: RelationshipRouteRef[],
-  ) {
-    const refreshedHistory = await history.refetch();
-    const recovery = refreshedHistory.data?.items.find(
-      (item) => item.revisionId === result.revisionId,
-    )?.recovery.recoveryToken;
-    toast.success(
-      t("relationships.connectionRemoved"),
-      recovery
-        ? {
-            action: {
-              label: t("relationships.undo"),
-              onClick: () => {
-                void undoHistory(result.revisionId, recovery, routes);
-              },
-            },
-          }
-        : undefined,
-    );
-  }
-
-  async function remove(edge: ContentRelationshipItem) {
-    const route = edge.routes[0];
-    if (!route || edge.observedActivationIds.length === 0) return;
-    undo.clearFailedRequest();
-    setError(null);
-    try {
-      const result = await mutate.mutateAsync({
-        operationId: contentRelationshipOperationId(),
-        changes: [
-          {
-            kind: "remove",
-            edgeId: edge.edgeId,
-            observedActivationIds: edge.observedActivationIds,
-            observationToken: edge.observationToken,
-            route,
-          },
-        ],
-      });
-      await finishRemoval(result, [route]);
-    } catch (caught) {
-      if (isSupersededRelationshipMutationError(caught)) return;
-      setError(
-        relationshipMutationErrorMessage(
-          caught,
-          t("relationships.requestInterrupted"),
-          t("relationships.removeFailed"),
-        ),
-      );
-    }
-  }
+  useRelationshipAppState(historyOpen ? { pageId, surface: "history" } : null);
 
   async function undoHistory(
     revisionId: string,
     recoveryToken: string,
     routes: RelationshipRouteRef[] = [],
   ) {
-    mutate.clearFailedRequest();
     setError(null);
     try {
       await undo.mutateAsync({
@@ -930,86 +833,31 @@ export function ContentConnectionsSection({ pageId }: { pageId: string }) {
     }
   }
 
-  async function retryConnectionChange() {
+  async function retryHistoryChange() {
     setError(null);
     try {
-      if (mutate.failedVariables) {
-        const failedRequest = mutate.failedVariables;
-        const result = await mutate.retryFailed();
-        const routes = failedRequest.changes.map((change) => change.route);
-        await finishRemoval(result, routes);
-        return;
-      }
-      if (undo.failedVariables) {
-        await undo.retryFailed();
-        toast.success(t("relationships.changeUndone"));
-      }
+      await undo.retryFailed();
+      toast.success(t("relationships.changeUndone"));
     } catch (caught) {
       if (isSupersededRelationshipMutationError(caught)) return;
       setError(
         relationshipMutationErrorMessage(
           caught,
           t("relationships.requestInterrupted"),
-          mutate.failedVariables
-            ? t("relationships.removeFailed")
-            : t("relationships.undoFailed"),
+          t("relationships.undoFailed"),
         ),
       );
     }
   }
 
   return (
-    <section className="mt-5" data-content-connections>
-      <div className="flex items-center justify-between gap-2 px-2 py-1">
-        <h3 className="text-xs font-medium text-muted-foreground">
-          {t("relationships.connections")}
-        </h3>
-        {(relationships.data?.items.length ?? 0) > 0 ? (
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {formatters.formatNumber(relationships.data?.items.length ?? 0)}
-          </span>
-        ) : null}
-      </div>
-      {relationships.isLoading && !relationships.data ? (
-        <div className="grid gap-1 px-2 py-1">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-4/5" />
-        </div>
-      ) : relationships.isError ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="mx-1"
-          onClick={() => void relationships.refetch()}
-        >
-          {t("relationships.retryConnections")}
-        </Button>
-      ) : relationships.data?.items.length ? (
-        <div className="grid max-h-72 gap-0.5 overflow-y-auto">
-          {relationships.data.items.map((edge) => (
-            <ConnectionRow
-              key={edge.edgeId}
-              edge={edge}
-              pageId={pageId}
-              pending={mutate.isPending}
-              onRemove={(item) => void remove(item)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="px-2 py-3 text-sm text-muted-foreground">
-          {t("relationships.noConnections")}
-        </div>
-      )}
+    <section className="mt-5" data-content-relationship-history>
       {error ? (
         <RelationshipMutationFailure
           message={error}
-          pending={mutate.isPending || undo.isPending}
+          pending={undo.isPending}
           onRetry={
-            mutate.failedVariables || undo.failedVariables
-              ? () => void retryConnectionChange()
-              : undefined
+            undo.failedVariables ? () => void retryHistoryChange() : undefined
           }
           className="px-2 py-1 text-xs"
         />
@@ -1151,8 +999,11 @@ export function RelationBulkValueEditor({
       : null,
   );
   const mutate = useMutateContentRelationships();
-  const [mode, setMode] = useState<"add" | "remove">("add");
-  const [selectedOppositePageId, setSelectedOppositePageId] = useState("");
+  const [bulkEdit, setBulkEdit] = useState<{
+    intent: RelationshipBulkIntent;
+    observedEdges: ContentRelationshipItem[] | null;
+    observedCandidates: ContentRelationCandidate[];
+  }>({ intent: {}, observedEdges: null, observedCandidates: [] });
   const [error, setError] = useState<string | null>(null);
 
   useRelationshipAppState(
@@ -1176,28 +1027,19 @@ export function RelationBulkValueEditor({
       ? selectedSet.has(edge.targetPageId)
       : selectedSet.has(edge.sourcePageId),
   );
-  const removeCandidates = Array.from(
-    new Map(
-      relevantEdges.map((edge) => {
-        const anchor =
-          relation?.direction === "inverse"
-            ? edge.targetPageId
-            : edge.sourcePageId;
-        const endpoint = relationshipOppositeEndpoint(edge, anchor);
-        return [
-          endpoint.pageId,
-          {
-            pageId: endpoint.pageId,
-            title: endpoint.title,
-            context: {},
-            slotObservationToken: null,
-          },
-        ];
-      }),
-    ).values(),
-  );
-  const availableCandidates =
-    mode === "add" ? (candidates.data?.items ?? []) : removeCandidates;
+  const candidateInputs = [
+    ...(candidates.data?.items ?? []),
+    ...bulkEdit.observedCandidates,
+  ];
+  const selectionEdges = bulkEdit.observedEdges ?? relevantEdges;
+  const availableCandidates = relation
+    ? relationshipBulkCandidates({
+        candidates: candidateInputs,
+        edges: selectionEdges,
+        selectedPageIds,
+        direction: relation.direction,
+      })
+    : [];
   const normalizedQuery = query.trim().toLowerCase();
   const visibleCandidates = availableCandidates.filter(
     (candidate) =>
@@ -1207,87 +1049,64 @@ export function RelationBulkValueEditor({
   const typeDescriptor = types.data?.items.find(
     (item) => item.type.id === relation?.relationshipTypeId,
   );
-  const selectedCandidate = availableCandidates.find(
-    (candidate) => candidate.pageId === selectedOppositePageId,
-  );
+  const readStatus = relationshipBulkReadStatus([
+    relationships,
+    candidates,
+    types,
+  ]);
+  const hasChanges = Object.keys(bulkEdit.intent).length > 0;
 
   async function apply() {
-    if (!relation || !typeDescriptor || !selectedOppositePageId) return;
+    if (!relation || !typeDescriptor || readStatus !== "ready") return;
     setError(null);
     try {
+      const plan = planRelationshipBulkChanges({
+        candidates: availableCandidates,
+        edges: selectionEdges,
+        selectedPageIds,
+        direction: relation.direction,
+        forwardCardinality: typeDescriptor.version.forwardCardinality,
+        intent: bulkEdit.intent,
+      });
+      if (plan.error === "inverse-max-one") {
+        throw new Error(t("relationships.bulkInverseMaxOne"));
+      }
+      if (plan.error === "refresh-required") {
+        throw new Error(t("relationships.refreshBeforeReplacing"));
+      }
       const changes: RelationshipChange[] = [];
-      if (mode === "add") {
-        if (
-          relation.direction === "inverse" &&
-          typeDescriptor.version.forwardCardinality === "one" &&
-          selectedPageIds.length > 1
-        ) {
-          throw new Error(t("relationships.bulkInverseMaxOne"));
-        }
-        for (const pageId of selectedPageIds) {
-          const route = propertyRoute(property, pageId);
-          if (!route) throw new Error(t("relationships.routeUnavailable"));
-          const sourcePageId =
-            relation.direction === "forward" ? pageId : selectedOppositePageId;
-          const targetPageId =
-            relation.direction === "forward" ? selectedOppositePageId : pageId;
-          const current = relevantEdges.find(
-            (edge) =>
-              relation.direction === "forward" && edge.sourcePageId === pageId,
-          );
-          if (
-            typeDescriptor.version.forwardCardinality === "one" &&
-            (relation.direction === "inverse" ||
-              (current &&
-                relationshipOppositeEndpoint(current, pageId).pageId !==
-                  selectedOppositePageId))
-          ) {
-            const slotObservationToken =
-              relation.direction === "inverse"
-                ? selectedCandidate?.slotObservationToken
-                : current?.slotObservationToken;
-            if (!slotObservationToken) {
-              throw new Error(t("relationships.refreshBeforeReplacing"));
-            }
-            changes.push({
-              kind: "replace",
-              typeId: relation.relationshipTypeId,
-              typeVersionId: typeDescriptor.version.id,
-              sourcePageId,
-              targetPageId,
-              observedSlotToken: slotObservationToken,
-              route,
-            });
-          } else {
-            changes.push({
-              kind: "add",
-              typeId: relation.relationshipTypeId,
-              typeVersionId: typeDescriptor.version.id,
-              sourcePageId,
-              targetPageId,
-              route,
-            });
-          }
-        }
-      } else {
-        for (const edge of relevantEdges) {
-          const anchor =
-            relation.direction === "forward"
-              ? edge.sourcePageId
-              : edge.targetPageId;
-          if (
-            relationshipOppositeEndpoint(edge, anchor).pageId !==
-            selectedOppositePageId
-          ) {
-            continue;
-          }
-          const route = edgePropertyRoute(edge, property);
+      for (const item of plan.items) {
+        if (item.kind === "remove") {
+          const route = edgePropertyRoute(item.edge, property);
           if (!route) throw new Error(t("relationships.routeUnavailable"));
           changes.push({
             kind: "remove",
-            edgeId: edge.edgeId,
-            observedActivationIds: edge.observedActivationIds,
-            observationToken: edge.observationToken,
+            edgeId: item.edge.edgeId,
+            observedActivationIds: item.edge.observedActivationIds,
+            observationToken: item.edge.observationToken,
+            route,
+          });
+          continue;
+        }
+        const route = propertyRoute(property, item.anchorPageId);
+        if (!route) throw new Error(t("relationships.routeUnavailable"));
+        if (item.kind === "replace") {
+          changes.push({
+            kind: "replace",
+            typeId: relation.relationshipTypeId,
+            typeVersionId: typeDescriptor.version.id,
+            sourcePageId: item.sourcePageId,
+            targetPageId: item.targetPageId,
+            observedSlotToken: item.observedSlotToken,
+            route,
+          });
+        } else {
+          changes.push({
+            kind: "add",
+            typeId: relation.relationshipTypeId,
+            typeVersionId: typeDescriptor.version.id,
+            sourcePageId: item.sourcePageId,
+            targetPageId: item.targetPageId,
             route,
           });
         }
@@ -1298,12 +1117,7 @@ export function RelationBulkValueEditor({
         changes,
       });
       toast.success(
-        t(
-          mode === "add"
-            ? "relationships.bulkAdded"
-            : "relationships.bulkRemoved",
-          { count: result.results.length },
-        ),
+        t("relationships.bulkUpdated", { count: result.results.length }),
       );
       onDone();
     } catch (caught) {
@@ -1323,12 +1137,7 @@ export function RelationBulkValueEditor({
     try {
       const result = await mutate.retryFailed();
       toast.success(
-        t(
-          mode === "add"
-            ? "relationships.bulkAdded"
-            : "relationships.bulkRemoved",
-          { count: result.results.length },
-        ),
+        t("relationships.bulkUpdated", { count: result.results.length }),
       );
       onDone();
     } catch (caught) {
@@ -1352,29 +1161,6 @@ export function RelationBulkValueEditor({
   }
   return (
     <div className="grid gap-2">
-      <div className="grid grid-cols-2 gap-1 rounded bg-muted p-1">
-        {(["add", "remove"] as const).map((value) => (
-          <Button
-            key={value}
-            type="button"
-            size="sm"
-            variant={mode === value ? "secondary" : "ghost"}
-            className="h-7"
-            onClick={() => {
-              mutate.clearFailedRequest();
-              setError(null);
-              setMode(value);
-              setSelectedOppositePageId("");
-            }}
-          >
-            {t(
-              value === "add"
-                ? "relationships.addToSelected"
-                : "relationships.removeFromSelected",
-            )}
-          </Button>
-        ))}
-      </div>
       <div className="flex h-8 items-center gap-1 rounded border px-2">
         <IconSearch className="size-3.5 text-muted-foreground" />
         <Input
@@ -1389,33 +1175,116 @@ export function RelationBulkValueEditor({
         />
       </div>
       <div className="max-h-44 overflow-y-auto">
-        {visibleCandidates.length === 0 ? (
+        {readStatus === "loading" ? (
+          <div className="grid gap-1 px-2 py-2">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-4/5" />
+          </div>
+        ) : readStatus === "unavailable" || !typeDescriptor ? (
+          <div className="grid justify-items-center gap-1 px-2 py-3 text-center text-sm text-muted-foreground">
+            <span>{t("relationships.loadFailed")}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                void Promise.all([
+                  relationships.refetch(),
+                  candidates.refetch(),
+                  types.refetch(),
+                ])
+              }
+            >
+              {t("relationships.tryAgain")}
+            </Button>
+          </div>
+        ) : visibleCandidates.length === 0 ? (
           <div className="px-2 py-4 text-center text-sm text-muted-foreground">
-            {mode === "remove"
-              ? t("relationships.noSharedRelationships")
-              : t("relationships.noMatchingPages")}
+            {t("relationships.noMatchingPages")}
           </div>
         ) : (
-          visibleCandidates.map((candidate) => (
-            <button
-              key={candidate.pageId}
-              type="button"
-              className={cn(
-                "flex h-9 w-full items-center gap-2 rounded px-2 text-start text-sm hover:bg-accent",
-                selectedOppositePageId === candidate.pageId && "bg-accent",
-              )}
-              onClick={() => {
-                mutate.clearFailedRequest();
-                setError(null);
-                setSelectedOppositePageId(candidate.pageId);
-              }}
-            >
-              <span className="min-w-0 flex-1 truncate">{candidate.title}</span>
-              {selectedOppositePageId === candidate.pageId ? (
-                <IconCheck className="size-4" />
-              ) : null}
-            </button>
-          ))
+          visibleCandidates.map((candidate) => {
+            const selectionState = effectiveRelationshipBulkSelectionState(
+              candidate,
+              bulkEdit.intent,
+            );
+            const checkboxId = `bulk-relation-${property.definition.id}-${candidate.pageId}`;
+            return (
+              <label
+                key={candidate.pageId}
+                htmlFor={checkboxId}
+                className="flex h-9 w-full cursor-pointer items-center gap-2 rounded px-2 text-start text-sm hover:bg-accent"
+              >
+                <span className="relative flex size-4 shrink-0">
+                  <Checkbox
+                    id={checkboxId}
+                    className={cn(
+                      selectionState === "mixed" &&
+                        "data-[state=indeterminate]:bg-primary data-[state=indeterminate]:text-primary-foreground [&[data-state=indeterminate]_svg]:invisible",
+                    )}
+                    checked={
+                      selectionState === "mixed"
+                        ? "indeterminate"
+                        : selectionState === "all"
+                    }
+                    disabled={disabled || mutate.isPending}
+                    onCheckedChange={() => {
+                      mutate.clearFailedRequest();
+                      setError(null);
+                      setBulkEdit((current) => {
+                        const observedEdges = current.observedEdges ?? [
+                          ...relevantEdges,
+                        ];
+                        const observedCandidates =
+                          current.observedCandidates.some(
+                            (item) => item.pageId === candidate.pageId,
+                          )
+                            ? current.observedCandidates
+                            : [...current.observedCandidates, { ...candidate }];
+                        const frozenCandidates = relationshipBulkCandidates({
+                          candidates: [
+                            ...(candidates.data?.items ?? []),
+                            ...observedCandidates,
+                          ],
+                          edges: observedEdges,
+                          selectedPageIds,
+                          direction: relation.direction,
+                        });
+                        const nextIntent = toggleRelationshipBulkIntent({
+                          candidateId: candidate.pageId,
+                          candidates: frozenCandidates,
+                          intent: current.intent,
+                          direction: relation.direction,
+                          forwardCardinality:
+                            typeDescriptor.version.forwardCardinality,
+                        });
+                        return Object.keys(nextIntent).length === 0
+                          ? {
+                              intent: {},
+                              observedEdges: null,
+                              observedCandidates: [],
+                            }
+                          : {
+                              intent: nextIntent,
+                              observedEdges,
+                              observedCandidates,
+                            };
+                      });
+                    }}
+                  />
+                  {selectionState === "mixed" ? (
+                    <IconMinus
+                      data-relationship-bulk-mixed
+                      className="pointer-events-none absolute inset-0 size-4 text-primary-foreground"
+                    />
+                  ) : null}
+                </span>
+                <span className="min-w-0 flex-1 truncate">
+                  {candidate.title}
+                </span>
+              </label>
+            );
+          })
         )}
       </div>
       {error ? (
@@ -1433,7 +1302,13 @@ export function RelationBulkValueEditor({
         <Button
           type="button"
           size="sm"
-          disabled={disabled || mutate.isPending || !selectedOppositePageId}
+          disabled={
+            disabled ||
+            mutate.isPending ||
+            readStatus !== "ready" ||
+            !typeDescriptor ||
+            !hasChanges
+          }
           onClick={() => void apply()}
         >
           {t("relationships.apply")}

@@ -115,6 +115,12 @@ export function RelationPropertyConfigurationDialog({
         ownerDatabaseId,
       )
     : null;
+  const ownerDatabase = (databases.data?.databases ?? []).find(
+    (database) => database.databaseId === ownerDatabaseId,
+  );
+  const targetDatabase = (databases.data?.databases ?? []).find(
+    (database) => database.databaseId === targetDatabaseId,
+  );
 
   async function submit() {
     setError(null);
@@ -262,6 +268,13 @@ export function RelationPropertyConfigurationDialog({
                   placeholder={t("relationships.inverseLabelPlaceholder")}
                   onChange={(event) => setInverseLabel(event.target.value)}
                 />
+                <p className="text-sm text-muted-foreground">
+                  {t("relationships.inverseLabelHelper", {
+                    name:
+                      inverseLabel.trim() ||
+                      t("relationships.inverseLabelPlaceholder"),
+                  })}
+                </p>
               </div>
               <fieldset className="grid gap-2">
                 <legend className="text-sm font-medium">
@@ -292,6 +305,9 @@ export function RelationPropertyConfigurationDialog({
                     </label>
                   ))}
                 </div>
+                <p className="text-sm text-muted-foreground">
+                  {t("relationships.emptyLinksHelper")}
+                </p>
               </fieldset>
               <div className="grid gap-2">
                 <Label htmlFor="relation-database-search">
@@ -375,13 +391,41 @@ export function RelationPropertyConfigurationDialog({
                     ))
                   )}
                 </div>
+                {ownerDatabase && targetDatabase ? (
+                  <p className="text-sm text-muted-foreground">
+                    {t(
+                      forwardCardinality === "one"
+                        ? "relationships.linkContextOne"
+                        : "relationships.linkContextMany",
+                      {
+                        source: ownerDatabase.title,
+                        target: targetDatabase.title,
+                      },
+                    )}
+                  </p>
+                ) : null}
               </div>
               <div className="grid gap-3 border-t pt-4">
                 <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="relation-create-inverse">
-                    {t("relationships.createInverseProperty")}
+                  <Label
+                    htmlFor="relation-create-inverse"
+                    className="min-w-0 flex-1 break-words"
+                    title={
+                      targetDatabase
+                        ? t("relationships.createInverseProperty", {
+                            name: targetDatabase.title,
+                          })
+                        : undefined
+                    }
+                  >
+                    {targetDatabase
+                      ? t("relationships.createInverseProperty", {
+                          name: targetDatabase.title,
+                        })
+                      : t("relationships.createInversePropertyUnselected")}
                   </Label>
                   <Switch
+                    className="shrink-0"
                     id="relation-create-inverse"
                     checked={createInverse}
                     onCheckedChange={(checked) => {

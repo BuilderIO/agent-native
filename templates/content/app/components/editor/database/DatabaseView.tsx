@@ -202,6 +202,7 @@ import {
   useUpdateContentDatabaseView,
   writeBuilderAttachPreviewToCache,
 } from "@/hooks/use-content-database";
+import { canonicalRelationOptions } from "@/hooks/use-content-relationships";
 import {
   useContentSpaces,
   useDeleteContentSpace,
@@ -15571,6 +15572,10 @@ function DatabaseBulkPropertyValueEditor({
   if (type === "relation") {
     return (
       <RelationBulkValueEditor
+        key={JSON.stringify([
+          property.definition.id,
+          selectedItems.map((item) => item.document.id).sort(),
+        ])}
         property={property}
         selectedItems={selectedItems}
         disabled={disabled}
@@ -18137,6 +18142,7 @@ function DatabaseTableRow({
               <RelationValueSummary
                 property={itemProperty}
                 pageId={item.document.id}
+                navigable
                 fallback={databaseTableCellDisplayValue(
                   itemProperty,
                   item,
@@ -18177,6 +18183,20 @@ function DatabaseTableRow({
               // Blocks cells are a read-only word count in the table; the body
               // is edited on the page, not inline.
               value
+            ) : canonicalRelationOptions(itemProperty) ? (
+              <div className="flex w-full min-w-0 items-start gap-1">
+                <div className="min-w-0 flex-1">{value}</div>
+                {canEdit && itemProperty.editable ? (
+                  <PropertyValuePopover
+                    property={itemProperty}
+                    documentId={item.document.id}
+                    databaseDocumentId={databaseDocumentId}
+                    triggerClassName="size-6 w-6 shrink-0 justify-center"
+                  >
+                    <IconPencil className="size-3.5 text-muted-foreground" />
+                  </PropertyValuePopover>
+                ) : null}
+              </div>
             ) : canEdit && itemProperty.editable ? (
               <PropertyValuePopover
                 property={itemProperty}

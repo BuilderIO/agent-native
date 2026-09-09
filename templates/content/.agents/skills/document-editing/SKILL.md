@@ -105,8 +105,10 @@ pnpm action permanently-delete-document --id abc123
 
 For assignments to People Pages and other typed Page connections, follow
 [Typed Relationships](references/typed-relationships.md). Relation columns and
-Connections share canonical edges; use the relationship Actions for changes,
-including bulk work and recovery.
+their optional reverse columns project canonical edges as clickable fields; use
+the relationship Actions for changes, including bulk work and recovery. The
+current slice has no separate Connections or Other connections list, and
+History remains available independently after the last projection is removed.
 
 ## Comments
 
