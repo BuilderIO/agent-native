@@ -140,9 +140,7 @@ describe("responsive Interact wiring", () => {
     expect(source).toContain(
       'className="pointer-events-none flex min-w-0 justify-center"',
     );
-    expect(source).toContain(
-      "open={minimalUi ? minimalRightSidebarOpen : undefined}",
-    );
+    expect(source).toContain("isMobileViewport && minimalRightSidebarOpen");
   });
 
   it("pushes editing safety live in addition to baking it", () => {

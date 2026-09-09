@@ -1458,6 +1458,14 @@ function DesignEditor() {
   const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
   const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] =
     useState(minimalUiByDefault);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobileViewport(mediaQuery.matches);
+    update();
+    mediaQuery.addEventListener("change", update);
+    return () => mediaQuery.removeEventListener("change", update);
+  }, []);
   const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -21272,7 +21280,9 @@ function DesignEditor() {
       !initialGenerationChromeLimited &&
       mode === "edit" ? (
         <Sheet
-          open={minimalUi ? minimalRightSidebarOpen : undefined}
+          open={
+            minimalUi ? isMobileViewport && minimalRightSidebarOpen : undefined
+          }
           onOpenChange={minimalUi ? setMinimalRightSidebarOpen : undefined}
         >
           {!minimalUi ? (
