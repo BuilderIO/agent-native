@@ -2,7 +2,10 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches:
+      - main
+      - codex/agentkit-lifecycle
+      - codex/agentkit-react-components
 
 # Cancel an in-progress CI run when a new commit is pushed to the same PR.
 # Without this, every push starts a fresh ~20-min matrix while the prior one

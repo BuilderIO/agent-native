@@ -2,7 +2,10 @@ name: Chat template E2E
 
 on:
   pull_request:
-    branches: [main]
+    branches:
+      - main
+      - codex/agentkit-lifecycle
+      - codex/agentkit-react-components
   workflow_dispatch:
 
 concurrency:
