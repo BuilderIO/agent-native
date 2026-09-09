@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import { readOceanColors } from "./brand-colors.js";
-// Type-only, so this import is erased and the renderer stays off the static
-// graph. Importing any *value* from ./renderer here (or from brand-colors)
-// pulls the whole vgpu runtime into the homepage entry chunk -- which is
-// exactly the regression ocean-colors.ts exists to prevent.
+import { HERO_BOTTOM_FADE_START_PERCENT } from "./hero-layout.js";
+// Type-only, so this stays off the static graph. A value import here (or from
+// brand-colors/tuning/ocean-colors) would pull the renderer into auth's entry
+// chunk -- see hero-layout.ts.
 import type { OceanRenderer } from "./renderer.js";
-import { OCEAN_TUNING } from "./tuning.js";
 
 /** Keep the wave's first frame from appearing as a hard visual pop. */
 const FADE_IN_MS = 700;
@@ -149,7 +148,7 @@ export function HeroOceanBackground({
   // Inline because the stop position is a tuning value, and no Tailwind mask
   // utility takes an arbitrary percentage from a runtime constant. 100 means
   // the preset wants the canvas to reach the section edge unmasked.
-  const { bottomFadeStartPercent } = OCEAN_TUNING;
+  const bottomFadeStartPercent = HERO_BOTTOM_FADE_START_PERCENT;
   const mask =
     bottomFadeStartPercent >= 100
       ? undefined
