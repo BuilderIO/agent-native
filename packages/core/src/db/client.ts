@@ -189,12 +189,14 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
     };
   }
 
-  const url = getDatabaseUrl(fallback);
+  const databaseUrl = usableRuntimeDatabaseValue("DATABASE_URL");
+  const netlifyDatabaseUrl = usableRuntimeDatabaseValue("NETLIFY_DATABASE_URL");
+  const url = databaseUrl || netlifyDatabaseUrl || fallback;
   return {
     url: isServerlessRuntime() ? stripNeonPooler(url) : url,
-    source: envDatabaseValue("DATABASE_URL")
+    source: databaseUrl
       ? "DATABASE_URL"
-      : envDatabaseValue("NETLIFY_DATABASE_URL")
+      : netlifyDatabaseUrl
         ? "NETLIFY_DATABASE_URL"
         : "default",
   };

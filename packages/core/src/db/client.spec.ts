@@ -253,6 +253,21 @@ describe("getRuntimeDatabaseUrl", () => {
     expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL");
   });
 
+  it("ignores a malformed DATABASE_URL and falls back to Netlify's runtime URL", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("DATABASE_URL", "postgresql://");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { getRuntimeDatabaseSource, getRuntimeDatabaseUrl } =
+      await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://netlify.example/db");
+    expect(getRuntimeDatabaseSource()).toBe("NETLIFY_DATABASE_URL");
+  });
+
   it("keeps pooled URLs unchanged outside serverless runtimes", async () => {
     vi.stubEnv(
       "DATABASE_URL",
