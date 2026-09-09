@@ -781,6 +781,10 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteContentDatabase.run({ databaseId: seed.databaseId }),
     );
+    // The preserved live member would reject purge before the lifecycle race.
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.documentId, seed.documentId));
     let releaseHolder = () => {};
     let holder: Promise<unknown> | undefined;
     let restore: Promise<any> | undefined;
@@ -815,7 +819,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
         () => null,
         (error: unknown) => error,
       );
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitForPostgresLockWait(2);
       releaseHolder();
       await holder;
       await restore;
