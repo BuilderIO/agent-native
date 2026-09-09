@@ -360,6 +360,8 @@ const messages = {
     createAutomationSubmitDescription: "将此作业保存到自动化标签页。",
     automationCreated: "已创建自动化",
     automationCreateFailed: "无法创建自动化。",
+    automationCreateRefreshFailed:
+      "已创建，但列表未刷新。请留在此页或再次打开自动化。",
     automationSource: "来源",
     automationSourceDescription: "选择此作业读取的位置。",
     automationSourceSlackHint: "频道消息和线程。",

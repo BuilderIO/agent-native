@@ -383,6 +383,8 @@ const messages = {
     createAutomationSubmitDescription: "Save this job to the Automations tab.",
     automationCreated: "Automation created",
     automationCreateFailed: "Could not create the automation.",
+    automationCreateRefreshFailed:
+      "Created, but the list did not refresh. Stay here or open Automations again.",
     automationSource: "Source",
     automationSourceDescription: "Choose where this job reads from.",
     automationSourceSlackHint: "Channel messages and threads.",

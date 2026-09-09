@@ -985,16 +985,17 @@ function AutomationsView({
   }
 
   const selectAutomation = useCallback(
-    (id: string) => {
-      const nextAutomation = automations.find(
-        (automation) => automation.id === id,
-      );
-      if (nextAutomation) {
-        const nextDraft = draftForAutomation(nextAutomation);
-        syncedConfigKeyRef.current = automationEditorConfigKey(nextDraft);
-        draftRef.current = nextDraft;
-        setDraft(nextDraft);
+    (id: string, listed: FactoryAutomation[] = automations) => {
+      const nextAutomation = listed.find((automation) => automation.id === id);
+      if (!nextAutomation) {
+        // Writing the id while the list still lacks the row is what the
+        // missing-automation empty state then reports as "gone".
+        return false;
       }
+      const nextDraft = draftForAutomation(nextAutomation);
+      syncedConfigKeyRef.current = automationEditorConfigKey(nextDraft);
+      draftRef.current = nextDraft;
+      setDraft(nextDraft);
       setSearchParams(
         (current) => {
           const next = new URLSearchParams(current);
@@ -1004,6 +1005,7 @@ function AutomationsView({
         },
         { replace: true },
       );
+      return true;
     },
     [automations, setSearchParams],
   );
@@ -1155,9 +1157,22 @@ function AutomationsView({
           factoryId={factoryId}
           onCancel={() => setCreateOpen(false)}
           onCreated={(automationId) => {
-            void automationsQuery.refetch().finally(() => {
-              selectAutomation(automationId);
-            });
+            void automationsQuery
+              .refetch()
+              .then((result) => {
+                const listed = result.data;
+                if (
+                  result.error ||
+                  !listed?.some((automation) => automation.id === automationId)
+                ) {
+                  toast.error(t("factoryRoute.automationCreateRefreshFailed"));
+                  return;
+                }
+                selectAutomation(automationId, listed);
+              })
+              .catch(() => {
+                toast.error(t("factoryRoute.automationCreateRefreshFailed"));
+              });
           }}
         />
       </div>

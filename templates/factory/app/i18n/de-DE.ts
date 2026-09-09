@@ -391,6 +391,8 @@ const messages = {
       "Diesen Job im Automatisierungen-Tab speichern.",
     automationCreated: "Automatisierung erstellt",
     automationCreateFailed: "Automatisierung konnte nicht erstellt werden.",
+    automationCreateRefreshFailed:
+      "Erstellt, aber die Liste wurde nicht aktualisiert. Bleib hier oder öffne Automatisierungen erneut.",
     automationSource: "Quelle",
     automationSourceDescription: "Wählen Sie, wo dieser Job liest.",
     automationSourceSlackHint: "Kanalnachrichten und Threads.",

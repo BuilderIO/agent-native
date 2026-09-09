@@ -71,7 +71,9 @@ describe("Factory route factory switching", () => {
     const source = readSource();
     expect(source).toContain("if (selectedId && !automationMissing) return;");
     expect(source).toContain("mergeListedAutomationDraft");
-    expect(source).toContain("automationsQuery.refetch().finally(");
+    expect(source).toContain("selectAutomation(automationId, listed)");
+    expect(source).toContain("factoryRoute.automationCreateRefreshFailed");
+    expect(source).not.toContain("automationsQuery.refetch().finally(");
     expect(source).not.toContain(
       "automations.find((automation) => automation.id === selectedId) ??\n    automations[0]",
     );

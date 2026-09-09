@@ -371,6 +371,8 @@ const messages = {
     createAutomationSubmitDescription: "حفظ هذه المهمة في علامة تبويب الأتمتة.",
     automationCreated: "تم إنشاء الأتمتة",
     automationCreateFailed: "تعذّر إنشاء الأتمتة.",
+    automationCreateRefreshFailed:
+      "تم الإنشاء، لكن القائمة لم تُحدَّث. ابقَ هنا أو افتح الأتمتة مرة أخرى.",
     automationSource: "المصدر",
     automationSourceDescription: "اختر من أين تقرأ هذه المهمة.",
     automationSourceSlackHint: "رسائل القناة والخيوط.",

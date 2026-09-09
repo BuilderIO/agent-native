@@ -360,6 +360,8 @@ const messages = {
     createAutomationSubmitDescription: "將此工作儲存到自動化分頁。",
     automationCreated: "已建立自動化",
     automationCreateFailed: "無法建立自動化。",
+    automationCreateRefreshFailed:
+      "已建立，但列表未重新整理。請留在此頁或再次開啟自動化。",
     automationSource: "來源",
     automationSourceDescription: "選擇此工作讀取的位置。",
     automationSourceSlackHint: "頻道訊息與討論串。",

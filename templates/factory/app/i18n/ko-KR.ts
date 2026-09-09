@@ -379,6 +379,8 @@ const messages = {
     createAutomationSubmitDescription: "이 작업을 자동화 탭에 저장합니다.",
     automationCreated: "자동화를 만들었습니다",
     automationCreateFailed: "자동화를 만들지 못했습니다.",
+    automationCreateRefreshFailed:
+      "만들어졌지만 목록이 새로고침되지 않았습니다. 여기에 있거나 자동화를 다시 여세요.",
     automationSource: "소스",
     automationSourceDescription: "이 작업이 읽는 위치를 고릅니다.",
     automationSourceSlackHint: "채널 메시지와 스레드.",

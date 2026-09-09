@@ -383,6 +383,8 @@ const messages = {
     createAutomationSubmitDescription: "このジョブを自動化タブに保存します。",
     automationCreated: "自動化を作成しました",
     automationCreateFailed: "自動化を作成できませんでした。",
+    automationCreateRefreshFailed:
+      "作成しましたが、一覧が更新されませんでした。このままにするか、自動化をもう一度開いてください。",
     automationSource: "ソース",
     automationSourceDescription: "このジョブが読み取る場所を選びます。",
     automationSourceSlackHint: "チャンネルのメッセージとスレッド。",

@@ -372,6 +372,8 @@ const messages = {
     createAutomationSubmitDescription: "इस जॉब को ऑटोमेशन टैब में सहेजें।",
     automationCreated: "ऑटोमेशन बन गया",
     automationCreateFailed: "ऑटोमेशन नहीं बन सका।",
+    automationCreateRefreshFailed:
+      "बन गया, लेकिन सूची रीफ़्रेश नहीं हुई। यहीं रहें या ऑटोमेशन फिर खोलें।",
     automationSource: "स्रोत",
     automationSourceDescription: "चुनें कि यह जॉब कहाँ से पढ़े।",
     automationSourceSlackHint: "चैनल संदेश और थ्रेड।",

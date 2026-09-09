@@ -390,6 +390,8 @@ const messages = {
     createAutomationSubmitDescription: "Salvar este job na aba Automações.",
     automationCreated: "Automação criada",
     automationCreateFailed: "Não foi possível criar a automação.",
+    automationCreateRefreshFailed:
+      "Criada, mas a lista não atualizou. Fique aqui ou abra Automações de novo.",
     automationSource: "Origem",
     automationSourceDescription: "Escolha de onde este job lê.",
     automationSourceSlackHint: "Mensagens e threads do canal.",

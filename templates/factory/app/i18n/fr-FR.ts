@@ -395,6 +395,8 @@ const messages = {
       "Enregistrer ce job dans l’onglet Automatisations.",
     automationCreated: "Automatisation créée",
     automationCreateFailed: "Impossible de créer l’automatisation.",
+    automationCreateRefreshFailed:
+      "Créée, mais la liste ne s’est pas actualisée. Restez ici ou rouvrez Automatisations.",
     automationSource: "Origine",
     automationSourceDescription: "Choisissez d’où ce job lit.",
     automationSourceSlackHint: "Messages et fils du canal.",

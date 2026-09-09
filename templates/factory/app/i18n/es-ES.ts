@@ -394,6 +394,8 @@ const messages = {
       "Guardar este trabajo en Automatizaciones.",
     automationCreated: "Automatización creada",
     automationCreateFailed: "No se pudo crear la automatización.",
+    automationCreateRefreshFailed:
+      "Se creó, pero la lista no se actualizó. Quédate aquí o vuelve a abrir Automatizaciones.",
     automationSource: "Origen",
     automationSourceDescription: "Elija de dónde lee este trabajo.",
     automationSourceSlackHint: "Mensajes y hilos del canal.",
