@@ -19,7 +19,6 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
-
 - Use actions for documents, blocks, comments, media, sharing, navigation, and
   Notion integration. Do not mutate document rows directly unless a skill says to
   and access checks are preserved. Never use `curl`, raw HTTP requests, or

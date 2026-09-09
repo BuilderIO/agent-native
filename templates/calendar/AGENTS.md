@@ -17,7 +17,6 @@ Detailed event, availability, booking, storage, and UI rules live in
 
 ## Core Rules
 
-
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
   base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
   thumbnails, or replay chunks in app tables, `application_state`, `settings`,

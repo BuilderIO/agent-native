@@ -21,7 +21,6 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 
 ## Core Rules
 
-
 - Keep large payloads out of SQL: no video/audio, images, PDFs, thumbnails,
   base64, or `data:` URLs in app tables, `application_state`, `settings`, or
   `resources` — persist URLs, ids, or handles and keep bytes in configured

@@ -27,7 +27,6 @@ generating or editing a plan.
 
 ## Core Rules
 
-
 - Follow the root framework rules: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
 - Store large file/blob payloads in configured file/blob storage, not SQL: no

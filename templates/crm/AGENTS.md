@@ -10,7 +10,6 @@ HubSpot/Salesforce lens; UI and agent share actions.
 
 ## Core model
 
-
 - **Typed attributes**, 17 types, two of them system-only (interaction and
   personal-name). Call `list-crm-attributes` first; never guess a slug or type.
 - **Managed options.** A status/select value must already exist as an option;

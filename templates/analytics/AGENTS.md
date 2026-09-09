@@ -49,7 +49,6 @@ certified ones); label figures "Unverified" when no live query ran.
 
 ## Core Rules
 
-
 - A sibling app sends natural-language or shaped input over A2A, never SQL; this
   app owns schema, source selection, and tools. Prefer natural-language
   delegation; shaped reads are stable contracts.

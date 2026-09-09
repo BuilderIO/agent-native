@@ -19,7 +19,6 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
-
 - Use actions for reads, labels, settings, drafts, queued drafts, filters,
   scheduling, refresh, and CRM context. Don't edit mail SQL directly unless a
   skill or action calls for it.

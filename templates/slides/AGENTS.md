@@ -38,7 +38,6 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
-
 - Keep large files/blobs in configured file storage, not SQL, settings, or
   resources; persist only URLs, ids, or handles.
 - Never hardcode secrets or private/customer data; use vault/OAuth/runtime
