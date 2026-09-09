@@ -30,6 +30,7 @@ import {
   titleMatchConfirmsSave,
   updateAdditionalBlockContents,
   updateDocumentLoadFailureState,
+  utilityPanelAfterCommentFocusDismissal,
   visualEditorInstanceKey,
 } from "./DocumentEditor";
 import {
@@ -38,6 +39,12 @@ import {
 } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("dismisses mobile comment focus without closing Info", () => {
+    expect(utilityPanelAfterCommentFocusDismissal("comments")).toBeNull();
+    expect(utilityPanelAfterCommentFocusDismissal("info")).toBe("info");
+    expect(utilityPanelAfterCommentFocusDismissal(null)).toBeNull();
+  });
+
   it("keeps the selected inline conversation visible after its last thread resolves", () => {
     expect(
       documentEditorShowsInlineComments({
@@ -1053,6 +1060,10 @@ describe("document editor layout", () => {
       new URL("./DocumentInfoPanel.tsx", import.meta.url),
       { encoding: "utf8" },
     );
+    const properties = readFileSync(
+      new URL("./DocumentProperties.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
 
     expect(source).toContain("<DocumentInfoPanel");
     expect(source).toContain("{!isDatabasePage ? (");
@@ -1061,6 +1072,21 @@ describe("document editor layout", () => {
     );
     expect(infoPanel).toContain("<DescriptionField");
     expect(infoPanel).toContain("<DocumentProperties");
+    expect(source).toContain("ref={setUtilityPanelSheetContainer}");
+    expect(source).toContain("utilityPanelSheetContainer,");
+    expect(infoPanel).toContain("popoverContainer={popoverContainer}");
+    expect(properties).toMatch(
+      /<PropertyValuePopover[\s\S]*?container=\{popoverContainer\}/,
+    );
+    expect(properties).toMatch(
+      /<PropertyManagementPopover[\s\S]*?popoverContainer=\{popoverContainer\}/,
+    );
+    expect(properties).toMatch(
+      /<HiddenPropertiesMenu[\s\S]*?popoverContainer=\{popoverContainer\}/,
+    );
+    expect(properties).toMatch(
+      /<AddProperty[\s\S]*?popoverContainer=\{popoverContainer\}/,
+    );
     expect(infoPanel).toContain(
       "databaseId={databaseId ?? document.databaseMembership.databaseId}",
     );
@@ -1347,10 +1373,14 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("data-[state=closed]:duration-[260ms]");
     expect(source).toContain("data-[state=open]:ease-[var(--ease-drawer)]");
-    expect(source).not.toContain("{showUtilityPanelSheet ? (");
     expect(source).toContain(
-      "renderUtilityPanelContent(lastUtilityPanel, true)",
+      'target.closest("[data-radix-popper-content-wrapper]")',
     );
+    expect(source).toContain(
+      "utilityPanelSheetContainer?.contains(nestedPopper)",
+    );
+    expect(source).not.toContain("{showUtilityPanelSheet ? (");
+    expect(source).toContain("utilityPanelSheetContainer,");
     expect(source).toContain("showDesktopCommentsHistory");
     expect(source).toContain("data-comments-history-rail");
     expect(source).toContain("commentsHistoryRailMounted");

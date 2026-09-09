@@ -997,6 +997,12 @@ export function documentEditorShowsInlineComments(args: {
   );
 }
 
+export function utilityPanelAfterCommentFocusDismissal(
+  utilityPanel: DocumentUtilityPanel,
+): DocumentUtilityPanel {
+  return utilityPanel === "comments" ? null : utilityPanel;
+}
+
 export function documentEditorTitleRegionClassName(
   hasDatabase: boolean,
   host: "page" | "preview" = "page",
@@ -3014,6 +3020,8 @@ function PageEditorSessionBody({
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
   const [lastUtilityPanel, setLastUtilityPanel] =
     useState<Exclude<DocumentUtilityPanel, null>>("comments");
+  const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
+    useState<HTMLElement | null>(null);
   const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
   const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
     useState(false);
@@ -3160,7 +3168,7 @@ function PageEditorSessionBody({
     clearCommentFocus();
     if (!hasUtilityRailSpace) {
       setCommentsBrowseOpen(false);
-      setUtilityPanel(null);
+      setUtilityPanel(utilityPanelAfterCommentFocusDismissal);
     }
   }, [clearCommentFocus, hasUtilityRailSpace]);
 
@@ -3610,6 +3618,7 @@ function PageEditorSessionBody({
   const renderUtilityPanelContent = (
     panel: Exclude<DocumentUtilityPanel, null>,
     inSheet = false,
+    popoverContainer?: HTMLElement | null,
   ) => {
     const utilityPanelTitle =
       panel === "info" ? t("editor.toolbar.info") : t("comments.title");
@@ -3667,6 +3676,7 @@ function PageEditorSessionBody({
             databaseId={databaseId}
             databaseDocumentId={databaseDocumentId}
             canEdit={editorCanEdit}
+            popoverContainer={popoverContainer}
             onSaveDescription={(description) =>
               persistDocumentUpdates({ description })
             }
@@ -4350,9 +4360,23 @@ function PageEditorSessionBody({
           }}
         >
           <SheetContent
+            ref={setUtilityPanelSheetContainer}
             side="right"
             className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]"
             aria-describedby={undefined}
+            onEscapeKeyDown={(event) => {
+              const target = event.target;
+              const nestedPopper =
+                target instanceof Element
+                  ? target.closest("[data-radix-popper-content-wrapper]")
+                  : null;
+              if (
+                nestedPopper &&
+                utilityPanelSheetContainer?.contains(nestedPopper)
+              ) {
+                event.preventDefault();
+              }
+            }}
           >
             <SheetHeader className="sr-only">
               <SheetTitle>
@@ -4363,11 +4387,19 @@ function PageEditorSessionBody({
             </SheetHeader>
             {lastUtilityPanel === "comments" ? (
               <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(lastUtilityPanel, true)}
+                {renderUtilityPanelContent(
+                  lastUtilityPanel,
+                  true,
+                  utilityPanelSheetContainer,
+                )}
               </CommentHistoryScrollContainer>
             ) : (
               <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(lastUtilityPanel, true)}
+                {renderUtilityPanelContent(
+                  lastUtilityPanel,
+                  true,
+                  utilityPanelSheetContainer,
+                )}
               </div>
             )}
           </SheetContent>
