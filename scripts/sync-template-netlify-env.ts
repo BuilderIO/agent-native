@@ -173,6 +173,10 @@ const PUBLIC_KEY_EXACT = new Set([
   "GOOGLE_PICKER_APP_ID",
   "NEON_AUTH_BASE_URL",
   "NITRO_PRESET",
+  // The org/project slugs identify a Sentry project, not a credential -
+  // SENTRY_AUTH_TOKEN is the actual secret and stays out of this set.
+  "SENTRY_ORG",
+  "SENTRY_PROJECT",
   "SUPABASE_URL",
   "SUPABASE_ANON_KEY",
   "ZOOM_CLIENT_ID",
