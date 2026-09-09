@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -20,6 +21,14 @@ import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
+  configureDocumentPropertyAgentSchema,
+  runConfigureDocumentProperty,
+} from "./_database-property-setup.js";
+import {
+  refreshAfterSetup,
+  setupAuditSummary,
+} from "./_database-setup-mutation.js";
+import {
   nextAppendPosition,
   propertyDefinitionsPositionScope,
   withPositionLock,
@@ -31,10 +40,8 @@ import {
   resolvePropertyDatabaseForDocument,
 } from "./_property-utils.js";
 
-export default defineAction({
-  description:
-    "Create or update a Notion-style property definition for content documents.",
-  schema: z.object({
+const legacyConfigureDocumentPropertySchema = z
+  .object({
     id: z.string().optional().describe("Existing property definition ID"),
     documentId: z
       .string()
@@ -67,19 +74,20 @@ export default defineAction({
       .object({
         options: z
           .array(
-            z.object({
-              id: z.string(),
-              name: z.string(),
-              color: z.string(),
-              description: z.string().optional(),
-            }),
+            z
+              .object({
+                id: z.string(),
+                name: z.string(),
+                color: z.string(),
+                description: z.string().optional(),
+              })
+              .strict(),
           )
           .optional(),
         formula: z.string().optional(),
         relation: z
-          .object({
-            databaseId: z.string().nullable().optional(),
-          })
+          .object({ databaseId: z.string().nullable().optional() })
+          .strict()
           .optional(),
         rollup: z
           .object({
@@ -97,14 +105,49 @@ export default defineAction({
               ])
               .optional(),
           })
+          .strict()
           .optional(),
       })
+      .strict()
       .optional()
       .describe(
         "Select/status/multi-select options, formula expression, relation target, or rollup config",
       ),
-  }),
-  run: async (args) => {
+  })
+  .strict();
+
+export default defineAction({
+  description:
+    "Create an ordinary Content database property or safely update its metadata, select options, and natural-key role using an exact target, fresh schema revision, and idempotency key.",
+  mcpTool: true,
+  mcpApp: { structuredContent: true },
+  agentInputSchema: configureDocumentPropertyAgentSchema,
+  schema: z.union([
+    configureDocumentPropertyAgentSchema,
+    legacyConfigureDocumentPropertySchema,
+  ]),
+  audit: {
+    recordInputs: false,
+    target: (args) => ({
+      type: "content-database",
+      id:
+        "operation" in args
+          ? args.target.databaseId
+          : (args.databaseId ?? args.documentId),
+      visibility: "private",
+    }),
+    summary: (_args, result) =>
+      setupAuditSummary(result, "Configured a Content database property"),
+  },
+  run: async (args, context) => {
+    if (context?.caller === "mcp") {
+      configureDocumentPropertyAgentSchema.parse(args);
+    }
+    if ("operation" in args) {
+      const result = await runConfigureDocumentProperty(args);
+      await refreshAfterSetup(result.receipt);
+      return result;
+    }
     const access = await assertAccess("document", args.documentId, "editor");
     const document = access.resource;
     const db = getDb();
@@ -366,6 +409,25 @@ export default defineAction({
       documentId: args.documentId,
       databaseId: database.id,
       properties: await listPropertiesForDocument(document, database.id),
+    };
+  },
+  link: ({ result }) => {
+    const receipt = (
+      result as {
+        receipt?: { target?: { databaseDocumentId?: string } };
+      } | null
+    )?.receipt;
+    const documentId = receipt?.target?.databaseDocumentId;
+    if (!documentId) return null;
+    return {
+      url: buildDeepLink({
+        app: "content",
+        view: "editor",
+        to: `/page/${encodeURIComponent(documentId)}`,
+        params: { documentId },
+      }),
+      label: "Open in Content",
+      view: "editor",
     };
   },
 });

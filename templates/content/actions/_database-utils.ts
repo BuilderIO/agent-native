@@ -49,6 +49,8 @@ import {
   databaseRowRevision,
   getDatabaseMutationContract,
 } from "./_database-row-mutation.js";
+import { getDatabaseSetupContract } from "./_database-setup-discovery.js";
+import { configurationRevision } from "./_database-setup-mutation.js";
 import { getAllContentDatabaseSourceSnapshots } from "./_database-source-utils.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
 import { serializeDocumentSource } from "./_document-source.js";
@@ -1174,7 +1176,10 @@ export async function getContentDatabasePageResponse(
   });
   // Opt-in federated columns (a secondary field the user added via the picker)
   // get their per-row values from the matched overlay at read time.
-  const itemsWithOverlay = applyFederatedOverlayValues(federatedItems);
+  const itemsWithOverlay = applyFederatedOverlayValues(
+    federatedItems,
+    pagedSources,
+  );
   return {
     databaseRecord: database,
     properties: responseProperties,
@@ -1233,6 +1238,26 @@ export async function getContentDatabaseResponse(
     ? await getDocumentContextPath(databaseDocument)
     : [];
 
+  const mutationContract =
+    page.databaseRecord.spaceId && !page.databaseRecord.systemRole
+      ? await getDatabaseMutationContract(
+          {
+            authorityScope: page.databaseRecord.orgId
+              ? {
+                  kind: "organization",
+                  id: page.databaseRecord.orgId,
+                }
+              : {
+                  kind: "personal",
+                  id: page.databaseRecord.ownerEmail,
+                },
+            spaceId: page.databaseRecord.spaceId,
+            databaseId: page.databaseRecord.id,
+            databaseDocumentId: page.databaseRecord.documentId,
+          },
+          { accessAlreadyResolved: true },
+        )
+      : undefined;
   return {
     database: serializeDatabase(
       page.databaseRecord,
@@ -1245,26 +1270,11 @@ export async function getContentDatabaseResponse(
     sources: page.sources,
     pagination: page.pagination,
     tableQueryMode: page.tableQueryMode,
-    mutationContract:
-      page.databaseRecord.spaceId && !page.databaseRecord.systemRole
-        ? await getDatabaseMutationContract(
-            {
-              authorityScope: page.databaseRecord.orgId
-                ? {
-                    kind: "organization",
-                    id: page.databaseRecord.orgId,
-                  }
-                : {
-                    kind: "personal",
-                    id: page.databaseRecord.ownerEmail,
-                  },
-              spaceId: page.databaseRecord.spaceId,
-              databaseId: page.databaseRecord.id,
-              databaseDocumentId: page.databaseRecord.documentId,
-            },
-            { accessAlreadyResolved: true },
-          )
-        : undefined,
+    mutationContract,
+    configurationRevision: configurationRevision(page.databaseRecord),
+    setupContract: mutationContract
+      ? await getDatabaseSetupContract(page.databaseRecord, mutationContract)
+      : undefined,
   };
 }
 

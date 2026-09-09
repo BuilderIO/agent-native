@@ -676,31 +676,31 @@ describe("DatabaseView UI regressions", () => {
       settingsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    const sourcesRow = findButtonByText(container, "Sources");
+    const sourcesRow = findButtonByText(document.body, "Sources");
     expect(sourcesRow).toBeTruthy();
     await act(async () => {
       sourcesRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    const builderRow = findButtonByText(container, "Builder");
+    const builderRow = findButtonByText(document.body, "Builder");
     expect(builderRow).toBeTruthy();
     await act(async () => {
       builderRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    const spaceRow = findButtonByText(container, "Test Space");
+    const spaceRow = findButtonByText(document.body, "Test Space");
     expect(spaceRow).toBeTruthy();
     await act(async () => {
       spaceRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    const modelRow = findButtonByText(container, "Article");
+    const modelRow = findButtonByText(document.body, "Article");
     expect(modelRow).toBeTruthy();
     await act(async () => {
       modelRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    const attachButton = findButtonByText(container, "Attach");
+    const attachButton = findButtonByText(document.body, "Attach");
     expect(attachButton).toBeTruthy();
 
     await act(async () => {
@@ -720,8 +720,8 @@ describe("DatabaseView UI regressions", () => {
     // nav stack should still be on the model leaf (its Attach button and the
     // model's display name are still showing), not reset back to the Sources
     // root.
-    expect(findButtonByText(container, "Attach")).toBeTruthy();
-    expect(container.textContent).toContain("Article");
+    expect(findButtonByText(document.body, "Attach")).toBeTruthy();
+    expect(document.body.textContent).toContain("Article");
   });
 
   it("shows a toast and keeps the source picker retryable when adding another item source fails", async () => {
@@ -762,7 +762,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -771,17 +771,17 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Article")?.click();
+      findButtonByText(document.body, "Article")?.click();
     });
     await act(async () => {
       findButtonByText(
-        container,
+        document.body,
         messagesByLocale["en-US"].database.addMoreItemsToThisList,
       )?.click();
       await Promise.resolve();
@@ -793,7 +793,7 @@ describe("DatabaseView UI regressions", () => {
       failedToAttachSource,
       expect.objectContaining({ description: "second attach failed" }),
     );
-    expect(container.textContent).toContain("Article");
+    expect(document.body.textContent).toContain("Article");
     expect(
       document.body.querySelector(
         'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -805,7 +805,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     const connectSource = findButtonByText(
       document.body,
@@ -816,7 +816,7 @@ describe("DatabaseView UI regressions", () => {
     await act(async () => {
       connectSource?.click();
     });
-    expect(container.textContent).toContain("Sources");
+    expect(document.body.textContent).toContain("Sources");
     expect(
       document.body.querySelector(
         'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -824,13 +824,13 @@ describe("DatabaseView UI regressions", () => {
     ).toBeNull();
 
     await act(async () => {
-      container
+      document.body
         .querySelector<HTMLButtonElement>(
           `[aria-label="${messagesByLocale["en-US"].database.closeDatabaseSettings}"]`,
         )
         ?.click();
     });
-    expect(container.textContent).not.toContain("Connected sources");
+    expect(document.body.textContent).not.toContain("Connected sources");
     expect(
       document.body.querySelector(
         'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -842,7 +842,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     const searchInput = document.body.querySelector<HTMLInputElement>(
       'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -862,7 +862,7 @@ describe("DatabaseView UI regressions", () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("Sources");
+    expect(document.body.textContent).toContain("Sources");
     expect(
       document.body.querySelector(
         'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -893,18 +893,18 @@ describe("DatabaseView UI regressions", () => {
         )?.click();
       });
 
-      expect(container.textContent).toContain("Sources");
+      expect(document.body.textContent).toContain("Sources");
       await act(async () => {
-        findButtonByText(container, "Builder")?.click();
+        findButtonByText(document.body, "Builder")?.click();
       });
       await act(async () => {
-        findButtonByText(container, "Test Space")?.click();
+        findButtonByText(document.body, "Test Space")?.click();
       });
       await act(async () => {
-        findButtonByText(container, "Article")?.click();
+        findButtonByText(document.body, "Article")?.click();
       });
       await act(async () => {
-        findButtonByText(container, "Attach")?.click();
+        findButtonByText(document.body, "Attach")?.click();
         await Promise.resolve();
         await Promise.resolve();
       });
@@ -928,7 +928,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -937,20 +937,20 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Article")?.click();
+      findButtonByText(document.body, "Article")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Attach")?.click();
+      findButtonByText(document.body, "Attach")?.click();
       await Promise.resolve();
     });
 
-    expect(container.textContent).not.toContain("Database settings");
+    expect(document.body.textContent).not.toContain("Database settings");
     expect(attachSourceMutation.mutateAsync).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -986,7 +986,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -995,22 +995,22 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Article")?.click();
+      findButtonByText(document.body, "Article")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Attach")?.click();
+      findButtonByText(document.body, "Attach")?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("Article");
-    expect(findButtonByText(container, "Attach")).toBeTruthy();
+    expect(document.body.textContent).toContain("Article");
+    expect(findButtonByText(document.body, "Attach")).toBeTruthy();
     expect(toastErrorMock).toHaveBeenCalledWith(failedToAttachSource, {
       description: "Builder attach failed",
     });
@@ -1021,7 +1021,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -1030,25 +1030,25 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      container
+      document.body
         .querySelector<HTMLButtonElement>('[aria-label="Back"]')
         ?.click();
     });
 
     await act(async () => {
-      findButtonByText(container, "Sources")?.click();
+      findButtonByText(document.body, "Sources")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Article")?.click();
+      findButtonByText(document.body, "Article")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Attach")?.click();
+      findButtonByText(document.body, "Attach")?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -1115,7 +1115,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -1124,30 +1124,30 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Article")?.click();
+      findButtonByText(document.body, "Article")?.click();
     });
 
     await act(async () => {
-      findButtonByText(container, "Attach")?.click();
+      findButtonByText(document.body, "Attach")?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(attachSourceMutation.mutateAsync).toHaveBeenCalledTimes(1);
-    expect(
-      document.body.querySelector(
-        'input[aria-label="editor.properties.searchPropertyTypes"]',
-      ),
-    ).toBeTruthy();
+    const reopenedPropertySearch = document.body.querySelector(
+      'input[aria-label="editor.properties.searchPropertyTypes"]',
+    );
+    expect(reopenedPropertySearch).toBeTruthy();
+    expect(document.activeElement).toBe(reopenedPropertySearch);
     expect(document.body.textContent).toContain("editor.properties.fromSource");
     expect(document.body.textContent).toContain("Author");
-    expect(container.textContent).not.toContain("Connected sources");
+    expect(document.body.textContent).not.toContain("Connected sources");
 
     await act(async () => {
       findButtonByText(
@@ -1156,17 +1156,17 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Author model")?.click();
+      findButtonByText(document.body, "Author model")?.click();
     });
     await act(async () => {
       findButtonByText(
-        container,
+        document.body,
         messagesByLocale["en-US"].database.addMoreItemsToThisList,
       )?.click();
       await Promise.resolve();
@@ -1234,7 +1234,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -1243,11 +1243,11 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Authors")?.click();
+      findButtonByText(document.body, "Authors")?.click();
     });
     await act(async () => {
       findButtonByText(
-        container,
+        document.body,
         messagesByLocale["en-US"].database.addAsItems,
       )?.click();
       await Promise.resolve();
@@ -1258,7 +1258,7 @@ describe("DatabaseView UI regressions", () => {
       failedToAttachSource,
       expect.objectContaining({ description: "role change failed" }),
     );
-    expect(container.textContent).toContain("Authors");
+    expect(document.body.textContent).toContain("Authors");
     expect(
       document.body.querySelector(
         'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -1268,7 +1268,7 @@ describe("DatabaseView UI regressions", () => {
     changeSourceRoleMutation.mutateAsync.mockResolvedValue(databaseResponse);
     await act(async () => {
       findButtonByText(
-        container,
+        document.body,
         messagesByLocale["en-US"].database.addAsItems,
       )?.click();
       await Promise.resolve();
@@ -1286,7 +1286,7 @@ describe("DatabaseView UI regressions", () => {
         'input[aria-label="editor.properties.searchPropertyTypes"]',
       ),
     ).toBeTruthy();
-    expect(container.textContent).not.toContain("Connected sources");
+    expect(document.body.textContent).not.toContain("Connected sources");
   });
 
   it("removes the confirmed selection snapshot without clearing newer selections", async () => {

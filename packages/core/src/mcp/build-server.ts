@@ -2388,8 +2388,9 @@ export async function createMCPServerForRequest(
             Array.isArray(toolVisibility) &&
             toolVisibility.length > 0 &&
             toolVisibility.every((v) => v === "app");
-          const readOnlyStructuredResult =
-            entry.readOnly === true &&
+          const structuredResult =
+            (entry.readOnly === true ||
+              entry.mcpApp?.structuredContent === true) &&
             rawResultForClient &&
             typeof rawResultForClient === "object"
               ? Array.isArray(rawResultForClient)
@@ -2403,11 +2404,8 @@ export async function createMCPServerForRequest(
                 typeof rawResult === "object" &&
                 !Array.isArray(rawResult)
               ? (rawResult as Record<string, unknown>)
-              : readOnlyStructuredResult
-                ? mcpAppStructuredContent(
-                    readOnlyStructuredResult,
-                    responseMeta,
-                  )
+              : structuredResult
+                ? mcpAppStructuredContent(structuredResult, responseMeta)
                 : undefined;
           const text = mcpAppResource
             ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
