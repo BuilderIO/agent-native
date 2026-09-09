@@ -581,7 +581,8 @@ function ManualSetupCard({
       <PopoverContent
         align="end"
         sideOffset={6}
-        className="max-h-[min(640px,calc(100vh-2rem))] w-[min(420px,calc(100vw-2rem))] overflow-y-auto p-4"
+        collisionPadding={16}
+        className="max-h-[min(640px,calc(100dvh-2rem),var(--radix-popover-content-available-height))] w-[min(420px,calc(100vw-2rem))] overflow-y-auto p-4"
       >
         <div className="space-y-3">
           {summaryContent}
@@ -781,6 +782,7 @@ interface EngineInfo {
   requiredEnvVars: string[];
   installPackage?: string;
   packageInstalled?: boolean;
+  configured?: boolean;
 }
 
 const PROVIDER_DOCS: Record<string, string> = {
@@ -824,19 +826,33 @@ function LLMSectionInner({
   const [envKeys, setEnvKeys] = useState<
     Array<{ key: string; configured: boolean }>
   >([]);
-  const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [engines, setEngines] = useState<EngineInfo[]>([]);
-  const [currentEngine, setCurrentEngine] = useState("anthropic");
-  const [currentModel, setCurrentModel] = useState("");
-  const [selectedEngine, setSelectedEngine] = useState("anthropic");
-  const [selectedModel, setSelectedModel] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
+  const [
+    {
+      currentEngine,
+      currentModel,
+      selectedEngine,
+      selectedModel,
+      apiKey,
+      baseUrl,
+      clearBaseUrl,
+    },
+    setSelectionState,
+  ] = useState({
+    currentEngine: "anthropic",
+    currentModel: "",
+    selectedEngine: "anthropic",
+    selectedModel: "",
+    apiKey: "",
+    baseUrl: "",
+    clearBaseUrl: false,
+  });
   const [baseUrlConfigured, setBaseUrlConfigured] = useState(false);
-  const [clearBaseUrl, setClearBaseUrl] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
@@ -848,6 +864,7 @@ function LLMSectionInner({
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
   const [envProbeAvailable, setEnvProbeAvailable] = useState(false);
   const [enginesLoaded, setEnginesLoaded] = useState(false);
+  const [engineCatalogAvailable, setEngineCatalogAvailable] = useState(false);
   const [statusProbeAvailable, setStatusProbeAvailable] = useState(false);
   const probeGenerationRef = useRef({ env: 0, status: 0 });
 
@@ -931,22 +948,52 @@ function LLMSectionInner({
   }, [refreshEnvKeys, refreshSettingsStatus]);
 
   useEffect(() => {
-    callAction("manage-agent-engine" as any, { action: "list" } as any)
-      .then((data) => {
-        if (!data) return;
-        const engineData = data as {
-          engines?: EngineInfo[];
-          current?: { engine?: string; model?: string };
-        };
-        setEngines(engineData.engines ?? []);
-        const cur = engineData.current ?? {};
-        setCurrentEngine(cur.engine ?? "anthropic");
-        setCurrentModel(cur.model ?? "");
-        setSelectedEngine(cur.engine ?? "anthropic");
-        setSelectedModel(cur.model ?? "");
-      })
-      .catch(() => {})
-      .finally(() => setEnginesLoaded(true));
+    let generation = 0;
+    const refresh = () => {
+      const request = ++generation;
+      setEngineCatalogAvailable(false);
+      void callAction("manage-agent-engine" as any, { action: "list" } as any)
+        .then((data) => {
+          if (request !== generation || !data) return;
+          const engineData = data as {
+            engines?: EngineInfo[];
+            current?: { engine?: string; model?: string };
+          };
+          if (!Array.isArray(engineData.engines)) return;
+          setEngines(engineData.engines);
+          setEngineCatalogAvailable(true);
+          const cur = engineData.current ?? {};
+          setSelectionState((previous) => {
+            const dirty =
+              previous.selectedEngine !== previous.currentEngine ||
+              previous.selectedModel !== previous.currentModel ||
+              !!previous.apiKey.trim() ||
+              !!previous.baseUrl.trim() ||
+              previous.clearBaseUrl;
+            const engine = cur.engine ?? "anthropic";
+            const model = cur.model ?? "";
+            return {
+              ...previous,
+              currentEngine: engine,
+              currentModel: model,
+              selectedEngine: dirty ? previous.selectedEngine : engine,
+              selectedModel: dirty ? previous.selectedModel : model,
+            };
+          });
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (request === generation) setEnginesLoaded(true);
+        });
+    };
+    refresh();
+    window.addEventListener("agent-engine:configured-changed", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      generation++;
+      window.removeEventListener("agent-engine:configured-changed", refresh);
+      window.removeEventListener("focus", refresh);
+    };
   }, []);
 
   const selectedEngineInfo = engines.find((e) => e.name === selectedEngine);
@@ -965,6 +1012,10 @@ function LLMSectionInner({
   const configuredProviderIds = useMemo(() => {
     const configured = new Set<AgentProviderId>();
     for (const option of AGENT_PROVIDER_CATALOG) {
+      const engine = engines.find((entry) => entry.name === option.engine);
+      if (engine?.packageInstalled === false || engine?.configured === false) {
+        continue;
+      }
       if (
         option.key &&
         envKeys.some((entry) => entry.key === option.key && entry.configured)
@@ -972,7 +1023,15 @@ function LLMSectionInner({
         configured.add(option.id);
       }
     }
-    if (settingsStatus) {
+    if (
+      settingsStatus &&
+      engines.some(
+        (engine) =>
+          engine.name === settingsStatus.engine &&
+          engine.packageInstalled !== false &&
+          engine.configured !== false,
+      )
+    ) {
       const statusProvider = providerIdForEngine(settingsStatus.engine);
       if (statusProvider) configured.add(statusProvider);
       if (settingsStatus.envVar) {
@@ -983,10 +1042,11 @@ function LLMSectionInner({
       }
     }
     return configured;
-  }, [envKeys, settingsStatus]);
+  }, [engines, envKeys, settingsStatus]);
   const builderConnected =
     builderStatusAvailable && (connected || builderFlow.configured);
-  const configurationKnown = envProbeAvailable && statusProbeAvailable;
+  const configurationKnown =
+    envProbeAvailable && statusProbeAvailable && engineCatalogAvailable;
   const builderEngineSelected = selectedEngine === "builder";
   const selectedConfigurationKnown = builderEngineSelected
     ? builderStatusAvailable
@@ -996,7 +1056,8 @@ function LLMSectionInner({
     (!builderEngineSelected &&
       configurationKnown &&
       selectedEnginePackageInstalled &&
-      (envConfigured || settingsConfigured));
+      (selectedEngineInfo?.configured ??
+        (envConfigured || settingsConfigured)));
   const sourceBadge = computeSourceBadge({
     settingsConfigured: configurationKnown && settingsConfigured,
     settingsStatus: configurationKnown ? settingsStatus : null,
@@ -1030,9 +1091,12 @@ function LLMSectionInner({
         ...(isEndpointProvider && clearBaseUrl ? { clearBaseUrl: true } : {}),
       });
       setSaved(true);
-      setApiKey("");
-      setBaseUrl("");
-      setClearBaseUrl(false);
+      setSelectionState((previous) => ({
+        ...previous,
+        apiKey: "",
+        baseUrl: "",
+        clearBaseUrl: false,
+      }));
       if (nextBaseUrl) setBaseUrlConfigured(true);
       if (clearBaseUrl) setBaseUrlConfigured(false);
       notifyConfigChanged();
@@ -1114,19 +1178,28 @@ function LLMSectionInner({
   };
 
   const handleApply = async () => {
+    if (applying) return;
+    setApplying(true);
     setApplyError(null);
+    setApplyNote(false);
     try {
-      await setAgentEngineProvider({
+      const selection = await setAgentEngineProvider({
         provider: selectedProvider,
         model: selectedModel,
       });
-      setCurrentEngine(selectedEngine);
-      setCurrentModel(selectedModel);
+      setSelectionState((previous) => ({
+        ...previous,
+        currentEngine: selection.engine,
+        currentModel: selection.model,
+        selectedEngine: selection.engine,
+        selectedModel: selection.model,
+      }));
       setApplyNote(true);
-      notifyConfigChanged();
       setTimeout(() => setApplyNote(false), 4000);
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setApplying(false);
     }
   };
 
@@ -1191,7 +1264,11 @@ function LLMSectionInner({
               id="llm-manual-setup"
               title="Custom keys"
               hint={manualSetupHint}
-              sourceBadge={builderConnected ? undefined : sourceBadge}
+              sourceBadge={
+                builderConnected || engineChanged || !anyKeyConfigured
+                  ? undefined
+                  : sourceBadge
+              }
               bare={isPage}
               popover
               popoverLabel={
@@ -1217,7 +1294,7 @@ function LLMSectionInner({
                 ) : undefined
               }
             >
-              <div className="space-y-2 mb-1">
+              <fieldset disabled={applying} className="space-y-2 mb-1">
                 <AgentProviderPicker
                   value={selectedProvider}
                   configuredProviders={
@@ -1226,12 +1303,18 @@ function LLMSectionInner({
                   layout={isPage ? "page" : "compact"}
                   onChange={(provider) => {
                     const option = getAgentProviderOption(provider);
-                    setSelectedEngine(option.engine);
-                    setSelectedModel(option.defaultModel);
-                    setApiKey("");
-                    setBaseUrl("");
-                    setClearBaseUrl(false);
+                    setSelectionState((previous) => ({
+                      ...previous,
+                      selectedEngine: option.engine,
+                      selectedModel: option.defaultModel,
+                      apiKey: "",
+                      baseUrl: "",
+                      clearBaseUrl: false,
+                    }));
                     setAdvancedOpen(false);
+                    setApplyError(null);
+                    setApplyNote(false);
+                    setTestResult(null);
                   }}
                 />
 
@@ -1243,7 +1326,16 @@ function LLMSectionInner({
                     type="text"
                     list={`model-suggestions-${selectedEngine}`}
                     value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
+                    onChange={(e) => {
+                      const model = e.target.value;
+                      setSelectionState((previous) => ({
+                        ...previous,
+                        selectedModel: model,
+                      }));
+                      setApplyError(null);
+                      setApplyNote(false);
+                      setTestResult(null);
+                    }}
                     placeholder={
                       selectedEngineInfo?.defaultModel ?? "e.g. model-id"
                     }
@@ -1304,8 +1396,14 @@ function LLMSectionInner({
                           type="url"
                           value={baseUrl}
                           onChange={(e) => {
-                            setBaseUrl(e.target.value);
-                            if (e.target.value.trim()) setClearBaseUrl(false);
+                            const baseUrl = e.target.value;
+                            setSelectionState((previous) => ({
+                              ...previous,
+                              baseUrl,
+                              clearBaseUrl: baseUrl.trim()
+                                ? false
+                                : previous.clearBaseUrl,
+                            }));
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") void handleSave();
@@ -1328,8 +1426,11 @@ function LLMSectionInner({
                             <Checkbox
                               checked={clearBaseUrl}
                               onChange={(checked) => {
-                                setClearBaseUrl(checked);
-                                if (checked) setBaseUrl("");
+                                setSelectionState((previous) => ({
+                                  ...previous,
+                                  clearBaseUrl: checked,
+                                  baseUrl: checked ? "" : previous.baseUrl,
+                                }));
                               }}
                               aria-label="Clear saved endpoint override"
                               className="shrink-0"
@@ -1378,7 +1479,13 @@ function LLMSectionInner({
                     <input
                       type="password"
                       value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
+                      onChange={(e) => {
+                        const apiKey = e.target.value;
+                        setSelectionState((previous) => ({
+                          ...previous,
+                          apiKey,
+                        }));
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") void handleSave();
                       }}
@@ -1510,6 +1617,7 @@ function LLMSectionInner({
                 )}
                 {applyError && (
                   <p
+                    role="alert"
                     className={cn(
                       "text-destructive",
                       isPage ? "text-xs" : "text-[10px]",
@@ -1528,7 +1636,7 @@ function LLMSectionInner({
                     Changes take effect on next conversation
                   </p>
                 )}
-              </div>
+              </fieldset>
             </ManualSetupCard>
           </div>
         </div>
