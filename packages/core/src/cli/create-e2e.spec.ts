@@ -1125,6 +1125,9 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("agent-native-toolkit-");
       expect(workspaceYaml).toContain(".tgz");
+      expect(workspaceYaml).toContain(
+        '"@agent-native/agentkit-protocol": "file://',
+      );
       expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
       expect(workspaceYaml).toContain("/packages/recap-cli");
     } finally {
@@ -1378,6 +1381,7 @@ describe("workspace add-app scaffold", { timeout: 60000 }, () => {
         "utf-8",
       );
       expect(wsYaml).toContain('"@agent-native/toolkit": "file://');
+      expect(wsYaml).toContain('"@agent-native/agentkit-protocol": "file://');
       expect(wsYaml).toContain('"@agent-native/recap-cli": "file://');
     } finally {
       if (previous === undefined) {
