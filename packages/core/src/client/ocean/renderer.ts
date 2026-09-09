@@ -365,8 +365,14 @@ function buildGraph(
   const bright = createTarget("bright", sizes[0]!, HDR_FORMAT);
   const composite = createTarget("composite", sizes[0]!, HDR_FORMAT);
   const linearSampler = sampler(gpu, {
-    minFilter: "linear",
-    magFilter: "linear",
+    // rgba16float is only linearly filterable with the optional WebGPU feature.
+    // Nearest keeps the same pipeline valid on capable devices that omit it.
+    minFilter: gpu.device.features.has("float16-filterable")
+      ? "linear"
+      : "nearest",
+    magFilter: gpu.device.features.has("float16-filterable")
+      ? "linear"
+      : "nearest",
   });
 
   const noiseEffect = configuredEffect(gpu, noiseWgsl, `${label}-noise`);

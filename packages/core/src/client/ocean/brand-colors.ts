@@ -1,9 +1,12 @@
 import { DEFAULT_OCEAN_COLORS, type OceanColors } from "./ocean-colors.js";
 
+/** Auth shells without docs tokens still use these values as the fallback. */
 // guard:allow-raw-color - These fixed values calibrate the standalone GPU shader to the docs brand.
 const DARK_COLORS = { fg: "#aeadac", bg: "#0a0a0a" };
 // guard:allow-raw-color - These fixed values calibrate the standalone GPU shader to the docs brand.
 const LIGHT_COLORS = { fg: "#00677f", bg: "#faf9f5" };
+const FG_TOKEN = "--b-text-secondary";
+const BG_TOKEN = "--b-bg-page";
 
 /**
  * Returns null for anything that is not a full six-digit hex. Callers fall back
@@ -32,7 +35,6 @@ function srgbToLinear(channel: number): number {
 }
 
 export function readOceanColors(element: Element): OceanColors {
-  void element;
   const root = document.documentElement;
   const dark = root.classList.contains("dark")
     ? true
@@ -45,8 +47,15 @@ export function readOceanColors(element: Element): OceanColors {
           : (window.matchMedia?.("(prefers-color-scheme: dark)").matches ??
             false);
   const colors = dark ? DARK_COLORS : LIGHT_COLORS;
+  const style = getComputedStyle(element);
   return {
-    fg: hexToLinearRgb(colors.fg) ?? DEFAULT_OCEAN_COLORS.fg,
-    bg: hexToLinearRgb(colors.bg) ?? DEFAULT_OCEAN_COLORS.bg,
+    fg:
+      hexToLinearRgb(style.getPropertyValue(FG_TOKEN)) ??
+      hexToLinearRgb(colors.fg) ??
+      DEFAULT_OCEAN_COLORS.fg,
+    bg:
+      hexToLinearRgb(style.getPropertyValue(BG_TOKEN)) ??
+      hexToLinearRgb(colors.bg) ??
+      DEFAULT_OCEAN_COLORS.bg,
   };
 }

@@ -277,8 +277,11 @@ function initializeStarfield(
   };
 
   const listenerOptions: AddEventListenerOptions = { passive: true };
-  const resizeObserver = new ResizeObserver(resize);
-  resizeObserver.observe(canvas);
+  const resizeObserver =
+    typeof ResizeObserver === "undefined"
+      ? undefined
+      : new ResizeObserver(resize);
+  resizeObserver?.observe(canvas);
   window.addEventListener("resize", resize);
   window.addEventListener("pointermove", onPointerMove, listenerOptions);
   window.addEventListener("mousemove", onPointerMove, listenerOptions);
@@ -340,7 +343,7 @@ function initializeStarfield(
 
   return () => {
     stopAnimation();
-    resizeObserver.disconnect();
+    resizeObserver?.disconnect();
     themeObserver.disconnect();
     window.removeEventListener("resize", resize);
     window.removeEventListener("pointermove", onPointerMove, listenerOptions);
