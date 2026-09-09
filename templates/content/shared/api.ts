@@ -1536,3 +1536,17 @@ export interface ProcessBuilderBodyHydrationResponse {
   ready: number;
   nextAttemptAt: string | null;
 }
+
+export interface TrashPageResult {
+  id: string;
+  status: "trashed" | "already-trashed" | "covered" | "failed";
+  affectedDocumentIds: string[];
+  affectedDatabaseIds: string[];
+  error?: { code: string; message: string };
+}
+
+export interface TrashPagesResult {
+  results: TrashPageResult[];
+  affectedDocumentIds: string[];
+  affectedDatabaseIds: string[];
+}

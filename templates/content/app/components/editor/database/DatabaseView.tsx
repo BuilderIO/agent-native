@@ -120,6 +120,13 @@ import {
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import {
+  PageTrashDialog,
+  PageTrashMenuItem,
+  PageTrashSelectionButton,
+  usePageTrashControl,
+  type PageTrashControl,
+} from "@/components/documents/PageTrashControl";
 import { SidebarTriggerContext } from "@/components/layout/sidebar-trigger";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
@@ -3845,6 +3852,19 @@ export function databaseSelectedItems(
   return visibleItems.filter((item) => selectedIds.has(item.id));
 }
 
+export function databaseSelectionCanTrashPages(
+  selectedItems: ContentDatabaseItem[],
+  selectedCount: number,
+  isWorkspaceCatalog: boolean,
+) {
+  return (
+    !isWorkspaceCatalog &&
+    selectedCount > 0 &&
+    selectedItems.length === selectedCount &&
+    selectedItems.every((item) => item.document.canManage === true)
+  );
+}
+
 export function databaseSelectionCapabilities(args: {
   canEdit: boolean;
   canManageDatabase: boolean;
@@ -4671,6 +4691,7 @@ function DatabaseItemPreview({
   const queryClient = useQueryClient();
   const contentSpaces = useContentSpaces();
   const deleteDocument = useDeleteDocument();
+  const updatePreviewDocument = useUpdateDocument();
   const deleteContentSpace = useDeleteContentSpace();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
   const { data: document } = useDocument(item.document.id, {
@@ -4715,13 +4736,14 @@ function DatabaseItemPreview({
     await sessionRef.current?.flush();
     if (isWorkspaceCatalog && workspaceSpace?.kind === "user") {
       await deleteContentSpace.mutateAsync({ spaceId: workspaceSpace.id });
+    } else if (removeFavorite) {
+      await updatePreviewDocument.mutateAsync({
+        id: item.document.id,
+        isFavorite: false,
+      });
     } else {
       await deleteDocument.mutateAsync({
         id: item.document.id,
-        databaseDocumentId:
-          removesFavoriteMembership && !removeFavorite
-            ? undefined
-            : databaseDocumentId,
       });
     }
     // The deleted Page's pending queue was settled before deletion.
@@ -5072,6 +5094,19 @@ function DatabaseTableView({
     contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
   const isWorkspaceCatalog =
     contentSpaces.data?.catalogDocumentId === databaseDocumentId;
+  const canTrashSelected = databaseSelectionCanTrashPages(
+    selectedItems,
+    selectedCount,
+    isWorkspaceCatalog,
+  );
+  const trashSelected = usePageTrashControl({
+    pages: canTrashSelected ? selectedItems.map((item) => item.document) : [],
+    onTrashed: (result) => {
+      if (result.results.every((item) => item.status !== "failed")) {
+        onClearSelection();
+      }
+    },
+  });
   const { canEditSelected, canDuplicateSelected, canRemoveSelected } =
     databaseSelectionCapabilities({
       canEdit,
@@ -5583,6 +5618,7 @@ function DatabaseTableView({
                 canEditSelected={canEditSelected}
                 canDuplicateSelected={canDuplicateSelected}
                 canRemoveSelected={canRemoveSelected}
+                trashControl={canTrashSelected ? trashSelected : undefined}
                 properties={bulkEditableProperties}
                 selectedItems={selectedItems}
                 duplicateDisabled={
@@ -5608,6 +5644,7 @@ function DatabaseTableView({
                 }}
               />
             ) : null}
+            <PageTrashDialog control={trashSelected} />
             {/* DataGrid preserves the table contract: data-database-scroll-surface="table", tabIndex={0}, and min-w-0 max-w-full overflow-x-auto. */}
             <DataGrid
               rows={items}
@@ -15359,6 +15396,7 @@ export function DatabaseSelectionBar({
   onSetPropertyValue,
   onDuplicateSelected,
   onRemoveSelected,
+  trashControl,
 }: {
   selectedCount: number;
   canEditSelected: boolean;
@@ -15377,6 +15415,7 @@ export function DatabaseSelectionBar({
   ) => Promise<void>;
   onDuplicateSelected: () => void;
   onRemoveSelected: () => void;
+  trashControl?: PageTrashControl;
 }) {
   return (
     <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-y border-border/45 bg-muted/20 px-2 py-0.5 text-xs text-muted-foreground">
@@ -15424,8 +15463,13 @@ export function DatabaseSelectionBar({
             ) : (
               <IconTrash className="size-3.5" />
             )}
-            Remove
+            {removesFavoriteMembership
+              ? sidebarText("removeFromFavorites")
+              : dbText("removeFromDatabase")}
           </Button>
+        ) : null}
+        {trashControl ? (
+          <PageTrashSelectionButton control={trashControl} />
         ) : null}
         <Button
           type="button"
@@ -18235,6 +18279,15 @@ export function RowActionsCell({
         sources: databaseSources,
       });
   const canDuplicateRow = databaseItemCanDuplicate(item, isWorkspaceCatalog);
+  const canTrashPage = !isWorkspaceCatalog && item.document.canManage === true;
+  const trashPage = usePageTrashControl({
+    pages: canTrashPage ? [item.document] : [],
+    onTrashed: (result) => {
+      if (result.affectedDocumentIds.includes(item.document.id)) {
+        onDeletedPreviewItem?.(item);
+      }
+    },
+  });
 
   async function duplicateRow() {
     if (!canDuplicateRow) return;
@@ -18325,7 +18378,7 @@ export function RowActionsCell({
               {dbText("duplicateRow")}
             </DropdownMenuItem>
           ) : null}
-          {canRemoveFromDatabase || canDeleteWorkspace ? (
+          {canRemoveFromDatabase || canDeleteWorkspace || canTrashPage ? (
             <DropdownMenuSeparator />
           ) : null}
           {removesFavoriteMembership && canRemoveFromDatabase ? (
@@ -18354,8 +18407,10 @@ export function RowActionsCell({
                 : dbText("removeFromDatabase")}
             </DropdownMenuItem>
           ) : null}
+          {canTrashPage ? <PageTrashMenuItem control={trashPage} /> : null}
         </DropdownMenuContent>
       </DropdownMenu>
+      <PageTrashDialog control={trashPage} />
 
       <AlertDialog
         open={

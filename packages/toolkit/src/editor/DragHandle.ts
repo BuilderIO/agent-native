@@ -31,6 +31,8 @@ export interface DragHandleOptions {
    * unchanged.
    */
   wrapperSelector: string;
+  /** Override a block's removal label without changing its editor-local deletion. */
+  getDeleteLabel?: (node: ProseMirrorNode) => string | undefined;
   /**
    * Optional source-side payload for a cross-editor block move. The editor doc
    * carries ProseMirror node content, but app-owned side-map data (for example a
@@ -172,6 +174,7 @@ type DragHandleMenuContext = {
 type DragHandleRegistration = {
   view: EditorView;
   wrapperSelector: string;
+  getDeleteLabel?: DragHandleOptions["getDeleteLabel"];
   getDragTransferData?: DragHandleOptions["getDragTransferData"];
   receiveDragTransferData?: DragHandleOptions["receiveDragTransferData"];
   handleDrop?: DragHandleOptions["handleDrop"];
@@ -518,6 +521,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
   addProseMirrorPlugins() {
     const editor = this.editor;
     const wrapperSelector = this.options.wrapperSelector;
+    const getDeleteLabel = this.options.getDeleteLabel;
     const getDragTransferData = this.options.getDragTransferData;
     const receiveDragTransferData = this.options.receiveDragTransferData;
     const handleDrop = this.options.handleDrop;
@@ -888,9 +892,14 @@ export const DragHandle = Extension.create<DragHandleOptions>({
           DRAG_HANDLE_MENU_ICON_DUPLICATE,
           duplicateBlock,
         ),
-        createMenuItem("Delete", DRAG_HANDLE_MENU_ICON_DELETE, deleteBlock, {
-          danger: true,
-        }),
+        createMenuItem(
+          registrationForView(resolved.view)?.getDeleteLabel?.(
+            resolved.sourceNode,
+          ) ?? "Delete",
+          DRAG_HANDLE_MENU_ICON_DELETE,
+          deleteBlock,
+          { danger: true },
+        ),
         createMenuItem(
           "Insert block below",
           DRAG_HANDLE_MENU_ICON_INSERT,
@@ -1368,6 +1377,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
           const registration: DragHandleRegistration = {
             view: editorView,
             wrapperSelector,
+            getDeleteLabel,
             getDragTransferData,
             receiveDragTransferData,
             handleDrop,

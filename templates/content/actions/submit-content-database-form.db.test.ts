@@ -2,9 +2,9 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
+import { closeDbExec, getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { serializePropertyOptions } from "../shared/properties.js";
@@ -55,7 +55,8 @@ beforeAll(async () => {
   });
 }, 60_000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -218,6 +219,7 @@ describe("submit-content-database-form", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, result.createdDocumentId));
     expect(document).toMatchObject({
+      parentId: null,
       title: "Refresh the pricing page",
       content: "Clarify the enterprise story and update the hero.",
       visibility: "org",
@@ -292,6 +294,21 @@ describe("submit-content-database-form", () => {
       })),
     );
 
+    const rootDocuments = await getDb()
+      .select({ position: schema.documents.position })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.ownerEmail, OWNER),
+          isNull(schema.documents.parentId),
+        ),
+      );
+    const nextRootPosition =
+      Math.max(
+        -1,
+        ...rootDocuments.map((row: { position: number }) => row.position),
+      ) + 1;
+
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
       submitForm.run({
         databaseId: seeded.databaseId,
@@ -304,7 +321,10 @@ describe("submit-content-database-form", () => {
       }),
     );
     const [document] = await db
-      .select({ position: schema.documents.position })
+      .select({
+        position: schema.documents.position,
+        parentId: schema.documents.parentId,
+      })
       .from(schema.documents)
       .where(eq(schema.documents.id, result.createdDocumentId));
     const [item] = await db
@@ -318,7 +338,8 @@ describe("submit-content-database-form", () => {
       );
 
     expect(result.verified).toBe(true);
-    expect(document?.position).toBe(0);
+    expect(document?.position).toBe(nextRootPosition);
+    expect(document?.parentId).toBeNull();
     expect(item?.position).toBe(0);
   });
 

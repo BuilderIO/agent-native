@@ -6664,7 +6664,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   // document or the same database can't read the same MAX (see
   // _position-utils.ts).
   return withPositionLock(
-    documentsPositionScope(args.database.ownerEmail, args.database.documentId),
+    documentsPositionScope(args.database.ownerEmail, null),
     () =>
       withPositionLock(
         databaseItemsPositionScope(args.database.id),
@@ -6675,7 +6675,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
             .where(
               and(
                 eq(schema.documents.ownerEmail, args.database.ownerEmail),
-                eq(schema.documents.parentId, args.database.documentId),
+                isNull(schema.documents.parentId),
               ),
             );
           const [maxItemPos] = await db
@@ -6734,7 +6734,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               spaceId: databaseSpaceId,
               ownerEmail: args.database.ownerEmail,
               orgId: args.database.orgId,
-              parentId: args.database.documentId,
+              parentId: null,
               title,
               content: "",
               icon: null,

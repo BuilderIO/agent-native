@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -8,6 +7,7 @@ import { assertContentDatabaseLifecycleAccess } from "./_content-database-lifecy
 import {
   lockDatabasesForTrash,
   trashDocumentSubtree,
+  accessibleAffectedDatabaseIds,
 } from "./delete-document.js";
 
 export default defineAction({
@@ -24,29 +24,31 @@ export default defineAction({
     await assertAccess("document", database.documentId, "admin");
     const db = getDb();
     const deletedAt = database.deletedAt ?? new Date().toISOString();
-    await db.transaction(async (tx) => {
+    return db.transaction(async (tx) => {
       const transactionDb = tx as unknown as ReturnType<typeof getDb>;
       const lockedDatabaseIds = await lockDatabasesForTrash(
         transactionDb,
         database.documentId,
         database.ownerEmail,
       );
-      return trashDocumentSubtree(
+      const affectedDocumentIds = await trashDocumentSubtree(
         transactionDb,
         database.documentId,
         database.ownerEmail,
         deletedAt,
         lockedDatabaseIds,
       );
+      return {
+        success: true,
+        databaseId,
+        documentId: database.documentId,
+        deletedAt,
+        affectedDocumentIds,
+        affectedDatabaseIds: await accessibleAffectedDatabaseIds(
+          transactionDb,
+          affectedDocumentIds,
+        ),
+      };
     });
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    return {
-      success: true,
-      databaseId,
-      documentId: database.documentId,
-      deletedAt,
-    };
   },
 });

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { serializePropertyOptions } from "../shared/properties.js";
@@ -188,7 +188,7 @@ describe("Content identity supporting Slack Design Ask corrections", () => {
       .where(eq(schema.documents.id, originalDocumentId));
     expect(document).toMatchObject({
       id: originalDocumentId,
-      parentId: seeded.databaseDocumentId,
+      parentId: null,
       title: "Human-renamed design ask",
       content: "Live design context edited after the Slack request.",
     });
@@ -208,7 +208,16 @@ describe("Content identity supporting Slack Design Ask corrections", () => {
     const rowDocuments = await db
       .select({ id: schema.documents.id })
       .from(schema.documents)
-      .where(eq(schema.documents.parentId, seeded.databaseDocumentId));
+      .innerJoin(
+        schema.contentDatabaseItems,
+        eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+      )
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, seeded.databaseId),
+          eq(schema.documents.ownerEmail, OWNER),
+        ),
+      );
     expect(rowDocuments).toEqual([{ id: originalDocumentId }]);
 
     const values = await db

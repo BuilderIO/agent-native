@@ -961,7 +961,7 @@ async function withMutationLocks<T>(
   run: () => Promise<T>,
 ): Promise<T> {
   return withPositionLock(
-    documentsPositionScope(database.ownerEmail, database.documentId),
+    documentsPositionScope(database.ownerEmail, null),
     () => withPositionLock(databaseItemsPositionScope(database.id), run),
   );
 }
@@ -985,7 +985,7 @@ async function createInsideTransaction(
     .where(
       and(
         eq(schema.documents.ownerEmail, context.database.ownerEmail),
-        eq(schema.documents.parentId, context.database.documentId),
+        isNull(schema.documents.parentId),
       ),
     );
   const [maxItem] = await tx
@@ -1005,7 +1005,7 @@ async function createInsideTransaction(
     spaceId: context.database.spaceId,
     ownerEmail: context.database.ownerEmail,
     orgId: context.database.orgId,
-    parentId: context.database.documentId,
+    parentId: null,
     title: args.title?.trim() ?? "",
     content: "",
     icon: null,

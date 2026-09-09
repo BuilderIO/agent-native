@@ -10,6 +10,8 @@ export const parityMatrix: ParityRow[] = [
       "app/components/sidebar/DocumentTreeItem.tsx",
       "app/components/editor/DocumentToolbar.tsx",
       "app/hooks/use-documents.ts",
+      "app/components/documents/PageTrashControl.tsx",
+      "app/hooks/use-trash-pages.ts",
     ],
     durableEffect:
       "Document tree rows and document metadata are created, updated, deleted, moved, searched, or read.",
@@ -20,6 +22,7 @@ export const parityMatrix: ParityRow[] = [
       "create-document",
       "clone-creative-context-document",
       "delete-document",
+      "trash-documents",
       "get-document",
       "list-trashed-documents",
       "list-documents",
@@ -36,6 +39,7 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
+      "app/components/documents/PageTrashControl.test.tsx",
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],

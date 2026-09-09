@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   DatabaseSelectionBar,
+  databaseSelectionCanTrashPages,
   databaseSelectionCapabilities,
 } from "./DatabaseView";
 
@@ -79,7 +80,46 @@ describe("database selection permissions", () => {
       canDuplicateSelected: true,
       canRemoveSelected: true,
     });
-    expect(managerMarkup).toContain(">Remove<");
+    expect(managerMarkup).toContain("Remove from database");
+  });
+
+  it("offers canonical trash in Files independently of membership removal", () => {
+    const page = item({
+      document: {
+        id: "document-1",
+        canView: true,
+        canManage: true,
+      } as ContentDatabaseItem["document"],
+    });
+    expect(databaseSelectionCanTrashPages([page], 1, false)).toBe(true);
+    expect(
+      databaseSelectionCapabilities({
+        canEdit: true,
+        canManageDatabase: true,
+        databaseSystemRole: "files",
+        selectedItemIds: [page.id],
+        selectedItems: [page],
+        sources: [],
+        removesFavoriteMembership: false,
+        isWorkspaceCatalog: false,
+      }).canRemoveSelected,
+    ).toBe(false);
+  });
+
+  it("requires canonical management for every selected page and complete selection", () => {
+    const managed = item({
+      document: {
+        id: "document-1",
+        canView: true,
+        canManage: true,
+      } as ContentDatabaseItem["document"],
+    });
+    expect(databaseSelectionCanTrashPages([managed, item()], 2, false)).toBe(
+      false,
+    );
+    expect(databaseSelectionCanTrashPages([managed], 2, false)).toBe(false);
+    expect(databaseSelectionCanTrashPages([managed], 1, true)).toBe(false);
+    expect(databaseSelectionCanTrashPages([], 0, false)).toBe(false);
   });
 
   it("fails closed for stale and source-backed whole selections", () => {
