@@ -72,6 +72,39 @@ describe("WebMCP client", () => {
     );
   });
 
+  it("follows a page model context replaced by a browser reconnect", async () => {
+    const firstTool = {
+      name: "get-order",
+      title: "First order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const secondTool = { ...firstTool, title: "Second order" };
+    const firstExecute = vi.fn(async () => "first");
+    const secondExecute = vi.fn(async () => "second");
+    const firstContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [firstTool]),
+      executeTool: firstExecute,
+    };
+    const secondContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [secondTool]),
+      executeTool: secondExecute,
+    };
+    const doc = documentWithModelContext(firstContext);
+    const client = createAgentNativeWebMcpClient({ document: doc });
+    const [listedTool] = await client.listTools();
+
+    await expect(client.executeListedTool(listedTool)).resolves.toBe("first");
+    (doc as Document & { modelContext?: unknown }).modelContext = secondContext;
+
+    await expect(client.executeListedTool(listedTool)).resolves.toBe("second");
+    expect(firstExecute).toHaveBeenCalledOnce();
+    expect(secondExecute).toHaveBeenCalledOnce();
+  });
+
   it("discovers serializable tools and executes the registered tool", async () => {
     const registeredTool = {
       name: "get-order",
@@ -1241,6 +1274,48 @@ describe("WebMCP page helper", () => {
 
     await helper.tools();
     expect(getTools).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes a cached listing when a browser reconnect replaces the page context", async () => {
+    readyStatus(1);
+    const firstTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const secondTool = { ...firstTool, title: "Reconnected order" };
+    const firstExecute = vi.fn(async () => "first");
+    const secondExecute = vi.fn(async () => "second");
+    const firstContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [firstTool]),
+      executeTool: firstExecute,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const secondContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [secondTool]),
+      executeTool: secondExecute,
+    };
+    const doc = documentWithModelContext(firstContext);
+    const helper = createAgentNativeWebMcpPageHelper({ document: doc });
+
+    await expect(helper.call("get-order")).resolves.toMatchObject({
+      ok: true,
+      result: "first",
+    });
+    (doc as Document & { modelContext?: unknown }).modelContext = secondContext;
+
+    await expect(helper.call("get-order")).resolves.toMatchObject({
+      ok: true,
+      result: "second",
+    });
+    expect(firstExecute).toHaveBeenCalledOnce();
+    expect(secondExecute).toHaveBeenCalledOnce();
+    expect(firstContext.getTools).toHaveBeenCalledOnce();
+    expect(secondContext.getTools).toHaveBeenCalledOnce();
   });
 
   it("matches every tool for a global RegExp filter instead of alternating misses via shared lastIndex", async () => {
