@@ -352,6 +352,9 @@ const messages = {
       sendLogTimestamp: "Timestamp",
       sendLogPrevious: "Previous",
       sendLogNext: "Next",
+      sendLogBodyHtml: "HTML",
+      sendLogBodyText: "Text",
+      sendLogBodyFrameTitle: "Sent email body",
     },
     pages: {
       appsDescription:
