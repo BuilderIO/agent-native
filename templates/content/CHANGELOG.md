@@ -5,8 +5,13 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-09-09
 
+### Added
+
+- Connected agents can set up ordinary databases, configure fields and table views, and recover them from Trash with verified results.
+
 ### Fixed
 
+- First title edits no longer hit a stale-version conflict, open databases recover after agent Trash and restore actions, and database settings preserve keyboard focus when closing or returning to Add property. Source-managed database fields stay read-only in tables, page property editors, and agent actions, while local fields remain editable. Property editors stay inside mobile Info so edits can be saved without closing the panel.
 - Remote collaborator cursors in the document editor now stay compact above the text instead of expanding into full-width color bars.
 
 ## 2026-09-03
