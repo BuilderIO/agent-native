@@ -2231,7 +2231,7 @@ function AccountAvatars() {
             {accounts.map((account, i) => (
               <div
                 key={account.email}
-                className={cn("relative rounded-full ring-2 ring-card")}
+                className={cn("relative rounded-full ring-1 ring-card")}
                 style={{
                   marginLeft: i === 0 ? 0 : -8,
                   zIndex: accounts.length - i,

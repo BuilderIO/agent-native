@@ -1664,6 +1664,38 @@ export function shouldRunCoreRouteBootDatabaseWork(
   return !isProductionServerlessFunctionRuntime(env);
 }
 
+export function getBuilderConnectErrorDisposition(
+  error: unknown,
+  connectAttemptId: string | null,
+): "correlated" | "legacy" | null {
+  if (!error || typeof error !== "object" || !("message" in error)) {
+    return null;
+  }
+  const attemptId = "attemptId" in error ? error.attemptId : undefined;
+  if (typeof attemptId === "string") {
+    return attemptId === connectAttemptId ? "correlated" : null;
+  }
+  return "legacy";
+}
+
+export function getBuilderConnectErrorKey(
+  ownerEmail: string,
+  connectAttemptId: string | null = null,
+): string {
+  return connectAttemptId
+    ? `builder-connect-error:${ownerEmail}:${connectAttemptId}`
+    : `builder-connect-error:${ownerEmail}`;
+}
+
+function getBuilderConnectErrorCleanupKeys(
+  ownerEmail: string,
+  connectAttemptId: string | null,
+): string[] {
+  const legacyKey = getBuilderConnectErrorKey(ownerEmail);
+  const attemptKey = getBuilderConnectErrorKey(ownerEmail, connectAttemptId);
+  return attemptKey === legacyKey ? [legacyKey] : [attemptKey, legacyKey];
+}
+
 /**
  * Creates a Nitro plugin that mounts all standard agent-native framework routes.
  *
@@ -2726,19 +2758,21 @@ export function createCoreRoutesPlugin(
             // looks successful even though the user's credentials were not saved.
             try {
               if (userEmail) {
-                const errKey = `builder-connect-error:${userEmail}`;
+                const errKey = getBuilderConnectErrorKey(
+                  userEmail,
+                  connectAttemptId,
+                );
                 const errRow = await getSetting(errKey);
-                const isCorrelatedProvisioningError =
-                  errRow?.code === "account_exists" &&
-                  typeof connectAttemptId === "string" &&
-                  errRow.attemptId === connectAttemptId;
-                const isLegacyConnectError = errRow?.code !== "account_exists";
+                const errorDisposition = getBuilderConnectErrorDisposition(
+                  errRow,
+                  connectAttemptId,
+                );
                 if (
                   errRow &&
                   typeof errRow.message === "string" &&
-                  (isCorrelatedProvisioningError || isLegacyConnectError)
+                  errorDisposition
                 ) {
-                  if (isLegacyConnectError) {
+                  if (errorDisposition === "legacy") {
                     await deleteSetting(errKey).catch(() => {});
                   }
                   return withConnectToken({
@@ -3106,11 +3140,14 @@ export function createCoreRoutesPlugin(
                 sec_fetch_site: getHeader(event, "sec-fetch-site") ?? null,
               },
             );
-            await putSetting(`builder-connect-error:${ownerEmail}`, {
-              message: crossOriginMessage,
-              at: Date.now(),
-              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-            }).catch(() => {});
+            await putSetting(
+              getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+              {
+                message: crossOriginMessage,
+                at: Date.now(),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+              },
+            ).catch(() => {});
             console.warn("[builder-connect] rejected cross-origin connect", {
               hasConnectToken: Boolean(connectToken),
               secFetchSite: getHeader(event, "sec-fetch-site") ?? null,
@@ -3143,12 +3180,15 @@ export function createCoreRoutesPlugin(
               reason: string,
               code?: string,
             ) => {
-              await putSetting(`builder-connect-error:${ownerEmail}`, {
-                message,
-                at: Date.now(),
-                ...(code ? { code } : {}),
-                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-              }).catch(() => {});
+              await putSetting(
+                getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+                {
+                  message,
+                  at: Date.now(),
+                  ...(code ? { code } : {}),
+                  ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+                },
+              ).catch(() => {});
               await trackBuilderLifecycle(
                 event,
                 "builder connect failed",
@@ -3215,8 +3255,13 @@ export function createCoreRoutesPlugin(
                 deleteSetting("builder-disconnected").catch(
                   () => false, // coercion-ok: best-effort cleanup after successful provisioning
                 ),
-                deleteSetting(`builder-connect-error:${ownerEmail}`).catch(
-                  () => false, // coercion-ok: best-effort cleanup after successful provisioning
+                ...getBuilderConnectErrorCleanupKeys(
+                  ownerEmail,
+                  connectAttemptId,
+                ).map((key) =>
+                  deleteSetting(key).catch(
+                    () => false, // coercion-ok: best-effort cleanup after successful provisioning
+                  ),
                 ),
               ]);
               await trackBuilderLifecycle(
@@ -3269,7 +3314,12 @@ export function createCoreRoutesPlugin(
           // useBuilderStatus polling sees the stale error and aborts the
           // new attempt before it can complete.
           try {
-            await deleteSetting(`builder-connect-error:${ownerEmail}`);
+            await Promise.all(
+              getBuilderConnectErrorCleanupKeys(
+                ownerEmail,
+                connectAttemptId,
+              ).map((key) => deleteSetting(key)),
+            );
           } catch {
             // No prior error row — fine
           }
@@ -3303,6 +3353,14 @@ export function createCoreRoutesPlugin(
             allowMemberInitiation: true,
           });
           if (orgConnectDenied) {
+            await putSetting(
+              getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+              {
+                message: orgConnectDenied,
+                at: Date.now(),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+              },
+            ).catch(() => {});
             await trackBuilderLifecycle(
               event,
               "builder connect failed",
@@ -3387,11 +3445,14 @@ export function createCoreRoutesPlugin(
             );
             // Best-effort: also write the error row so the parent's
             // /builder/status poll picks it up if BroadcastChannel doesn't.
-            await putSetting(`builder-connect-error:${ownerEmail}`, {
-              message: msg,
-              at: Date.now(),
-              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-            }).catch(() => {});
+            await putSetting(
+              getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+              {
+                message: msg,
+                at: Date.now(),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+              },
+            ).catch(() => {});
             setResponseStatus(event, 503);
             setResponseHeader(
               event,
@@ -3626,7 +3687,7 @@ export function createCoreRoutesPlugin(
                 await writeBuilderCredentials(ownerEmail, credentials, scope);
                 await Promise.all([
                   deleteSetting("builder-disconnected").catch(() => false),
-                  deleteSetting(`builder-connect-error:${ownerEmail}`).catch(
+                  deleteSetting(getBuilderConnectErrorKey(ownerEmail)).catch(
                     () => false,
                   ),
                 ]);
@@ -3811,11 +3872,16 @@ export function createCoreRoutesPlugin(
             tracking: BuilderConnectTrackingParams = {},
           ) => {
             if (ownerEmail) {
-              await putSetting(`builder-connect-error:${ownerEmail}`, {
-                message,
-                at: Date.now(),
-                ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
-              }).catch(() => {});
+              await putSetting(
+                getBuilderConnectErrorKey(ownerEmail, callbackAttemptId),
+                {
+                  message,
+                  at: Date.now(),
+                  ...(callbackAttemptId
+                    ? { attemptId: callbackAttemptId }
+                    : {}),
+                },
+              ).catch(() => {});
               await trackBuilderLifecycle(
                 event,
                 "builder connect failed",
@@ -4009,8 +4075,13 @@ export function createCoreRoutesPlugin(
           try {
             await Promise.all([
               deleteSetting("builder-disconnected").catch(() => false), // coercion-ok: best-effort cleanup after successful OAuth save
-              deleteSetting(`builder-connect-error:${ownerEmail}`).catch(
-                () => false, // coercion-ok: best-effort cleanup after successful OAuth save
+              ...getBuilderConnectErrorCleanupKeys(
+                ownerEmail,
+                callbackAttemptId,
+              ).map((key) =>
+                deleteSetting(key).catch(
+                  () => false, // coercion-ok: best-effort cleanup after successful OAuth save
+                ),
               ),
             ]);
           } catch {

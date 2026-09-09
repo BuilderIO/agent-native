@@ -53,6 +53,14 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
 
+  it("keeps expired share loader data impersonal for CDN caching", () => {
+    const route = readRoute("share.$shareId.tsx");
+
+    expect(route).toContain("isRecordingExpired(rec.expiresAt)");
+    expect(route).not.toContain("isRecordingExpiredForViewer");
+    expect(route).not.toContain("sameOwnerEmail");
+  });
+
   it("waits for the browser session before the meeting share payload request", () => {
     const route = readRoute("share.meeting.$meetingId.tsx");
     expect(route).toContain('fetchPublicMeeting(meetingId ?? "", {');
@@ -67,6 +75,16 @@ describe("authenticated recording route loading", () => {
     );
     expect(route).toContain('eq(schema.meetings.visibility, "public")');
     expect(route).not.toContain('fetch("/api/public-meeting');
+  });
+
+  it("keeps the meeting timestamp stable through hydration", () => {
+    const route = readRoute("share.meeting.$meetingId.tsx");
+    expect(route).toContain("useState(false);");
+    expect(route).toContain('stable ? "en-US" : []');
+    expect(route).toContain('...(stable ? { timeZone: "UTC" } : {})');
+    expect(route).toContain(
+      "formatDateTime(meeting.scheduledStart, !hasHydrated)",
+    );
   });
 
   it("only renders a non-seekable transcript when the meeting payload shares it", () => {
@@ -95,6 +113,10 @@ describe("authenticated recording route loading", () => {
     expect(route).not.toContain("ownerEmail: rec.ownerEmail");
     expect(route).toContain("<ClipsAvatar");
     expect(route).toContain("const recordedOn = formatRecordedOn");
+    expect(route).toContain('stable ? "en-US" : undefined');
+    expect(route).toContain(
+      "formatRecordedOn(recording?.createdAt, !hasHydrated)",
+    );
     expect(route).toContain("<RecordingViewsBadge");
     expect(route).toContain("<ShareReactionPicker");
     expect(route).toContain('t("recordingPage.react")');

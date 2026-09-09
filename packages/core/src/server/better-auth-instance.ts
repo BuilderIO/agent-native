@@ -30,6 +30,8 @@ import {
   timestamp as pgTimestamp,
   boolean as pgBoolean,
 } from "drizzle-orm/pg-core";
+import { setCookie } from "h3";
+import type { H3Event } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
@@ -1281,6 +1283,65 @@ export async function createBetterAuthSessionForEmail(
     token: session.token,
     userId: existing.user.id,
   };
+}
+
+/** Set a Better Auth session cookie for a session created through the adapter. */
+export async function setBetterAuthSessionCookie(
+  event: H3Event,
+  token: string,
+): Promise<void> {
+  const auth = (await getBetterAuth()) as unknown as {
+    $context?: Promise<{
+      authCookies: {
+        sessionToken: {
+          name: string;
+          attributes: Record<string, unknown>;
+        };
+        sessionData: {
+          name: string;
+          attributes: Record<string, unknown>;
+        };
+        dontRememberToken: {
+          name: string;
+          attributes: Record<string, unknown>;
+        };
+      };
+      secret: string;
+      sessionConfig: { expiresIn: number };
+    }>;
+  };
+  const context = await auth.$context;
+  if (!context) throw new Error("Better Auth context is unavailable.");
+
+  const signCookieValue = (value: string) =>
+    crypto.createHmac("sha256", context.secret).update(value).digest("base64");
+  const sessionCookie = context.authCookies.sessionToken;
+  setCookie(event, sessionCookie.name, `${token}.${signCookieValue(token)}`, {
+    ...sessionCookie.attributes,
+    maxAge: context.sessionConfig.expiresIn,
+  } as any);
+
+  const incomingCookieNames = (event.headers.get("cookie") ?? "")
+    .split(";")
+    .map((part) => part.split("=", 1)[0]?.trim() ?? "")
+    .filter(Boolean);
+  const sessionDataCookie = context.authCookies.sessionData;
+  const sessionDataNames = new Set([
+    sessionDataCookie.name,
+    ...incomingCookieNames.filter((name) =>
+      name.startsWith(`${sessionDataCookie.name}.`),
+    ),
+  ]);
+  for (const name of sessionDataNames) {
+    setCookie(event, name, "", {
+      ...sessionDataCookie.attributes,
+      maxAge: 0,
+    } as any);
+  }
+  setCookie(event, context.authCookies.dontRememberToken.name, "", {
+    ...context.authCookies.dontRememberToken.attributes,
+    maxAge: 0,
+  } as any);
 }
 
 export interface GoogleAuthIdentity {

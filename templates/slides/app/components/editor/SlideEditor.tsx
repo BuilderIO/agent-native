@@ -194,8 +194,10 @@ import {
   findSmartBlock,
   isInlineTextElement,
   isRichTextBlock,
+  isSmartGroup,
   isSlideTextEditingTarget,
   shouldStampBuilderId,
+  shouldTraverseSlideLayerChildren,
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
@@ -323,7 +325,7 @@ function stampBuilderIds(container: HTMLElement) {
       return;
     }
     ensureBuilderId(element);
-    if (isRichTextBlock(element)) {
+    if (isRichTextBlock(element) && !isSmartGroup(element)) {
       for (const descendant of Array.from(
         element.querySelectorAll<HTMLElement>("[data-slide-text-block]"),
       )) {
@@ -437,11 +439,12 @@ function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
       return null;
     }
     // Rich text is one layer: its blocks are structure, not rows of their own.
-    const children = isRichTextBlock(element)
-      ? []
-      : sortSlideLayerElements(Array.from(element.children) as HTMLElement[])
+    // Smart groups are layout containers, so their text leaves stay visible.
+    const children = shouldTraverseSlideLayerChildren(element)
+      ? sortSlideLayerElements(Array.from(element.children) as HTMLElement[])
           .map((child, childIndex) => visit(child as HTMLElement, childIndex))
-          .filter((child): child is SlidesLayerNode => child !== null);
+          .filter((child): child is SlidesLayerNode => child !== null)
+      : [];
     return {
       id: ensureBuilderId(element),
       label: layerLabel(element, index),
@@ -953,7 +956,8 @@ function SamePresenceAvatar({ user }: { user: CollabUser }) {
     <Tooltip>
       <TooltipTrigger asChild>
         <div
-          className="-ml-1.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-white ring-2 ring-popover first:ml-0"
+          // guard:allow-raw-color -- white initials preserve contrast on arbitrary collaborator colors
+          className="-ml-1.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-white ring-1 ring-popover first:ml-0"
           style={{
             backgroundColor: avatarUrl ? undefined : user.color,
             fontSize: 9,
@@ -998,7 +1002,7 @@ function SameSlidePresenceIndicator({ users }: { users: CollabUser[] }) {
           <SamePresenceAvatar key={u.email} user={u} />
         ))}
         {overflow > 0 && (
-          <span className="-ml-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-[9px] font-medium leading-none text-muted-foreground ring-2 ring-popover">
+          <span className="-ml-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-[9px] font-medium leading-none text-muted-foreground ring-1 ring-popover">
             +{overflow}
           </span>
         )}

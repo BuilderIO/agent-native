@@ -1,4 +1,5 @@
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
 /**
@@ -22,10 +23,6 @@ type CheckResult = { ok: true } | { ok: false; reason: string };
 function argumentValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   return index === -1 ? undefined : process.argv[index + 1];
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchWithTimeout(url: string): Promise<Response> {

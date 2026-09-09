@@ -259,7 +259,7 @@ export function ShareRecordingDialog({
   const t = useT();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100vw-2rem)] overflow-hidden border-border p-0 sm:max-w-[400px]">
+      <DialogContent className="w-[calc(100vw-2rem)] overflow-hidden border-border p-0 sm:max-w-[400px] [&>button]:top-1.5">
         <DialogTitle className="sr-only">
           {recordingTitle
             ? t("shareDialog.sharePlainTitle", { title: recordingTitle })

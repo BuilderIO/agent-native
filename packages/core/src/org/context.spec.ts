@@ -88,6 +88,21 @@ describe("getOrgContext", () => {
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
+  it("resolves an org service identity without a physical membership row", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "svc-pr-recap@service.org-1",
+      orgId: "org-1",
+    });
+
+    await expect(getOrgContext(EVENT)).resolves.toEqual({
+      email: "svc-pr-recap@service.org-1",
+      orgId: "org-1",
+      orgName: null,
+      role: "member",
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
   it("looks up memberships by LOWERCASED email", async () => {
     mockGetSession.mockResolvedValue({ email: "Alice@Builder.IO" });
     queueSelect([{ orgId: "org1", role: "member", orgName: "Builder" }]);

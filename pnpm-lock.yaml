@@ -591,9 +591,6 @@ importers:
       nitro:
         specifier: 3.0.260610-beta
         version: 3.0.260610-beta(@azure/identity@4.13.1)(@electric-sql/pglite@0.5.8)(@libsql/client@0.15.15)(better-sqlite3@12.11.1)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.8)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9))(idb-keyval@6.3.0)(jiti@2.7.0)(lru-cache@11.5.1)(rollup@4.62.2)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))(wrangler@4.81.0)
-      p-limit:
-        specifier: ^7.3.0
-        version: 7.3.0
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -645,6 +642,9 @@ importers:
       undici:
         specifier: ^7.28.0
         version: 7.28.0
+      vgpu:
+        specifier: 0.3.1
+        version: 0.3.1
       y-protocols:
         specifier: 'catalog:'
         version: 1.0.7(yjs@13.6.32)
@@ -715,6 +715,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 4.1.5
         version: 4.1.5(vitest@4.1.9)
+      '@webgpu/types':
+        specifier: 0.1.72
+        version: 0.1.72
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
