@@ -10,6 +10,7 @@ import {
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
+import { resolveAppRuntimeUrl } from "./app-url.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const resourceListMock = vi.hoisted(() => vi.fn());
@@ -489,6 +490,14 @@ describe("agent discovery", () => {
       );
     },
   );
+
+  it("prefers the current Vercel preview over the canonical app URL", () => {
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_URL = "workspace-preview.vercel.app";
+    process.env.APP_URL = "https://workspace.example.com";
+
+    expect(resolveAppRuntimeUrl()).toBe("https://workspace-preview.vercel.app");
+  });
 
   it("derives production sibling workspace app URLs from the Vercel project URL", async () => {
     process.env.VERCEL_ENV = "production";

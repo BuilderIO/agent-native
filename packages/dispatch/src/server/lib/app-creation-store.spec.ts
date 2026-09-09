@@ -739,15 +739,17 @@ describe("listWorkspaceApps", () => {
     expect(update?.[0]).toMatchObject({
       args: [
         "creator@example.test",
-        "org-123",
+        null,
         "Brand Assets",
         "Current description",
         "/brand-assets",
         expect.any(Number),
         "brand-assets",
-        "org-123",
       ],
     });
+    expect(String((update?.[0] as { sql?: unknown })?.sql ?? "")).toContain(
+      "WHERE id = ? AND org_id IS NULL",
+    );
 
     const removal = execute.mock.calls.find(([statement]) =>
       String((statement as { sql?: unknown })?.sql ?? "").includes(

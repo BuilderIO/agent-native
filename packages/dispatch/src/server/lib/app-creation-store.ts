@@ -1332,7 +1332,9 @@ async function ensureWorkspaceAppRecords(
         // repair an owner. The deploy manifest itself is caller-controlled.
         const ownerEmail =
           cleanOptionalText(override?.createdBy) ?? existingOwnerEmail;
-        const nextOrgId = existingOrgId ?? orgId ?? null;
+        // A personal row is owner-bound. Listing the same manifest from an
+        // organization must not turn it into that organization's app.
+        const nextOrgId = existingOrgId;
         const nextDescription = app.description || null;
         const existingName =
           typeof existing.name === "string" ? existing.name : "";
@@ -1350,9 +1352,7 @@ async function ensureWorkspaceAppRecords(
           ownerEmail !== existingOwnerEmail || nextOrgId !== existingOrgId;
 
         if (presentationChanged || ownershipChanged) {
-          const orgPredicate = orgId
-            ? "(org_id = ? OR org_id IS NULL)"
-            : "org_id IS NULL";
+          const orgPredicate = existingOrgId ? "org_id = ?" : "org_id IS NULL";
           await db.execute({
             sql: `UPDATE workspace_apps
                   SET owner_email = ?, org_id = ?, name = ?, description = ?, path = ?, updated_at = ?
@@ -1365,7 +1365,7 @@ async function ensureWorkspaceAppRecords(
               app.path,
               Date.now(),
               app.id,
-              ...(orgId ? [orgId] : []),
+              ...(existingOrgId ? [existingOrgId] : []),
             ],
           });
         }

@@ -178,11 +178,15 @@ export function getFirstPartyProdUrl(): string | undefined {
  */
 export function resolveAppRuntimeUrl(): string | undefined {
   const config = getAppConfig();
+  if (config.workspace.gatewayUrl) return config.workspace.gatewayUrl;
+
+  const isVercelPreview =
+    process.env.VERCEL_ENV?.trim().toLowerCase() === "preview";
+  const deploymentUrl =
+    isVercelPreview || !config.app.url ? vercelDeploymentUrl() : undefined;
+
   return (
-    config.workspace.gatewayUrl ??
-    config.app.url ??
-    vercelDeploymentUrl() ??
-    firstConfiguredUrl(["URL", "DEPLOY_URL"])
+    deploymentUrl ?? config.app.url ?? firstConfiguredUrl(["URL", "DEPLOY_URL"])
   );
 }
 
