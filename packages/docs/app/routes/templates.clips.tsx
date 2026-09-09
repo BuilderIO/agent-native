@@ -200,7 +200,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
                 alt=""
                 loading="lazy"
                 decoding="async"
-                className="aspect-video w-full border-b border-[var(--docs-border)] object-cover object-center"
+                className="aspect-video w-full border-b border-[var(--docs-border)] object-contain object-center"
               />
               <div className="flex w-full flex-1 flex-col gap-2 p-6 sm:p-8">
                 <h3 className="m-0 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[var(--fg)]">
