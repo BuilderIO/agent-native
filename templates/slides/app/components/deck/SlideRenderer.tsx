@@ -59,6 +59,13 @@ export const layoutClasses: Record<string, string> = {
 };
 
 function isDarkSlideBackground(value: string): boolean {
+  if (
+    /^(?:bg-black|bg-(?:slate|gray|zinc|neutral|stone)-(?:900|950))$/i.test(
+      value,
+    )
+  ) {
+    return true;
+  }
   const match = value.match(/^#([\da-f]{3,8})$/i);
   if (!match) return /(?:^|-)black(?:$|\s)/i.test(value);
   const hex = match[1];
@@ -995,23 +1002,25 @@ export function SlideInner({
   const isCentered = slide.layout === "title";
   const darkSlide = isDarkSlideBackground(safeBackground ?? bg);
 
-  const dsStyle = designSystem
-    ? ({
-        "--ds-accent": designSystem.colors.accent,
-        "--ds-bg": safeBackground ?? "transparent",
-        "--ds-text": designSystem.colors.text,
-        "--ds-text-muted": designSystem.colors.textMuted,
-        "--ds-heading-font": designSystem.typography.headingFont,
-        "--ds-body-font": designSystem.typography.bodyFont,
-        "--ds-primary": designSystem.colors.primary,
-        "--ds-secondary": designSystem.colors.secondary,
-        // guard:allow-raw-color - safe placeholder surface fallback
-        "--ds-surface":
+  const dsStyle = {
+    "--ds-bg": safeBackground ?? "transparent",
+    ...(designSystem
+      ? {
+          "--ds-accent": designSystem.colors.accent,
+          "--ds-text": designSystem.colors.text,
+          "--ds-text-muted": designSystem.colors.textMuted,
+          "--ds-heading-font": designSystem.typography.headingFont,
+          "--ds-body-font": designSystem.typography.bodyFont,
+          "--ds-primary": designSystem.colors.primary,
+          "--ds-secondary": designSystem.colors.secondary,
           // guard:allow-raw-color - safe placeholder surface fallback
-          sanitizeCssValue(designSystem.colors.surface) ?? "#FFFFFF",
-        "--ds-radius": designSystem.borders.radius,
-      } as React.CSSProperties & Record<string, string>)
-    : ({} as React.CSSProperties & Record<string, string>);
+          "--ds-surface":
+            // guard:allow-raw-color - safe placeholder surface fallback
+            sanitizeCssValue(designSystem.colors.surface) ?? "#FFFFFF",
+          "--ds-radius": designSystem.borders.radius,
+        }
+      : {}),
+  } as React.CSSProperties & Record<string, string>;
   if (
     darkSlide &&
     (!designSystem || isDarkSlideBackground(designSystem.colors.text))

@@ -82,6 +82,24 @@ function standaloneBackgroundCssValue(value: string): string {
   );
 }
 
+function isDarkStandaloneBackground(value: string): boolean {
+  return (
+    // guard:allow-raw-color - named Tailwind background compatibility
+    value === "bg-black" ||
+    /^bg-(?:slate|gray|zinc|neutral|stone)-(?:900|950)$/i.test(value) ||
+    (() => {
+      const hex = value.match(/^#([\da-f]{6})$/i)?.[1];
+      if (!hex) return false;
+      const channels = [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)].map(
+        (channel) => parseInt(channel, 16),
+      );
+      return (
+        channels[0] * 0.299 + channels[1] * 0.587 + channels[2] * 0.114 < 128
+      );
+    })()
+  );
+}
+
 function googleFontHref(font: unknown): string | undefined {
   if (typeof font !== "string") return undefined;
   const family = font.split(",", 1)[0]?.replace(/["']/g, "").trim();
@@ -116,12 +134,15 @@ function standaloneDesignSystemVars(
   const colors = designSystem?.colors;
   const typography = designSystem?.typography;
   const borders = designSystem?.borders;
+  const darkBackground = isDarkStandaloneBackground(slideBackground);
   return [
     `--ds-bg: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND)}`,
     // guard:allow-raw-color - standalone export fallback palette
-    `--ds-text: ${safeCssToken(colors?.text, "#1F2933")}`,
+    // guard:allow-raw-color - standalone export dark-background fallback
+    `--ds-text: ${safeCssToken(colors?.text, darkBackground ? "#FFFFFF" : "#1F2933")}`,
     // guard:allow-raw-color - standalone export fallback palette
-    `--ds-text-muted: ${safeCssToken(colors?.textMuted, "#667085")}`,
+    // guard:allow-raw-color - standalone export dark-background fallback
+    `--ds-text-muted: ${safeCssToken(colors?.textMuted, darkBackground ? "rgba(255, 255, 255, 0.72)" : "#667085")}`,
     // guard:allow-raw-color - standalone export fallback palette
     `--ds-accent: ${safeCssToken(colors?.accent, "#2457D6")}`,
     // guard:allow-raw-color - standalone export fallback palette
