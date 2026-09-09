@@ -1015,6 +1015,12 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("agent-native-toolkit-");
       expect(workspaceYaml).toContain(".tgz");
+      for (const name of ["protocol", "client", "adapters", "conformance"]) {
+        expect(workspaceYaml).toContain(
+          `"@agent-native/agentkit-${name}": "file://`,
+        );
+        expect(workspaceYaml).toContain(`agent-native-agentkit-${name}-`);
+      }
       expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
       expect(workspaceYaml).toContain("/packages/recap-cli");
       expect(workspaceYaml).not.toContain("packages:");
@@ -1049,6 +1055,9 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("agent-native-toolkit-");
       expect(workspaceYaml).toContain(".tgz");
+      expect(workspaceYaml).toContain(
+        '"@agent-native/agentkit-protocol": "file://',
+      );
       expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
       expect(workspaceYaml).toContain("/packages/recap-cli");
     } finally {
@@ -1302,6 +1311,7 @@ describe("workspace add-app scaffold", { timeout: 60000 }, () => {
         "utf-8",
       );
       expect(wsYaml).toContain('"@agent-native/toolkit": "file://');
+      expect(wsYaml).toContain('"@agent-native/agentkit-protocol": "file://');
       expect(wsYaml).toContain('"@agent-native/recap-cli": "file://');
     } finally {
       if (previous === undefined) {
@@ -1990,6 +2000,7 @@ describe("build artifacts", () => {
 
   it("core package.json only uses workspace:* for publishable package deps", () => {
     const publishableWorkspaceDeps = new Set([
+      "@agent-native/agentkit-protocol",
       "@agent-native/recap-cli",
       "@agent-native/toolkit",
     ]);
