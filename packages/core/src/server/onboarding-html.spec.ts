@@ -173,7 +173,7 @@ describe("getOnboardingHtml", () => {
       expect(again).toBe(baseline);
     });
 
-    it("canonical hosted login pages keep browser SSO out of the auth surface", () => {
+    it("canonical hosted login pages enable silent federation", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
@@ -183,9 +183,18 @@ describe("getOnboardingHtml", () => {
 
       expect(html).not.toContain("identity-sso-btn");
       expect(html).not.toContain("Sign in with Agent-Native");
+      expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
+      expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
 
-    it("does not add a browser SSO entry when the hub is configured", () => {
+    it("cached canonical login HTML keeps silent federation enabled", () => {
+      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+
+      expect(readAuthPageData(getOnboardingHtml()).identitySsoAuto).toBe(true);
+    });
+
+    it("env set → enables silent federation without adding a separate sign-in control", () => {
       vi.stubEnv(
         "AGENT_NATIVE_IDENTITY_HUB_URL",
         "https://dispatch.agent-native.com",
@@ -194,6 +203,12 @@ describe("getOnboardingHtml", () => {
       expect(html).not.toContain('id="identity-sso-btn"');
       expect(html).not.toContain('href="/_agent-native/identity/login"');
       expect(html).not.toContain("Sign in with Agent-Native");
+      expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
+      expect(readAuthPageData(html).identitySsoAuto).toBe(false);
+      expect(html).toContain("data-agent-native-embedded-init");
+      expect(html).toContain(
+        'params.get("embedded") === "1" || window.self !== window.top',
+      );
     });
 
     it("malformed hub configuration does not change the auth surface", () => {

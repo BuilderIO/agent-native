@@ -7848,6 +7848,7 @@ describe("server/auth", () => {
   describe("OAuth session creation", () => {
     it("uses cross-site cookie attributes for HTTPS Google sign-in sessions", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-auth-secret");
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
@@ -7877,6 +7878,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("COOKIE_DOMAIN", ".example.com");
       vi.stubEnv("APP_NAME", "slides");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-auth-secret");
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
@@ -7925,6 +7927,7 @@ describe("server/auth", () => {
       const trackSignupEvent = vi.fn(async () => {});
       const hasBetterAuthUserEmail = vi.fn(async () => false);
       vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
         hasBetterAuthUserEmail,
@@ -7996,6 +7999,7 @@ describe("server/auth", () => {
       const trackSignupEvent = vi.fn(async () => {});
       const hasBetterAuthUserEmail = vi.fn(async () => false);
       vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
         hasBetterAuthUserEmail,
@@ -8060,6 +8064,7 @@ describe("server/auth", () => {
       const trackSignupEvent = vi.fn(async () => {});
       const hasBetterAuthUserEmail = vi.fn(async () => false);
       vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
         hasBetterAuthUserEmail,
@@ -8087,6 +8092,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("COOKIE_DOMAIN", ".agent-native.com");
       vi.stubEnv("APP_NAME", "slides");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-auth-secret");
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({

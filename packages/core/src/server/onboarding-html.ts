@@ -66,6 +66,11 @@ import {
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import {
+  isCanonicalIdentitySsoClientRequest,
+  isCanonicalIdentitySsoClientConfigured,
+  isIdentitySsoAvailableForRequest,
+} from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 function hasGoogleOAuth(): boolean {
@@ -1265,6 +1270,20 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     opts.signupLegalNotice === false
       ? undefined
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
+  const identitySsoRequestHost =
+    opts.identitySsoRequestHost ?? opts.requestHost;
+  const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
+  const identitySsoEnabled = isIdentitySsoAvailableForRequest({
+    requestHost: identitySsoRequestHost,
+    requestProtocol: identitySsoRequestProtocol,
+  });
+  const identitySsoAuto =
+    identitySsoEnabled &&
+    (isCanonicalIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      identitySsoRequestProtocol,
+    ) ||
+      (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
   const marketingStyles = hasMarketing
     ? `
   body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
@@ -1634,6 +1653,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     docsAuthUrl: docsUrl("authentication", {
       hash: "local-development-sign-in",
     }),
+    identitySsoEnabled,
+    identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
