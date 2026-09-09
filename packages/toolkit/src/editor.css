@@ -613,6 +613,7 @@
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
+  /* guard:allow-raw-color — collaborator cursor label text on colored badge */
   color: #fff;
   padding: 1px 4px 2px;
   border-radius: 3px 3px 3px 0;

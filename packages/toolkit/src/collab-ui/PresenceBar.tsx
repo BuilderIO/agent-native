@@ -121,7 +121,10 @@ function UserAvatar({
             backgroundColor: color,
             marginLeft: isFirst ? 0 : OVERLAP,
             cursor: onClick ? "pointer" : "default",
-            boxShadow: isFollowing ? `0 0 0 1px #3b82f6` : undefined,
+            boxShadow: isFollowing
+              ? // guard:allow-raw-color -- existing follow-mode ring color
+                `0 0 0 1px #3b82f6`
+              : undefined,
           }}
           aria-label={`${name} (${user.email})${isFollowing ? " — following" : ""}`}
           tabIndex={onClick ? 0 : undefined}
