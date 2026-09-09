@@ -57,7 +57,7 @@ video sharing app. The agent and the UI share the same SQL data and actions.
   shareable Clips recording.
 - Use `view-screen` when the active recording, transcript segment, meeting, or
   share context is unclear.
-- Never fabricate; read via actions, verify writes, and rely on refresh/polling.
+- Never fabricate; read via actions, verify writes by read-back; refresh after writes.
 
 ## Application State
 
