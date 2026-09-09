@@ -7,6 +7,10 @@ import {
   type ActiveRunState,
 } from "./active-run-state.js";
 import { agentNativePath } from "./api-path.js";
+import {
+  noteRateLimitedResponse,
+  rateLimitCooldownRemainingMs,
+} from "./rate-limit-signal.js";
 
 /**
  * Per-thread chat run health, derived from the durable `last_progress_at`
@@ -468,7 +472,17 @@ export function useRunStuckDetection({
           if (!data.active || data.status !== "running") {
             nextDelay = IDLE_BACKOFF_INTERVAL_MS;
           }
-        } else if (res.status === 429 || res.status >= 500) {
+        } else if (res.status === 429) {
+          // This loop is the one still running while a chat is stalled, so it
+          // is usually the first to see an origin-wide throttle. Publish it so
+          // speculative traffic stands down too, and wait out the server's own
+          // Retry-After rather than only our failure-count backoff.
+          noteRateLimitedResponse(res);
+          nextDelay = Math.max(
+            pollFailureDelay(),
+            rateLimitCooldownRemainingMs(),
+          );
+        } else if (res.status >= 500) {
           nextDelay = pollFailureDelay();
         } else {
           consecutivePollFailures = 0;

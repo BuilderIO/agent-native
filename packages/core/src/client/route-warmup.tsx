@@ -7,6 +7,7 @@ import {
   type AgentNativeRouteWarmupResolvedConfig,
   type AgentNativeRouteWarmupStrategy,
 } from "../shared/route-warmup-config.js";
+import { isRateLimited, noteRateLimitedResponse } from "./rate-limit-signal.js";
 
 declare const __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__:
   | AgentNativeRouteWarmupConfigInput
@@ -421,6 +422,12 @@ export function AgentNativeRouteWarmup({
     const warmModules = resolved.modules && hasRouteAssets;
     if (!warmData && !warmModules) return;
 
+    // A cooldown recorded before this load means the user is reloading into a
+    // throttled origin. Prefetching is the one thing on the page nobody is
+    // waiting for, so it sits this load out rather than spending the
+    // origin's remaining budget on requests for pages not yet asked for.
+    if (isRateLimited()) return;
+
     if (warmModules) seedExistingModulepreloads();
 
     const queue: Array<{ dataUrl: string; href: string }> = [];
@@ -431,6 +438,15 @@ export function AgentNativeRouteWarmup({
     let active = 0;
     let stopped = false;
     let scheduleTimer: number | undefined;
+
+    const stopWarmup = () => {
+      stopped = true;
+      queue.length = 0;
+      queuedDataRoutes.clear();
+      dataRetryAttempts.clear();
+      for (const timer of retryTimers) window.clearTimeout(timer);
+      retryTimers.clear();
+    };
 
     const scheduleDataRetry = (dataUrl: string, href: string) => {
       if (stopped) return;
@@ -470,7 +486,15 @@ export function AgentNativeRouteWarmup({
               return;
             }
             warmedDataRoutes.delete(item.dataUrl);
-            if (response.status >= 500 || response.status === 429) {
+            if (response.status === 429) {
+              // Warmup is speculative, so it is the first traffic that must
+              // yield: retrying a 429 on a 500ms ladder, across every queued
+              // route, is what turned one throttled origin into a sustained
+              // one that also 429'd plain page loads. Record the cooldown for
+              // every other loop and abandon warmup for this page.
+              noteRateLimitedResponse(response);
+              stopWarmup();
+            } else if (response.status >= 500) {
               scheduleDataRetry(item.dataUrl, item.href);
             } else {
               queuedDataRoutes.delete(item.dataUrl);
@@ -489,6 +513,7 @@ export function AgentNativeRouteWarmup({
     };
 
     function warmHref(href: string) {
+      if (stopped) return;
       if (warmModules) warmRouteAssetsForHref(href);
       if (!warmData) return;
       const dataUrl = dataRouteUrlForHref(href);

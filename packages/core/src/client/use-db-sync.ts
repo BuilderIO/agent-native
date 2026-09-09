@@ -19,6 +19,12 @@ import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
 } from "./embed-auth.js";
+import {
+  DEFAULT_RATE_LIMIT_COOLDOWN_MS,
+  noteRateLimitCooldownMs,
+  parseRetryAfterMs,
+  rateLimitCooldownRemainingMs,
+} from "./rate-limit-signal.js";
 import { bumpChangeVersion } from "./use-change-version.js";
 
 interface Query {
@@ -82,10 +88,13 @@ const SSE_LEADER_LOCK_PREFIX = "agent-native-sync:";
 
 class HttpStatusError extends Error {
   status: number;
+  /** Raw `Retry-After`, when the response carried one. */
+  retryAfter: string | null;
 
-  constructor(status: number) {
+  constructor(status: number, retryAfter: string | null = null) {
     super("HTTP " + status);
     this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -393,7 +402,9 @@ async function fetchPollJson<T>(
       url,
       controller ? { signal: controller.signal } : undefined,
     );
-    if (!res.ok) throw new HttpStatusError(res.status);
+    if (!res.ok) {
+      throw new HttpStatusError(res.status, res.headers.get("Retry-After"));
+    }
     // Await the json before the finally so a body-stream abort doesn't
     // produce a dangling promise that escapes as an unhandled rejection.
     return await res.json();
@@ -783,7 +794,10 @@ class SyncTransport {
     // Jitter only for gateway-capable transports so reconnect/poll retries
     // don't stampede a gateway deploy; apps with no gateway config keep the
     // exact deterministic cadence.
-    const delay = this.gateway ? applyReconnectJitter(backoff) : backoff;
+    const jittered = this.gateway ? applyReconnectJitter(backoff) : backoff;
+    // A 429 is the origin telling us how long to wait; that outranks our own
+    // cadence, whichever loop happened to observe it.
+    const delay = Math.max(jittered, rateLimitCooldownRemainingMs());
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.poll();
@@ -1159,6 +1173,15 @@ class SyncTransport {
       } else if (isAuthFailure(err)) {
         this.authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
         this.closeEvents();
+      }
+      if (err instanceof HttpStatusError && err.status === 429) {
+        // Publish the origin-wide throttle so every other loop, including
+        // speculative route warmup, honors the same window instead of each
+        // re-deriving it from its own failure count.
+        noteRateLimitCooldownMs(
+          parseRetryAfterMs(err.retryAfter, Date.now()) ??
+            DEFAULT_RATE_LIMIT_COOLDOWN_MS,
+        );
       }
       // Network error — retried on the next (backed-off) interval.
     } finally {
