@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -1917,10 +1917,18 @@ export default defineAction({
   }),
   run: async ({ deckId, includeNotes }) => {
     const userEmail = getRequestUserEmail();
-    if (!userEmail) throw new Error("no authenticated user");
+    if (!userEmail)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
 
     const access = await resolveAccess("deck", deckId);
-    if (!access) throw new Error(`Deck not found: ${deckId}`);
+    if (!access)
+      fail(`Deck not found: ${deckId}`, {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      });
 
     const row = access.resource;
     const deckData = JSON.parse(row.data);

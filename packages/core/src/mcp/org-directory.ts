@@ -287,16 +287,26 @@ async function fetchOrgAppsResultInternal(
       }
     }
 
+    const { resolveVercelDeploymentProtectionHeaders } =
+      await import("../server/credential-provider.js");
+    const directoryUrl = `${origin}/_agent-native/org/apps`;
+    const protectionHeaders =
+      resolveVercelDeploymentProtectionHeaders(directoryUrl);
+
     for (let i = 0; i < attempts.length; i++) {
-      const res = await fetch(`${origin}/_agent-native/org/apps`, {
+      const res = await fetch(directoryUrl, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${attempts[i]}`,
           Accept: "application/json",
+          ...protectionHeaders,
           ...(opts?.includeDirectoryApp
             ? { "X-Agent-Native-Include-Directory-App": "1" }
             : {}),
         },
+        ...(protectionHeaders["x-vercel-protection-bypass"]
+          ? { redirect: "manual" as const }
+          : {}),
         signal: AbortSignal.timeout(4000),
       });
       if (res.ok) {

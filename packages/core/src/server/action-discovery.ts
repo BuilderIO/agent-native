@@ -683,6 +683,10 @@ export async function mergeCoreSharingActions(
       () => import("../email-catalog/actions/list-email-log.js"),
     ],
     [
+      "get-email-log-body",
+      () => import("../email-catalog/actions/get-email-log-body.js"),
+    ],
+    [
       "list-email-activity",
       () => import("../email-catalog/actions/list-email-activity.js"),
     ],

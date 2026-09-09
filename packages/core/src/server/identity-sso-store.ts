@@ -168,6 +168,10 @@ export function isCanonicalIdentitySsoClientOrigin(
   return Boolean(origin && CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS.has(origin));
 }
 
+export function isCanonicalIdentitySsoClientConfigured(): boolean {
+  return isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
+}
+
 export function isCanonicalAgentNativeAppRequest(
   host: string | undefined,
   forwardedProtocol: string | undefined,
@@ -182,6 +186,26 @@ export function isCanonicalIdentitySsoClientRequest(
 ): boolean {
   if (!host || forwardedProtocol !== "https") return false;
   return isCanonicalIdentitySsoClientOrigin(`https://${host}`);
+}
+
+/**
+ * Return whether the silent federation flow is available for this request.
+ * The browser entry is intentionally not rendered: local Google/email auth is
+ * the only sign-in UI, and federation happens after that local session exists.
+ */
+export function isIdentitySsoAvailableForRequest(
+  options: {
+    requestHost?: string;
+    requestProtocol?: string;
+  } = {},
+): boolean {
+  const canonicalRequest = options.requestHost
+    ? isCanonicalIdentitySsoClientRequest(
+        options.requestHost,
+        options.requestProtocol ?? "https",
+      )
+    : isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
+  return canonicalRequest || isIdentitySsoExplicitlyEnabled();
 }
 
 /** @deprecated Browser sign-in with Agent-Native was removed. */

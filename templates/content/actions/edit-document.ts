@@ -15,10 +15,8 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  documentVersionChatContextFromAction,
-  serializeDocumentVersionChatContext,
-} from "../server/lib/document-version-context.js";
+import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
@@ -420,23 +418,10 @@ export default defineAction({
     // Persist. The fresh updatedAt is the signal the open editor uses to tell an
     // intentional external edit apart from a stale autosave echo.
     const db = getDb();
-    const now = new Date().toISOString();
+    const now = nextDocumentUpdatedAt(existing.updatedAt);
     try {
       await db.transaction(async (tx: any) => {
         const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
-        if (isAgentCaller) {
-          await tx.insert(schema.documentVersions).values({
-            id: crypto.randomUUID(),
-            ownerEmail: existing.ownerEmail as string,
-            documentId: id,
-            title: existing.title,
-            content: existing.content ?? "",
-            chatContext: serializeDocumentVersionChatContext(
-              documentVersionChatContextFromAction(ctx),
-            ),
-            createdAt: now,
-          });
-        }
         const mirrored = await tx
           .update(schema.documents)
           .set({
@@ -468,6 +453,18 @@ export default defineAction({
             now,
           });
         }
+        await recordDocumentHistoryTransition({
+          db: tx as unknown as ReturnType<typeof getDb>,
+          ownerEmail: existing.ownerEmail as string,
+          documentId: id,
+          before: {
+            title: existing.title,
+            content: existing.content ?? "",
+          },
+          after: { title: existing.title, content },
+          cause: { ctx, operation: "edit-document" },
+          now,
+        });
         if (creativeContext) {
           await recordGenerationCreativeContext(
             {

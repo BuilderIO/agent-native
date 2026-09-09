@@ -15,7 +15,7 @@ const templateIdListSchema = z.string().transform((value) =>
 
 export default defineAction({
   description:
-    "List recent transactional email sends from this app, newest first — the audit trail of every attempted send, including the raw request sent to the mail provider and its raw response. Supports exact registered email inclusion, comma-separated registered email exclusions, recipient/sender inclusion and exclusion substrings, status, provider, and a date range. Use this to answer 'did this email go out' or 'why did this email go to the wrong person'.",
+    "List recent transactional email sends from this app, newest first — the audit trail of every attempted send, including the raw request sent to the mail provider and its raw response. Does NOT include the sent HTML/text body — fetch that for one row with get-email-log-body once you have its id, since bodies are large and each list page can hold up to 500 rows. Supports exact registered email inclusion, comma-separated registered email exclusions, recipient/sender inclusion and exclusion substrings, status, provider, and a date range. Use this to answer 'did this email go out' or 'why did this email go to the wrong person'.",
   schema: z.object({
     templateId: z
       .string()
