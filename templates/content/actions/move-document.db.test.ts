@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { closeDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // move-document fires a `writeAppState("refresh-signal", …)` UI-refresh ping
@@ -122,7 +122,12 @@ async function childPositions(parentId: string) {
       position: schema.documents.position,
     })
     .from(schema.documents)
-    .where(eq(schema.documents.parentId, parentId));
+    .where(
+      and(
+        eq(schema.documents.parentId, parentId),
+        eq(schema.documents.ownerEmail, OWNER),
+      ),
+    );
   return rows as { id: string; position: number }[];
 }
 

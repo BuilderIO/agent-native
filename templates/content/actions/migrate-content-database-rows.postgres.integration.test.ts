@@ -101,7 +101,7 @@ async function fixture() {
       id: documentId,
       ownerEmail: OWNER,
       spaceId: "synthetic_space",
-      parentId: databaseDocumentId,
+      parentId: null,
       title: "Synthetic row",
       content: "# Before",
       visibility: "private",
@@ -462,7 +462,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       id: restoredDocumentId,
       ownerEmail: OWNER,
       spaceId: "synthetic_space",
-      parentId: seed.databaseDocumentId,
+      parentId: null,
       title: "Synthetic trashed row",
       content: "# Not migrated",
       visibility: "private",
@@ -552,6 +552,11 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       await runWithRequestContext({ userEmail: OWNER }, () =>
         deleteContentDatabase.run({ databaseId: seed.databaseId }),
       );
+      // The original member survives Database trash; isolate the concurrently
+      // inserted membership whose scope rebuilding this test exercises.
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.documentId, seed.documentId));
 
       let requestInsertion = () => {};
       let releaseHolder = () => {};
@@ -580,7 +585,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
             id: extraDocumentId,
             ownerEmail: OWNER,
             spaceId: "synthetic_space",
-            parentId: seed.databaseDocumentId,
+            parentId: null,
             title: "Concurrent synthetic row",
             content: "# Concurrent",
             visibility: "private",
@@ -863,7 +868,12 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
     await getDb()
       .update(schema.documents)
       .set({ parentId: rootId })
-      .where(eq(schema.documents.id, seed.databaseDocumentId));
+      .where(
+        inArray(schema.documents.id, [
+          seed.databaseDocumentId,
+          seed.documentId,
+        ]),
+      );
     let releaseFlush = () => {};
     let migration: Promise<any> | undefined;
     let trash: Promise<any> | undefined;
@@ -982,6 +992,11 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       releaseGate();
       await gateHolder;
       await trash;
+      await migrationExpectation;
+      // Membership removal is separate from trashing its Database.
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.documentId, seed.documentId));
       permanentDelete = runWithRequestContext({ userEmail: OWNER }, () =>
         permanentlyDeleteDocument.run({ id: seed.databaseDocumentId }),
       );

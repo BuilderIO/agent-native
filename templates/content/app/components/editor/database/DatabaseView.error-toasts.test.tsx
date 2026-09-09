@@ -218,6 +218,7 @@ vi.mock("@/hooks/use-documents", () => ({
   }),
   seedDatabaseItemDocumentCaches: vi.fn(),
   useDeleteDocument: () => benignMutation,
+  useRestoreDocument: () => benignMutation,
   useUpdateDocument: () => benignMutation,
 }));
 

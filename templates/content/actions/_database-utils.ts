@@ -1279,22 +1279,7 @@ export async function isSoftDeletedDatabaseDocument(documentId: string) {
         sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
       ),
     );
-  if (ownedDatabase) return true;
-
-  const [databaseItem] = await db
-    .select({ id: schema.contentDatabaseItems.id })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.contentDatabases,
-      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.documentId, documentId),
-        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
-      ),
-    );
-  return !!databaseItem;
+  return !!ownedDatabase;
 }
 
 export async function getDatabaseByDocumentId(

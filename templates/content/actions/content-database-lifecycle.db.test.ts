@@ -1052,6 +1052,47 @@ describe("document trash lifecycle", () => {
       content: "Keep this body",
     });
     expect((await databaseRow(second.databaseId)).deletedAt).toBeNull();
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        getDocumentAction.run({ id: first.databaseDocumentId }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    const databases = await runWithRequestContext({ userEmail: OWNER }, () =>
+      listDocumentsAction.run({ documentType: "database", limit: 200 }),
+    );
+    expect(databases.documents.map((document) => document.id)).not.toContain(
+      first.databaseDocumentId,
+    );
+
+    const readable = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({ id: documentId }),
+    );
+    expect(readable).toMatchObject({
+      id: documentId,
+      content: "Keep this body",
+    });
+    const listed = await runWithRequestContext({ userEmail: OWNER }, () =>
+      listDocumentsAction.run({ exactTitle: "Shared member" }),
+    );
+    expect(listed.documents).toContainEqual(
+      expect.objectContaining({ id: documentId }),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentAction.run({ id: documentId }),
+    );
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        listDocumentPropertiesAction.run({
+          documentId,
+          databaseId: second.databaseId,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_TRASHED", statusCode: 409 });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreDocumentAction.run({ id: documentId }),
+    );
+
     await runWithRequestContext({ userEmail: OWNER }, () =>
       restoreContentDatabaseAction.run({ databaseId: first.databaseId }),
     );
@@ -1616,10 +1657,10 @@ describe("content database soft-delete actions and reads", () => {
     const listedIds = new Set(listResponse.documents.map((doc) => doc.id));
     expect(listedIds.has(hostDocumentId)).toBe(true);
     expect(listedIds.has(databaseDocumentId)).toBe(false);
-    expect(listedIds.has(rowDocumentId)).toBe(false);
+    expect(listedIds.has(rowDocumentId)).toBe(true);
   });
 
-  it("hides soft-deleted database documents and rows from Files until restore", async () => {
+  it("hides soft-deleted database documents from Files while retaining live member Pages", async () => {
     const files = await createDatabase({ systemRole: "files" });
     const hostDocumentId = await createDocument({ title: "Host" });
     const ownerBlockId = nextId("inline_database");
@@ -1680,11 +1721,12 @@ describe("content database soft-delete actions and reads", () => {
       queryContentDatabaseItemsAction.run({ databaseId: files.databaseId }),
     );
     expect(hidden.items.map((item) => item.document.id)).toEqual([
+      rowDocumentId,
       retainedDocumentId,
     ]);
     expect(hidden.pagination).toMatchObject({
-      totalItems: 1,
-      returnedItems: 1,
+      totalItems: 2,
+      returnedItems: 2,
     });
 
     await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -1887,7 +1929,7 @@ describe("content database soft-delete actions and reads", () => {
     expect(page.hydratedItemCount).toBe(1);
   });
 
-  it("blocks direct document and property reads for soft-deleted database pages", async () => {
+  it("blocks deleted database reads while preserving live member document reads", async () => {
     const deletedAt = new Date().toISOString();
     const { databaseId, databaseDocumentId } = await createDatabase({
       deletedAt,
@@ -1916,12 +1958,12 @@ describe("content database soft-delete actions and reads", () => {
       runWithRequestContext({ userEmail: OWNER }, () =>
         getDocumentAction.run({ id: rowDocumentId }),
       ),
-    ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
+    ).resolves.toMatchObject({ id: rowDocumentId });
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
         pullDocumentAction.run({ id: rowDocumentId, format: "markdown" }),
       ),
-    ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
+    ).resolves.toMatchObject({ id: rowDocumentId });
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
         listDocumentPropertiesAction.run({
@@ -1929,7 +1971,7 @@ describe("content database soft-delete actions and reads", () => {
           databaseId,
         }),
       ),
-    ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
+    ).rejects.toThrow(`Database "${databaseId}" not found`);
   });
 
   it("reads one shared private database row's properties without exposing its Files container", async () => {
