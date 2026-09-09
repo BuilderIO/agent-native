@@ -21,6 +21,7 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Keep large payloads out of SQL: no video/audio, images, PDFs, thumbnails,
   base64, or `data:` URLs in app tables, `application_state`, `settings`, or
   `resources` — persist URLs, ids, or handles and keep bytes in configured
@@ -56,8 +57,7 @@ video sharing app. The agent and the UI share the same SQL data and actions.
   shareable Clips recording.
 - Use `view-screen` when the active recording, transcript segment, meeting, or
   share context is unclear.
-- Never fabricate. Read real values through actions, verify writes with a
-  read-back, and rely on app refresh/polling after mutations.
+- Never fabricate; read via actions, verify writes, and rely on refresh/polling.
 
 ## Application State
 

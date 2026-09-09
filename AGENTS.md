@@ -333,7 +333,7 @@ instructions, and application state.
   `guard:ssr-cache-shell` and `ssr-handler.spec.ts`; do not weaken either.
 - UIs should update optimistically, roll back errors, and avoid blocking spinners
   except for destructive work.
-- UI feedback: target 100 ms, never over 400 ms; acknowledge before network work.
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Data loads use layout-matching `Skeleton` geometry, not a generic "Loading..."
   label; reserve `Spinner` for brief mutations, uploads, and progress actions.
 - For any user-facing UI change — including screenshot feedback, copy or density
