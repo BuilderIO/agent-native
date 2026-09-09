@@ -70,7 +70,18 @@ export interface RelationshipRevisionContext {
   recoveryToken: string;
   eventIds: string[];
   actor: RelationshipActorContext;
+  tenant: { ownerEmail: string; orgId: string | null; spaceId: string };
 }
+
+type RelationshipEventIndexInput = {
+  tenant: { ownerEmail: string; orgId: string | null; spaceId: string };
+  kind: string;
+  relationshipTypeId?: string | null;
+  relationshipTypeVersionId?: string | null;
+  route?: unknown;
+  targets?: unknown;
+  diff?: unknown;
+};
 
 function canonical(value: unknown): string {
   if (value === undefined) return "null";
@@ -506,23 +517,668 @@ export async function createRelationshipRevision(
     diffJson: JSON.stringify(args.diff),
     compensatesRevisionId: args.compensatesRevisionId ?? null,
   });
-  return { revisionId, recoveryToken, eventIds: [], actor };
+  return {
+    revisionId,
+    recoveryToken,
+    eventIds: [],
+    actor,
+    tenant: args.tenant,
+  };
+}
+
+function relationshipEventRecord(
+  value: unknown,
+  description: string,
+): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    relationshipError("UNAVAILABLE", `${description} is malformed.`, {
+      statusCode: 503,
+    });
+  }
+  return value as Record<string, unknown>;
+}
+
+function relationshipEventString(
+  record: Record<string, unknown>,
+  key: string,
+  description: string,
+): string {
+  const value = record[key];
+  if (typeof value !== "string" || !value) {
+    relationshipError("UNAVAILABLE", `${description} is malformed.`, {
+      statusCode: 503,
+    });
+  }
+  return value;
+}
+
+function relationshipEventStringArray(
+  record: Record<string, unknown>,
+  key: string,
+  description: string,
+): string[] {
+  const value = record[key];
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string" || !entry)
+  ) {
+    relationshipError("UNAVAILABLE", `${description} is malformed.`, {
+      statusCode: 503,
+    });
+  }
+  return value as string[];
+}
+
+function validateRelationshipEventRoute(
+  route: unknown,
+  description: string,
+): { kind: string; endpointId: string } {
+  const record = relationshipEventRecord(route, description);
+  const kind = relationshipEventString(record, "kind", description);
+  if (kind === "forward-property") {
+    relationshipEventString(record, "propertyId", description);
+    return {
+      kind,
+      endpointId: relationshipEventString(record, "sourcePageId", description),
+    };
+  }
+  if (kind === "inverse-property") {
+    relationshipEventString(record, "propertyId", description);
+    return {
+      kind,
+      endpointId: relationshipEventString(record, "targetPageId", description),
+    };
+  }
+  if (kind === "connections-forward") {
+    return {
+      kind,
+      endpointId: relationshipEventString(record, "sourcePageId", description),
+    };
+  }
+  relationshipError("UNAVAILABLE", `${description} is malformed.`, {
+    statusCode: 503,
+  });
+}
+
+function validateRelationshipProjectionReference(
+  value: unknown,
+  relationshipTypeId: string,
+  description: string,
+): { databaseId: string; propertyId: string } {
+  const record = relationshipEventRecord(value, description);
+  const propertyId = relationshipEventString(record, "propertyId", description);
+  const databaseId = relationshipEventString(record, "databaseId", description);
+  if (
+    relationshipEventString(record, "relationshipTypeId", description) !==
+    relationshipTypeId
+  ) {
+    relationshipError("UNAVAILABLE", `${description} is inconsistent.`, {
+      statusCode: 503,
+    });
+  }
+  return { databaseId, propertyId };
+}
+
+function validateRelationshipEventShape(args: RelationshipEventIndexInput) {
+  if (!args.relationshipTypeId) {
+    relationshipError(
+      "UNAVAILABLE",
+      "A relationship Event is missing its relationship type.",
+      { statusCode: 503 },
+    );
+  }
+  const targets = relationshipEventRecord(
+    args.targets,
+    "A relationship Event target",
+  );
+  const diff = relationshipEventRecord(args.diff, "A relationship Event diff");
+  const edgeDiffs = new Map<
+    string,
+    { added?: boolean; retired?: boolean; displaced?: boolean }
+  >([
+    ["relationship-added", { added: true }],
+    ["relationship-removed", { retired: true }],
+    ["relationship-replaced", { added: true, retired: true, displaced: true }],
+    ["relationship-removed-with-projection", { retired: true }],
+    ["relationship-add-undone", { retired: true }],
+    ["relationship-removal-undone", { added: true }],
+    [
+      "relationship-replacement-undone",
+      { added: true, retired: true, displaced: true },
+    ],
+  ]);
+  const edgeDiff = edgeDiffs.get(args.kind);
+  if (edgeDiff) {
+    const route = validateRelationshipEventRoute(
+      args.route,
+      "A relationship Event route",
+    );
+    relationshipEventString(
+      targets,
+      "lineageId",
+      "A relationship Event target",
+    );
+    const sourcePageId = relationshipEventString(
+      targets,
+      "sourcePageId",
+      "A relationship Event target",
+    );
+    const targetPageId = relationshipEventString(
+      targets,
+      "targetPageId",
+      "A relationship Event target",
+    );
+    if (
+      route.endpointId !==
+      (route.kind === "inverse-property" ? targetPageId : sourcePageId)
+    ) {
+      relationshipError(
+        "UNAVAILABLE",
+        "A relationship Event route is inconsistent with its target.",
+        { statusCode: 503 },
+      );
+    }
+    if (edgeDiff.displaced) {
+      relationshipEventStringArray(
+        targets,
+        "displacedLineageIds",
+        "A relationship Event target",
+      );
+    }
+    if (edgeDiff.added) {
+      relationshipEventStringArray(
+        diff,
+        "addedActivationIds",
+        "A relationship Event diff",
+      );
+    }
+    if (edgeDiff.retired) {
+      relationshipEventStringArray(
+        diff,
+        "retiredActivationIds",
+        "A relationship Event diff",
+      );
+    }
+    return { targets, diff, relationshipTypeId: args.relationshipTypeId };
+  }
+
+  if (
+    args.kind === "relationship-endpoint-trash" ||
+    args.kind === "relationship-endpoint-restore" ||
+    args.kind === "relationship-endpoint-permanent-delete"
+  ) {
+    relationshipEventString(
+      targets,
+      "lineageId",
+      "A relationship Event target",
+    );
+    relationshipEventString(
+      targets,
+      "sourcePageId",
+      "A relationship Event target",
+    );
+    relationshipEventString(
+      targets,
+      "targetPageId",
+      "A relationship Event target",
+    );
+    relationshipEventStringArray(
+      targets,
+      "affectedPageIds",
+      "A relationship Event target",
+    );
+    const expectedState = args.kind.slice("relationship-endpoint-".length);
+    if (diff.state !== expectedState) {
+      relationshipError(
+        "UNAVAILABLE",
+        "A relationship lifecycle Event is inconsistent.",
+        { statusCode: 503 },
+      );
+    }
+    return { targets, diff, relationshipTypeId: args.relationshipTypeId };
+  }
+
+  if (args.kind === "relationship-projection-configured") {
+    const propertyIds = relationshipEventStringArray(
+      targets,
+      "propertyIds",
+      "A relationship projection Event target",
+    );
+    const databaseIds = relationshipEventStringArray(
+      targets,
+      "databaseIds",
+      "A relationship projection Event target",
+    );
+    if (!Array.isArray(diff.projections) || diff.projections.length === 0) {
+      relationshipError(
+        "UNAVAILABLE",
+        "A relationship projection Event diff is malformed.",
+        { statusCode: 503 },
+      );
+    }
+    const projections = diff.projections.map((projection) =>
+      validateRelationshipProjectionReference(
+        projection,
+        args.relationshipTypeId!,
+        "A relationship projection Event diff",
+      ),
+    );
+    if (
+      JSON.stringify([...new Set(propertyIds)].sort()) !==
+        JSON.stringify(
+          [
+            ...new Set(projections.map((projection) => projection.propertyId)),
+          ].sort(),
+        ) ||
+      JSON.stringify([...new Set(databaseIds)].sort()) !==
+        JSON.stringify(
+          [
+            ...new Set(projections.map((projection) => projection.databaseId)),
+          ].sort(),
+        )
+    ) {
+      relationshipError(
+        "UNAVAILABLE",
+        "A relationship projection Event is inconsistent.",
+        { statusCode: 503 },
+      );
+    }
+    return { targets, diff, relationshipTypeId: args.relationshipTypeId };
+  }
+
+  if (
+    args.kind === "relationship-projection-removed" ||
+    args.kind === "relationship-projection-restored"
+  ) {
+    const propertyId = relationshipEventString(
+      targets,
+      "propertyId",
+      "A relationship projection Event target",
+    );
+    const databaseId = relationshipEventString(
+      targets,
+      "databaseId",
+      "A relationship projection Event target",
+    );
+    const projection = validateRelationshipProjectionReference(
+      diff.projection,
+      args.relationshipTypeId,
+      "A relationship projection Event diff",
+    );
+    if (
+      projection.propertyId !== propertyId ||
+      projection.databaseId !== databaseId
+    ) {
+      relationshipError(
+        "UNAVAILABLE",
+        "A relationship projection Event is inconsistent.",
+        { statusCode: 503 },
+      );
+    }
+    return { targets, diff, relationshipTypeId: args.relationshipTypeId };
+  }
+
+  relationshipError(
+    "UNAVAILABLE",
+    `Relationship Event kind ${JSON.stringify(args.kind)} cannot be indexed safely.`,
+    { statusCode: 503 },
+  );
+}
+
+function collectRelationshipEventReferences(
+  value: unknown,
+  parentKey: string | null,
+  references: {
+    documentIds: Set<string>;
+    databaseIds: Set<string>;
+    lineageIds: Set<string>;
+  },
+): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectRelationshipEventReferences(entry, parentKey, references);
+    }
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, entry] of Object.entries(value)) {
+      collectRelationshipEventReferences(entry, key, references);
+    }
+    return;
+  }
+  if (typeof value !== "string" || !parentKey) return;
+  if (/(?:^|_)(?:source|target)?pageids?$/i.test(parentKey)) {
+    references.documentIds.add(value);
+  } else if (/(?:^|_)(?:source|target|owner)?databaseids?$/i.test(parentKey)) {
+    references.databaseIds.add(value);
+  } else if (/(?:^|_)(?:displaced)?lineageids?$/i.test(parentKey)) {
+    references.lineageIds.add(value);
+  }
+}
+
+async function indexRelationshipRevisionDocuments(
+  tx: RelationshipDb,
+  revisionId: string,
+  args: RelationshipEventIndexInput,
+  mode: "runtime" | "backfill",
+): Promise<void> {
+  const validated = validateRelationshipEventShape(args);
+  const references = {
+    documentIds: new Set<string>(),
+    databaseIds: new Set<string>(),
+    lineageIds: new Set<string>(),
+  };
+  for (const value of [args.route, validated.targets, validated.diff]) {
+    collectRelationshipEventReferences(value, null, references);
+  }
+  if (args.kind.startsWith("relationship-endpoint-")) {
+    for (const pageId of relationshipEventStringArray(
+      validated.targets,
+      "affectedPageIds",
+      "A relationship Event target",
+    )) {
+      references.documentIds.add(pageId);
+    }
+  }
+
+  const lineageIds = [...references.lineageIds].sort();
+  const lineages = lineageIds.length
+    ? await tx
+        .select()
+        .from(schema.contentRelationshipLineages)
+        .where(inArray(schema.contentRelationshipLineages.id, lineageIds))
+    : [];
+  if (
+    lineages.length !== lineageIds.length ||
+    lineages.some(
+      (lineage) =>
+        lineage.spaceId !== args.tenant.spaceId ||
+        lineage.relationshipTypeId !== validated.relationshipTypeId,
+    )
+  ) {
+    relationshipError(
+      "UNAVAILABLE",
+      "A relationship Event lineage reference is incomplete or inconsistent.",
+      { statusCode: 503 },
+    );
+  }
+  for (const lineage of lineages) {
+    references.documentIds.add(lineage.sourcePageId);
+    references.documentIds.add(lineage.targetPageId);
+  }
+  if ("lineageId" in validated.targets) {
+    const primaryLineageId = relationshipEventString(
+      validated.targets,
+      "lineageId",
+      "A relationship Event target",
+    );
+    const primaryLineage = lineages.find(
+      (lineage) => lineage.id === primaryLineageId,
+    );
+    if (
+      !primaryLineage ||
+      primaryLineage.sourcePageId !==
+        relationshipEventString(
+          validated.targets,
+          "sourcePageId",
+          "A relationship Event target",
+        ) ||
+      primaryLineage.targetPageId !==
+        relationshipEventString(
+          validated.targets,
+          "targetPageId",
+          "A relationship Event target",
+        )
+    ) {
+      relationshipError(
+        "UNAVAILABLE",
+        "A relationship Event lineage is inconsistent with its endpoints.",
+        { statusCode: 503 },
+      );
+    }
+  }
+
+  const [type] = await tx
+    .select()
+    .from(schema.contentRelationshipTypes)
+    .where(
+      eq(schema.contentRelationshipTypes.id, validated.relationshipTypeId),
+    );
+  if (!type || type.spaceId !== args.tenant.spaceId) {
+    relationshipError(
+      "UNAVAILABLE",
+      "A relationship Event type reference is incomplete or inconsistent.",
+      { statusCode: 503 },
+    );
+  }
+  const versionIds = [
+    ...new Set(
+      [args.relationshipTypeVersionId, type.currentVersionId].filter(
+        (versionId): versionId is string => Boolean(versionId),
+      ),
+    ),
+  ];
+  const versions = await tx
+    .select()
+    .from(schema.contentRelationshipTypeVersions)
+    .where(inArray(schema.contentRelationshipTypeVersions.id, versionIds));
+  if (
+    versions.length !== versionIds.length ||
+    versions.some(
+      (version) =>
+        version.relationshipTypeId !== type.id ||
+        version.spaceId !== args.tenant.spaceId,
+    )
+  ) {
+    relationshipError(
+      "UNAVAILABLE",
+      "A relationship Event type-version reference is incomplete or inconsistent.",
+      { statusCode: 503 },
+    );
+  }
+  for (const version of versions) {
+    references.databaseIds.add(version.sourceDatabaseId);
+    references.databaseIds.add(version.targetDatabaseId);
+  }
+
+  const databaseIds = [...references.databaseIds].sort();
+  const databases = await tx
+    .select()
+    .from(schema.contentDatabases)
+    .where(inArray(schema.contentDatabases.id, databaseIds));
+  if (databases.some((database) => database.spaceId !== args.tenant.spaceId)) {
+    relationshipError(
+      "UNAVAILABLE",
+      "A relationship Event database reference is inconsistent.",
+      { statusCode: 503 },
+    );
+  }
+  const foundDatabaseIds = new Set(databases.map((database) => database.id));
+  const missingDatabaseIds = databaseIds.filter(
+    (databaseId) => !foundDatabaseIds.has(databaseId),
+  );
+  if (missingDatabaseIds.length > 0 && mode === "runtime") {
+    relationshipError(
+      "UNAVAILABLE",
+      "A relationship Event database reference is incomplete.",
+      { statusCode: 503 },
+    );
+  }
+  for (const database of databases) {
+    references.documentIds.add(database.documentId);
+  }
+
+  const documentIds = [...references.documentIds].sort();
+  const unresolvedDocumentIds = missingDatabaseIds.map(
+    (databaseId) => `missing-database:${databaseId}`,
+  );
+  if (documentIds.length === 0 && unresolvedDocumentIds.length === 0) {
+    relationshipError(
+      "UNAVAILABLE",
+      "A relationship Event has no indexable document references.",
+      { statusCode: 503 },
+    );
+  }
+  await tx
+    .insert(schema.contentRelationshipRevisionDocuments)
+    .values([
+      ...documentIds.map((documentId) => ({
+        id: nanoid(24),
+        ownerEmail: args.tenant.ownerEmail,
+        orgId: args.tenant.orgId,
+        spaceId: args.tenant.spaceId,
+        revisionId,
+        documentId,
+        unresolved: 0,
+      })),
+      ...unresolvedDocumentIds.map((documentId) => ({
+        id: nanoid(24),
+        ownerEmail: args.tenant.ownerEmail,
+        orgId: args.tenant.orgId,
+        spaceId: args.tenant.spaceId,
+        revisionId,
+        documentId,
+        unresolved: 1,
+      })),
+    ])
+    .onConflictDoNothing({
+      target: [
+        schema.contentRelationshipRevisionDocuments.revisionId,
+        schema.contentRelationshipRevisionDocuments.documentId,
+        schema.contentRelationshipRevisionDocuments.unresolved,
+      ],
+    });
+}
+
+function parseStoredRelationshipEventValue(
+  value: string,
+  description: string,
+): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    relationshipError("UNAVAILABLE", `${description} is unreadable.`, {
+      statusCode: 503,
+    });
+  }
+}
+
+export async function backfillRelationshipRevisionDocuments(
+  db: RelationshipDb = getDb(),
+  batchSize = 100,
+): Promise<{ processed: number }> {
+  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 1_000) {
+    throw new RangeError(
+      "Relationship Revision document backfill batch size must be an integer from 1 to 1000.",
+    );
+  }
+  const revisions = await db
+    .select({
+      id: schema.contentRelationshipRevisions.id,
+      ownerEmail: schema.contentRelationshipRevisions.ownerEmail,
+      orgId: schema.contentRelationshipRevisions.orgId,
+      spaceId: schema.contentRelationshipRevisions.spaceId,
+      createdAt: schema.contentRelationshipRevisions.createdAt,
+    })
+    .from(schema.contentRelationshipRevisions)
+    .innerJoin(
+      schema.contentRelationshipEvents,
+      eq(
+        schema.contentRelationshipEvents.revisionId,
+        schema.contentRelationshipRevisions.id,
+      ),
+    )
+    .leftJoin(
+      schema.contentRelationshipRevisionDocuments,
+      eq(
+        schema.contentRelationshipRevisionDocuments.revisionId,
+        schema.contentRelationshipRevisions.id,
+      ),
+    )
+    .where(isNull(schema.contentRelationshipRevisionDocuments.id))
+    .groupBy(
+      schema.contentRelationshipRevisions.id,
+      schema.contentRelationshipRevisions.ownerEmail,
+      schema.contentRelationshipRevisions.orgId,
+      schema.contentRelationshipRevisions.spaceId,
+      schema.contentRelationshipRevisions.createdAt,
+    )
+    .orderBy(
+      schema.contentRelationshipRevisions.createdAt,
+      schema.contentRelationshipRevisions.id,
+    )
+    .limit(batchSize);
+  for (const revision of revisions) {
+    await db.transaction(async (rawTx) => {
+      const tx = rawTx as unknown as RelationshipDb;
+      const events = await tx
+        .select()
+        .from(schema.contentRelationshipEvents)
+        .where(eq(schema.contentRelationshipEvents.revisionId, revision.id))
+        .orderBy(schema.contentRelationshipEvents.sequence);
+      for (const event of events) {
+        if (
+          event.ownerEmail !== revision.ownerEmail ||
+          event.orgId !== revision.orgId ||
+          event.spaceId !== revision.spaceId
+        ) {
+          relationshipError(
+            "UNAVAILABLE",
+            "A relationship Event tenant is inconsistent with its Revision.",
+            { statusCode: 503 },
+          );
+        }
+        await indexRelationshipRevisionDocuments(
+          tx,
+          revision.id,
+          {
+            tenant: {
+              ownerEmail: revision.ownerEmail,
+              orgId: revision.orgId,
+              spaceId: revision.spaceId,
+            },
+            kind: event.kind,
+            relationshipTypeId: event.relationshipTypeId,
+            relationshipTypeVersionId: event.relationshipTypeVersionId,
+            route: parseStoredRelationshipEventValue(
+              event.routeJson,
+              "A relationship Event route",
+            ),
+            targets: parseStoredRelationshipEventValue(
+              event.targetsJson,
+              "A relationship Event target",
+            ),
+            diff: parseStoredRelationshipEventValue(
+              event.diffJson,
+              "A relationship Event diff",
+            ),
+          },
+          "backfill",
+        );
+      }
+    });
+  }
+  return { processed: revisions.length };
 }
 
 export async function appendRelationshipEvent(
   tx: RelationshipDb,
   revision: RelationshipRevisionContext,
-  args: {
-    tenant: { ownerEmail: string; orgId: string | null; spaceId: string };
-    kind: string;
-    relationshipTypeId?: string | null;
-    relationshipTypeVersionId?: string | null;
-    route?: unknown;
-    targets?: unknown;
-    diff?: unknown;
+  args: RelationshipEventIndexInput & {
     eventId?: string;
   },
 ): Promise<string> {
+  if (
+    args.tenant.ownerEmail !== revision.tenant.ownerEmail ||
+    args.tenant.orgId !== revision.tenant.orgId ||
+    args.tenant.spaceId !== revision.tenant.spaceId
+  ) {
+    relationshipError(
+      "UNAVAILABLE",
+      "A relationship Event tenant is inconsistent with its Revision.",
+      { statusCode: 503 },
+    );
+  }
   const eventId = args.eventId ?? nanoid(24);
   await tx.insert(schema.contentRelationshipEvents).values({
     id: eventId,
@@ -544,6 +1200,12 @@ export async function appendRelationshipEvent(
     targetsJson: JSON.stringify(args.targets ?? {}),
     diffJson: JSON.stringify(args.diff ?? {}),
   });
+  await indexRelationshipRevisionDocuments(
+    tx,
+    revision.revisionId,
+    args,
+    "runtime",
+  );
   revision.eventIds.push(eventId);
   return eventId;
 }

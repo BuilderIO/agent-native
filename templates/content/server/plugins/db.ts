@@ -1326,6 +1326,22 @@ export const runContentMigrations = runMigrations(
       name: "content-relationship-event-order",
       sql: `ALTER TABLE content_relationship_events ADD COLUMN IF NOT EXISTS sequence INTEGER NOT NULL DEFAULT 0`,
     },
+    {
+      version: 92,
+      name: "content-relationship-revision-documents",
+      sql: `CREATE TABLE IF NOT EXISTS content_relationship_revision_documents (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        revision_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        unresolved INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_relationship_revision_documents_unique ON content_relationship_revision_documents (revision_id, document_id, unresolved);
+      CREATE INDEX IF NOT EXISTS content_relationship_revision_documents_document_revision_idx ON content_relationship_revision_documents (document_id, revision_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

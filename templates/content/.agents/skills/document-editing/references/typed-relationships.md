@@ -50,3 +50,13 @@ UI and MCP use these same Actions. Generic property setters and bulk row
 setters cannot overwrite canonical relationship values. Never store endpoint
 arrays through SQL to bypass this boundary. The exact supported parameters,
 capabilities and failure codes live in each Action schema.
+
+## History index upgrades
+
+The Content release command, `pnpm migrate:production` from `templates/content`,
+applies schema migrations and indexes existing relationship revisions in batches
+of at most 100. Each revision is indexed transactionally; a failed release can
+be retried without rewriting its audit records. Server startup does not backfill
+history. If History reports that its index is not ready, report the maintenance
+prerequisite rather than claiming there are no changes. An operator must complete
+the release command against the intended database before retrying History.

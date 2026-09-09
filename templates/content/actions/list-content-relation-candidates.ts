@@ -1,5 +1,16 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -9,15 +20,21 @@ import {
   type ListContentRelationCandidatesResult,
 } from "../shared/relationships.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
   activeActivationIdsForLineages,
   decodeRelationshipCursor,
   encodeRelationshipCursor,
   loadRelationshipDatabase,
   loadRelationshipTypeBundle,
+  relationshipActorContext,
   relationshipError,
 } from "./_relationship-core.js";
 import { issueRelationshipObservation } from "./_relationship-read.js";
+
+function escapeLike(value: string): string {
+  return value.replace(/([\\%_])/g, "\\$1");
+}
 
 async function slotObservation(
   args: {
@@ -131,78 +148,74 @@ async function listContentRelationCandidates(
       ? bundle.version.targetDatabaseId
       : bundle.version.sourceDatabaseId;
   await loadRelationshipDatabase(candidateDatabaseId, "viewer", db);
-  const memberships = await db
-    .select({ documentId: schema.contentDatabaseItems.documentId })
-    .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.databaseId, candidateDatabaseId));
-  const permanentlyDeleted = memberships.length
-    ? await db
-        .select({ pageId: schema.contentRelationshipEndpointStates.pageId })
-        .from(schema.contentRelationshipEndpointStates)
-        .where(
-          and(
-            inArray(
-              schema.contentRelationshipEndpointStates.pageId,
-              memberships.map((membership) => membership.documentId),
-            ),
-            isNotNull(
-              schema.contentRelationshipEndpointStates.permanentlyDeletedAt,
-            ),
-          ),
-        )
-    : [];
-  const deletedIds = new Set(permanentlyDeleted.map((row) => row.pageId));
-  const accessibleIds: string[] = [];
-  for (const membership of memberships) {
-    if (
-      membership.documentId !== input.anchorPageId &&
-      !deletedIds.has(membership.documentId) &&
-      (await resolveContentDocumentAccess(membership.documentId))
-    ) {
-      accessibleIds.push(membership.documentId);
-    }
-  }
-  if (accessibleIds.length === 0) {
-    return {
-      scope: "viewer-accessible",
-      items: [],
-      slotObservationToken:
-        projection.direction === "forward" &&
-        bundle.version.forwardCardinality === "one"
-          ? await slotObservation(
-              {
-                relationshipTypeId: bundle.type.id,
-                sourcePageId: input.anchorPageId,
-                ownerEmail: bundle.type.ownerEmail,
-                orgId: bundle.type.orgId,
-                spaceId: bundle.type.spaceId,
-              },
-              context,
-            )
-          : null,
-      nextCursor: null,
-    };
-  }
+  const actor = relationshipActorContext(context);
+  const organizationMemberships = await listContentOrganizationMemberships(
+    actor.userEmail,
+  );
+  const accessContexts = [
+    actor.orgId,
+    ...organizationMemberships.map((m) => m.orgId),
+  ]
+    .filter((orgId, index, values) => values.indexOf(orgId) === index)
+    .map((orgId) => ({
+      userEmail: actor.userEmail,
+      ...(orgId ? { orgId } : {}),
+    }));
+  const permanentlyDeletedEndpoint = db
+    .select({ pageId: schema.contentRelationshipEndpointStates.pageId })
+    .from(schema.contentRelationshipEndpointStates)
+    .where(
+      and(
+        eq(
+          schema.contentRelationshipEndpointStates.pageId,
+          schema.documents.id,
+        ),
+        isNotNull(
+          schema.contentRelationshipEndpointStates.permanentlyDeletedAt,
+        ),
+      ),
+    );
+  const searchPattern = input.search ? `%${escapeLike(input.search)}%` : null;
+  const offset = decodeRelationshipCursor(input.cursor);
   const documents = await db
     .select({
       id: schema.documents.id,
       title: schema.documents.title,
-      trashedAt: schema.documents.trashedAt,
     })
-    .from(schema.documents)
-    .where(inArray(schema.documents.id, accessibleIds));
-  const search = input.search.toLocaleLowerCase();
-  const filtered = documents
-    .filter(
-      (document) =>
-        !document.trashedAt &&
-        (!search || document.title.toLocaleLowerCase().includes(search)),
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
     )
-    .sort(
-      (left, right) =>
-        left.title.localeCompare(right.title) ||
-        left.id.localeCompare(right.id),
-    );
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.databaseId, candidateDatabaseId),
+        sql`${schema.documents.id} <> ${input.anchorPageId}`,
+        isNull(schema.documents.trashedAt),
+        notExists(permanentlyDeletedEndpoint),
+        or(
+          ...accessContexts.map((accessContext) =>
+            accessFilter(
+              schema.documents,
+              schema.documentShares,
+              accessContext,
+              "viewer",
+              { includePublic: true },
+            ),
+          ),
+        ),
+        searchPattern
+          ? sql`lower(${schema.documents.title}) LIKE lower(${searchPattern}) ESCAPE '\\'`
+          : undefined,
+      ),
+    )
+    .orderBy(
+      asc(sql`lower(${schema.documents.title})`),
+      asc(schema.documents.title),
+      asc(schema.documents.id),
+    )
+    .limit(input.limit + 1)
+    .offset(offset);
   const contextDefinitions = input.contextPropertyIds.length
     ? await db
         .select({
@@ -235,8 +248,7 @@ async function listContentRelationCandidates(
       "Relation Properties cannot be returned as raw candidate context. Request ordinary context Properties instead.",
     );
   }
-  const offset = decodeRelationshipCursor(input.cursor);
-  const page = filtered.slice(offset, offset + input.limit);
+  const page = documents.slice(0, input.limit);
   const valueRows =
     page.length && contextDefinitions.length
       ? await db
@@ -315,7 +327,7 @@ async function listContentRelationCandidates(
           )
         : null,
     nextCursor:
-      offset + page.length < filtered.length
+      documents.length > input.limit
         ? encodeRelationshipCursor(offset + page.length)
         : null,
   };

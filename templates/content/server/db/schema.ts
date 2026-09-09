@@ -830,6 +830,31 @@ export const contentRelationshipEvents = table(
   ],
 );
 
+export const contentRelationshipRevisionDocuments = table(
+  "content_relationship_revision_documents",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    revisionId: text("revision_id").notNull(),
+    documentId: text("document_id").notNull(),
+    unresolved: integer("unresolved").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (reference) => [
+    uniqueIndex("content_relationship_revision_documents_unique").on(
+      reference.revisionId,
+      reference.documentId,
+      reference.unresolved,
+    ),
+    index("content_relationship_revision_documents_document_revision_idx").on(
+      reference.documentId,
+      reference.revisionId,
+    ),
+  ],
+);
+
 export const contentRelationshipReceipts = table(
   "content_relationship_receipts",
   {

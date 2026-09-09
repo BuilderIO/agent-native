@@ -112,17 +112,88 @@ async function assertRelationshipReceiptAccessible(
   }
 }
 
-function deduplicateChanges(
-  changes: RelationshipChange[],
-): RelationshipChange[] {
+function normalizeChanges(changes: RelationshipChange[]): RelationshipChange[] {
   const seenAdds = new Set<string>();
-  return changes.filter((change) => {
-    if (change.kind !== "add") return true;
-    const key = `${change.typeId}\u0000${change.sourcePageId}\u0000${change.targetPageId}`;
-    if (seenAdds.has(key)) return false;
-    seenAdds.add(key);
-    return true;
-  });
+  const seenRemoves = new Map<string, string>();
+  const normalized: RelationshipChange[] = [];
+  for (const change of changes) {
+    if (change.kind === "add") {
+      const key = `${change.typeId}\u0000${change.sourcePageId}\u0000${change.targetPageId}`;
+      if (seenAdds.has(key)) continue;
+      seenAdds.add(key);
+      normalized.push(change);
+      continue;
+    }
+    if (change.kind !== "remove") {
+      normalized.push(change);
+      continue;
+    }
+    const normalizedRemove = {
+      ...change,
+      observedActivationIds: [...new Set(change.observedActivationIds)].sort(),
+    };
+    const signature = relationshipRequestHash(normalizedRemove);
+    const previousSignature = seenRemoves.get(change.edgeId);
+    if (previousSignature === signature) continue;
+    if (previousSignature) {
+      relationshipError(
+        "STALE_SELECTION",
+        "One relationship cannot be removed with conflicting observations in the same mutation.",
+        { statusCode: 409 },
+      );
+    }
+    seenRemoves.set(change.edgeId, signature);
+    normalized.push(normalizedRemove);
+  }
+  return normalized;
+}
+
+async function resolveReceiptSpaceId(
+  changes: RelationshipChange[],
+  db: RelationshipDb,
+): Promise<string | null> {
+  const typeIds = [
+    ...new Set(
+      changes.flatMap((change) =>
+        change.kind === "remove" ? [] : [change.typeId],
+      ),
+    ),
+  ];
+  const edgeIds = [
+    ...new Set(
+      changes.flatMap((change) =>
+        change.kind === "remove" ? [change.edgeId] : [],
+      ),
+    ),
+  ];
+  const [types, lineages] = await Promise.all([
+    typeIds.length
+      ? db
+          .select({
+            id: schema.contentRelationshipTypes.id,
+            spaceId: schema.contentRelationshipTypes.spaceId,
+          })
+          .from(schema.contentRelationshipTypes)
+          .where(inArray(schema.contentRelationshipTypes.id, typeIds))
+      : [],
+    edgeIds.length
+      ? db
+          .select({
+            id: schema.contentRelationshipLineages.id,
+            spaceId: schema.contentRelationshipLineages.spaceId,
+          })
+          .from(schema.contentRelationshipLineages)
+          .where(inArray(schema.contentRelationshipLineages.id, edgeIds))
+      : [],
+  ]);
+  if (types.length !== typeIds.length || lineages.length !== edgeIds.length) {
+    return null;
+  }
+  const spaceIds = new Set([
+    ...types.map((type) => type.spaceId),
+    ...lineages.map((lineage) => lineage.spaceId),
+  ]);
+  return spaceIds.size === 1 ? [...spaceIds][0]! : null;
 }
 
 async function planChanges(
@@ -393,8 +464,24 @@ async function mutateContentRelationships(
   input: MutateContentRelationshipsInput,
   context?: ActionRunContext,
 ): Promise<MutateContentRelationshipsResult> {
-  const changes = deduplicateChanges(input.changes);
+  const actor = relationshipActorContext(context);
+  const changes = normalizeChanges(input.changes);
   const db = getDb();
+  const requestHash = relationshipRequestHash({ ...input, changes });
+  const receiptSpaceId = await resolveReceiptSpaceId(changes, db);
+  if (receiptSpaceId) {
+    const replayed =
+      await replayRelationshipReceipt<MutateContentRelationshipsResult>(db, {
+        spaceId: receiptSpaceId,
+        operationId: input.operationId,
+        requestHash,
+        context,
+      });
+    if (replayed) {
+      await assertRelationshipReceiptAccessible(db, replayed, context);
+      return replayed;
+    }
+  }
   let plans = await planChanges(changes, db);
   validateBatchShape(plans);
   const preflightRoutes: AuthorizedRelationshipRoute[] = [];
@@ -411,8 +498,6 @@ async function mutateContentRelationships(
       }),
     );
   }
-  const requestHash = relationshipRequestHash({ ...input, changes });
-  const actor = relationshipActorContext(context);
   const firstBundle = plans[0]!.bundle;
   const tenant = {
     ownerEmail: firstBundle.type.ownerEmail,

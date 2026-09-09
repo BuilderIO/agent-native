@@ -3,7 +3,8 @@ import {
   isActionContractError,
   type ActionRunContext,
 } from "@agent-native/core/action";
-import { desc, eq, inArray } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, desc, eq, exists, inArray, lt, notExists, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -15,11 +16,11 @@ import {
   type ListContentRelationshipHistoryInput,
   type ListContentRelationshipHistoryResult,
 } from "../shared/relationships.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
-  decodeRelationshipCursor,
-  encodeRelationshipCursor,
   loadRelationshipDatabase,
   loadRelationshipTypeBundle,
+  relationshipActorContext,
   relationshipError,
   resolveRelationshipDocumentAccess,
 } from "./_relationship-core.js";
@@ -58,6 +59,35 @@ const edgeChangeKinds = {
 } as const;
 
 type EdgeChangeEventKind = keyof typeof edgeChangeKinds;
+
+type HistoryCursor = { createdAt: string; revisionId: string };
+
+function encodeHistoryCursor(cursor: HistoryCursor): string {
+  return Buffer.from(JSON.stringify({ v: 2, ...cursor }), "utf8").toString(
+    "base64url",
+  );
+}
+
+function decodeHistoryCursor(cursor: string | undefined): HistoryCursor | null {
+  if (!cursor) return null;
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(cursor, "base64url").toString("utf8"),
+    ) as { v?: unknown; createdAt?: unknown; revisionId?: unknown };
+    if (
+      parsed.v !== 2 ||
+      typeof parsed.createdAt !== "string" ||
+      !parsed.createdAt ||
+      typeof parsed.revisionId !== "string" ||
+      !parsed.revisionId
+    ) {
+      throw new Error("invalid cursor");
+    }
+    return { createdAt: parsed.createdAt, revisionId: parsed.revisionId };
+  } catch {
+    relationshipError("INVALID_TARGET", "The relationship cursor is invalid.");
+  }
+}
 
 function parseRecord(
   value: string,
@@ -258,17 +288,214 @@ async function listContentRelationshipHistory(
       { statusCode: 404 },
     );
   }
-  const revisions = directRevision
-    ? [directRevision]
-    : await db
-        .select()
-        .from(schema.contentRelationshipRevisions)
-        .where(eq(schema.contentRelationshipRevisions.spaceId, spaceId))
-        .orderBy(
-          desc(schema.contentRelationshipRevisions.createdAt),
-          desc(schema.contentRelationshipRevisions.id),
-        );
-  const revisionIds = revisions.map((revision) => revision.id);
+  const actor = relationshipActorContext(context);
+  const organizationMemberships = await listContentOrganizationMemberships(
+    actor.userEmail,
+  );
+  const accessContexts = [
+    actor.orgId,
+    ...organizationMemberships.map((membership) => membership.orgId),
+  ]
+    .filter((orgId, index, values) => values.indexOf(orgId) === index)
+    .map((orgId) => ({
+      userEmail: actor.userEmail,
+      ...(orgId ? { orgId } : {}),
+    }));
+  const accessibleMappedDocument = db
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(
+          schema.documents.id,
+          schema.contentRelationshipRevisionDocuments.documentId,
+        ),
+        or(
+          ...accessContexts.map((accessContext) =>
+            accessFilter(
+              schema.documents,
+              schema.documentShares,
+              accessContext,
+              "viewer",
+              { includePublic: true },
+            ),
+          ),
+        ),
+      ),
+    );
+  const inaccessibleReference = db
+    .select({ id: schema.contentRelationshipRevisionDocuments.id })
+    .from(schema.contentRelationshipRevisionDocuments)
+    .where(
+      and(
+        eq(
+          schema.contentRelationshipRevisionDocuments.revisionId,
+          schema.contentRelationshipRevisions.id,
+        ),
+        or(
+          eq(schema.contentRelationshipRevisionDocuments.unresolved, 1),
+          notExists(accessibleMappedDocument),
+        ),
+      ),
+    );
+  const hasMappedDocument = db
+    .select({ id: schema.contentRelationshipRevisionDocuments.id })
+    .from(schema.contentRelationshipRevisionDocuments)
+    .where(
+      eq(
+        schema.contentRelationshipRevisionDocuments.revisionId,
+        schema.contentRelationshipRevisions.id,
+      ),
+    );
+  if (directRevision) {
+    const [accessibleDirectRevision] = await db
+      .select({ id: schema.contentRelationshipRevisions.id })
+      .from(schema.contentRelationshipRevisions)
+      .where(
+        and(
+          eq(schema.contentRelationshipRevisions.id, directRevision.id),
+          exists(hasMappedDocument),
+          notExists(inaccessibleReference),
+        ),
+      )
+      .limit(1);
+    if (!accessibleDirectRevision) {
+      relationshipError(
+        "NOT_ACCESSIBLE",
+        "The requested relationship history is not accessible.",
+        { statusCode: 404 },
+      );
+    }
+  }
+  const readinessEvent = db
+    .select({ id: schema.contentRelationshipEvents.id })
+    .from(schema.contentRelationshipEvents)
+    .where(
+      and(
+        eq(
+          schema.contentRelationshipEvents.revisionId,
+          schema.contentRelationshipRevisions.id,
+        ),
+        input.relationshipTypeId
+          ? eq(
+              schema.contentRelationshipEvents.relationshipTypeId,
+              input.relationshipTypeId,
+            )
+          : undefined,
+      ),
+    );
+  const anyRevisionEvent = db
+    .select({ id: schema.contentRelationshipEvents.id })
+    .from(schema.contentRelationshipEvents)
+    .where(
+      eq(
+        schema.contentRelationshipEvents.revisionId,
+        schema.contentRelationshipRevisions.id,
+      ),
+    );
+  const readinessScope = and(
+    eq(schema.contentRelationshipRevisions.spaceId, spaceId),
+    directRevision
+      ? eq(schema.contentRelationshipRevisions.id, directRevision.id)
+      : undefined,
+  );
+  const [[unindexedRevision], [emptyRevision]] = await Promise.all([
+    db
+      .select({ id: schema.contentRelationshipRevisions.id })
+      .from(schema.contentRelationshipRevisions)
+      .where(
+        and(
+          readinessScope,
+          exists(readinessEvent),
+          notExists(hasMappedDocument),
+        ),
+      )
+      .limit(1),
+    db
+      .select({ id: schema.contentRelationshipRevisions.id })
+      .from(schema.contentRelationshipRevisions)
+      .where(and(readinessScope, notExists(anyRevisionEvent)))
+      .limit(1),
+  ]);
+  if (unindexedRevision || emptyRevision) {
+    relationshipError(
+      "UNAVAILABLE",
+      "Relationship history is not ready. Run the relationship history index migration and retry.",
+      { statusCode: 503 },
+    );
+  }
+  const matchingEvent = db
+    .select({ id: schema.contentRelationshipEvents.id })
+    .from(schema.contentRelationshipEvents)
+    .where(
+      and(
+        eq(
+          schema.contentRelationshipEvents.revisionId,
+          schema.contentRelationshipRevisions.id,
+        ),
+        input.relationshipTypeId
+          ? eq(
+              schema.contentRelationshipEvents.relationshipTypeId,
+              input.relationshipTypeId,
+            )
+          : undefined,
+      ),
+    );
+  const matchingPage = input.pageId
+    ? db
+        .select({ id: schema.contentRelationshipRevisionDocuments.id })
+        .from(schema.contentRelationshipRevisionDocuments)
+        .where(
+          and(
+            eq(
+              schema.contentRelationshipRevisionDocuments.revisionId,
+              schema.contentRelationshipRevisions.id,
+            ),
+            eq(
+              schema.contentRelationshipRevisionDocuments.documentId,
+              input.pageId,
+            ),
+          ),
+        )
+    : null;
+  const cursor = decodeHistoryCursor(input.cursor);
+  const revisionWhere = and(
+    eq(schema.contentRelationshipRevisions.spaceId, spaceId),
+    directRevision
+      ? eq(schema.contentRelationshipRevisions.id, directRevision.id)
+      : undefined,
+    exists(hasMappedDocument),
+    notExists(inaccessibleReference),
+    exists(matchingEvent),
+    matchingPage ? exists(matchingPage) : undefined,
+    !directRevision && cursor
+      ? or(
+          lt(schema.contentRelationshipRevisions.createdAt, cursor.createdAt),
+          and(
+            eq(schema.contentRelationshipRevisions.createdAt, cursor.createdAt),
+            lt(schema.contentRelationshipRevisions.id, cursor.revisionId),
+          ),
+        )
+      : undefined,
+  );
+  const revisions = await db
+    .select()
+    .from(schema.contentRelationshipRevisions)
+    .where(revisionWhere)
+    .orderBy(
+      desc(schema.contentRelationshipRevisions.createdAt),
+      desc(schema.contentRelationshipRevisions.id),
+    )
+    .limit(directRevision ? 1 : input.limit + 1);
+  if (directRevision && revisions.length === 0) {
+    relationshipError(
+      "NOT_ACCESSIBLE",
+      "The requested relationship history is not accessible.",
+      { statusCode: 404 },
+    );
+  }
+  const pageRevisions = revisions.slice(0, input.limit);
+  const revisionIds = pageRevisions.map((revision) => revision.id);
   const events = revisionIds.length
     ? await db
         .select()
@@ -307,35 +534,13 @@ async function listContentRelationshipHistory(
     ),
   );
   const authorized: ContentRelationshipHistoryItem[] = [];
-  for (const revision of revisions) {
+  for (const revision of pageRevisions) {
     const revisionEvents = [...(eventsByRevision.get(revision.id) ?? [])].sort(
       (left, right) =>
         left.sequence - right.sequence || left.id.localeCompare(right.id),
     );
     if (revisionEvents.length === 0) continue;
-    if (
-      input.relationshipTypeId &&
-      !revisionEvents.some(
-        (event) => event.relationshipTypeId === input.relationshipTypeId,
-      )
-    ) {
-      continue;
-    }
-    const typeIds = [
-      ...new Set(
-        revisionEvents.flatMap((event) =>
-          event.relationshipTypeId ? [event.relationshipTypeId] : [],
-        ),
-      ),
-    ];
     let accessible = true;
-    for (const typeId of typeIds) {
-      if (!(await typeIsAccessible(typeId, context))) {
-        accessible = false;
-        break;
-      }
-    }
-    if (!accessible) continue;
     const eventRecords = revisionEvents.map((event) => ({
       event,
       targets: parseRecord(event.targetsJson, "A relationship event target"),
@@ -452,7 +657,6 @@ async function listContentRelationshipHistory(
         ]),
       ]),
     ];
-    if (input.pageId && !pageIds.includes(input.pageId)) continue;
     const endpoints = new Map<string, ContentRelationshipHistoryEndpoint>();
     for (const pageId of pageIds) {
       const access = await resolveRelationshipDocumentAccess(pageId, {
@@ -623,14 +827,16 @@ async function listContentRelationshipHistory(
       { statusCode: 404 },
     );
   }
-  const offset = decodeRelationshipCursor(input.cursor);
-  const page = authorized.slice(offset, offset + input.limit);
+  const lastRevision = pageRevisions[pageRevisions.length - 1];
   return {
     scope: "viewer-accessible",
-    items: page,
+    items: authorized,
     nextCursor:
-      offset + page.length < authorized.length
-        ? encodeRelationshipCursor(offset + page.length)
+      !directRevision && revisions.length > input.limit && lastRevision
+        ? encodeHistoryCursor({
+            createdAt: lastRevision.createdAt,
+            revisionId: lastRevision.id,
+          })
         : null,
   };
 }
