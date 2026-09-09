@@ -1,6 +1,6 @@
 import { ActionContractError } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -51,6 +51,8 @@ import {
   type MutationContext,
   type RowSnapshot,
 } from "./_database-row-mutation.js";
+import { lockLiveDocuments } from "./_document-lifecycle.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import { nanoid } from "./_property-utils.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -708,26 +710,15 @@ export async function mutateDatabaseBlock(
           tx,
           input.target.rowDocumentId,
         );
-        const [lockedDocument] = await tx
-          .update(schema.documents)
-          .set({ updatedAt: sql`${schema.documents.updatedAt}` })
-          .where(
-            and(
-              eq(schema.documents.id, input.target.rowDocumentId),
-              isNull(schema.documents.trashedAt),
-            ),
-          )
-          .returning({ id: schema.documents.id });
-        if (!lockedDocument) {
-          contractError(
-            "ROW_NOT_FOUND",
-            "The exact database row was not found.",
-            {
-              documentId: input.target.rowDocumentId,
-            },
-            404,
-          );
-        }
+        await lockLiveDocuments(tx, [
+          input.target.databaseDocumentId,
+          input.target.rowDocumentId,
+        ]);
+        await assertDocumentMutationAccess(
+          tx,
+          [input.target.databaseDocumentId, input.target.rowDocumentId],
+          "editor",
+        );
         const loaded = await loadField({
           target: input.target,
           role: "editor",

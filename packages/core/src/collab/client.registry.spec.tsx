@@ -586,4 +586,129 @@ describe("useCollaborativeDoc connection registry", () => {
     ).length;
     expect(awarenessPostsAfterDispose).toBe(awarenessPostsBeforeDispose);
   });
+  it.each(["DOCUMENT_TRASHED", "DOCUMENT_NOT_FOUND"] as const)(
+    "quarantines %s and retries with authoritative state instead of rejected updates",
+    async (errorCode) => {
+      const { mock: fallback, stateFetches } = makeFetchMock();
+      let rejectUpdate!: (response: Response) => void;
+      let updatePosts = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          if (String(input).endsWith("/update")) {
+            updatePosts++;
+            return new Promise<Response>((resolve) => {
+              rejectUpdate = resolve;
+            });
+          }
+          return fallback(input);
+        }),
+      );
+      let result: UseCollaborativeDocResult | undefined;
+      const root = mount(
+        <Probe docId="rejected-doc" onResult={(r) => (result = r)} />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const dirtyDoc = result!.ydoc!;
+      act(() => dirtyDoc.getText("content").insert(0, "interrupted "));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      act(() => dirtyDoc.getText("content").insert(0, "queued "));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      expect(updatePosts).toBe(1);
+      await act(async () => {
+        rejectUpdate(
+          new Response(JSON.stringify({ data: { errorCode } }), {
+            status: errorCode === "DOCUMENT_TRASHED" ? 409 : 404,
+          }),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result!.initialization).toEqual({
+        status: "error",
+        category: "forbidden-or-not-found",
+        errorCode,
+      });
+      expect(result!.ydoc).toBeNull();
+      expect(dirtyDoc.isDestroyed).toBe(false);
+      expect(dirtyDoc.getText("content").toString()).toBe(
+        "queued interrupted seed",
+      );
+      expect(_collabDocRegistrySizeForTests()).toBe(0);
+      act(() => dirtyDoc.getText("content").insert(0, "retained "));
+      act(() => window.dispatchEvent(new Event("pagehide")));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      expect(updatePosts).toBe(1);
+      if (errorCode === "DOCUMENT_TRASHED") {
+        act(() => result!.retry());
+      } else {
+        act(() => root.unmount());
+        roots = roots.filter((candidate) => candidate !== root);
+        mount(<Probe docId="rejected-doc" onResult={(r) => (result = r)} />);
+      }
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result!.ydoc).not.toBe(dirtyDoc);
+      expect(result!.ydoc!.getText("content").toString()).toBe("seed");
+      expect(dirtyDoc.isDestroyed).toBe(true);
+      expect(stateFetches).toHaveLength(2);
+      expect(updatePosts).toBe(1);
+    },
+  );
+  it("evicts a lingered dirty connection when rejection arrives after unmount", async () => {
+    const { mock: fallback } = makeFetchMock();
+    let rejectUpdate!: (response: Response) => void;
+    let updatePosts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        if (String(input).endsWith("/update")) {
+          updatePosts++;
+          return new Promise<Response>((resolve) => {
+            rejectUpdate = resolve;
+          });
+        }
+        return fallback(input);
+      }),
+    );
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe docId="late-rejection" onResult={(r) => (result = r)} />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const dirtyDoc = result!.ydoc!;
+    act(() => dirtyDoc.getText("content").insert(0, "draft "));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    act(() => root.unmount());
+    roots = roots.filter((candidate) => candidate !== root);
+    await act(async () => {
+      rejectUpdate(
+        new Response(JSON.stringify({ errorCode: "DOCUMENT_TRASHED" }), {
+          status: 409,
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(_collabDocRegistrySizeForTests()).toBe(0);
+    expect(dirtyDoc.isDestroyed).toBe(true);
+    mount(<Probe docId="late-rejection" onResult={(r) => (result = r)} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result!.ydoc).not.toBe(dirtyDoc);
+    expect(result!.ydoc!.getText("content").toString()).toBe("seed");
+    expect(updatePosts).toBe(1);
+  });
 });

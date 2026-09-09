@@ -147,6 +147,8 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 
 告訴代理“與作為編輯的行銷團隊共用此設計”，它會針對 UI 使用的同一端點呼叫 `share-resource`。結果將顯示在下一次渲染的共用對話框中。
 
+`unshare-resource` 在成功撤銷後傳回 `ok: true`。對於已移除的直接使用者授權，若接收者的通用重新整理標記已記錄，`recipientInvalidation.status` 為 `recorded`；若無法確認記錄，則為 `unconfirmed`。兩者均不保證送達。`not_applicable` 表示未移除直接使用者授權。通知狀態不確定不會復原已完成的權限撤銷。標記不包含資源 ID、標題或內容。
+
 ## Agent-readable share links {#agent-readable-links}
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.

@@ -20,6 +20,8 @@ import {
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { lockLiveDocuments } from "./_document-lifecycle.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
   getDatabaseById,
   listPropertiesForDatabaseDocuments,
@@ -106,9 +108,22 @@ export default defineAction({
         parsePropertyOptions(definition.optionsJson),
       );
       await db.transaction(async (tx) => {
+        await lockContentDatabaseMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+        );
         const primaryBlocksFields = await lockPrimaryBlocksFields(
           tx as unknown as ReturnType<typeof getDb>,
           documentId,
+        );
+        await lockLiveDocuments(tx as unknown as ReturnType<typeof getDb>, [
+          database.documentId,
+          documentId,
+        ]);
+        await assertDocumentMutationAccess(
+          tx as unknown as ReturnType<typeof getDb>,
+          [database.documentId, documentId],
+          "editor",
         );
         const [lockedDefinition] = await tx
           .select()
@@ -255,6 +270,20 @@ export default defineAction({
         );
       if (!lockedDatabase) throw new Error("Database is no longer active.");
       await lockDatabaseMemberships(tx, [membership.id]);
+      await lockLiveDocuments(tx as unknown as ReturnType<typeof getDb>, [
+        database.documentId,
+        documentId,
+      ]);
+      await assertDocumentMutationAccess(
+        tx as unknown as ReturnType<typeof getDb>,
+        [database.documentId],
+        "editor",
+      );
+      await assertDocumentMutationAccess(
+        tx as unknown as ReturnType<typeof getDb>,
+        [documentId],
+        "viewer",
+      );
       const [lockedDefinition] = await tx
         .select()
         .from(schema.documentPropertyDefinitions)

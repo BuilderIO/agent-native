@@ -147,6 +147,8 @@ El marco monta automáticamente estos actions en cada plantilla: el agente los l
 
 Dígale al agente "comparta este diseño con el equipo de marketing como editores" y llamará a `share-resource` contra el mismo punto final que utiliza UI. El resultado aparece en el cuadro de diálogo para compartir en el siguiente renderizado.
 
+`unshare-resource` devuelve `ok: true` tras una revocación correcta. Para un permiso directo de usuario eliminado, `recipientInvalidation.status` es `recorded` si se registra la señal genérica de actualización del destinatario, o `unconfirmed` si no puede confirmarse el registro; ninguno garantiza la entrega. `not_applicable` significa que no se eliminó ningún permiso directo de usuario. La incertidumbre de la notificación no deshace la revocación. La señal no contiene el ID, el título ni el contenido del recurso.
+
 ## Agent-readable share links {#agent-readable-links}
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { table, text, ownableColumns } from "../db/schema.js";
+import { notifyActionChange } from "../server/action-change.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   accessFilter,
@@ -26,6 +27,10 @@ import {
   roleSatisfies,
   type ShareRole,
 } from "./schema.js";
+
+vi.mock("../server/action-change.js", () => ({
+  notifyActionChange: vi.fn(async () => {}),
+}));
 
 const resourceType = "qa-doc";
 const ownerEmail = "owner+qa@example.com";
@@ -87,6 +92,7 @@ async function listVisible(
 }
 
 beforeEach(async () => {
+  vi.mocked(notifyActionChange).mockReset().mockResolvedValue(undefined);
   pglite = await createTestPglite();
   await pglite.exec(`
     CREATE TABLE qa_docs (
@@ -817,7 +823,10 @@ describe("shareable resource access helpers", () => {
           principalType: "org",
           principalId: otherOrgId,
         }),
-      ).resolves.toEqual({ ok: true });
+      ).resolves.toEqual({
+        ok: true,
+        recipientInvalidation: { status: "not_applicable" },
+      });
     });
 
     const shares = await db
@@ -917,7 +926,10 @@ describe("shareable resource access helpers", () => {
           principalType: "user",
           principalId: "VIEWER+QA@EXAMPLE.COM",
         }),
-      ).resolves.toEqual({ ok: true });
+      ).resolves.toEqual({
+        ok: true,
+        recipientInvalidation: { status: "recorded" },
+      });
     });
 
     shares = await db
@@ -925,6 +937,89 @@ describe("shareable resource access helpers", () => {
       .from(docShares)
       .where(eq(docShares.resourceId, "doc-user-case-actions"));
     expect(shares).toHaveLength(0);
+    expect(notifyActionChange).toHaveBeenCalledExactlyOnceWith({
+      actionName: "unshare-resource",
+      owner: viewerEmail,
+    });
+  });
+
+  it("does not notify an absent grant or an unauthorized revoke", async () => {
+    await insertDoc({ id: "doc-revoke-absent" });
+    await db.insert(docShares).values({
+      id: "revoke-denied-share",
+      resourceId: "doc-revoke-absent",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    });
+    const args = {
+      resourceType,
+      resourceId: "doc-revoke-absent",
+      principalType: "user" as const,
+      principalId: viewerEmail,
+    };
+    await expect(
+      runWithRequestContext(
+        { userEmail: outsiderEmail, orgId: otherOrgId },
+        () => unshareResource.run(args),
+      ),
+    ).rejects.toThrow();
+    expect(await db.select().from(docShares)).toHaveLength(1);
+    expect(notifyActionChange).not.toHaveBeenCalled();
+    await db.delete(docShares);
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        unshareResource.run(args),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      recipientInvalidation: { status: "not_applicable" },
+    });
+    expect(notifyActionChange).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges the deleted grant when recipient invalidation is unconfirmed", async () => {
+    await insertDoc({ id: "doc-revoke-marker-failure" });
+    await db.insert(docShares).values({
+      id: "revoke-marker-share",
+      resourceId: "doc-revoke-marker-failure",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    });
+    const failure = new Error("Marker write unavailable");
+    vi.mocked(notifyActionChange).mockRejectedValueOnce(failure);
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+          unshareResource.run({
+            resourceType,
+            resourceId: "doc-revoke-marker-failure",
+            principalType: "user",
+            principalId: viewerEmail,
+          }),
+        ),
+      ).resolves.toEqual({
+        ok: true,
+        recipientInvalidation: { status: "unconfirmed" },
+      });
+      expect(await db.select().from(docShares)).toHaveLength(0);
+      expect(diagnostic).toHaveBeenCalledWith(
+        "[unshare-resource] recipient invalidation",
+        {
+          event: "recipient_invalidation_unconfirmed",
+          status: "unconfirmed",
+          error: failure,
+        },
+      );
+    } finally {
+      diagnostic.mockRestore();
+    }
   });
 
   it("rejects non-email user share principals", async () => {

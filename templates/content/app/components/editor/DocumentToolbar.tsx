@@ -609,6 +609,7 @@ export function DocumentToolbar({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [databaseExportOpen, setDatabaseExportOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const pageActionsTriggerRef = useRef<HTMLButtonElement>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [linkingPageId, setLinkingPageId] = useState<string | null>(null);
@@ -1086,6 +1087,7 @@ export function DocumentToolbar({
                       utilityPanel === "info" && "bg-accent text-foreground",
                     )}
                     aria-label={t("editor.toolbar.morePageActions")}
+                    ref={pageActionsTriggerRef}
                   >
                     <IconDotsVertical size={16} />
                   </button>
@@ -1604,7 +1606,12 @@ export function DocumentToolbar({
         </div>
       </div>
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            pageActionsTriggerRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("sidebar.deletePageQuestion")}

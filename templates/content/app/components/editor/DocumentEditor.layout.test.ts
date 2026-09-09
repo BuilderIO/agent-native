@@ -198,7 +198,7 @@ describe("document editor layout", () => {
     const toolbar = readFileSync(
       new URL("./DocumentToolbar.tsx", import.meta.url),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
     expect(source).toContain('localSourceAccess === "available"');
     expect(source).toContain("data-local-source-read-only");
     expect(source).toContain('device: "Agent-Native Desktop"');
@@ -375,6 +375,75 @@ describe("document editor layout", () => {
         error: null,
       }),
     ).toEqual({ view: "error", admittedDocumentId: null });
+  });
+
+  it("releases a failed load only after an authoritative fetch succeeds", () => {
+    const previous = {
+      documentId: "document-a",
+      baselineErrorUpdateCount: 1,
+      authoritativeFetchCount: 0,
+      failed: true,
+    };
+    const input = {
+      previous,
+      documentId: "document-a",
+      admitted: false,
+      dataUpdatedAt: 200,
+      errorUpdateCount: 1,
+      errorUpdatedAt: 100,
+      isError: false,
+    };
+    expect(updateDocumentLoadFailureState(input).failed).toBe(true);
+    expect(
+      updateDocumentLoadFailureState({ ...input, authoritativeFetchCount: 2 })
+        .failed,
+    ).toBe(false);
+  });
+
+  it("removes an admitted editor when a background fetch reports Trash", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: "document-a",
+        hasDocument: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        hasLoadFailure: false,
+        isManualRetrying: false,
+        error: { status: 409, errorCode: "DOCUMENT_TRASHED" },
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+  });
+
+  it("does not use an older success to clear a newer failed fetch", () => {
+    const input = {
+      documentId: "document-a",
+      admitted: false,
+      dataUpdatedAt: 100,
+      errorUpdateCount: 2,
+      errorUpdatedAt: 200,
+      authoritativeFetchCount: 1,
+    };
+    const failed = updateDocumentLoadFailureState({
+      ...input,
+      previous: {
+        documentId: "document-a",
+        baselineErrorUpdateCount: 1,
+        authoritativeFetchCount: 0,
+        failed: true,
+      },
+      isError: true,
+    });
+    expect(
+      updateDocumentLoadFailureState({
+        ...input,
+        previous: failed,
+        dataUpdatedAt: 300,
+        isError: false,
+      }).failed,
+    ).toBe(true);
   });
 
   it("waits for manual Retry to finish before admitting its success", () => {

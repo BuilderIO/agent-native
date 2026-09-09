@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
+import { lockLiveDocuments } from "./_document-lifecycle.js";
 
 type Mention = { email: string; name: string };
 
@@ -150,6 +151,9 @@ export default defineAction({
     };
 
     const inserted = await db.transaction(async (tx) => {
+      await lockLiveDocuments(tx as unknown as ReturnType<typeof getDb>, [
+        documentId,
+      ]);
       const existingReceipt = async () => {
         const [existing] = await tx
           .select()

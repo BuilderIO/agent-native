@@ -147,6 +147,8 @@ Das Framework mountet diese actions automatisch in jeder Vorlage – der Agent n
 
 Sagen Sie dem Agenten: „Teilen Sie dieses Design mit dem Marketingteam als Redakteuren“, und er ruft `share-resource` für denselben Endpunkt auf, den UI verwendet. Das Ergebnis wird beim nächsten Rendern im Freigabedialog angezeigt.
 
+`unshare-resource` gibt nach erfolgreichem Widerruf `ok: true` zurück. Bei einer entfernten direkten Benutzerfreigabe ist `recipientInvalidation.status` gleich `recorded`, wenn das allgemeine Aktualisierungssignal für den Empfänger gespeichert wurde, oder `unconfirmed`, wenn dies nicht bestätigt werden kann; beides garantiert keine Zustellung. `not_applicable` bedeutet, dass keine direkte Benutzerfreigabe entfernt wurde. Eine unbestätigte Benachrichtigung macht den Widerruf nicht rückgängig. Das Signal enthält weder Ressourcen-ID noch Titel oder Inhalt.
+
 ## Agent-readable share links {#agent-readable-links}
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.

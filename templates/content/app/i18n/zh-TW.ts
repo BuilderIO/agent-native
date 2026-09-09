@@ -140,6 +140,7 @@ const messages = {
     useDiskVersion: "使用磁碟版本",
     keepLocalDraft: "保留我的版本",
     previewDraftRecovery: "未儲存的頁面草稿",
+    savedPageRecovery: "已儲存的頁面",
     restorePreviewDraft: "還原草稿",
     pageSaveBeforeNavigationFailed:
       "無法儲存最新的頁面編輯。請重試後再離開此頁面。",

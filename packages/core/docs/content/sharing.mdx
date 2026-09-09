@@ -165,6 +165,8 @@ The framework auto-mounts these actions in every template — the agent calls th
 
 Tell the agent "share this design with the marketing team as editors" and it calls `share-resource` against the same endpoint the UI uses. The result shows up in the share dialog the next render.
 
+`unshare-resource` returns `ok: true` after a successful revocation. For a removed direct-user grant, `recipientInvalidation.status` is `recorded` when the recipient's generic refresh marker is recorded, or `unconfirmed` when recording cannot be confirmed; neither guarantees delivery. `not_applicable` means no direct-user grant was removed. Notification uncertainty does not undo revocation. The marker contains no resource ID, title, or content.
+
 ## Agent-readable share links {#agent-readable-links}
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.

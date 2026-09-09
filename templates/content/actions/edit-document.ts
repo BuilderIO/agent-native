@@ -24,6 +24,11 @@ import {
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
 import { mutateDocumentBody } from "./_document-edit-mutation.js";
+import {
+  documentTrashedError,
+  lockLiveDocuments,
+} from "./_document-lifecycle.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 
 interface TextEdit {
@@ -237,6 +242,7 @@ export default defineAction({
 
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;
+    if (existing.trashedAt) throw documentTrashedError();
     const isExternalCaller =
       ctx?.caller === "tool" ||
       ctx?.caller === "mcp" ||
@@ -422,6 +428,8 @@ export default defineAction({
     try {
       await db.transaction(async (tx: any) => {
         const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
+        await lockLiveDocuments(tx, [id]);
+        await assertDocumentMutationAccess(tx, [id], "editor");
         const mirrored = await tx
           .update(schema.documents)
           .set({

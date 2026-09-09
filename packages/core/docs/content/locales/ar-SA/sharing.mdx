@@ -147,6 +147,8 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 
 أخبر الوكيل "بمشاركة هذا التصميم مع فريق التسويق كمحررين" وسيقوم باستدعاء `share-resource` مقابل نفس نقطة النهاية التي يستخدمها UI. تظهر النتيجة في مربع حوار المشاركة في العرض التالي.
 
+يعيد `unshare-resource` القيمة `ok: true` بعد نجاح إلغاء الوصول. عند إزالة إذن مباشر لمستخدم، تكون `recipientInvalidation.status` هي `recorded` إذا سُجّلت علامة التحديث العامة للمستلم، أو `unconfirmed` إذا تعذّر تأكيد التسجيل؛ ولا تضمن أي منهما التسليم. تعني `not_applicable` أنه لم يُزل إذن مباشر لمستخدم. عدم تأكيد الإشعار لا يتراجع عن إلغاء الوصول. لا تتضمن العلامة معرّف المورد أو عنوانه أو محتواه.
+
 ## Agent-readable share links {#agent-readable-links}
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.

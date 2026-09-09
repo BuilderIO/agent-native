@@ -127,6 +127,194 @@ async function blocksDefinitions(databaseId: string) {
     );
 }
 
+describe("property writes respect document lifecycle and existing grants", () => {
+  async function fixture(type: "text" | "blocks", primary = false) {
+    const database = await createDatabaseRow({ seeded: true });
+    const db = getDb();
+    const rowId = `lifecycle-row-${database.databaseId}`;
+    const propertyId = `lifecycle-property-${database.databaseId}`;
+    await db.insert(schema.documents).values({
+      id: rowId,
+      ownerEmail: OWNER,
+      title: "Example row",
+      content: "original",
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `lifecycle-item-${database.databaseId}`,
+      ownerEmail: OWNER,
+      databaseId: database.databaseId,
+      documentId: rowId,
+    });
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId: database.databaseId,
+      name: "Example field",
+      type,
+      optionsJson: JSON.stringify({ blocks: { primary } }),
+    });
+    if (primary)
+      await db
+        .update(schema.contentDatabases)
+        .set({ primaryBlocksPropertyId: propertyId })
+        .where(eq(schema.contentDatabases.id, database.databaseId));
+    return { ...database, rowId, propertyId };
+  }
+
+  it.each(["scalar", "body", "additional"] as const)(
+    "rejects a pending %s property save after the row is trashed",
+    async (kind) => {
+      const target = await fixture(
+        kind === "scalar" ? "text" : "blocks",
+        kind === "body",
+      );
+      const db = getDb();
+      const originalTransaction = db.transaction.bind(db);
+      const transaction = vi
+        .spyOn(db, "transaction")
+        .mockImplementationOnce(async (callback: any, config?: any) => {
+          await db
+            .update(schema.documents)
+            .set({ trashedAt: new Date().toISOString() })
+            .where(eq(schema.documents.id, target.rowId));
+          return originalTransaction(callback, config);
+        });
+      try {
+        await expect(
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            setDocumentPropertyAction.run({
+              documentId: target.rowId,
+              databaseId: target.databaseId,
+              propertyId: target.propertyId,
+              value: "late value",
+            }),
+          ),
+        ).rejects.toMatchObject({ errorCode: "DOCUMENT_TRASHED" });
+      } finally {
+        transaction.mockRestore();
+      }
+      expect(
+        (
+          await db
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, target.rowId))
+        )[0].content,
+      ).toBe("original");
+      expect(
+        await db
+          .select()
+          .from(schema.documentPropertyValues)
+          .where(eq(schema.documentPropertyValues.documentId, target.rowId)),
+      ).toHaveLength(0);
+      expect(
+        await db
+          .select()
+          .from(schema.documentBlockFieldContents)
+          .where(
+            eq(schema.documentBlockFieldContents.documentId, target.rowId),
+          ),
+      ).toHaveLength(0);
+    },
+  );
+
+  it("preserves scalar edits granted by the database when the row is viewer-only", async () => {
+    const target = await fixture("text");
+    const editor = "database-editor@example.com";
+    const db = getDb();
+    await db.insert(schema.documentShares).values([
+      {
+        id: `database-edit-${target.databaseId}`,
+        resourceId: target.documentId,
+        principalType: "user",
+        principalId: editor,
+        role: "editor",
+        createdBy: OWNER,
+      },
+      {
+        id: `row-view-${target.databaseId}`,
+        resourceId: target.rowId,
+        principalType: "user",
+        principalId: editor,
+        role: "viewer",
+        createdBy: OWNER,
+      },
+    ]);
+    await runWithRequestContext({ userEmail: editor }, () =>
+      setDocumentPropertyAction.run({
+        documentId: target.rowId,
+        databaseId: target.databaseId,
+        propertyId: target.propertyId,
+        value: "allowed value",
+      }),
+    );
+    expect(
+      (
+        await db
+          .select()
+          .from(schema.documentPropertyValues)
+          .where(eq(schema.documentPropertyValues.documentId, target.rowId))
+      )[0].valueJson,
+    ).toBe(JSON.stringify("allowed value"));
+  });
+
+  it("rejects a pending scalar edit after its database editor grant is revoked", async () => {
+    const target = await fixture("text");
+    const editor = "revoked-database-editor@example.com";
+    const db = getDb();
+    const shareId = `database-revoke-${target.databaseId}`;
+    await db.insert(schema.documentShares).values([
+      {
+        id: shareId,
+        resourceId: target.documentId,
+        principalType: "user",
+        principalId: editor,
+        role: "editor",
+        createdBy: OWNER,
+      },
+      {
+        id: `row-revoke-view-${target.databaseId}`,
+        resourceId: target.rowId,
+        principalType: "user",
+        principalId: editor,
+        role: "viewer",
+        createdBy: OWNER,
+      },
+    ]);
+    const originalTransaction = db.transaction.bind(db);
+    const transaction = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce(async (callback: any, config?: any) => {
+        await db
+          .delete(schema.documentShares)
+          .where(eq(schema.documentShares.id, shareId));
+        return originalTransaction(callback, config);
+      });
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: editor }, () =>
+          setDocumentPropertyAction.run({
+            documentId: target.rowId,
+            databaseId: target.databaseId,
+            propertyId: target.propertyId,
+            value: "late value",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_MUTATION_ACCESS_CHANGED",
+      });
+    } finally {
+      transaction.mockRestore();
+    }
+    expect(
+      await db
+        .select()
+        .from(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.documentId, target.rowId)),
+    ).toHaveLength(0);
+  });
+});
+
 describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", () => {
   it("revalidates space access through the database transaction", async () => {
     let transactionDb: any;

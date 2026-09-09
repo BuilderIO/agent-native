@@ -171,6 +171,11 @@ async function withDocWriteLock<T>(
   await previous.catch(() => {});
   try {
     return await fn();
+  } catch (error) {
+    // A rejected mutation may already be present in the cached Y.Doc.
+    // Reload durable state before allowing the next writer to reuse it.
+    releaseDoc(docId);
+    throw error;
   } finally {
     release();
     if (_writeLocks.get(docId) === chained) {
@@ -514,24 +519,13 @@ export async function applyText(
       return snapshot;
     }
 
-    try {
-      await persistMergedState(
-        docId,
-        doc,
-        () => doc.getText(fieldName).toString(),
-        options.validateSnapshot,
-        validatedBaseVersion,
-      );
-    } catch (error) {
-      // The rejected diff, and any cross-process state merged during the CAS
-      // read, now live only in this cached Y.Doc. Destroy it before throwing:
-      // neither the rejected update nor a compensating rollback should ever be
-      // persisted or emitted. Gating this on validateSnapshot left a pinned
-      // caller's rejected mutation cached forever, so the next successful
-      // write folded peer state on top of durably-rejected content.
-      releaseDoc(docId);
-      throw error;
-    }
+    await persistMergedState(
+      docId,
+      doc,
+      () => doc.getText(fieldName).toString(),
+      options.validateSnapshot,
+      validatedBaseVersion,
+    );
 
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
     touchAgentPresence(docId, requestSource, {

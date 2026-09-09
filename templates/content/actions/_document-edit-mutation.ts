@@ -17,6 +17,8 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import { lockLiveDocuments } from "./_document-lifecycle.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -172,6 +174,12 @@ export async function mutateDocumentBody(args: {
   try {
     return await db.transaction(async (transaction) => {
       const tx = transaction as unknown as Db;
+      const primaryBlocksFields = await lockPrimaryBlocksFields(
+        tx,
+        args.documentId,
+      );
+      await lockLiveDocuments(tx, [args.documentId]);
+      await assertDocumentMutationAccess(tx, [args.documentId], "editor");
       const [stored] = await tx
         .select()
         .from(schema.documentEditReceipts)
@@ -247,10 +255,6 @@ export async function mutateDocumentBody(args: {
       const now = nextDocumentUpdatedAt(document.updatedAt);
       const receiptId = crypto.randomUUID();
       if (changed) {
-        const primaryBlocksFields = await lockPrimaryBlocksFields(
-          tx,
-          args.documentId,
-        );
         const updated = await tx
           .update(schema.documents)
           .set({

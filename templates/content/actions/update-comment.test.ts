@@ -23,6 +23,9 @@ const mockWriteAppState = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
+vi.mock("./_document-lifecycle.js", () => ({
+  lockLiveDocuments: vi.fn(async () => []),
+}));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mockGetUserEmail(),
