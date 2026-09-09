@@ -300,8 +300,8 @@ export function resolveLocaleFromPreference(
 ): LocaleCode {
   const normalized =
     typeof preference === "string"
-      ? normalizeLocalePreference(preference)
-      : normalizeLocalizationPreference(preference).locale;
+      ? normalizeLocalePreference(preference, supportedLocales)
+      : normalizeLocalizationPreference(preference, supportedLocales).locale;
   if (normalized && normalized !== "system") {
     return (
       normalizeLocaleCode(normalized, supportedLocales) ??

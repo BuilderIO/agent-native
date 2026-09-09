@@ -6,6 +6,7 @@ import {
   normalizeLocalePreference,
   normalizeLocalizationPreference,
   resolveLocaleFromCandidates,
+  resolveLocaleFromPreference,
 } from "./shared.js";
 
 describe("localization shared helpers", () => {
@@ -50,5 +51,6 @@ describe("localization shared helpers", () => {
       "system",
     );
     expect(resolveLocaleFromCandidates([], ["it-IT"])).toBe("it-IT");
+    expect(resolveLocaleFromPreference("it-IT", [], ["en-US"])).toBe("en-US");
   });
 });
