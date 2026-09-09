@@ -23,6 +23,7 @@ import {
   positionAnchoredCommentCard,
   positionUnanchoredCommentCard,
   refreshUnchangedContentSaveWatermark,
+  refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
   shouldShowNewDocumentTypeChooser,
   titleMatchConfirmsSave,
@@ -612,6 +613,37 @@ describe("document editor layout", () => {
 
     await expect(first).rejects.toThrow("network interrupted");
     await expect(second).resolves.toBe("latest");
+  });
+
+  it("keeps the first title edit writable after canonical creation advances the optimistic timestamp", () => {
+    const canonicalUpdatedAt = "2026-09-09T04:13:24.458Z";
+    const lastSaved = refreshUnchangedTitleSaveWatermark({
+      serverTitle: "",
+      serverUpdatedAt: canonicalUpdatedAt,
+      lastSaved: { title: "", updatedAt: "2026-09-09T04:13:24.400Z" },
+    });
+    expect(lastSaved).toEqual({ title: "", updatedAt: canonicalUpdatedAt });
+    expect(
+      metadataUpdatesWithPendingTitle({}, "Personal recovery", lastSaved.title),
+    ).toEqual({ title: "Personal recovery" });
+  });
+
+  it("does not confirm an optimistic or externally changed title as the saved baseline", () => {
+    const lastSaved = { title: "", updatedAt: "2026-09-09T04:13:24.400Z" };
+    expect(
+      refreshUnchangedTitleSaveWatermark({
+        serverTitle: "Unsaved local title",
+        serverUpdatedAt: "2026-09-09T04:13:24.458Z",
+        lastSaved,
+      }),
+    ).toBe(lastSaved);
+    expect(
+      refreshUnchangedTitleSaveWatermark({
+        serverTitle: "",
+        serverUpdatedAt: "2026-09-09T04:13:24.300Z",
+        lastSaved,
+      }),
+    ).toBe(lastSaved);
   });
 
   it("advances the content CAS base across metadata-only row updates", () => {

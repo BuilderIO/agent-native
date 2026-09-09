@@ -970,6 +970,7 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [preserveSourceNavigationOnClose, setPreserveSourceNavigationOnClose] =
     useState(false);
   const sourceHandoffActiveRef = useRef(false);
@@ -2921,6 +2922,7 @@ function DatabaseTable({
             </Tooltip>
           ) : null}
           <Button
+            ref={settingsTriggerRef}
             type="button"
             variant="ghost"
             size="sm"
@@ -3424,6 +3426,7 @@ function DatabaseTable({
       />
 
       <DatabaseSettingsPanelSheet
+        triggerRef={settingsTriggerRef}
         open={settingsOpen}
         panel={settingsPanel}
         databaseId={databaseId}
@@ -7421,6 +7424,7 @@ function NotionLogoMark({ className }: { className?: string }) {
 
 function DatabaseSettingsPanelSheet({
   open,
+  triggerRef,
   panel,
   databaseId,
   documentId,
@@ -7459,6 +7463,7 @@ function DatabaseSettingsPanelSheet({
   onGroupsCollapsedChange,
 }: {
   open: boolean;
+  triggerRef: { current: HTMLButtonElement | null };
   panel: DatabaseSettingsPanel;
   databaseId: string;
   documentId: string;
@@ -7552,8 +7557,6 @@ function DatabaseSettingsPanelSheet({
     }
   }, [open, panel, preserveSourceNavigationOnClose]);
 
-  if (!open) return null;
-
   const title =
     panel === "main"
       ? "Database settings"
@@ -7570,107 +7573,128 @@ function DatabaseSettingsPanelSheet({
   };
 
   return (
-    <aside
-      className="fixed bottom-0 right-0 top-12 z-40 flex w-[320px] max-w-[calc(100vw-1rem)] flex-col border-l border-border bg-background shadow-[-12px_0_32px_rgba(15,23,42,0.06)]"
-      onClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose();
+      }}
+      modal={false}
     >
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3">
-        {panel === "main" ? null : (
+      <SheetContent
+        side="right"
+        showOverlay={false}
+        showClose={false}
+        aria-describedby={undefined}
+        className="bottom-0 top-12 z-40 flex h-auto w-[320px] max-w-[calc(100vw-1rem)] flex-col gap-0 p-0 sm:max-w-[calc(100vw-1rem)]"
+        onInteractOutside={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => {
+          if (triggerRef.current?.isConnected) {
+            event.preventDefault();
+            triggerRef.current.focus();
+          }
+        }}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3">
+          {panel === "main" ? null : (
+            <button
+              type="button"
+              aria-label="Back"
+              className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={handleBack}
+            >
+              <IconArrowLeft className="size-4" />
+            </button>
+          )}
+          <SheetTitle className="min-w-0 flex-1 truncate text-sm font-semibold">
+            {title}
+          </SheetTitle>
           <button
             type="button"
-            aria-label="Back"
+            aria-label={dbText("closeDatabaseSettings")}
             className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={handleBack}
+            onClick={onClose}
           >
-            <IconArrowLeft className="size-4" />
+            <IconX className="size-4" />
           </button>
-        )}
-        <div className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {title}
         </div>
-        <button
-          type="button"
-          aria-label={dbText("closeDatabaseSettings")}
-          className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onClose}
-        >
-          <IconX className="size-4" />
-        </button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-3">
-        {panel === "main" ? (
-          <DatabaseSettingsMainPanel
-            activeView={activeView}
-            source={source}
-            sourceCount={sources.length || (source ? 1 : 0)}
-            propertyCount={properties.length}
-            hiddenCount={hiddenCount}
-            onPanelChange={onPanelChange}
-          />
-        ) : panel === "source" ? (
-          <DatabaseSettingsSourcePanel
-            source={source}
-            sources={sources}
-            databaseId={databaseId}
-            documentId={documentId}
-            isFilesDatabase={isFilesDatabase}
-            itemCount={items.length}
-            canEdit={canEdit}
-            canManage={canManage}
-            nav={sourceNavStack}
-            onNavPush={(step) => setSourceNavStack((stack) => [...stack, step])}
-            onNavReplace={setSourceNavStack}
-            onAttachBuilderSource={onAttachBuilderSource}
-            onFederateSource={onFederateSource}
-            onChangeSourceRole={onChangeSourceRole}
-            onDisconnectSecondary={(sourceId) => {
-              onDisconnectSecondary(sourceId);
-              setSourceNavStack([]);
-            }}
-            onRefreshSource={onRefreshSource}
-            onHydrateBuilderBodies={onHydrateBuilderBodies}
-            onDisconnectSource={onDisconnectSource}
-            onReviewBuilderUpdate={onReviewBuilderUpdate}
-            onSetBuilderLiveWrites={onSetBuilderLiveWrites}
-            sourceActionPending={sourceActionPending}
-            builderAttachPreviewPending={builderAttachPreview.isFetching}
-            sourcePendingOperations={sourcePendingOperations}
-          />
-        ) : panel === "layout" ? (
-          <DatabaseSettingsLayoutPanel
-            activeView={activeView}
-            properties={properties}
-            onViewTypeChange={onViewTypeChange}
-            onWrapCellsChange={onWrapCellsChange}
-            onOpenPagesInChange={onOpenPagesInChange}
-            onFormQuestionsChange={onFormQuestionsChange}
-          />
-        ) : panel === "property_visibility" ? (
-          <DatabaseSettingsPropertyVisibilityPanel
-            documentId={documentId}
-            databaseId={databaseId}
-            properties={properties}
-            activeView={activeView}
-            items={items}
-            source={source}
-            sources={sources}
-            hiddenCount={hiddenCount}
-            onPropertyHiddenChange={onPropertyHiddenChange}
-            onPropertiesHiddenChange={onPropertiesHiddenChange}
-          />
-        ) : panel === "group" ? (
-          <DatabaseSettingsGroupPanel
-            activeView={activeView}
-            properties={properties}
-            groupIds={groupIds}
-            onGroupByChange={onGroupByChange}
-            onHideEmptyGroupsChange={onHideEmptyGroupsChange}
-            onGroupsCollapsedChange={onGroupsCollapsedChange}
-          />
-        ) : null}
-      </div>
-    </aside>
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-3">
+          {panel === "main" ? (
+            <DatabaseSettingsMainPanel
+              activeView={activeView}
+              source={source}
+              sourceCount={sources.length || (source ? 1 : 0)}
+              propertyCount={properties.length}
+              hiddenCount={hiddenCount}
+              onPanelChange={onPanelChange}
+            />
+          ) : panel === "source" ? (
+            <DatabaseSettingsSourcePanel
+              source={source}
+              sources={sources}
+              databaseId={databaseId}
+              documentId={documentId}
+              isFilesDatabase={isFilesDatabase}
+              itemCount={items.length}
+              canEdit={canEdit}
+              canManage={canManage}
+              nav={sourceNavStack}
+              onNavPush={(step) =>
+                setSourceNavStack((stack) => [...stack, step])
+              }
+              onNavReplace={setSourceNavStack}
+              onAttachBuilderSource={onAttachBuilderSource}
+              onFederateSource={onFederateSource}
+              onChangeSourceRole={onChangeSourceRole}
+              onDisconnectSecondary={(sourceId) => {
+                onDisconnectSecondary(sourceId);
+                setSourceNavStack([]);
+              }}
+              onRefreshSource={onRefreshSource}
+              onHydrateBuilderBodies={onHydrateBuilderBodies}
+              onDisconnectSource={onDisconnectSource}
+              onReviewBuilderUpdate={onReviewBuilderUpdate}
+              onSetBuilderLiveWrites={onSetBuilderLiveWrites}
+              sourceActionPending={sourceActionPending}
+              builderAttachPreviewPending={builderAttachPreview.isFetching}
+              sourcePendingOperations={sourcePendingOperations}
+            />
+          ) : panel === "layout" ? (
+            <DatabaseSettingsLayoutPanel
+              activeView={activeView}
+              properties={properties}
+              onViewTypeChange={onViewTypeChange}
+              onWrapCellsChange={onWrapCellsChange}
+              onOpenPagesInChange={onOpenPagesInChange}
+              onFormQuestionsChange={onFormQuestionsChange}
+            />
+          ) : panel === "property_visibility" ? (
+            <DatabaseSettingsPropertyVisibilityPanel
+              documentId={documentId}
+              databaseId={databaseId}
+              properties={properties}
+              activeView={activeView}
+              items={items}
+              source={source}
+              sources={sources}
+              hiddenCount={hiddenCount}
+              onPropertyHiddenChange={onPropertyHiddenChange}
+              onPropertiesHiddenChange={onPropertiesHiddenChange}
+            />
+          ) : panel === "group" ? (
+            <DatabaseSettingsGroupPanel
+              activeView={activeView}
+              properties={properties}
+              groupIds={groupIds}
+              onGroupByChange={onGroupByChange}
+              onHideEmptyGroupsChange={onHideEmptyGroupsChange}
+              onGroupsCollapsedChange={onGroupsCollapsedChange}
+            />
+          ) : null}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
