@@ -304,7 +304,7 @@ describe("getOnboardingHtml", () => {
     expect(pageData.marketing?.screenshotSrc).toBe(
       "/viteapp/auth-marketing/slides.webp",
     );
-    expect(html).toContain('href="/viteapp/auth-marketing/slides.webp"');
+    expect(html).not.toContain('href="/viteapp/auth-marketing/slides.webp"');
     expect(html).toContain('href="/viteapp/favicon.svg"');
     expect(html).toContain('href="/viteapp/icon-180.svg"');
     expect(html).toContain(

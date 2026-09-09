@@ -2,50 +2,133 @@ import * as React from "react";
 
 import { cn } from "../utils.js";
 
-const VERTEX_SHADER_SOURCE =
-  "attribute vec2 position;void main(){gl_Position=vec4(position,0.0,1.0);}";
+const VERTEX_SHADER_SOURCE = `
+attribute vec2 position;
+void main() {
+  gl_Position = vec4(position, 0.0, 1.0);
+}
+`;
 
-const FRAGMENT_SHADER_SOURCE = [
-  "precision highp float;",
-  "uniform float iTime;uniform vec2 iResolution;uniform vec3 uPointer;",
-  "#define S(a,b,t) smoothstep(a,b,t)",
-  "#define NUM_LAYERS 4.",
-  "float N21(vec2 p){vec3 a=fract(vec3(p.xyx)*vec3(213.897,653.453,253.098));a+=dot(a,a.yzx+79.76);return fract((a.x+a.y)*a.z);}",
-  "vec2 GetPos(vec2 id,vec2 offs,float t){float n=N21(id+offs);float n1=fract(n*10.);float n2=fract(n*100.);float a=t+n;return offs+vec2(sin(a*n1),cos(a*n2))*.4;}",
-  "vec2 Attract(vec2 p,vec2 cursor,float strength){vec2 delta=cursor-p;float d=length(delta);float pull=1.-smoothstep(.08,1.9,d);pull=pull*pull*(3.-2.*pull);return p+delta*pull*.095*strength;}",
-  "float df_line(vec2 a,vec2 b,vec2 p){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*h);}",
-  "float line(vec2 a,vec2 b,vec2 uv){float r1=.025;float r2=.006;float d=df_line(a,b,uv);float d2=length(a-b);float fade=S(1.5,.5,d2);fade+=S(.05,.02,abs(d2-.75));return S(r1,r2,d)*fade;}",
-  "float NetLayer(vec2 st,float n,float t,vec2 pointer,float pointerStrength){",
-  "  vec2 cell=floor(st);vec2 id=cell+n;vec2 cursor=pointer-cell;st=fract(st)-.5;",
-  "  vec2 p0=Attract(GetPos(id,vec2(-1,-1),t),cursor,pointerStrength);vec2 p1=Attract(GetPos(id,vec2(0,-1),t),cursor,pointerStrength);vec2 p2=Attract(GetPos(id,vec2(1,-1),t),cursor,pointerStrength);",
-  "  vec2 p3=Attract(GetPos(id,vec2(-1,0),t),cursor,pointerStrength);vec2 p4=Attract(GetPos(id,vec2(0,0),t),cursor,pointerStrength);vec2 p5=Attract(GetPos(id,vec2(1,0),t),cursor,pointerStrength);",
-  "  vec2 p6=Attract(GetPos(id,vec2(-1,1),t),cursor,pointerStrength);vec2 p7=Attract(GetPos(id,vec2(0,1),t),cursor,pointerStrength);vec2 p8=Attract(GetPos(id,vec2(1,1),t),cursor,pointerStrength);",
-  "  float m=0.;float sparkle=0.;float d;float s;float pulse;",
-  "  m+=line(p4,p0,st);d=length(st-p0);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p0.x)+fract(p0.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;",
-  "  m+=line(p4,p1,st);d=length(st-p1);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p1.x)+fract(p1.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;",
-  "  m+=line(p4,p2,st);d=length(st-p2);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p2.x)+fract(p2.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;",
-  "  m+=line(p4,p3,st);d=length(st-p3);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p3.x)+fract(p3.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;",
-  "  m+=line(p4,p4,st);d=length(st-p4);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p4.x)+fract(p4.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;",
-  "  m+=line(p4,p5,st);d=length(st-p5);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p5.x)+fract(p5.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;",
-  "  m+=line(p4,p6,st);d=length(st-p6);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p6.x)+fract(p6.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;",
-  "  m+=line(p4,p7,st);d=length(st-p7);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p7.x)+fract(p7.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;",
-  "  m+=line(p4,p8,st);d=length(st-p8);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p8.x)+fract(p8.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;",
-  "  m+=line(p1,p3,st);m+=line(p1,p5,st);m+=line(p7,p5,st);m+=line(p7,p3,st);",
-  "  float sPhase=(sin(t+n)+sin(t*.1))*.25+.5;sPhase+=pow(sin(t*.1)*.5+.5,50.)*5.;m+=sparkle*sPhase;",
-  "  return m;",
-  "}",
-  "void mainImage(out vec4 fragColor,in vec2 fragCoord){",
-  "  vec2 uv=(fragCoord-iResolution.xy*.5)/iResolution.y;",
-  "  float t=iTime*.03;float s=sin(t);float c=cos(t);mat2 rot=mat2(c,-s,s,c);vec2 st=uv*rot;vec2 pointerUv=(uPointer.xy-iResolution.xy*.5)/iResolution.y;",
-  "  float m=0.;",
-  "  for(float i=0.;i<1.;i+=1./NUM_LAYERS){float z=fract(t+i);float size=mix(15.,1.,z);float fade=S(0.,.6,z)*S(1.,.8,z);vec2 pointerSt=pointerUv*rot*size;vec2 layerSt=st*size;float warp=1.-smoothstep(.15,2.7,length(layerSt-pointerSt));warp=warp*warp*(3.-2.*warp)*uPointer.z;layerSt-=(pointerSt-layerSt)*warp*.035;m+=fade*NetLayer(layerSt,i,iTime*0.3,pointerSt,uPointer.z);}",
-  "  float cursorLift=1.-smoothstep(.04,.48,length(uv-pointerUv));cursorLift=cursorLift*cursorLift*(3.-2.*cursorLift)*uPointer.z;m*=1.+cursorLift*1.6;",
-  "  vec3 col=vec3(0.35)*m;col*=1.-dot(uv,uv);",
-  "  float tt=min(iTime,5.0);col*=S(0.,20.,tt);",
-  "  col=clamp(col,0.,1.);fragColor=vec4(col,1.);",
-  "}",
-  "void main(){mainImage(gl_FragColor,gl_FragCoord.xy);}",
-].join("\n");
+const FRAGMENT_SHADER_SOURCE = `
+precision highp float;
+
+uniform float iTime;
+uniform vec2 iResolution;
+uniform vec3 uPointer;
+uniform vec3 uFgColor;
+uniform vec3 uBgColor;
+uniform float uBrightness;
+
+#define S(a, b, t) smoothstep(a, b, t)
+
+const float DOT_DENSITY = 220.;
+const float DOT_SCALE = 0.9;
+const float SPEED = 0.65;
+
+float N21(vec2 p) {
+  vec3 a = fract(vec3(p.xyx) * vec3(213.897, 653.453, 253.098));
+  a += dot(a, a.yzx + 79.76);
+  return fract((a.x + a.y) * a.z);
+}
+
+float valueNoise(vec2 p) {
+  vec2 cell = floor(p);
+  vec2 f = fract(p);
+  float a = N21(cell);
+  float b = N21(cell + vec2(1., 0.));
+  float c = N21(cell + vec2(0., 1.));
+  float d = N21(cell + vec2(1., 1.));
+  vec2 u = f * f * (3. - 2. * f);
+  return mix(a, b, u.x) + (c - a) * u.y * (1. - u.x) + (d - b) * u.x * u.y;
+}
+
+float waveHeight(float x, float time) {
+  float wave = sin(x * 1.7 + time * 0.25) * 0.06;
+  wave += sin(x * 4.3 - time * 0.5) * 0.028;
+  wave += sin(x * 10.5 + time * 0.8) * 0.012;
+  wave += (valueNoise(vec2(x * 2.2 + time * 0.06, 4.)) - 0.5) * 0.05;
+  return -0.21 + wave;
+}
+
+float waveProfile(vec2 point, vec2 pointerUv, float pointerStrength, float time) {
+  float center = waveHeight(point.x, time);
+  vec2 pointerDelta = (point - pointerUv) * vec2(0.75, 1.15);
+  float pointerPull = pointerStrength * exp(-dot(pointerDelta, pointerDelta) * 2.8);
+  center += (pointerUv.y - center) * pointerPull * 0.42;
+  center += sin((point.x - pointerUv.x) * 8.0 + time) * pointerPull * 0.035;
+
+  float distance = point.y - center;
+  float profile = exp(-pow(distance / 0.065, 2.));
+  profile += 0.48 * exp(-pow((distance + 0.09) / 0.12, 2.));
+  profile += 0.28 * exp(-pow((distance - 0.14) / 0.16, 2.));
+  profile *= 0.35 + 0.65 * valueNoise(vec2(point.x * 5.0 + time * 0.08, point.y * 14.0 - time * 0.04));
+  return clamp(profile, 0., 1.);
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  vec2 uv = (fragCoord - iResolution.xy * 0.5) / iResolution.y;
+  vec2 pointerUv = (uPointer.xy - iResolution.xy * 0.5) / iResolution.y;
+  float time = iTime * SPEED;
+
+  float cellSize = 1. / DOT_DENSITY;
+  vec2 cell = floor(uv / cellSize);
+  vec2 jitter = vec2(
+    N21(cell + vec2(11.7, 2.3)),
+    N21(cell + vec2(-5.2, 8.1))
+  ) - 0.5;
+  vec2 cellCenter = (cell + 0.5 + jitter * 0.7) * cellSize;
+  vec2 cellUv = (uv - cellCenter) / cellSize;
+
+  float tone = waveProfile(cellCenter, pointerUv, uPointer.z, time);
+  float grain = 0.38 + 0.62 * N21(cell + vec2(17.3, -4.1));
+  float dropout = S(0.45, 0.95, grain + tone * 0.8);
+  tone *= grain * dropout;
+
+  float radius = sqrt(tone) * 0.5 * DOT_SCALE;
+  float pixel = (1. / iResolution.y) / cellSize;
+  float edge = max(pixel * 1.2, 0.004);
+  float distance = length(cellUv);
+  float dotMask = step(0.0001, tone) * (1. - S(radius - edge, radius + edge, distance));
+  float glow = (1. - S(radius, radius + 0.7, distance)) * tone * 0.14;
+  float value = clamp(dotMask + glow, 0., 1.);
+
+  vec3 lit = mix(uBgColor, uFgColor, value);
+  lit += (uFgColor - uBgColor) * value * tone * (uBrightness - 1.);
+  fragColor = vec4(clamp(lit, 0., 1.), 1.);
+}
+
+void main() {
+  mainImage(gl_FragColor, gl_FragCoord.xy);
+}
+`;
+
+type ThemeColors = {
+  bg: readonly [number, number, number];
+  fg: readonly [number, number, number];
+  brightness: number;
+};
+
+const DARK_THEME: ThemeColors = {
+  bg: [0, 0, 0],
+  fg: [174 / 255, 173 / 255, 172 / 255],
+  brightness: 1.6,
+};
+
+const LIGHT_THEME: ThemeColors = {
+  bg: [250 / 255, 249 / 255, 245 / 255],
+  fg: [61 / 255, 61 / 255, 61 / 255],
+  brightness: 1,
+};
+
+function isDarkMode(): boolean {
+  const root = document.documentElement;
+  if (root.classList.contains("dark")) return true;
+  if (root.classList.contains("light")) return false;
+  const dataTheme = root.getAttribute("data-theme");
+  if (dataTheme === "dark") return true;
+  if (dataTheme === "light") return false;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+}
 
 function createShader(
   gl: WebGLRenderingContext,
@@ -63,7 +146,10 @@ function createShader(
   return shader;
 }
 
-function initializeStarfield(canvas: HTMLCanvasElement): () => void {
+function initializeStarfield(
+  canvas: HTMLCanvasElement,
+  frameRate: number,
+): () => void {
   let gl: WebGLRenderingContext | null = null;
   try {
     gl = canvas.getContext("webgl", { alpha: false, antialias: false });
@@ -73,15 +159,14 @@ function initializeStarfield(canvas: HTMLCanvasElement): () => void {
   if (!gl) return () => undefined;
 
   const vertexShader = createShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER_SOURCE);
-  if (!vertexShader) return () => undefined;
-
   const fragmentShader = createShader(
     gl,
     gl.FRAGMENT_SHADER,
     FRAGMENT_SHADER_SOURCE,
   );
-  if (!fragmentShader) {
+  if (!vertexShader || !fragmentShader) {
     gl.deleteShader(vertexShader);
+    gl.deleteShader(fragmentShader);
     return () => undefined;
   }
 
@@ -124,12 +209,14 @@ function initializeStarfield(canvas: HTMLCanvasElement): () => void {
   const timeUniform = gl.getUniformLocation(program, "iTime");
   const resolutionUniform = gl.getUniformLocation(program, "iResolution");
   const pointerUniform = gl.getUniformLocation(program, "uPointer");
+  const fgColorUniform = gl.getUniformLocation(program, "uFgColor");
+  const bgColorUniform = gl.getUniformLocation(program, "uBgColor");
+  const brightnessUniform = gl.getUniformLocation(program, "uBrightness");
   const reducedMotionQuery = window.matchMedia?.(
     "(prefers-reduced-motion: reduce)",
   );
-  const listenerOptions: AddEventListenerOptions = { passive: true };
   let reducedMotion = reducedMotionQuery?.matches ?? false;
-  let pointerDpr = 1;
+  let devicePixelRatio = 1;
   let hasPointer = false;
   let pointerX = 0;
   let pointerY = 0;
@@ -138,14 +225,15 @@ function initializeStarfield(canvas: HTMLCanvasElement): () => void {
   let targetY = 0;
   let targetStrength = 0;
   let animationFrame = 0;
+  let theme = isDarkMode() ? DARK_THEME : LIGHT_THEME;
 
   const resize = () => {
     const rect = canvas.getBoundingClientRect();
     const width = Math.max(1, rect.width || window.innerWidth);
     const height = Math.max(1, rect.height || window.innerHeight);
-    pointerDpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    canvas.width = Math.floor(width * pointerDpr);
-    canvas.height = Math.floor(height * pointerDpr);
+    devicePixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+    canvas.width = Math.floor(width * devicePixelRatio);
+    canvas.height = Math.floor(height * devicePixelRatio);
     gl?.viewport(0, 0, canvas.width, canvas.height);
     if (!hasPointer) {
       pointerX = targetX = canvas.width * 0.5;
@@ -159,8 +247,8 @@ function initializeStarfield(canvas: HTMLCanvasElement): () => void {
     const x = mouseEvent.clientX - rect.left;
     const y = mouseEvent.clientY - rect.top;
     hasPointer = true;
-    targetX = x * pointerDpr;
-    targetY = (rect.height - y) * pointerDpr;
+    targetX = x * devicePixelRatio;
+    targetY = (rect.height - y) * devicePixelRatio;
     targetStrength =
       x >= 0 && x <= rect.width && y >= 0 && y <= rect.height ? 1 : 0;
   };
@@ -182,18 +270,34 @@ function initializeStarfield(canvas: HTMLCanvasElement): () => void {
     gl?.uniform1f(timeUniform, timeSeconds);
     gl?.uniform2f(resolutionUniform, canvas.width, canvas.height);
     gl?.uniform3f(pointerUniform, pointerX, pointerY, pointerStrength);
+    gl?.uniform3f(fgColorUniform, theme.fg[0], theme.fg[1], theme.fg[2]);
+    gl?.uniform3f(bgColorUniform, theme.bg[0], theme.bg[1], theme.bg[2]);
+    gl?.uniform1f(brightnessUniform, theme.brightness);
     gl?.drawArrays(gl.TRIANGLES, 0, 6);
   };
 
+  const listenerOptions: AddEventListenerOptions = { passive: true };
+  const resizeObserver =
+    typeof ResizeObserver === "undefined"
+      ? undefined
+      : new ResizeObserver(resize);
+  resizeObserver?.observe(canvas);
+  window.addEventListener("resize", resize);
+  window.addEventListener("pointermove", onPointerMove, listenerOptions);
+  window.addEventListener("mousemove", onPointerMove, listenerOptions);
+  document.addEventListener("pointerleave", fadePointer, listenerOptions);
+  window.addEventListener("blur", fadePointer);
+
   let start = performance.now();
   let last = 0;
+  const frameBudget = 1000 / Math.max(1, frameRate);
   const render = (now: number) => {
     if (reducedMotion) {
       animationFrame = 0;
       return;
     }
     animationFrame = requestAnimationFrame(render);
-    if (now - last < 33) return;
+    if (now - last < frameBudget) return;
     last = now;
     draw((now - start) * 0.001, true);
   };
@@ -217,13 +321,16 @@ function initializeStarfield(canvas: HTMLCanvasElement): () => void {
       startAnimation();
     }
   };
+  const themeObserver = new MutationObserver(() => {
+    theme = isDarkMode() ? DARK_THEME : LIGHT_THEME;
+    if (reducedMotion) draw(20, false);
+  });
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["class", "data-theme"],
+  });
 
   resize();
-  window.addEventListener("resize", resize);
-  window.addEventListener("pointermove", onPointerMove, listenerOptions);
-  window.addEventListener("mousemove", onPointerMove, listenerOptions);
-  document.addEventListener("pointerleave", fadePointer, listenerOptions);
-  window.addEventListener("blur", fadePointer);
   draw(reducedMotion ? 20 : 0, !reducedMotion);
   if (reducedMotionQuery) {
     if (reducedMotionQuery.addEventListener) {
@@ -236,6 +343,8 @@ function initializeStarfield(canvas: HTMLCanvasElement): () => void {
 
   return () => {
     stopAnimation();
+    resizeObserver?.disconnect();
+    themeObserver.disconnect();
     window.removeEventListener("resize", resize);
     window.removeEventListener("pointermove", onPointerMove, listenerOptions);
     window.removeEventListener("mousemove", onPointerMove, listenerOptions);
@@ -261,11 +370,13 @@ export interface StarfieldProps extends Omit<
 > {
   /** Keep the default id for compatibility with existing starfield styles. */
   id?: string;
+  frameRate?: number;
 }
 
 export function Starfield({
   className,
   id = "starfield",
+  frameRate = 30,
   ...props
 }: StarfieldProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -273,8 +384,8 @@ export function Starfield({
   React.useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    return initializeStarfield(canvas);
-  }, []);
+    return initializeStarfield(canvas, frameRate);
+  }, [frameRate]);
 
   return (
     <canvas
