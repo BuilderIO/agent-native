@@ -162,6 +162,11 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
       ?.find((b) => b.type === "text")
       ?.text?.trim()
       .toLowerCase() ?? "";
+  if (!text.startsWith("yes") && !text.startsWith("no")) {
+    throw new Error(
+      `Condition evaluation failed: unexpected classifier response "${text}"`,
+    );
+  }
   return text.startsWith("yes");
 }
 

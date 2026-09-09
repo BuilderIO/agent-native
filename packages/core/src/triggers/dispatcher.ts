@@ -437,8 +437,7 @@ export async function dispatchAutomationWebhookTask(
   if (isBackgroundAutomationRunActive(meta)) {
     return "retry";
   }
-  // Unevaluable conditions must retry — returning "completed" would suppress
-  // the webhook task and permanently drop the event after a transient failure.
+  // Unevaluable conditions must fail and retry through the task queue without resetting attempts.
   let matches: boolean;
   try {
     matches = await evaluateCondition(meta.condition, task.payload, apiKey);
@@ -446,7 +445,7 @@ export async function dispatchAutomationWebhookTask(
     const reason =
       err instanceof Error ? err.message : "Condition evaluation failed";
     await recordTriggerSkip(resource, "error", reason);
-    return "retry";
+    throw err;
   }
   if (!matches) {
     await recordTriggerSkip(resource, "skipped", undefined);
