@@ -9,6 +9,8 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconFolderPlus,
+  IconLink,
+  IconUpload,
 } from "@tabler/icons-react";
 import {
   type ReactElement,
@@ -17,6 +19,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
@@ -26,10 +29,12 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
   useFolders,
+  useOrganizations,
   useRecordings,
   useRecordingsCount,
   useTrashRecording,
@@ -39,6 +44,7 @@ import {
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
+import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
 import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
 import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
@@ -47,7 +53,12 @@ import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
 import { EmptyState } from "./empty-state";
 import { FilterChips, type FilterChip } from "./filter-chips";
 import { FolderCard } from "./folder-card";
-import { PageBreadcrumb, PageHeader } from "./page-header";
+import { buildLibraryActionHrefs } from "./library-action-hrefs";
+import {
+  PageBreadcrumb,
+  PageHeader,
+  type PageBreadcrumbItem,
+} from "./page-header";
 import { RecordingCard } from "./recording-card";
 import { SearchBar } from "./search-bar";
 import { SortMenu, type SortKey } from "./sort-menu";
@@ -59,6 +70,7 @@ interface LibraryGridProps {
   /** What empty-state illustration to render. Defaults from `view`. */
   emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
+  breadcrumbItems?: readonly PageBreadcrumbItem[];
   tagFilter?: string | null;
   onClearTag?: () => void;
   extraActions?: React.ReactNode;
@@ -91,13 +103,18 @@ type CreateFolderTarget =
 function LibraryCanvasContextMenu({
   enabled,
   onCreateFolder,
+  uploadHref,
+  importLoomHref,
   children,
 }: {
   enabled: boolean;
   onCreateFolder: () => void;
+  uploadHref: string;
+  importLoomHref: string;
   children: ReactElement;
 }) {
   const t = useT();
+  const { input, openUploadPicker } = useUploadVideoPicker();
 
   if (!enabled) return children;
 
@@ -113,7 +130,24 @@ function LibraryCanvasContextMenu({
           <IconFolderPlus className="me-2 size-4" />
           {t("navigation.newFolder")}
         </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            openUploadPicker(uploadHref);
+          }}
+        >
+          <IconUpload />
+          {t("preRecord.uploadVideo")}
+        </ContextMenuItem>
+        <ContextMenuItem asChild>
+          <Link to={importLoomHref}>
+            <IconLink />
+            {t("preRecord.importLoom")}
+          </Link>
+        </ContextMenuItem>
       </ContextMenuContent>
+      {input}
     </ContextMenu>
   );
 }
@@ -152,6 +186,7 @@ export function LibraryGrid({
   spaceId = null,
   emptyKind,
   title,
+  breadcrumbItems,
   tagFilter,
   onClearTag,
   extraActions,
@@ -168,6 +203,12 @@ export function LibraryGrid({
   const [isBulkPending, setIsBulkPending] = useState(false);
   const [page, setPage] = useState(1);
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
+  const pageBreadcrumbItems =
+    breadcrumbItems ?? (title ? [{ label: title }] : []);
+  const { uploadHref, importLoomHref } = buildLibraryActionHrefs({
+    folderId,
+    spaceId,
+  });
 
   useEffect(() => {
     if (!title) return;
@@ -235,12 +276,21 @@ export function LibraryGrid({
   const moveRecording = useMoveRecording();
   const canManageRecordings = view !== "shared";
   const canMoveSelection = view === "library" || view === "space";
+  const { data: organizations } = useOrganizations({
+    enabled: canMoveSelection,
+  });
+  const currentOrganizationId =
+    organizations?.currentId ?? organizations?.organizations?.[0]?.id;
   const { data: scopedFolders, isLoading: isFoldersLoading } = useFolders(
     {
+      organizationId: currentOrganizationId,
       spaceId: view === "space" ? (spaceId ?? null) : null,
     },
     {
-      enabled: canMoveSelection && (view !== "space" || Boolean(spaceId)),
+      enabled:
+        canMoveSelection &&
+        Boolean(currentOrganizationId) &&
+        (view !== "space" || Boolean(spaceId)),
     },
   );
   const visibleFolders = useMemo(
@@ -461,7 +511,9 @@ export function LibraryGrid({
       <PageHeader>
         <div className="flex min-w-0 flex-1 items-center gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem_minmax(0,1fr)]">
           <div className="min-w-0 flex-1 lg:flex-none">
-            {title ? <PageBreadcrumb label={title} /> : null}
+            {pageBreadcrumbItems.length > 0 ? (
+              <PageBreadcrumb items={pageBreadcrumbItems} />
+            ) : null}
           </div>
           <SearchBar
             side="bottom"
@@ -492,6 +544,8 @@ export function LibraryGrid({
           <LibraryCanvasContextMenu
             enabled={canMoveSelection}
             onCreateFolder={() => setCreateFolderOpen(true)}
+            uploadHref={uploadHref}
+            importLoomHref={importLoomHref}
           >
             <div className="flex min-h-full flex-col p-5">
               {isLoading || (view !== "shared" && isFoldersLoading) ? (
@@ -537,15 +591,20 @@ export function LibraryGrid({
                       </h2>
                       <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]">
                         {visibleFolders.map((folder) => (
-                          <FolderCard
+                          <div
                             key={folder.id}
-                            folder={folder}
-                            href={
-                              view === "space"
-                                ? `/spaces/${spaceId}/folder/${folder.id}`
-                                : `/library/folder/${folder.id}`
-                            }
-                          />
+                            className="min-w-0"
+                            onContextMenu={(event) => event.stopPropagation()}
+                          >
+                            <FolderCard
+                              folder={folder}
+                              href={
+                                view === "space"
+                                  ? `/spaces/${spaceId}/folder/${folder.id}`
+                                  : `/library/folder/${folder.id}`
+                              }
+                            />
+                          </div>
                         ))}
                       </div>
                     </section>

@@ -191,7 +191,7 @@ export function MediaDeviceRow({
         </div>
       </div>
       {kind === "mic" && onSystemAudioToggle ? (
-        <div className="system-audio-row">
+        <div className="row system-audio-row">
           <span className="row-icon" aria-hidden>
             <IconVolume2 size={20} stroke={1.75} />
           </span>

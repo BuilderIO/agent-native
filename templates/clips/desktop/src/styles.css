@@ -533,9 +533,11 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex-shrink: 0;
 }
 
-.media-device-row .row {
+.media-device-row .row,
+.system-audio-row {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) 36px;
+  column-gap: 10px;
 }
 
 .row-main {
@@ -550,11 +552,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .system-audio-row {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 36px;
   align-items: center;
-  min-height: 36px;
-  padding: 0 10px 0 0;
+  min-height: 30px;
+  padding: 5px 10px;
   color: var(--fg-muted);
 }
 

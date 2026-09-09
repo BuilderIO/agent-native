@@ -4,7 +4,7 @@ import { useParams } from "react-router";
 
 import { LibraryGrid } from "@/components/library/library-grid";
 import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";
-import { useFolders } from "@/hooks/use-library";
+import { useFolders, useOrganizations, useSpaces } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {
@@ -18,7 +18,18 @@ export default function SpaceFolderRoute() {
     folderId: string;
   }>();
 
-  const { data: folders } = useFolders({ spaceId });
+  const { data: organizations } = useOrganizations();
+  const currentOrganizationId =
+    organizations?.currentId ?? organizations?.organizations?.[0]?.id;
+  const { data: spacesData } = useSpaces(currentOrganizationId);
+  const space = (spacesData?.spaces ?? []).find(
+    (candidate: any) => candidate.id === spaceId,
+  );
+
+  const { data: folders } = useFolders({
+    organizationId: currentOrganizationId,
+    spaceId,
+  });
   const folder = useMemo(
     () =>
       (folders?.folders ?? []).find((f: any) => f.id === folderId) as
@@ -34,6 +45,14 @@ export default function SpaceFolderRoute() {
       folderId={folderId}
       emptyKind="folder"
       title={folder?.name ?? t("navigation.folder")}
+      breadcrumbItems={[
+        { label: t("navigation.spaces"), to: "/spaces" },
+        {
+          label: space?.name ?? t("navigation.space"),
+          to: `/spaces/${spaceId}`,
+        },
+        { label: folder?.name ?? t("navigation.folder") },
+      ]}
       extraActions={
         <LibraryPrimaryActions folderId={folderId} spaceId={spaceId} />
       }

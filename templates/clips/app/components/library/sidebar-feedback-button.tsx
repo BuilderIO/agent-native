@@ -29,7 +29,7 @@ export function SidebarFeedbackButton({
       className={
         collapsed
           ? "size-9 bg-transparent text-primary hover:bg-accent/60 hover:text-primary"
-          : "h-9 w-full justify-start gap-2 bg-transparent px-3 font-medium text-primary hover:bg-accent/60 hover:text-primary"
+          : "h-auto w-full justify-start gap-2 bg-transparent px-2 py-1.5 text-xs font-normal text-primary hover:bg-accent/60 hover:text-primary"
       }
     >
       <IconMessageCircle className="size-4 shrink-0 text-primary" />

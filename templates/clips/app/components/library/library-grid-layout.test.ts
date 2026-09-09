@@ -9,8 +9,12 @@ function readSource(name: string): string {
 describe("selected library actions layout", () => {
   it("uses one consistent breadcrumb header and a single-priority sidebar", () => {
     const gridSource = readSource("./library-grid.tsx");
+    const emptyStateSource = readSource("./empty-state.tsx");
     const layoutSource = readSource("./library-layout.tsx");
     const folderTreeSource = readSource("./folder-tree.tsx");
+    const organizationStateSource = readSource(
+      "../../../actions/list-organization-state.ts",
+    );
     const libraryRouteSource = readSource(
       "../../routes/_app.library._index.tsx",
     );
@@ -26,8 +30,13 @@ describe("selected library actions layout", () => {
     const spaceFolderRouteSource = readSource(
       "../../routes/_app.spaces.$spaceId.folder.$folderId.tsx",
     );
+    const recordingRouteSource = readSource(
+      "../../routes/_app.r.$recordingId.tsx",
+    );
 
     expect(gridSource).toContain("<PageBreadcrumb");
+    expect(emptyStateSource).toContain("<Empty");
+    expect(emptyStateSource).not.toContain("border border-dashed");
     expect(gridSource).not.toContain('<h1 className="text-base');
     expect(layoutSource).not.toContain("navigation.newRecording");
     expect(layoutSource).not.toContain("navigation.newFolder");
@@ -43,6 +52,14 @@ describe("selected library actions layout", () => {
     expect(primaryActionsSource).toContain('triggerIcon="chevron"');
     expect(gridSource).toContain('import { FolderCard } from "./folder-card"');
     expect(gridSource).toContain("visibleFolders");
+    expect(gridSource).toContain("organizationId: currentOrganizationId");
+    expect(folderRouteSource).toContain("useOrganizations()");
+    expect(folderRouteSource).toContain(
+      "organizationId: currentOrganizationId",
+    );
+    expect(spaceFolderRouteSource).toContain(
+      "organizationId: currentOrganizationId",
+    );
     expect(gridSource).toContain('t("navigation.folders")');
     expect(gridSource).toContain('aria-labelledby="library-folders-heading"');
     expect(gridSource).toContain('t("navigation.recordings")');
@@ -51,6 +68,21 @@ describe("selected library actions layout", () => {
     expect(folderRouteSource).toContain("<LibraryPrimaryActions folderId");
     expect(spaceRouteSource).toContain("<LibraryPrimaryActions spaceId");
     expect(spaceFolderRouteSource).toContain("<LibraryPrimaryActions folderId");
+    expect(folderRouteSource).toContain(
+      '{ label: t("navigation.library"), to: "/library" }',
+    );
+    expect(spaceRouteSource).toContain(
+      '{ label: t("navigation.spaces"), to: "/spaces" }',
+    );
+    expect(spaceRouteSource).not.toContain("<aside");
+    expect(spaceRouteSource).not.toContain("<FolderTree");
+    expect(spaceFolderRouteSource).toContain("to: `/spaces/${spaceId}`");
+    expect(recordingRouteSource).toContain(
+      "<PageBreadcrumb items={recordingBreadcrumbItems}",
+    );
+    expect(recordingRouteSource).not.toContain(
+      'from "@/components/ui/breadcrumb"',
+    );
     expect(layoutSource).toContain(
       '"flex h-14 shrink-0 items-center border-b border-border"',
     );
@@ -72,6 +104,20 @@ describe("selected library actions layout", () => {
     expect(folderTreeSource).toContain("compact ?");
     expect(folderTreeSource).toContain("!compact &&");
     expect(folderTreeSource).toContain("compact && hasChildren");
+    expect(folderTreeSource).toContain("node.recordingCount");
+    expect(folderTreeSource).toContain("tabular-nums");
+    expect(folderTreeSource).toContain("group-hover:opacity-0");
+    expect(folderTreeSource).toContain("peer-data-[state=open]:opacity-0");
+    expect(folderTreeSource).toContain("pointer-events-none");
+    expect(layoutSource).toContain(
+      "recordingCount: Number(folder.recordingCount ?? 0)",
+    );
+    expect(organizationStateSource).toContain(
+      ".groupBy(schema.recordings.folderId)",
+    );
+    expect(organizationStateSource).toContain(
+      "recordingCount: recordingCountByFolder.get(f.id) ?? 0",
+    );
     expect(layoutSource).not.toContain('t("navigation.noSpaces")');
     expect(layoutSource).not.toContain('t("folderTree.noFolders")');
     expect(layoutSource).not.toContain("pageHasHeaderSearch");
@@ -91,6 +137,9 @@ describe("selected library actions layout", () => {
     expect(layoutSource).toContain(
       "<SidebarFeedbackButton collapsed={showCollapsedSidebar} />",
     );
+    expect(layoutSource).toContain("data-sidebar-footer-utilities");
+    expect(layoutSource).toContain('? "flex flex-col items-center gap-1"');
+    expect(layoutSource).toContain('"!size-9 !p-0 [&>svg]:!size-4"');
     expect(layoutSource).toContain("function isSidebarGroupActive(");
     expect(layoutSource).toContain(
       'group === "library" && pathname.startsWith("/library/folder/")',

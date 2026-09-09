@@ -53,6 +53,7 @@ export interface FolderNode {
   parentId: string | null;
   spaceId: string | null;
   name: string;
+  recordingCount?: number;
   children?: FolderNode[];
 }
 
@@ -225,50 +226,62 @@ function FolderItem({
                   </button>
                 </CollapsibleTrigger>
               )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={`${node.name}: ${t("root.commandActions")}`}
-                    title={`${node.name}: ${t("root.commandActions")}`}
-                    className="rounded p-0.5 text-primary opacity-0 transition-opacity hover:bg-accent hover:text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
-                  >
-                    <IconDots className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="right">
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      setTimeout(() => {
-                        setRenameValue(node.name);
-                        setRenameOpen(true);
-                      }, 0);
-                    }}
-                  >
-                    <IconEdit className="h-3.5 w-3.5 me-2" />{" "}
-                    {t("folderTree.rename")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      setTimeout(() => {
-                        setNewValue("");
-                        setNewOpen(true);
-                      }, 0);
-                    }}
-                  >
-                    <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
-                    {t("folderTree.newSubfolder")}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onSelect={() => setTimeout(() => setConfirmDelete(true), 0)}
-                    className="text-destructive"
-                  >
-                    <IconTrash className="h-3.5 w-3.5 me-2" />{" "}
-                    {t("folderTree.delete")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <div className="relative size-5 shrink-0">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`${node.name}: ${t("root.commandActions")}`}
+                      title={`${node.name}: ${t("root.commandActions")}`}
+                      className="peer absolute inset-0 flex items-center justify-center rounded text-primary opacity-0 transition-opacity hover:bg-accent hover:text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+                    >
+                      <IconDots className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" side="right">
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setTimeout(() => {
+                          setRenameValue(node.name);
+                          setRenameOpen(true);
+                        }, 0);
+                      }}
+                    >
+                      <IconEdit className="h-3.5 w-3.5 me-2" />{" "}
+                      {t("folderTree.rename")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setTimeout(() => {
+                          setNewValue("");
+                          setNewOpen(true);
+                        }, 0);
+                      }}
+                    >
+                      <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
+                      {t("folderTree.newSubfolder")}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() =>
+                        setTimeout(() => setConfirmDelete(true), 0)
+                      }
+                      className="text-destructive"
+                    >
+                      <IconTrash className="h-3.5 w-3.5 me-2" />{" "}
+                      {t("folderTree.delete")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {(node.recordingCount ?? 0) > 0 && (
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-end tabular-nums text-[11px] text-primary/80 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 peer-data-[state=open]:opacity-0">
+                    {node.recordingCount}
+                    <span className="sr-only">
+                      {t("navigation.recordings")}
+                    </span>
+                  </span>
+                )}
+              </div>
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>

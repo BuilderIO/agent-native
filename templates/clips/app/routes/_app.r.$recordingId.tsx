@@ -44,7 +44,6 @@ import {
   IconBolt,
   IconMessage,
   IconExternalLink,
-  IconFolder,
   IconMoodSmile,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -62,7 +61,11 @@ import { toast } from "sonner";
 import { ClipsAvatar } from "@/components/clips-avatar";
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
-import { PageHeader } from "@/components/library/page-header";
+import {
+  PageBreadcrumb,
+  PageHeader,
+  type PageBreadcrumbItem,
+} from "@/components/library/page-header";
 import { useClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import {
@@ -91,14 +94,6 @@ import {
   ViewerTabsTrigger,
 } from "@/components/player/viewer-controls";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenuItem,
@@ -934,55 +929,30 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  const recordingBreadcrumbItems: PageBreadcrumbItem[] = [
+    ...(recordingSpace
+      ? [
+          { label: t("navigation.spaces"), to: "/spaces" },
+          {
+            label: recordingSpace.name,
+            to: `/spaces/${recordingSpace.id}`,
+          },
+        ]
+      : [{ label: t("navigation.library"), to: "/library" }]),
+    ...(recordingFolder
+      ? [
+          {
+            label: recordingFolder.name,
+            to: recordingFolder.spaceId
+              ? `/spaces/${recordingFolder.spaceId}/folder/${recordingFolder.id}`
+              : `/library/folder/${recordingFolder.id}`,
+          },
+        ]
+      : []),
+    { label: visibleTitle },
+  ];
   const recordingBreadcrumb = (
-    <Breadcrumb aria-label={t("navigation.library")} className="min-w-0">
-      <BreadcrumbList className="flex-nowrap overflow-hidden">
-        <BreadcrumbItem className="shrink-0">
-          <BreadcrumbLink asChild>
-            <NavLink to="/library">{t("navigation.library")}</NavLink>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        {recordingSpace ? (
-          <>
-            <BreadcrumbSeparator className="shrink-0" />
-            <BreadcrumbItem className="min-w-0">
-              <BreadcrumbLink asChild>
-                <NavLink
-                  to={`/spaces/${recordingSpace.id}`}
-                  className="truncate"
-                >
-                  {recordingSpace.name}
-                </NavLink>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-          </>
-        ) : null}
-        {recordingFolder ? (
-          <>
-            <BreadcrumbSeparator className="shrink-0" />
-            <BreadcrumbItem className="min-w-0">
-              <BreadcrumbLink asChild>
-                <NavLink
-                  to={
-                    recordingFolder.spaceId
-                      ? `/spaces/${recordingFolder.spaceId}/folder/${recordingFolder.id}`
-                      : `/library/folder/${recordingFolder.id}`
-                  }
-                  className="flex min-w-0 items-center gap-1.5"
-                >
-                  <IconFolder className="size-4 shrink-0" />
-                  <span className="truncate">{recordingFolder.name}</span>
-                </NavLink>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-          </>
-        ) : null}
-        <BreadcrumbSeparator className="shrink-0" />
-        <BreadcrumbItem className="min-w-0">
-          <BreadcrumbPage className="truncate">{visibleTitle}</BreadcrumbPage>
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
+    <PageBreadcrumb items={recordingBreadcrumbItems} />
   );
   // Attribution `via` must never point at someone who isn't the owner, so it
   // is only tagged when the viewer is the owner (same rule as the share dialog).

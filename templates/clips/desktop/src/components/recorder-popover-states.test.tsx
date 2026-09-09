@@ -71,6 +71,7 @@ describe("recorder popover failure states", () => {
     expect(html).not.toContain("mic-wave");
     expect(html).toContain("Record system audio");
     expect(html).toContain('aria-label="Record system audio"');
+    expect(html).toContain('class="row system-audio-row"');
   });
 
   it("keeps source selection keyboard-addressable when the source is active", () => {

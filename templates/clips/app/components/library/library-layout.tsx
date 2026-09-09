@@ -27,19 +27,11 @@ import {
   IconMenu2,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconLayoutSidebarRight,
   IconShare,
   IconDots,
   IconEdit,
 } from "@tabler/icons-react";
-import {
-  Fragment,
-  ReactNode,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 
 import {
@@ -122,12 +114,7 @@ function readSidebarCollapsedPreference() {
 }
 
 function ClipsAgentToggleButton() {
-  return (
-    <AgentToggleButton
-      showWhenOpen
-      icon={<IconLayoutSidebarRight className="size-5" aria-hidden />}
-    />
-  );
+  return <AgentToggleButton showWhenOpen />;
 }
 
 interface ExpandedSidebarNavGroupProps {
@@ -260,6 +247,7 @@ export function LibraryLayout({
           parentId: f.parentId ?? null,
           spaceId: f.spaceId ?? null,
           name: f.name,
+          recordingCount: Number(f.recordingCount ?? 0),
         })),
     [libFolders],
   );
@@ -273,6 +261,7 @@ export function LibraryLayout({
         parentId: folder.parentId ?? null,
         spaceId: folder.spaceId,
         name: folder.name,
+        recordingCount: Number(folder.recordingCount ?? 0),
       });
       foldersBySpace.set(folder.spaceId, folders);
     }
@@ -833,9 +822,10 @@ export function LibraryLayout({
         >
           <SidebarFeedbackButton collapsed={showCollapsedSidebar} />
           <div
+            data-sidebar-footer-utilities
             className={cn(
               showCollapsedSidebar
-                ? "flex items-center justify-center gap-1"
+                ? "flex flex-col items-center gap-1"
                 : "flex items-center gap-0.5",
             )}
           >
@@ -843,7 +833,9 @@ export function LibraryLayout({
               compact={showCollapsedSidebar}
               className={cn(
                 "!bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary",
-                !showCollapsedSidebar && "min-w-0 flex-1",
+                showCollapsedSidebar
+                  ? "!size-9 !p-0 [&>svg]:!size-4"
+                  : "min-w-0 flex-1",
               )}
               settingsPath="/settings/organization"
               currentAppId="clips"

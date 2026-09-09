@@ -4,7 +4,7 @@ import { useParams } from "react-router";
 
 import { LibraryGrid } from "@/components/library/library-grid";
 import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";
-import { useFolders } from "@/hooks/use-library";
+import { useFolders, useOrganizations } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {
@@ -15,7 +15,12 @@ export default function LibraryFolderRoute() {
   const t = useT();
   const { folderId } = useParams<{ folderId: string }>();
 
-  const { data: folders } = useFolders({});
+  const { data: organizations } = useOrganizations();
+  const currentOrganizationId =
+    organizations?.currentId ?? organizations?.organizations?.[0]?.id;
+  const { data: folders } = useFolders({
+    organizationId: currentOrganizationId,
+  });
   const folder = useMemo(
     () =>
       (folders?.folders ?? []).find((f: any) => f.id === folderId) as
@@ -30,6 +35,10 @@ export default function LibraryFolderRoute() {
       folderId={folderId}
       emptyKind="folder"
       title={folder?.name ?? t("navigation.folder")}
+      breadcrumbItems={[
+        { label: t("navigation.library"), to: "/library" },
+        { label: folder?.name ?? t("navigation.folder") },
+      ]}
       extraActions={<LibraryPrimaryActions folderId={folderId} />}
     />
   );

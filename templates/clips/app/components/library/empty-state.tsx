@@ -59,7 +59,7 @@ export function AppEmptyState({
   content,
 }: AppEmptyStateProps) {
   return (
-    <Empty className="min-h-64 flex-1 rounded-lg border border-dashed bg-muted/20 px-6 py-12 md:p-12">
+    <Empty className="min-h-64 px-6 py-12 md:p-12">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Icon />

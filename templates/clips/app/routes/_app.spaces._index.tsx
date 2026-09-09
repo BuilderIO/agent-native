@@ -66,7 +66,7 @@ export default function SpacesIndexRoute() {
   return (
     <div className="flex flex-1 flex-col min-h-0">
       <PageHeader>
-        <PageBreadcrumb label={t("navigation.spaces")} />
+        <PageBreadcrumb items={[{ label: t("navigation.spaces") }]} />
         {canManageOrg && spaces.length > 0 && (
           <div className="ml-auto">
             <PageHeaderPrimaryAction onClick={() => setCreateOpen(true)}>
