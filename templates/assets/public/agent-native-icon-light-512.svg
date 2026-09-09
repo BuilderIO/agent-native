@@ -1,0 +1,31 @@
+<svg
+  width="512"
+  height="512"
+  viewBox="0 0 512 512"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <g transform="translate(90 170) scale(1.58)">
+    <path
+      d="M44.7998 120H0L27.5254 72L68.7998 0L110.369 72H72.3262L44.7998 120Z"
+      fill="#000"
+    />
+    <path
+      d="M163.2 0H208L139.2 120.002H94.4004L163.2 0Z"
+      fill="url(#agent-native-cyan)"
+    />
+  </g>
+  <defs>
+    <linearGradient
+      id="agent-native-cyan"
+      x1="178"
+      y1="122"
+      x2="205"
+      y2="-68"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop stop-color="#00B5FF" />
+      <stop offset="1" stop-color="#48FFE4" />
+    </linearGradient>
+  </defs>
+</svg>

@@ -1,0 +1,133 @@
+---
+title: "동기화 내부"
+description: "useDbSync 뒤에 있는 변경 버전 메커니즘: 원시 useQuery를 동기화하기 위한 useChangeVersion/useChangeVersions, 그리고 다시 가져오기가 거칠 수 있는 두 가지 지연 경로."
+---
+
+# 동기화 내부
+
+[Live Sync](/docs/key-concepts#polling-sync)는 정신적 모델을 다룹니다: 에이전트의 쓰기가 변경 이벤트가 되고, `useDbSync()`가 이를 수신하며, 영향을 받는 쿼리가 다시 가져오기를 합니다. 이 페이지는 그 아래에 있는 메커니즘 — 대부분의 앱이 직접 다루지 않는 — 을 다룹니다: `useDbSync()`가 증가시키는 변경 버전 카운터, 그리고 `useActionQuery()`를 거치지 않는 원시 `useQuery()` 호출에 이를 접목하는 방법입니다.
+
+`useActionQuery()`는 변형 action이 완료되면 이미 자동으로 다시 가져옵니다([데이터 및 동기화](/docs/client-data#fetching-mutating) 참조). `useChangeVersion()`/`useChangeVersions()`는 그 경로 밖에서 원시 `useQuery()` 호출을 동기화할 때 — 예를 들어 통합 상태를 읽는 저수준 클라이언트 헬퍼처럼 — 에만 사용하세요.
+
+## 변경 버전이 작동하는 방식 {#how-it-works}
+
+서버 측 데이터베이스 변형이 발생하면 서버는 `source` 키가 태그된 변경 이벤트를 기록합니다. `useDbSync()`는 그 이벤트를 받아 해당 소스에 대한 로컬 카운터를 증가시킵니다. 이 카운터를 React Query 키에 접어 넣으면, 백엔드가 해당 소스에 대한 새로운 활동을 알릴 때마다 쿼리가 자동으로 다시 가져오기를 합니다.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+<Signature
+  id="doc-block-client-sync-internals-1"
+  name="useChangeVersion"
+  params={[
+    {
+      name: "source",
+      type: "string",
+      description: '감시할 변경 이벤트 소스입니다. 예: `"dashboards"`.',
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "주어진 소스가 변형될 때마다 증가하는 카운터입니다.",
+  }}
+/>
+
+<Signature
+  id="doc-block-client-sync-internals-2"
+  name="useChangeVersions"
+  params={[
+    {
+      name: "sources",
+      type: "readonly string[]",
+      description: "한 번에 감시할 여러 개의 변경 이벤트 소스입니다.",
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "주어진 모든 소스에 대한 버전 카운터의 합입니다.",
+  }}
+/>
+
+아래 예시에서는 원시 `useQuery()` 호출이 대시보드를 직접 읽으며, `"dashboards"`
+소스의 버전 카운터를 쿼리 키에 접어 넣어 그 소스가 바뀔 때마다 다시 가져오기를
+하도록 합니다.
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client/hooks";
+
+function DashboardView({ id }) {
+  const version = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, version],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev,
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+`placeholderData: (prev) => prev`는 다시 가져오는 동안 화면에 이전 데이터를
+유지하여, 화면이 로딩 상태로 깜빡이지 않도록 합니다.
+
+## 다시 가져오기로 향하는 두 가지 경로 {#latency-models}
+
+변형은 두 가지 방식 중 하나로 UI에 도달하며, 각각 지연 시간이 다릅니다.
+
+여러분 자신의 `useActionMutation()` 호출이 만든 로컬 변형은 성공하는 즉시
+`source: "action"` 이벤트를 발생시킵니다. 그 action에 의존하는 모든 쿼리는
+즉시 다시 가져오기를 합니다. 왕복 지연이 없습니다. 쓰기를 한 탭이 이미
+그것을 알고 있기 때문입니다.
+
+에이전트, 웹훅, 다른 탭, 다른 사용자로부터 온 원격 변형은 먼저 이 탭에
+도달해야 합니다. `useDbSync()`는 SSE를 통해 거의 즉시 이를 수신하거나,
+SSE를 사용할 수 없는 경우 약 2초 안에 폴링 폴백으로 이를 수신합니다. 그
+이벤트가 도착해야만 관련 버전 카운터가 증가하고 쿼리가 백그라운드에서
+다시 가져오기를 합니다.
+
+<Diagram id="doc-block-client-sync-internals-3" title={"다시 가져오기로 향하는 두 가지 경로"} summary={"로컬 변형은 자신의 캐시를 즉시 무효화합니다. 원격 쓰기는 SSE를 통해, 또는 폴백으로서의 폴링을 통해 이 탭에 도달합니다."}>
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">이 탭</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >성공 시 source: "action" 발생 &rarr; 즉시 로컬 다시 가져오기</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">에이전트 · 웹훅 · 다른 탭</span
+      ><strong>원격 쓰기</strong
+      ><small class="diagram-muted"
+        >SSE 푸시, 또는 폴백으로서의 약 2초 폴링 &rarr; 버전 증가 &rarr;
+        백그라운드 다시 가져오기</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## 다음 단계
+
+- [**Live Sync**](/docs/key-concepts#polling-sync) — 이 페이지가 그 아래로 들어가는 개념적 정신 모델
+- [**데이터 및 동기화**](/docs/client-data) — `useActionQuery`/`useDbSync`로, 대부분의 페이지는 이 기본 요소들 대신 이것을 사용해야 합니다
+- [**고급**](/docs/client-advanced) — 그 외의 저수준 클라이언트 기본 요소와 예외적인 방법들

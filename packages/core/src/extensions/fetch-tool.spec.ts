@@ -1,0 +1,516 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { runWithRequestContext } from "../server/request-context.js";
+import { createFetchToolEntry } from "./fetch-tool.js";
+
+const mockWriteWorkspaceFile = vi.hoisted(() => vi.fn());
+
+vi.mock("../workspace-files/store.js", () => ({
+  SAVE_TO_FILE_MAX_BYTES: 20 * 1024 * 1024,
+  isScratchWorkspacePath: (path: string) =>
+    path === "scratch" || path.startsWith("scratch/"),
+  toWorkspaceFileCard: (meta: unknown) => ({ meta }),
+  writeWorkspaceFile: mockWriteWorkspaceFile,
+}));
+
+describe("createFetchToolEntry", () => {
+  beforeEach(() => {
+    mockWriteWorkspaceFile.mockReset();
+    mockWriteWorkspaceFile.mockResolvedValue({ id: "workspace-file-1" });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function runWebRequest(url: string) {
+    const entry = createFetchToolEntry()["web-request"];
+    return entry.run({ url });
+  }
+
+  it("classifies only non-persisting GET and HEAD calls as Plan-mode reads", () => {
+    const entry = createFetchToolEntry()["web-request"];
+    const effect = entry.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ url: "https://example.com" })).toBe("read");
+    expect(effect({ url: "https://example.com", method: "HEAD" })).toBe("read");
+    expect(effect({ url: "https://example.com", method: "POST" })).toBe(
+      "write",
+    );
+    expect(
+      effect({
+        url: "https://example.com",
+        method: "GET",
+        saveToFile: "page.html",
+      }),
+    ).toBe("write");
+    expect(entry.planMode?.allowedValues).toEqual({
+      method: ["GET", "HEAD"],
+    });
+    expect(entry.planMode?.omittedProperties).toEqual(["saveToFile"]);
+  });
+
+  it.each([
+    "http://localhost:3000/_agent-native/actions/x",
+    "http://127.0.0.1:3000/",
+    "http://10.0.0.5/",
+    "http://172.16.0.1/",
+    "http://192.168.1.2/",
+    "http://169.254.169.254/latest/meta-data/",
+    "http://metadata.google.internal/computeMetadata/v1/",
+    "http://127.0.0.1.nip.io/",
+    "http://lvh.me/",
+    "http://[::ffff:127.0.0.1]/",
+    "http://100.64.0.1/",
+    "http://198.18.0.1/",
+    "http://224.0.0.1/",
+    "file:///etc/passwd",
+  ])("blocks private/internal target %s before fetching", async (url) => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await expect(runWebRequest(url)).resolves.toContain(
+      "Requests to private/internal addresses are not allowed",
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows ordinary external HTTPS requests", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("ok", { status: 200, statusText: "OK" }));
+
+    await expect(runWebRequest("https://93.184.216.34/api")).resolves.toContain(
+      "HTTP 200 OK",
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://93.184.216.34/api",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("attaches public image responses as vision context", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("jpeg bytes", {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    await expect(
+      runWebRequest("https://93.184.216.34/frame.jpg"),
+    ).resolves.toEqual({
+      status: 200,
+      statusText: "OK",
+      contentType: "image/jpeg",
+      url: "https://93.184.216.34/frame.jpg",
+      _agentImages: [{ data: "anBlZyBieXRlcw==", mediaType: "image/jpeg" }],
+    });
+  });
+
+  it.each([
+    {
+      name: "an Authorization header",
+      args: {
+        url: "https://93.184.216.34/frame.jpg",
+        headers: JSON.stringify({ Authorization: "Bearer example-token" }),
+      },
+    },
+    {
+      name: "userinfo in the URL",
+      args: { url: "https://user:password@93.184.216.34/frame.jpg" },
+    },
+    {
+      name: "a signed URL query parameter",
+      args: {
+        url: "https://93.184.216.34/frame.jpg?X-Amz-Signature=example-signature",
+      },
+    },
+    {
+      name: "a bare key query parameter",
+      args: {
+        url: "https://93.184.216.34/frame.jpg?key=example-key",
+      },
+    },
+    {
+      name: "a compact credential header",
+      args: {
+        url: "https://93.184.216.34/frame.jpg",
+        headers: JSON.stringify({ "x-rapidapi-key": "example-key" }),
+      },
+    },
+    {
+      name: "a credential-bearing URL fragment",
+      args: {
+        url: "https://93.184.216.34/frame.jpg#access_token=example-token",
+      },
+    },
+  ])(
+    "does not attach credentialed image responses with $name",
+    async ({ args }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("jpeg bytes", {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "image/jpeg" },
+        }),
+      );
+
+      const result = await createFetchToolEntry()["web-request"].run(args);
+
+      expect(result).toContain("HTTP 200 OK");
+      expect(result).not.toContain("anBlZyBieXRlcw==");
+      expect(result).not.toContain("_agentImages");
+    },
+  );
+
+  it("blocks redirects to private/internal addresses", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, {
+        status: 302,
+        statusText: "Found",
+        headers: { location: "http://127.0.0.1/admin" },
+      }),
+    );
+
+    await expect(runWebRequest("https://93.184.216.34/redirect")).resolves.toBe(
+      "Redirect to private/internal address blocked.",
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://93.184.216.34/redirect",
+      expect.objectContaining({ redirect: "manual" }),
+    );
+  });
+
+  it("redacts echoed key material from upstream responses", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ authorization: "Bearer sk-secret" }), {
+        status: 200,
+        statusText: "OK",
+      }),
+    );
+
+    const entry = createFetchToolEntry({
+      resolveKeys: async (text) => ({
+        resolved: text.replaceAll("${keys.API_TOKEN}", "sk-secret"),
+        usedKeys: text.includes("${keys.API_TOKEN}") ? ["API_TOKEN"] : [],
+        secretValues: text.includes("${keys.API_TOKEN}") ? ["sk-secret"] : [],
+      }),
+    })["web-request"];
+
+    const result = await entry.run({
+      url: "https://93.184.216.34/api",
+      headers: '{"Authorization":"Bearer ${keys.API_TOKEN}"}',
+    });
+
+    expect(result).toContain("[redacted]");
+    expect(result).not.toContain("sk-secret");
+  });
+
+  it("does not persist failed responses to durable files", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("error_code,permission_denied\n", {
+        status: 403,
+        statusText: "Forbidden",
+        headers: { "content-type": "text/csv" },
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "ada@example.com", orgId: "org-1" },
+      () =>
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/api",
+          responseMode: "raw",
+          saveToFile: "exports/report.csv",
+        }),
+    );
+
+    expect(String(result)).toContain(
+      "saveToFile error: Refusing to save a failed response",
+    );
+    expect(String(result)).toContain("HTTP 403 Forbidden");
+    expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("accumulates resolvedKeys across url/headers/body and passes them to validateUrl", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("ok", { status: 200, statusText: "OK" }),
+    );
+
+    const validateUrl = vi.fn().mockResolvedValue(true);
+    const entry = createFetchToolEntry({
+      resolveKeys: async (text) => {
+        if (text.includes("${keys.URL_KEY}")) {
+          return {
+            resolved: text.replaceAll("${keys.URL_KEY}", "93.184.216.34/api"),
+            usedKeys: ["URL_KEY"],
+            secretValues: [],
+            resolvedKeys: [{ name: "URL_KEY", scope: "org", scopeId: "org_1" }],
+          };
+        }
+        if (text.includes("${keys.HEADER_KEY}")) {
+          return {
+            resolved: text.replaceAll("${keys.HEADER_KEY}", "secret-header"),
+            usedKeys: ["HEADER_KEY"],
+            secretValues: ["secret-header"],
+            resolvedKeys: [
+              { name: "HEADER_KEY", scope: "user", scopeId: "alice" },
+            ],
+          };
+        }
+        return { resolved: text, usedKeys: [], secretValues: [] };
+      },
+      validateUrl,
+    })["web-request"];
+
+    await entry.run({
+      url: "https://${keys.URL_KEY}",
+      headers: '{"X-Token":"${keys.HEADER_KEY}"}',
+    });
+
+    expect(validateUrl).toHaveBeenCalledWith(
+      "https://93.184.216.34/api",
+      ["URL_KEY", "HEADER_KEY"],
+      [
+        { name: "URL_KEY", scope: "org", scopeId: "org_1" },
+        { name: "HEADER_KEY", scope: "user", scopeId: "alice" },
+      ],
+    );
+  });
+
+  it("passes resolvedKeys as undefined when the resolver never reports any", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("ok", { status: 200, statusText: "OK" }),
+    );
+
+    const validateUrl = vi.fn().mockResolvedValue(true);
+    const entry = createFetchToolEntry({
+      resolveKeys: async (text) => ({
+        resolved: text.replaceAll("${keys.API_TOKEN}", "sk-secret"),
+        usedKeys: text.includes("${keys.API_TOKEN}") ? ["API_TOKEN"] : [],
+        secretValues: text.includes("${keys.API_TOKEN}") ? ["sk-secret"] : [],
+        // No `resolvedKeys` field — mirrors resolvers written before this
+        // field existed. The fetch tool must stay backwards compatible.
+      }),
+      validateUrl,
+    })["web-request"];
+
+    await entry.run({
+      url: "https://93.184.216.34/api?token=${keys.API_TOKEN}",
+    });
+
+    expect(validateUrl).toHaveBeenCalledWith(
+      "https://93.184.216.34/api?token=sk-secret",
+      ["API_TOKEN"],
+      undefined,
+    );
+  });
+
+  it("rejects unsupported HTTP methods before fetching", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const entry = createFetchToolEntry()["web-request"];
+
+    await expect(
+      entry.run({ url: "https://93.184.216.34/api", method: "TRACE" }),
+    ).resolves.toContain("Unsupported HTTP method");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("sends browser-like headers by default so anti-bot middleware doesn't block the fetch", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response("<html></html>", { status: 200, statusText: "OK" }),
+      );
+
+    await runWebRequest("https://93.184.216.34/page");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const sentHeaders = (fetchSpy.mock.calls[0][1] as RequestInit)
+      ?.headers as Record<string, string>;
+    expect(sentHeaders["User-Agent"]).toMatch(/Chrome\/\d+/);
+    expect(sentHeaders["Accept"]).toContain("text/html");
+    expect(sentHeaders["Accept-Language"]).toBe("en-US,en;q=0.9");
+    expect(sentHeaders["Sec-Fetch-Mode"]).toBe("navigate");
+  });
+
+  it("lets caller-supplied headers override the browser defaults", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("{}", { status: 200, statusText: "OK" }));
+
+    const entry = createFetchToolEntry()["web-request"];
+    await entry.run({
+      url: "https://93.184.216.34/api",
+      headers:
+        '{"User-Agent":"my-bot/1.0","Authorization":"Bearer xyz","Accept":"application/json"}',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const sentHeaders = (fetchSpy.mock.calls[0][1] as RequestInit)
+      ?.headers as Record<string, string>;
+    expect(sentHeaders["User-Agent"]).toBe("my-bot/1.0");
+    expect(sentHeaders["Authorization"]).toBe("Bearer xyz");
+    expect(sentHeaders["Accept"]).toBe("application/json");
+    // Other browser defaults still fill in for headers the caller didn't set.
+    expect(sentHeaders["Sec-Fetch-Mode"]).toBe("navigate");
+  });
+
+  it("extracts HTML responses to readable markdown by default", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html>
+        <html>
+          <head><title>API Docs</title></head>
+          <body>
+            <nav>Navigation noise</nav>
+            <main>
+              <article>
+                <h1>Widget API</h1>
+                <p>Use the list widgets endpoint for pagination.</p>
+                <a href="/reference/widgets">Widget reference</a>
+              </article>
+            </main>
+          </body>
+        </html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+
+    const result = await runWebRequest("https://93.184.216.34/api");
+
+    expect(result).toContain("HTTP 200 OK");
+    expect(result).toContain("# Widget API");
+    expect(result).toContain("Use the list widgets endpoint");
+    expect(result).toContain(
+      "[Widget reference](https://93.184.216.34/reference/widgets)",
+    );
+    expect(result).not.toContain("<html>");
+  });
+
+  it("preserves alternate discovery links outside the readable article", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html>
+        <html>
+          <head><title>Shared clip</title></head>
+          <body>
+            <a
+              rel="alternate"
+              type="application/json"
+              href="/api/agent-context.json?id=clip-1"
+            >Agent-readable context</a>
+            <main><article><h1>Shared clip</h1></article></main>
+          </body>
+        </html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+
+    const result = await runWebRequest("https://93.184.216.34/share/clip-1");
+
+    expect(result).toContain("Links:");
+    expect(result).toContain(
+      "https://93.184.216.34/api/agent-context.json?id=clip-1",
+    );
+  });
+
+  it("surfaces shared agent-readable metadata outside the readable article", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html>
+        <html>
+          <head><title>Shared artifact</title></head>
+          <body>
+            <script type="application/agent-native+json">
+              {
+                "type": "agent-native.resource.discovery",
+                "resourceType": "dashboard",
+                "resourceId": "dash-1",
+                "contextUrl": "/api/dashboard-agent-context.json?id=dash-1&agent_access=scoped-token",
+                "instructions": "Fetch contextUrl for the dashboard data."
+              }
+            </script>
+            <main><article><h1>Shared artifact</h1></article></main>
+          </body>
+        </html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+
+    const result = await runWebRequest("https://93.184.216.34/d/dash-1");
+
+    expect(result).toContain("Agent-readable metadata:");
+    expect(result).toContain('"type": "agent-native.resource.discovery"');
+    expect(result).toContain(
+      '"/api/dashboard-agent-context.json?id=dash-1&agent_access=scoped-token"',
+    );
+    expect(result).toContain("Fetch contextUrl for the dashboard data.");
+  });
+
+  it("returns bounded matches from extracted HTML content", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html><html><body><main>
+          <h1>Endpoints</h1>
+          <p>GET /v1/widgets returns widgets.</p>
+          <p>POST /v1/widgets creates widgets.</p>
+        </main></body></html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html" },
+        },
+      ),
+    );
+
+    const entry = createFetchToolEntry()["web-request"];
+    const result = await entry.run({
+      url: "https://93.184.216.34/api",
+      responseMode: "matches",
+      search: {
+        regex: "\\b(GET|POST) /v1/widgets\\b",
+        maxMatches: 1,
+        contextChars: 24,
+      },
+    });
+
+    expect(result).toContain("Matches: 1 shown of 2");
+    expect(result).toContain("GET /v1/widgets");
+    expect(result).toContain("1 omitted");
+  });
+
+  it("rejects unsafe regex searches before running them over fetched content", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("aaaaaaaaaaaaaaaaaaaa!", {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "text/plain" },
+      }),
+    );
+
+    const entry = createFetchToolEntry()["web-request"];
+    const result = await entry.run({
+      url: "https://93.184.216.34/logs",
+      responseMode: "matches",
+      search: { regex: "(a+)+$" },
+    });
+
+    expect(result).toContain("Unsafe regex rejected");
+  });
+});

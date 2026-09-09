@@ -1,0 +1,670 @@
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import {
+  getDealPipelines,
+  getDealOwners,
+  getVisiblePipelines,
+  searchHubSpotObjects,
+  type Deal,
+  type HubSpotSearchFilter,
+  type HubSpotSearchFilterGroup,
+  type Pipeline,
+} from "../server/lib/hubspot";
+
+const StringListSchema = z.preprocess((value) => {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return undefined;
+  return value
+    .split(/[,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}, z.array(z.string()).optional());
+
+const TextMatchSchema = z.enum(["token", "contains", "exact"]);
+const ClosedStatusSchema = z.enum(["any", "won", "lost", "closed", "open"]);
+const HUBSPOT_SEARCH_RESULT_CAP = 10_000;
+
+function stageLookups(pipelines: Pipeline[]) {
+  const stageLabels: Record<string, string> = {};
+  const pipelineLabels: Record<string, string> = {};
+  const wonStageIds = new Set<string>();
+  const lostStageIds = new Set<string>();
+
+  for (const pipeline of pipelines) {
+    pipelineLabels[pipeline.id] = pipeline.label;
+    for (const stage of pipeline.stages) {
+      const label = stage.label || stage.id;
+      const lower = label.toLowerCase();
+      const probability = parseFloat(stage.metadata?.probability ?? "");
+      stageLabels[stage.id] = label;
+      if (
+        probability === 1 ||
+        lower.includes("closed won") ||
+        lower === "won"
+      ) {
+        wonStageIds.add(stage.id);
+      }
+      if (
+        probability === 0 ||
+        lower.includes("closed lost") ||
+        lower === "lost"
+      ) {
+        lostStageIds.add(stage.id);
+      }
+    }
+  }
+
+  return { stageLabels, pipelineLabels, wonStageIds, lostStageIds };
+}
+
+function enrichDeal(
+  deal: Deal,
+  lookups: ReturnType<typeof stageLookups>,
+  owners: Record<string, string>,
+) {
+  const properties: Record<string, unknown> = { ...deal.properties };
+  const stageId =
+    typeof properties.dealstage === "string" ? properties.dealstage : "";
+  const pipelineId =
+    typeof properties.pipeline === "string" ? properties.pipeline : "";
+  const ownerId =
+    typeof properties.hubspot_owner_id === "string"
+      ? properties.hubspot_owner_id
+      : "";
+  const ownerName = ownerId ? owners[ownerId] : undefined;
+  const stageName = lookups.stageLabels[stageId] ?? stageId;
+  const pipelineName = lookups.pipelineLabels[pipelineId] ?? pipelineId;
+  const isClosedWon = lookups.wonStageIds.has(stageId);
+  const isClosedLost = lookups.lostStageIds.has(stageId);
+
+  properties.deal_name = properties.dealname ?? "";
+  properties.stage_name = stageName;
+  properties.pipeline_name = pipelineName;
+  properties.owner_name = ownerName ?? ownerId;
+  properties.hubspot_owner_name = ownerName ?? ownerId;
+  properties.sales_rep_owner_name = ownerName ?? ownerId;
+  properties.is_closed_won = isClosedWon;
+  properties.is_closed_lost = isClosedLost;
+  properties.is_deal_closed = isClosedWon || isClosedLost;
+  properties.company_name =
+    properties.company_name ??
+    properties.hs_primary_company_name ??
+    properties.associatedcompanyid ??
+    "";
+
+  return { ...deal, properties };
+}
+
+function recordToDeal(record: {
+  id: string;
+  properties: Record<string, string | null | undefined>;
+}): Deal {
+  return {
+    id: record.id,
+    properties: {
+      dealname: record.properties.dealname ?? "",
+      dealstage: record.properties.dealstage ?? "",
+      amount: record.properties.amount ?? null,
+      closedate: record.properties.closedate ?? null,
+      createdate: record.properties.createdate ?? "",
+      hs_lastmodifieddate: record.properties.hs_lastmodifieddate ?? "",
+      pipeline: record.properties.pipeline ?? "",
+      hubspot_owner_id: record.properties.hubspot_owner_id ?? null,
+      hs_deal_stage_probability:
+        record.properties.hs_deal_stage_probability ?? null,
+      ...record.properties,
+    },
+  };
+}
+
+type EnrichedDeal = ReturnType<typeof enrichDeal>;
+type TextMatchMode = z.infer<typeof TextMatchSchema>;
+type ClosedStatus = z.infer<typeof ClosedStatusSchema>;
+
+function textValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function splitMultiValue(value: string): string[] {
+  return value
+    .split(/[;,|]/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function matchesText(
+  value: unknown,
+  expected: string | undefined,
+  mode: TextMatchMode = "contains",
+): boolean {
+  const needle = expected?.trim().toLowerCase();
+  if (!needle) return true;
+
+  const haystack = textValue(value).toLowerCase();
+  if (!haystack) return false;
+
+  if (mode === "exact") return haystack === needle;
+  if (mode === "token") {
+    const tokens = splitMultiValue(haystack);
+    return tokens.includes(needle) || haystack === needle;
+  }
+  return haystack.includes(needle);
+}
+
+function parseDateBoundary(
+  value: string | undefined,
+  endOfDay: boolean,
+): number | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly;
+    const numericYear = Number(year);
+    const numericMonth = Number(month);
+    const numericDay = Number(day);
+    const timestamp = Date.UTC(
+      numericYear,
+      numericMonth - 1,
+      numericDay,
+      endOfDay ? 23 : 0,
+      endOfDay ? 59 : 0,
+      endOfDay ? 59 : 0,
+      endOfDay ? 999 : 0,
+    );
+    const parsedDate = new Date(timestamp);
+    if (
+      parsedDate.getUTCFullYear() !== numericYear ||
+      parsedDate.getUTCMonth() !== numericMonth - 1 ||
+      parsedDate.getUTCDate() !== numericDay
+    ) {
+      return null;
+    }
+    return timestamp;
+  }
+
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function dealClosedAt(deal: EnrichedDeal): number | null {
+  const parsed = Date.parse(textValue(deal.properties.closedate));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function matchesClosedStatus(
+  deal: EnrichedDeal,
+  closedStatus: ClosedStatus,
+): boolean {
+  if (closedStatus === "any") return true;
+
+  const isClosedWon = Boolean(deal.properties.is_closed_won);
+  const isClosedLost = Boolean(deal.properties.is_closed_lost);
+  const isClosed = isClosedWon || isClosedLost;
+
+  if (closedStatus === "won") return isClosedWon;
+  if (closedStatus === "lost") return isClosedLost;
+  if (closedStatus === "closed") return isClosed;
+  return !isClosed;
+}
+
+function matchesDateRange(
+  deal: EnrichedDeal,
+  fromMs: number | null,
+  toMs: number | null,
+): boolean {
+  if (fromMs == null && toMs == null) return true;
+
+  const closedAt = dealClosedAt(deal);
+  if (closedAt == null) return false;
+  if (fromMs != null && closedAt < fromMs) return false;
+  if (toMs != null && closedAt > toMs) return false;
+  return true;
+}
+
+function matchesPipeline(deal: EnrichedDeal, pipeline: string | undefined) {
+  const trimmed = pipeline?.trim();
+  if (!trimmed) return true;
+
+  return (
+    matchesText(deal.properties.pipeline_name, trimmed, "contains") ||
+    matchesText(deal.properties.pipeline, trimmed, "contains")
+  );
+}
+
+function buildFilterSummary(args: {
+  owner?: string;
+  query?: string;
+  product?: string;
+  productMatch: TextMatchMode;
+  pipeline?: string;
+  closedStatus: ClosedStatus;
+  closedDateFrom?: string;
+  closedDateTo?: string;
+}) {
+  return {
+    ...(args.query ? { query: args.query } : {}),
+    ...(args.owner ? { owner: args.owner } : {}),
+    ...(args.product
+      ? { products: args.product, productMatch: args.productMatch }
+      : {}),
+    ...(args.pipeline ? { pipeline: args.pipeline } : {}),
+    ...(args.closedStatus !== "any" ? { closedStatus: args.closedStatus } : {}),
+    ...(args.closedDateFrom ? { closedDateFrom: args.closedDateFrom } : {}),
+    ...(args.closedDateTo ? { closedDateTo: args.closedDateTo } : {}),
+  };
+}
+
+function hasStructuredFilters(filters: ReturnType<typeof buildFilterSummary>) {
+  return [
+    "owner",
+    "products",
+    "pipeline",
+    "closedStatus",
+    "closedDateFrom",
+    "closedDateTo",
+  ].some((key) => key in filters);
+}
+
+function buildHubSpotDealFilters(options: {
+  visiblePipelines: Pipeline[];
+  owners: Record<string, string>;
+  owner?: string;
+  product?: string;
+  productMatch: TextMatchMode;
+  pipeline?: string;
+  closedStatus: ClosedStatus;
+  closedDateFromMs: number | null;
+  closedDateToMs: number | null;
+}): { filterGroups: HubSpotSearchFilterGroup[]; impossible: boolean } {
+  let pipelineIds = options.visiblePipelines.map((pipeline) => pipeline.id);
+  if (options.pipeline) {
+    const needle = options.pipeline.toLowerCase();
+    pipelineIds = options.visiblePipelines
+      .filter(
+        (pipeline) =>
+          pipeline.id.toLowerCase().includes(needle) ||
+          pipeline.label.toLowerCase().includes(needle),
+      )
+      .map((pipeline) => pipeline.id);
+  }
+  if (!pipelineIds.length) return { filterGroups: [], impossible: true };
+
+  const filters: HubSpotSearchFilter[] = [
+    { propertyName: "pipeline", operator: "IN", values: pipelineIds },
+  ];
+
+  if (options.owner) {
+    const needle = options.owner.toLowerCase();
+    const ownerIds = Object.entries(options.owners)
+      .filter(
+        ([id, name]) =>
+          id.toLowerCase() === needle || name.toLowerCase() === needle,
+      )
+      .map(([id]) => id);
+    if (!ownerIds.length) return { filterGroups: [], impossible: true };
+    filters.push({
+      propertyName: "hubspot_owner_id",
+      operator: "IN",
+      values: ownerIds,
+    });
+  }
+
+  if (options.product) {
+    filters.push({
+      propertyName: "products",
+      operator: options.productMatch === "exact" ? "EQ" : "CONTAINS_TOKEN",
+      value:
+        options.productMatch === "contains"
+          ? `*${options.product}*`
+          : options.product,
+    });
+  }
+
+  if (options.closedStatus !== "any") {
+    const lookups = stageLookups(options.visiblePipelines);
+    const wonIds = [...lookups.wonStageIds];
+    const lostIds = [...lookups.lostStageIds];
+    const closedIds = [...new Set([...wonIds, ...lostIds])];
+    const values =
+      options.closedStatus === "won"
+        ? wonIds
+        : options.closedStatus === "lost"
+          ? lostIds
+          : closedIds;
+    if (!values.length && options.closedStatus !== "open") {
+      return { filterGroups: [], impossible: true };
+    }
+    if (closedIds.length) {
+      filters.push({
+        propertyName: "dealstage",
+        operator: options.closedStatus === "open" ? "NOT_IN" : "IN",
+        values: options.closedStatus === "open" ? closedIds : values,
+      });
+    }
+  }
+
+  if (options.closedDateFromMs != null) {
+    filters.push({
+      propertyName: "closedate",
+      operator: "GTE",
+      value: String(options.closedDateFromMs),
+    });
+  }
+  if (options.closedDateToMs != null) {
+    filters.push({
+      propertyName: "closedate",
+      operator: "LTE",
+      value: String(options.closedDateToMs),
+    });
+  }
+
+  return { filterGroups: [{ filters }], impossible: false };
+}
+
+function buildGuidance(options: {
+  query: string | undefined;
+  structuredFilters: boolean;
+  truncated: boolean;
+  hasMore: boolean;
+  total: number;
+  returned: number;
+  offset: number;
+  limit: number;
+  searchCoverageLimited: boolean;
+}) {
+  const guidance: string[] = [];
+
+  if (options.query) {
+    guidance.push(
+      "Used HubSpot full-text deal search for the query. Treat query matches as broad keyword/account matches, not proof that a specific property equals the query.",
+    );
+  } else {
+    guidance.push(
+      "Used HubSpot CRM search with provider-side pipeline and structured filters; the action did not scan the full deal corpus locally.",
+    );
+  }
+
+  if (options.structuredFilters) {
+    guidance.push(
+      "Structured filters were applied to the returned cohort. Report the filter values and cohort count in the methodology. If the count looks too low, inspect HubSpot property metadata or adjust the structured filters; do not replace field-specific filters with a broad query search.",
+    );
+  } else {
+    guidance.push(
+      "For product, pipeline, closed-won/lost, or close-date cohorts, prefer product, pipeline, closedStatus, closedDateFrom, and closedDateTo over query.",
+    );
+  }
+
+  if (options.truncated) {
+    if (options.query) {
+      const more = options.hasMore
+        ? "Fetch the next page with the returned nextAfter cursor."
+        : "This query has no usable next cursor.";
+      guidance.push(
+        `Returned ${options.returned} of ${options.total} matching deals (limit ${options.limit}). This is a partial slice — do NOT treat it as the full cohort. ${more} Narrow the query or use provider-api-request with provider = hubspot and stageAs for a projected corpus.`,
+      );
+    } else {
+      const more = options.hasMore
+        ? `Fetch the next page with offset ${options.offset + options.returned}.`
+        : "This is the last page of the cohort.";
+      guidance.push(
+        `Returned ${options.returned} of ${options.total} matching deals (limit ${options.limit}, offset ${options.offset}). This is a partial slice — do NOT treat it as the full cohort. Use total for counts/aggregates. ${more} Narrow the filters or, for exhaustive cohort analysis, use provider-api-request with provider = hubspot and stageAs.`,
+      );
+    }
+  }
+
+  if (options.searchCoverageLimited) {
+    guidance.push(
+      "HubSpot search cannot page beyond 10,000 results for one query, so coverage is incomplete even if this page has no next cursor. Split the cohort into non-overlapping closed-date windows and combine the projected results; do not report an exhaustive count or absence claim from this query alone.",
+    );
+  }
+
+  return guidance.join(" ");
+}
+
+export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
+  description:
+    "Get HubSpot deals with normalized stage, pipeline, owner, forecast, and NBM fields. This is a bounded deal analytics shortcut, not the full HubSpot capability surface. Use query for a specific customer/deal/account deep dive. For cohorts like products field = Publish, closed-won, pipeline = New Business, or close date in a range, use the structured product, pipeline, closedStatus, closedDateFrom, and closedDateTo filters instead of query when the answer is the deal list itself. If the cohort feeds a cross-source join, transcript/message/ticket search, exhaustive absence check, or downstream code/corpus workflow, prefer provider-api-catalog/provider-api-request with provider = hubspot and stageAs so the cohort is available as a staged dataset. Both paths are bounded: at most limit deals are returned (default 25, max 200). HubSpot search returns a total but no server-side aggregates and cannot page past 10,000 matches for one query; compute metrics on filtered/projected rows, and split larger cohorts into non-overlapping date windows while reporting coverage. The structured-filter path returns total as the matched count and a truncated flag; page with offset (or narrow filters) instead of expecting the whole cohort in one call, since a full enriched cohort can be several MB and overruns extension and context budgets. For non-deal CRM records use hubspot-records; for arbitrary HubSpot endpoints, filters, associations, batch APIs, or payloads use provider-api-catalog/provider-api-docs/provider-api-request with provider = hubspot.",
+  schema: z.object({
+    properties: StringListSchema.describe(
+      "Optional comma-separated extra HubSpot deal property names to include.",
+    ),
+    owner: z
+      .string()
+      .optional()
+      .describe("Optional owner name filter, case-insensitive."),
+    product: z
+      .string()
+      .optional()
+      .describe(
+        "Optional structured filter for the HubSpot deals products field, e.g. Publish. Do not put product-field filters in query.",
+      ),
+    productMatch: TextMatchSchema.default("token").describe(
+      "How to match the products field: token for multi-select values, contains for substring, exact for exact full-field match.",
+    ),
+    pipeline: z
+      .string()
+      .optional()
+      .describe(
+        "Optional structured filter for HubSpot deal pipeline id or label, case-insensitive contains match, e.g. New Business.",
+      ),
+    closedStatus: ClosedStatusSchema.default("any").describe(
+      "Optional structured stage filter based on normalized HubSpot pipeline stage metadata.",
+    ),
+    closedDateFrom: z
+      .string()
+      .optional()
+      .describe(
+        "Optional inclusive close-date lower bound for deals, YYYY-MM-DD or ISO date/time.",
+      ),
+    closedDateTo: z
+      .string()
+      .optional()
+      .describe(
+        "Optional inclusive close-date upper bound for deals, YYYY-MM-DD or ISO date/time.",
+      ),
+    query: z
+      .string()
+      .optional()
+      .describe(
+        "Optional HubSpot full-text deal search query, such as a company name, deal name, domain, or keyword. Use for customer/deal deep dives. Do not use query as a substitute for field-specific product, pipeline, stage, or date filters.",
+      ),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(200)
+      .default(25)
+      .describe(
+        "Maximum deals to return. Applies to BOTH full-text query results and structured-filter cohorts. The structured-filter path returns at most this many enriched deals (use total for the true matched count and offset to page).",
+      ),
+    offset: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(HUBSPOT_SEARCH_RESULT_CAP - 1)
+      .default(0)
+      .describe(
+        "Number of structured-filter results to skip before returning limit deals. Use for paging through a large cohort; ignored when query is provided.",
+      ),
+    after: z
+      .string()
+      .optional()
+      .describe("Optional HubSpot pagination cursor for query results."),
+  }),
+  http: { method: "GET" },
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  grounding: true,
+  run: async ({
+    properties,
+    owner,
+    product,
+    productMatch,
+    pipeline,
+    closedStatus,
+    closedDateFrom,
+    closedDateTo,
+    query,
+    limit,
+    offset,
+    after,
+  }) => {
+    const trimmedQuery = query?.trim();
+    const trimmedOwner = owner?.trim();
+    const trimmedProduct = product?.trim();
+    const trimmedPipeline = pipeline?.trim();
+    const fromMs = parseDateBoundary(closedDateFrom, false);
+    const toMs = parseDateBoundary(closedDateTo, true);
+
+    if (closedDateFrom?.trim() && fromMs == null) {
+      throw new Error(
+        `Invalid closedDateFrom "${closedDateFrom}". Use YYYY-MM-DD or an ISO date/time.`,
+      );
+    }
+    if (closedDateTo?.trim() && toMs == null) {
+      throw new Error(
+        `Invalid closedDateTo "${closedDateTo}". Use YYYY-MM-DD or an ISO date/time.`,
+      );
+    }
+
+    const [allPipelines, owners] = await Promise.all([
+      getDealPipelines(),
+      getDealOwners(),
+    ]);
+    const visiblePipelines = getVisiblePipelines(allPipelines);
+    const visibleIds = new Set(visiblePipelines.map((p) => p.id));
+    const lookups = stageLookups(visiblePipelines);
+    const ownerFilter = owner?.trim().toLowerCase();
+    const providerFilters = buildHubSpotDealFilters({
+      visiblePipelines,
+      owners,
+      owner: trimmedOwner,
+      product: trimmedProduct,
+      productMatch,
+      pipeline: trimmedPipeline,
+      closedStatus,
+      closedDateFromMs: fromMs,
+      closedDateToMs: toMs,
+    });
+    const requestedAfter = trimmedQuery ? after : String(offset);
+    const numericAfter = requestedAfter
+      ? Number.parseInt(requestedAfter, 10)
+      : 0;
+    if (
+      requestedAfter &&
+      Number.isFinite(numericAfter) &&
+      numericAfter >= HUBSPOT_SEARCH_RESULT_CAP
+    ) {
+      throw new Error(
+        "HubSpot search cannot page beyond 10,000 results. Split the query into non-overlapping closed-date windows and report the combined coverage.",
+      );
+    }
+    const requestLimit = Number.isFinite(numericAfter)
+      ? Math.min(limit, HUBSPOT_SEARCH_RESULT_CAP - numericAfter)
+      : limit;
+    const dealResult = providerFilters.impossible
+      ? {
+          records: [],
+          total: 0,
+          nextAfter: null,
+          properties: properties ?? [],
+        }
+      : await searchHubSpotObjects({
+          objectType: "deals",
+          query: trimmedQuery,
+          filterGroups: providerFilters.filterGroups,
+          properties,
+          limit: requestLimit,
+          after: requestedAfter,
+        });
+    const rawDeals = dealResult.records.map(recordToDeal);
+    const filters = buildFilterSummary({
+      owner: trimmedOwner,
+      query: trimmedQuery,
+      product: trimmedProduct,
+      productMatch,
+      pipeline: trimmedPipeline,
+      closedStatus,
+      closedDateFrom: closedDateFrom?.trim(),
+      closedDateTo: closedDateTo?.trim(),
+    });
+    const structuredFilters = hasStructuredFilters(filters);
+    const matchedDeals = rawDeals
+      .filter((d) => visibleIds.has(String(d.properties.pipeline)))
+      .map((deal) => enrichDeal(deal, lookups, owners))
+      .filter((deal) => {
+        if (!ownerFilter) return true;
+        const ownerName =
+          typeof deal.properties.owner_name === "string"
+            ? deal.properties.owner_name.toLowerCase()
+            : "";
+        return ownerName === ownerFilter;
+      })
+      .filter((deal) => {
+        if (
+          !matchesText(deal.properties.products, trimmedProduct, productMatch)
+        ) {
+          return false;
+        }
+        if (!matchesPipeline(deal, trimmedPipeline)) return false;
+        if (!matchesClosedStatus(deal, closedStatus)) return false;
+        return matchesDateRange(deal, fromMs, toMs);
+      });
+
+    // HubSpot applies the cohort filters and pagination before returning the
+    // page. Keep the local checks as a compatibility/correctness guard, but do
+    // not scan and slice the full deal corpus in this action.
+    const matchedTotal = dealResult.total;
+    const deals = matchedDeals;
+    const searchCoverageLimited = matchedTotal >= HUBSPOT_SEARCH_RESULT_CAP;
+    const nextCursor = dealResult.nextAfter
+      ? Number.parseInt(dealResult.nextAfter, 10)
+      : null;
+    const nextCursorWithinCap =
+      nextCursor == null ||
+      !Number.isFinite(nextCursor) ||
+      nextCursor < HUBSPOT_SEARCH_RESULT_CAP;
+    const hasMore = dealResult.nextAfter != null && nextCursorWithinCap;
+    const truncated = deals.length < matchedTotal || searchCoverageLimited;
+
+    return {
+      deals,
+      stageLabels: lookups.stageLabels,
+      pipelineLabels: lookups.pipelineLabels,
+      total: matchedTotal,
+      count: deals.length,
+      query: trimmedQuery || null,
+      filters,
+      nextAfter: hasMore ? dealResult.nextAfter : null,
+      searchResultCap: HUBSPOT_SEARCH_RESULT_CAP,
+      searchCoverageComplete: !searchCoverageLimited,
+      searchCoverageLimited,
+      ...(trimmedQuery
+        ? {}
+        : {
+            limit,
+            offset,
+            truncated,
+            hasMore,
+            nextOffset: hasMore ? offset + deals.length : null,
+          }),
+      guidance: buildGuidance({
+        query: trimmedQuery,
+        structuredFilters,
+        truncated,
+        hasMore,
+        total: matchedTotal,
+        returned: deals.length,
+        offset,
+        limit,
+        searchCoverageLimited,
+      }),
+      searchedProperties: dealResult.properties,
+    };
+  },
+});
