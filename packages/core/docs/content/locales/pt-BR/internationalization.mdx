@@ -70,13 +70,10 @@ localidade ativa. Os códigos de localidade suportados são `en-US`, `zh-CN`,
 `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN` e
 `ar-SA`.
 
-Essa lista é fixada pela estrutura. Não é apenas o que este exemplo escolheu
-empacotar. `LocaleCode` é uma union do TypeScript com exatamente esses
-códigos, e `set-localization-preference` rejeita qualquer outro valor em
-tempo de execução. Cada localidade também precisa de metadados curados pela
-estrutura, como a direção do texto para idiomas da direita para a esquerda.
-Adicionar uma nova localidade significa estender a própria estrutura, não
-adicionar um arquivo de catálogo ao seu aplicativo.
+O framework fornece localidades integradas. Os aplicativos também podem
+registrar localidades BCP-47 canônicas com seus próprios metadados, como nomes
+nativo e em inglês e direção do texto. Use `coreMessageOverrides` para
+traduções opcionais do framework; chaves ausentes retornam ao inglês.
 
 `createAgentNativeI18nCatalog` também aceita um `sourceLocale` opcional, cujo
 padrão é `en-US`, e um array `supportedLocales` opcional. Defina
@@ -115,7 +112,7 @@ Todo aplicativo herda:
 - `get-localization-preference` — lê o `{ locale, timezone }` do usuário atual
 - `set-localization-preference` — define `locale` e/ou `timezone`, cada um opcional
 
-`locale` é `"system"` ou uma localidade BCP-47 suportada. `timezone` é
+`locale` é `"system"` ou uma localidade BCP-47 válida registrada pelo aplicativo. `timezone` é
 `"system"` ou um fuso IANA, como `America/New_York`. Ele existe para que o
 trabalho agendado e de automação seja executado no fuso do usuário, e não no
 do host. Definir apenas um campo deixa o outro inalterado, porque

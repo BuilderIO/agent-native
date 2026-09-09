@@ -57,7 +57,10 @@ export const i18nCatalog = createAgentNativeI18nCatalog({
 
 `messages`는 `en-US`를 직접 번들로 포함하므로 다른 로케일이 로드되기 전에도 항상 사용할 수 있습니다. `localeLoaders`는 그 외 모든 카탈로그를 동적 임포트하므로 사용자는 활성 로케일만 다운로드합니다. 지원되는 로케일 코드는 `en-US`, `zh-CN`, `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN`, `ar-SA`입니다.
 
-이 목록은 프레임워크에 의해 고정되어 있습니다. 이는 단순히 이 예제가 번들로 포함하는 로케일에 그치지 않습니다. `LocaleCode`는 정확히 이 코드들로 이루어진 TypeScript union이며, `set-localization-preference`는 런타임에 그 외의 값을 거부합니다. 각 로케일에는 오른쪽에서 왼쪽으로 쓰는 언어의 텍스트 방향처럼 프레임워크가 정리한 메타데이터도 필요합니다. 새 로케일을 추가한다는 것은 앱에 카탈로그 파일을 추가하는 일이 아니라 프레임워크 자체를 확장하는 일을 의미합니다.
+프레임워크에는 기본 제공 로케일이 있습니다. 앱은 모국어 이름, 영어 이름, 텍스트
+방향 같은 자체 메타데이터를 사용해 추가 canonical BCP-47 로케일을 등록할 수
+있습니다. 선택적 프레임워크 번역에는 `coreMessageOverrides`를 사용하며, 누락된
+키는 영어로 대체됩니다.
 
 `createAgentNativeI18nCatalog`는 기본값이 `en-US`인 선택적 `sourceLocale`과 선택적 `supportedLocales` 배열도 받습니다. 앱이 열 개 로케일 전부가 아니라 프레임워크가 지원하는 로케일 중 일부에 대해서만 번역을 제공한다면 `supportedLocales`를 설정하세요. 기본값은 프레임워크가 지원하는 모든 로케일입니다. `LanguagePicker`는 이 집합에 속한 로케일만 나열하며, 감지되거나 요청된 로케일이 이 집합 밖에 있으면 `sourceLocale`로 대체됩니다.
 
@@ -85,7 +88,7 @@ function Greeting({ name }: { name: string }) {
 - `get-localization-preference` — 현재 사용자의 `{ locale, timezone }` 읽기
 - `set-localization-preference` — `locale` 및/또는 `timezone` 설정, 둘 다 선택적
 
-`locale`은 `"system"` 또는 지원되는 BCP-47 로케일입니다. `timezone`은 `"system"` 또는 `America/New_York`과 같은 IANA 표준시간대입니다. 이는 예약된 작업과 자동화가 호스트가 아니라 사용자의 표준시간대에서 실행되도록 하기 위해 존재합니다. `set-localization-preference`는 기존에 저장된 값을 덮어쓰는 대신 그 위에 병합되므로, 필드를 하나만 설정하면 나머지 필드는 그대로 유지됩니다.
+`locale`은 `"system"` 또는 앱이 등록한 유효한 BCP-47 로케일입니다. `timezone`은 `"system"` 또는 `America/New_York`과 같은 IANA 표준시간대입니다. 이는 예약된 작업과 자동화가 호스트가 아니라 사용자의 표준시간대에서 실행되도록 하기 위해 존재합니다. `set-localization-preference`는 기존에 저장된 값을 덮어쓰는 대신 그 위에 병합되므로, 필드를 하나만 설정하면 나머지 필드는 그대로 유지됩니다.
 
 지속성 값은 `localization` 아래의 사용자 범위 SQL 설정에 있습니다. `localStorage`는 사전 수화 및 익명 대체용으로만 사용됩니다. 활성 로케일은 에이전트가 현재 인터페이스 언어를 볼 수 있도록 주변 컨텍스트로서 애플리케이션 상태에 미러링됩니다.
 

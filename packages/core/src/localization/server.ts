@@ -1,5 +1,6 @@
 import {
   DEFAULT_LOCALE,
+  LOCALE_METADATA,
   LOCALE_HYDRATION_GLOBAL,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
@@ -8,6 +9,8 @@ import {
   normalizeLocalizationPreference,
   resolveLocaleFromPreference,
   type LocaleCode,
+  type LocaleMetadata,
+  type LocaleMetadataMap,
   type LocalePreference,
   type LocalizationPreference,
 } from "./shared.js";
@@ -29,11 +32,43 @@ export interface ResolveLocaleFromRequestOptions {
   acceptLanguage?: string | null;
   preference?: LocalizationPreference | LocalePreference | null;
   fallback?: LocaleCode;
+  supportedLocales?: readonly LocaleCode[];
+  localeMetadata?: LocaleMetadataMap | readonly LocaleMetadata[];
 }
 
 export interface LocaleInitScriptOptions {
   locale?: LocaleCode;
   preference?: LocalizationPreference | LocalePreference;
+  supportedLocales?: readonly LocaleCode[];
+  localeMetadata?: LocaleMetadataMap | readonly LocaleMetadata[];
+}
+
+function normalizeSupportedLocales(
+  candidates: readonly LocaleCode[] | undefined,
+): LocaleCode[] {
+  const source = candidates ?? SUPPORTED_LOCALES;
+  return [
+    ...new Set(
+      source
+        .map((locale) => normalizeLocaleCode(locale, source))
+        .filter((locale): locale is LocaleCode => locale !== null),
+    ),
+  ];
+}
+
+function normalizeLocaleMetadata(
+  input: LocaleMetadataMap | readonly LocaleMetadata[] | undefined,
+): LocaleMetadataMap {
+  const entries = Array.isArray(input)
+    ? input.map((metadata) => [metadata.code, metadata] as const)
+    : Object.entries(input ?? {});
+  const custom = Object.fromEntries(
+    entries.flatMap(([key, metadata]) => {
+      const code = normalizeLocaleCode(key, [key]);
+      return code ? [[code, { ...metadata, code }] as const] : [];
+    }),
+  );
+  return { ...LOCALE_METADATA, ...custom };
 }
 
 function readHeader(
@@ -80,27 +115,33 @@ export function resolveLocaleFromRequest(
     options.acceptLanguage ??
     readHeader(options.request?.headers, "accept-language");
   const candidates = parseAcceptLanguage(header);
+  const supportedLocales = normalizeSupportedLocales(options.supportedLocales);
+  const localeMetadata = normalizeLocaleMetadata(options.localeMetadata);
   const preference = normalizeLocalizationPreference(
     options.preference ?? { locale: "system" },
   );
   const locale =
     preference.locale === "system"
-      ? resolveLocaleFromPreference(preference, [
-          ...candidates,
-          options.fallback ?? DEFAULT_LOCALE,
-        ])
-      : (normalizeLocaleCode(preference.locale) ??
-        options.fallback ??
+      ? resolveLocaleFromPreference(
+          preference,
+          [...candidates, options.fallback ?? DEFAULT_LOCALE],
+          supportedLocales,
+        )
+      : (normalizeLocaleCode(preference.locale, supportedLocales) ??
+        normalizeLocaleCode(options.fallback, supportedLocales) ??
         DEFAULT_LOCALE);
   return {
     locale,
     preference,
-    dir: localeDirection(locale),
+    dir: localeDirection(locale, localeMetadata),
   };
 }
 
 export function getLocaleInitScript(options: LocaleInitScriptOptions = {}) {
-  const safeLocale = normalizeLocaleCode(options.locale) ?? DEFAULT_LOCALE;
+  const supportedLocales = normalizeSupportedLocales(options.supportedLocales);
+  const localeMetadata = normalizeLocaleMetadata(options.localeMetadata);
+  const safeLocale =
+    normalizeLocaleCode(options.locale, supportedLocales) ?? DEFAULT_LOCALE;
   const shouldStorePreference = options.preference !== undefined;
   const safePreference = normalizeLocalizationPreference(
     options.preference ?? { locale: "system" },
@@ -111,20 +152,21 @@ export function getLocaleInitScript(options: LocaleInitScriptOptions = {}) {
   const payload = {
     locale: safeLocale,
     preference: safePreference,
-    dir: localeDirection(safeLocale),
+    dir: localeDirection(safeLocale, localeMetadata),
   };
 
   return `(function(){try{var supported=${JSON.stringify(
-    SUPPORTED_LOCALES,
-  )};var payload=${JSON.stringify(
-    payload,
+    supportedLocales,
+  )};var payload=${JSON.stringify(payload)};var localeMetadata=${JSON.stringify(
+    localeMetadata,
   )};var shouldStorePreference=${JSON.stringify(
     shouldStorePreference,
-  )};function valid(x){return supported.indexOf(x)>=0}function canon(x){if(typeof x!=='string'||!x)return null;try{var c=Intl.getCanonicalLocales(x)[0];if(valid(c))return c;var lang=c&&c.split('-')[0].toLowerCase();for(var i=0;i<supported.length;i++){if(supported[i].split('-')[0].toLowerCase()===lang)return supported[i]}}catch(e){}return null}function storageGet(k){try{return window.localStorage.getItem(k)}catch(e){return null}}function storageSet(k,v){try{window.localStorage.setItem(k,v)}catch(e){}}var stored=storageGet(${JSON.stringify(
+    // coercion-ok: pre-hydration browser APIs use null as an unavailable sentinel; the provider re-resolves locale.
+  )};function valid(x){return supported.indexOf(x)>=0}function direction(x){return localeMetadata[x]&&localeMetadata[x].dir==='rtl'?'rtl':'ltr'}function canon(x){if(typeof x!=='string'||!x)return null;try{var c=Intl.getCanonicalLocales(x)[0];if(valid(c))return c;var lang=c&&c.split('-')[0].toLowerCase();for(var i=0;i<supported.length;i++){if(supported[i].split('-')[0].toLowerCase()===lang)return supported[i]}}catch(e){}return null}function storageGet(k){try{return window.localStorage.getItem(k)}catch(e){return null}}function storageSet(k,v){try{window.localStorage.setItem(k,v)}catch(e){}}var stored=storageGet(${JSON.stringify(
     LOCALE_STORAGE_KEY,
   )});var pref=payload.preference&&payload.preference.locale;var locale=payload.locale;if(!valid(locale)){locale=null}if(!locale&&stored&&stored!=='system'){locale=canon(stored)}if(!locale&&pref&&pref!=='system'){locale=canon(pref)}if(!locale){var langs=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language];for(var j=0;j<langs.length&&!locale;j++){locale=canon(langs[j])}}if(!locale)locale=${JSON.stringify(
     DEFAULT_LOCALE,
-  )};var root=document.documentElement;root.setAttribute('lang',locale);root.setAttribute('dir',locale==='ar-SA'?'rtl':'ltr');root.setAttribute('data-locale',locale);payload.locale=locale;payload.dir=locale==='ar-SA'?'rtl':'ltr';window[${JSON.stringify(
+  )};var root=document.documentElement;root.setAttribute('lang',locale);root.setAttribute('dir',direction(locale));root.setAttribute('data-locale',locale);payload.locale=locale;payload.dir=direction(locale);window[${JSON.stringify(
     LOCALE_HYDRATION_GLOBAL,
   )}]=payload;if(shouldStorePreference&&pref){storageSet(${JSON.stringify(
     LOCALE_STORAGE_KEY,

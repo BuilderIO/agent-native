@@ -30,16 +30,19 @@ import defaultEnglishMessages from "../localization/default-messages.js";
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
-  LOCALE_METADATA,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
+  isValidLocaleCode,
   localeDisplayName,
   localeDirection,
+  localeMetadataFor,
+  normalizeLocaleCode,
   normalizeLocalizationPreference,
   resolveLocaleFromCandidates,
   resolveLocaleFromPreference,
   type LocaleCode,
   type LocaleMetadata,
+  type LocaleMetadataMap,
   type LocalePreference,
   type LocalizationPreference,
 } from "../localization/shared.js";
@@ -54,7 +57,10 @@ export {
   LOCALE_METADATA,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
+  isValidLocaleCode,
   localeDirection,
+  localeMetadataFor,
+  type BuiltinLocaleCode,
   normalizeLocaleCode,
   normalizeLocalePreference,
   normalizeLocalizationPreference,
@@ -79,6 +85,14 @@ function isAgentNativeI18nModuleNamespace(
   return Object.prototype.toString.call(value) === "[object Module]";
 }
 
+async function loadAgentNativeI18nLocale(
+  loader: AgentNativeI18nLocaleLoader | undefined,
+): Promise<LocaleMessages | null> {
+  if (!loader) return null;
+  const loaded = await loader();
+  return isAgentNativeI18nModuleNamespace(loaded) ? loaded.default : loaded;
+}
+
 export interface LocaleHydrationPayload {
   locale?: LocaleCode;
   preference?: LocalizationPreference;
@@ -91,6 +105,12 @@ export interface AgentNativeI18nCatalog {
   sourceLocale?: LocaleCode;
   messages?: LocaleMessages;
   loadMessages?: (locale: LocaleCode) => Promise<LocaleMessages | null>;
+  /** Metadata for app-registered locales shown in the language picker. */
+  locales?: readonly LocaleMetadata[];
+  /** Optional partial framework translations for app-registered locales. */
+  coreMessageOverrides?: Partial<
+    Record<LocaleCode, AgentNativeI18nLocaleLoader>
+  >;
   /**
    * Locales this app actually ships translations for. Defaults to every
    * framework-supported locale when omitted, which only matches apps whose
@@ -102,6 +122,10 @@ export interface AgentNativeI18nCatalog {
 export function createAgentNativeI18nCatalog(args: {
   messages: LocaleMessages;
   localeLoaders: Partial<Record<LocaleCode, AgentNativeI18nLocaleLoader>>;
+  locales?: readonly LocaleMetadata[];
+  coreMessageOverrides?: Partial<
+    Record<LocaleCode, AgentNativeI18nLocaleLoader>
+  >;
   namespace?: string;
   sourceLocale?: LocaleCode;
   supportedLocales?: readonly LocaleCode[];
@@ -114,12 +138,11 @@ export function createAgentNativeI18nCatalog(args: {
     namespace: args.namespace,
     sourceLocale: args.sourceLocale ?? DEFAULT_LOCALE,
     messages: args.messages,
+    locales: args.locales,
+    coreMessageOverrides: args.coreMessageOverrides,
     supportedLocales: args.supportedLocales,
     loadMessages: async (locale) => {
-      const loader = args.localeLoaders[locale];
-      if (!loader) return null;
-      const loaded = await loader();
-      return isAgentNativeI18nModuleNamespace(loaded) ? loaded.default : loaded;
+      return loadAgentNativeI18nLocale(args.localeLoaders[locale]);
     },
   };
 }
@@ -133,12 +156,25 @@ export interface AgentNativeI18nProviderProps {
   persistPreference?: boolean;
 }
 
+function catalogLocaleMetadata(
+  locales: readonly LocaleMetadata[] | undefined,
+): LocaleMetadataMap {
+  return Object.fromEntries(
+    (locales ?? []).flatMap((metadata) => {
+      if (!isValidLocaleCode(metadata.code)) return [];
+      const code = normalizeLocaleCode(metadata.code, [metadata.code]);
+      return code ? [[code, { ...metadata, code }] as const] : [];
+    }),
+  );
+}
+
 interface LocaleContextValue {
   locale: LocaleCode;
   sourceLocale: LocaleCode;
   preference: LocalePreference;
   dir: "ltr" | "rtl";
   metadata: LocaleMetadata;
+  localeMetadata: LocaleMetadataMap;
   setPreference: (preference: LocalePreference) => Promise<void>;
   loading: boolean;
   supportedLocales: readonly LocaleCode[];
@@ -266,10 +302,14 @@ function resolveInitialState(args: {
   const requestedLocale =
     args.initialLocale ??
     hydration.locale ??
-    resolveLocaleFromPreference(preference, browserLanguageCandidates());
-  const locale = args.supportedLocales.includes(requestedLocale)
-    ? requestedLocale
-    : args.sourceLocale;
+    resolveLocaleFromPreference(
+      preference,
+      browserLanguageCandidates(),
+      args.supportedLocales,
+    );
+  const locale =
+    normalizeLocaleCode(requestedLocale, args.supportedLocales) ??
+    args.sourceLocale;
   return { locale, preference };
 }
 
@@ -278,14 +318,18 @@ function resolveSupportedLocales(args: {
   sourceLocale: LocaleCode;
 }): readonly LocaleCode[] {
   const configured = injectedAgentNativeConfig().translations?.locales;
-  const candidates =
-    configured ?? args.catalog?.supportedLocales ?? SUPPORTED_LOCALES;
-  const supported = candidates.filter((locale): locale is LocaleCode =>
-    (SUPPORTED_LOCALES as readonly string[]).includes(locale),
-  );
+  const catalogLocales = args.catalog?.locales?.map(({ code }) => code) ?? [];
+  const candidates = configured ??
+    args.catalog?.supportedLocales ?? [...SUPPORTED_LOCALES, ...catalogLocales];
+  const sourceCandidates = [...candidates, args.sourceLocale];
+  const supported = sourceCandidates
+    .map((locale) => normalizeLocaleCode(locale, sourceCandidates))
+    .filter((locale): locale is LocaleCode => locale !== null);
+  const sourceLocale =
+    normalizeLocaleCode(args.sourceLocale, sourceCandidates) ?? DEFAULT_LOCALE;
   return [
-    args.sourceLocale,
-    ...supported.filter((locale) => locale !== args.sourceLocale),
+    sourceLocale,
+    ...supported.filter((locale) => locale !== sourceLocale),
   ].filter((locale, index, all) => all.indexOf(locale) === index);
 }
 
@@ -397,6 +441,11 @@ export function AgentNativeI18nProvider({
   const sourceLocale = catalog?.sourceLocale ?? DEFAULT_LOCALE;
   const sourceMessages = catalog?.messages ?? {};
   const loadMessages = catalog?.loadMessages;
+  const coreMessageOverrides = catalog?.coreMessageOverrides;
+  const localeMetadata = useMemo(
+    () => catalogLocaleMetadata(catalog?.locales),
+    [catalog?.locales],
+  );
   const supportedLocales = useMemo(
     () => resolveSupportedLocales({ catalog, sourceLocale }),
     [catalog, sourceLocale],
@@ -476,7 +525,10 @@ export function AgentNativeI18nProvider({
   useEffect(() => {
     const nextLocale =
       preference === "system"
-        ? resolveLocaleFromCandidates(browserLanguageCandidates())
+        ? resolveLocaleFromCandidates(
+            browserLanguageCandidates(),
+            supportedLocales,
+          )
         : preference;
     setLocale(
       resolveSupportedLocale(nextLocale, supportedLocales, sourceLocale),
@@ -501,14 +553,18 @@ export function AgentNativeI18nProvider({
               : initialLocale === locale && initialMessages
                 ? initialMessages
                 : null;
-          const [coreMessages, loadedAppMessages] = await Promise.all([
-            shouldLoadCoreMessages
-              ? loadCoreMessagesForLocale(locale)
-              : Promise.resolve<LocaleMessages>({}),
-            shouldLoadAppMessages
-              ? Promise.resolve(preloaded ?? loadMessages?.(locale))
-              : Promise.resolve(null),
-          ]);
+          const [coreMessages, loadedAppMessages, loadedCoreOverrides] =
+            await Promise.all([
+              shouldLoadCoreMessages
+                ? loadCoreMessagesForLocale(locale)
+                : Promise.resolve<LocaleMessages>({}),
+              shouldLoadAppMessages
+                ? Promise.resolve(preloaded ?? loadMessages?.(locale))
+                : Promise.resolve(null),
+              shouldLoadCoreMessages
+                ? loadAgentNativeI18nLocale(coreMessageOverrides?.[locale])
+                : Promise.resolve(null),
+            ]);
           const existingMessages = normalizeLoadedMessages(
             i18n.getResourceBundle(locale, namespace),
           );
@@ -520,8 +576,14 @@ export function AgentNativeI18nProvider({
             );
           }
           const appMessages = appMessagesRef.current?.get(locale) ?? null;
+          const resolvedCoreMessages = mergeLocaleMessages(
+            coreMessages,
+            loadedCoreOverrides
+              ? normalizeCoreMessageOverrides(loadedCoreOverrides)
+              : null,
+          );
           const nextMessages = shouldLoadCoreMessages
-            ? composeLocaleMessages(coreMessages, appMessages)
+            ? composeLocaleMessages(resolvedCoreMessages, appMessages)
             : mergeLocaleMessages(existingMessages ?? {}, appMessages);
           i18n.addResourceBundle(locale, namespace, nextMessages, true, true);
           if (shouldLoadCoreMessages) {
@@ -549,7 +611,9 @@ export function AgentNativeI18nProvider({
     i18n,
     initialLocale,
     initialMessages,
+    coreMessageOverrides,
     loadMessages,
+    localeMetadata,
     locale,
     namespace,
     sourceLocale,
@@ -558,12 +622,12 @@ export function AgentNativeI18nProvider({
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    const dir = localeDirection(locale);
+    const dir = localeDirection(locale, localeMetadata);
     const root = document.documentElement;
     root.setAttribute("lang", locale);
     root.setAttribute("dir", dir);
     root.setAttribute("data-locale", locale);
-  }, [locale]);
+  }, [locale, localeMetadata]);
 
   useEffect(() => {
     if (!persistPreference) return;
@@ -606,13 +670,13 @@ export function AgentNativeI18nProvider({
       {
         locale,
         preference,
-        dir: localeDirection(locale),
+        dir: localeDirection(locale, localeMetadata),
       },
       { requestSource: "localization" },
     ).catch(() => {
       // Public/anonymous pages cannot write app-state; localization still works.
     });
-  }, [locale, persistPreference, preference]);
+  }, [locale, localeMetadata, persistPreference, preference]);
 
   const setPreference = useCallback(
     async (next: LocalePreference) => {
@@ -642,8 +706,9 @@ export function AgentNativeI18nProvider({
       locale,
       sourceLocale,
       preference,
-      dir: localeDirection(locale),
-      metadata: LOCALE_METADATA[locale],
+      dir: localeDirection(locale, localeMetadata),
+      metadata: localeMetadataFor(locale, localeMetadata),
+      localeMetadata,
       setPreference,
       loading,
       supportedLocales,
@@ -655,6 +720,7 @@ export function AgentNativeI18nProvider({
       setPreference,
       sourceLocale,
       supportedLocales,
+      localeMetadata,
     ],
   );
 
@@ -911,7 +977,13 @@ export function LanguagePicker({
   label?: string;
   variant?: "select" | "icon" | "ghost-icon";
 }) {
-  const { locale, preference, setPreference, supportedLocales } = useLocale();
+  const {
+    locale,
+    preference,
+    setPreference,
+    supportedLocales,
+    localeMetadata,
+  } = useLocale();
   const [open, setOpen] = useState(false);
   const copy =
     LANGUAGE_PICKER_COPY[locale] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
@@ -932,7 +1004,7 @@ export function LanguagePicker({
       : []),
     ...supportedLocales.map((code) => ({
       value: code,
-      label: localeDisplayName(code),
+      label: localeDisplayName(code, localeMetadata),
       description: code,
     })),
   ];

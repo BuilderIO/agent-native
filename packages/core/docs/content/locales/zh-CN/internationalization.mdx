@@ -63,11 +63,9 @@ export const i18nCatalog = createAgentNativeI18nCatalog({
 区域设置。支持的区域设置代码为 `en-US`、`zh-CN`、`zh-TW`、`es-ES`、
 `fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN` 和 `ar-SA`。
 
-这份列表是由框架固定下来的，并不只是这个示例恰好打包的内容。
-`LocaleCode` 是一个恰好包含这些代码的 TypeScript 联合类型，
-`set-localization-preference` 会在运行时拒绝其他任何值。每个区域设置
-还需要由框架维护的元数据，例如从右到左语言的文字方向。添加新的
-区域设置意味着扩展框架本身，而不是在应用中添加一个目录文件。
+框架提供内置区域设置。应用也可以使用自己的元数据注册其他规范的
+BCP-47 区域设置，例如本地名称、英文名称和文字方向。对于可选的框架
+翻译，请使用 `coreMessageOverrides`；缺少的键会回退到英文。
 
 `createAgentNativeI18nCatalog` 还接受一个可选的 `sourceLocale`（默认值
 为 `en-US`）和一个可选的 `supportedLocales` 数组。当应用只为框架支持
@@ -103,7 +101,7 @@ function Greeting({ name }: { name: string }) {
 - `get-localization-preference` — 读取当前用户的 `{ locale, timezone }`
 - `set-localization-preference` — 设置 `locale` 和/或 `timezone`，两者均为可选
 
-`locale` 可以是 `"system"`，也可以是受支持的 BCP-47 区域设置。
+`locale` 可以是 `"system"`，也可以是应用注册的有效 BCP-47 区域设置。
 `timezone` 可以是 `"system"`，也可以是像 `America/New_York` 这样的
 IANA 时区。它的存在是为了让计划任务和自动化工作按照用户所在时区
 运行，而不是按照宿主所在时区运行。只设置其中一个字段时，另一个

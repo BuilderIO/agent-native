@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { localeDisplayName, normalizeLocaleCode } from "./shared.js";
+import {
+  localeDisplayName,
+  normalizeLocaleCode,
+  normalizeLocalePreference,
+} from "./shared.js";
 
 describe("localization shared helpers", () => {
   it("maps traditional Chinese browser locales to zh-TW", () => {
@@ -20,5 +24,22 @@ describe("localization shared helpers", () => {
     expect(localeDisplayName("en-US")).toBe("English");
     expect(localeDisplayName("pt-BR")).toBe("Português");
     expect(localeDisplayName("zh-CN")).toBe("简体中文");
+  });
+
+  it("resolves app-registered BCP-47 locales", () => {
+    const supportedLocales = ["en-US", "it-IT"] as const;
+    expect(normalizeLocaleCode("it-it", supportedLocales)).toBe("it-IT");
+    expect(normalizeLocaleCode("it", supportedLocales)).toBe("it-IT");
+    expect(normalizeLocalePreference("it-IT")).toBe("it-IT");
+    expect(
+      localeDisplayName("it-IT", {
+        "it-IT": {
+          code: "it-IT",
+          englishName: "Italian",
+          nativeName: "Italiano",
+          dir: "ltr",
+        },
+      }),
+    ).toBe("Italiano");
   });
 });

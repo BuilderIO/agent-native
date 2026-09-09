@@ -43,6 +43,16 @@ function CoreVoiceModeProbe() {
   return <span>{t("agentChat.voiceMode.entryButtonLabel")}</span>;
 }
 
+function CustomLocaleProbe() {
+  const t = useT();
+  const { locale, metadata } = useLocale();
+  return (
+    <span data-custom-locale={locale}>
+      {metadata.nativeName}: {t("agentChat.status.thinking")}
+    </span>
+  );
+}
+
 function LocaleBundleFallbackProbe() {
   const { i18n } = useTranslation();
   const { locale, loading } = useLocale();
@@ -346,6 +356,65 @@ describe("LanguagePicker", () => {
     ).map((button) => button.textContent?.trim());
 
     expect(optionLabels).toEqual(["System", "English", "Español", "Français"]);
+  });
+
+  it("registers custom locale metadata and framework overrides", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="it-IT"
+          initialPreference="it-IT"
+          persistPreference={false}
+          catalog={{
+            messages: {},
+            locales: [
+              {
+                code: "it-IT",
+                nativeName: "Italiano",
+                englishName: "Italian",
+                dir: "ltr",
+              },
+            ],
+            loadMessages: async () => ({}),
+            coreMessageOverrides: {
+              "it-IT": async () => ({
+                agentChat: { status: { thinking: "Sta pensando" } },
+              }),
+            },
+          }}
+        >
+          <LanguagePicker label="Interface language" />
+          <CustomLocaleProbe />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (container.textContent?.includes("Sta pensando")) break;
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+    }
+    expect(container.textContent).toContain("Sta pensando");
+    expect(
+      container
+        .querySelector("[data-custom-locale]")
+        ?.getAttribute("data-custom-locale"),
+    ).toBe("it-IT");
+    expect(
+      document
+        .querySelector("[data-language-picker-trigger]")
+        ?.getAttribute("aria-label"),
+    ).toBe("Interface language: Italiano");
+
+    await click(document.querySelector("[data-language-picker-trigger]")!);
+    expect(
+      Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>(
+          '[role="menuitemradio"]',
+        ),
+      ).map((button) => button.textContent?.trim()),
+    ).toContain("Italiano");
   });
 
   it("routes the select variant through a registered picker adapter", async () => {

@@ -4,10 +4,7 @@ import {
   localeDirection,
   normalizeLocaleCode,
   resolveLocaleFromCandidates,
-  type LocaleCode,
 } from "@agent-native/core/client/i18n";
-
-export type DocsLocale = LocaleCode;
 
 export const DEFAULT_DOCS_LOCALE = DEFAULT_LOCALE;
 export const DOCS_LOCALES = [
@@ -22,7 +19,8 @@ export const DOCS_LOCALES = [
   "ko-KR",
   "hi-IN",
   "ar-SA",
-] as const satisfies readonly DocsLocale[];
+] as const;
+export type DocsLocale = (typeof DOCS_LOCALES)[number];
 export const DOCS_LOCALE_METADATA = LOCALE_METADATA;
 export { localeDirection };
 

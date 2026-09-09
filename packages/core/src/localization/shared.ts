@@ -12,7 +12,9 @@ export const SUPPORTED_LOCALES = [
   "ar-SA",
 ] as const;
 
-export type LocaleCode = (typeof SUPPORTED_LOCALES)[number];
+export type BuiltinLocaleCode = (typeof SUPPORTED_LOCALES)[number];
+/** A canonical BCP-47 locale, including app-registered locale codes. */
+export type LocaleCode = string & {};
 export type LocalePreference = "system" | LocaleCode;
 
 export interface LocaleMetadata {
@@ -21,6 +23,8 @@ export interface LocaleMetadata {
   nativeName: string;
   dir: "ltr" | "rtl";
 }
+
+export type LocaleMetadataMap = Readonly<Record<string, LocaleMetadata>>;
 
 export interface LocalizationPreference {
   locale: LocalePreference;
@@ -42,12 +46,12 @@ export type ResolvedLocalizationPreference = Required<LocalizationPreference>;
 
 export type TimezonePreference = "system" | (string & {});
 
-export const DEFAULT_LOCALE: LocaleCode = "en-US";
+export const DEFAULT_LOCALE: BuiltinLocaleCode = "en-US";
 export const LOCALIZATION_SETTING_KEY = "localization";
 export const LOCALE_STORAGE_KEY = "agent-native:locale-preference";
 export const LOCALE_HYDRATION_GLOBAL = "__AGENT_NATIVE_LOCALE__";
 
-export const LOCALE_METADATA: Record<LocaleCode, LocaleMetadata> = {
+export const LOCALE_METADATA: Record<BuiltinLocaleCode, LocaleMetadata> = {
   "en-US": {
     code: "en-US",
     englishName: "English",
@@ -116,15 +120,33 @@ export const LOCALE_METADATA: Record<LocaleCode, LocaleMetadata> = {
   },
 };
 
+export function localeMetadataFor(
+  locale: LocaleCode,
+  metadata: LocaleMetadataMap = LOCALE_METADATA,
+): LocaleMetadata {
+  return (
+    metadata[locale] ??
+    LOCALE_METADATA[locale as BuiltinLocaleCode] ?? {
+      code: locale,
+      englishName: locale,
+      nativeName: locale,
+      dir: "ltr",
+    }
+  );
+}
+
 /** Return the short native language name used in compact locale pickers. */
-export function localeDisplayName(locale: LocaleCode): string {
-  const nativeName = LOCALE_METADATA[locale]?.nativeName ?? locale;
+export function localeDisplayName(
+  locale: LocaleCode,
+  metadata: LocaleMetadataMap = LOCALE_METADATA,
+): string {
+  const nativeName = localeMetadataFor(locale, metadata).nativeName;
   return nativeName.split("(", 1)[0]?.trim() || nativeName;
 }
 
 const SUPPORTED_LOCALE_SET = new Set<string>(SUPPORTED_LOCALES);
 
-const CHINESE_LOCALE_ALIASES: Record<string, LocaleCode> = {
+const CHINESE_LOCALE_ALIASES: Record<string, BuiltinLocaleCode> = {
   "zh-cn": "zh-CN",
   "zh-hans": "zh-CN",
   "zh-hans-cn": "zh-CN",
@@ -139,7 +161,9 @@ const CHINESE_LOCALE_ALIASES: Record<string, LocaleCode> = {
   "zh-tw": "zh-TW",
 };
 
-function normalizeChineseLocaleAlias(canonical: string): LocaleCode | null {
+function normalizeChineseLocaleAlias(
+  canonical: string,
+): BuiltinLocaleCode | null {
   const normalized = canonical.toLowerCase();
   const alias = CHINESE_LOCALE_ALIASES[normalized];
   if (alias) return alias;
@@ -160,34 +184,55 @@ function normalizeChineseLocaleAlias(canonical: string): LocaleCode | null {
   return null;
 }
 
-export function isLocaleCode(value: unknown): value is LocaleCode {
+export function isLocaleCode(value: unknown): value is BuiltinLocaleCode {
   return typeof value === "string" && SUPPORTED_LOCALE_SET.has(value);
 }
 
-export function normalizeLocaleCode(value: unknown): LocaleCode | null {
+function canonicalizeLocaleCode(value: unknown): string | null {
   if (typeof value !== "string" || value.trim().length === 0) return null;
   try {
-    for (const canonical of Intl.getCanonicalLocales(value.trim())) {
-      if (isLocaleCode(canonical)) return canonical;
-      const alias = normalizeChineseLocaleAlias(canonical);
-      if (alias) return alias;
-      const language = canonical.split("-")[0]?.toLowerCase();
-      const match = SUPPORTED_LOCALES.find(
-        (locale) => locale.split("-")[0]?.toLowerCase() === language,
-      );
-      if (match) return match;
-    }
+    return Intl.getCanonicalLocales(value.trim())[0] ?? null;
   } catch {
     return null;
   }
-  return null;
+}
+
+export function isValidLocaleCode(value: unknown): value is LocaleCode {
+  return canonicalizeLocaleCode(value) !== null;
+}
+
+/**
+ * Resolve a locale against an app's registered list. The default list keeps
+ * existing callers restricted to the framework's built-in locales.
+ */
+export function normalizeLocaleCode(
+  value: unknown,
+  supportedLocales: readonly LocaleCode[] = SUPPORTED_LOCALES,
+): LocaleCode | null {
+  const canonical = canonicalizeLocaleCode(value);
+  if (!canonical) return null;
+
+  const canonicalSupported = supportedLocales
+    .map((locale) => canonicalizeLocaleCode(locale))
+    .filter((locale): locale is string => locale !== null);
+  const exact = canonicalSupported.find((locale) => locale === canonical);
+  if (exact) return exact;
+
+  const alias = normalizeChineseLocaleAlias(canonical);
+  if (alias && canonicalSupported.includes(alias)) return alias;
+
+  const language = canonical.split("-")[0]?.toLowerCase();
+  const match = canonicalSupported.find(
+    (locale) => locale.split("-")[0]?.toLowerCase() === language,
+  );
+  return match ?? null;
 }
 
 export function normalizeLocalePreference(
   value: unknown,
 ): LocalePreference | null {
   if (value === "system") return "system";
-  return normalizeLocaleCode(value);
+  return normalizeLocaleCode(value) ?? canonicalizeLocaleCode(value);
 }
 
 export function normalizeTimezonePreference(
@@ -220,15 +265,19 @@ export function normalizeLocalizationPreference(
   return { locale: locale ?? "system", timezone: "system" };
 }
 
-export function localeDirection(locale: LocaleCode): "ltr" | "rtl" {
-  return LOCALE_METADATA[locale]?.dir ?? "ltr";
+export function localeDirection(
+  locale: LocaleCode,
+  metadata: LocaleMetadataMap = LOCALE_METADATA,
+): "ltr" | "rtl" {
+  return localeMetadataFor(locale, metadata).dir;
 }
 
 export function resolveLocaleFromCandidates(
   candidates: Iterable<unknown>,
+  supportedLocales: readonly LocaleCode[] = SUPPORTED_LOCALES,
 ): LocaleCode {
   for (const candidate of candidates) {
-    const normalized = normalizeLocaleCode(candidate);
+    const normalized = normalizeLocaleCode(candidate, supportedLocales);
     if (normalized) return normalized;
   }
   return DEFAULT_LOCALE;
@@ -237,11 +286,17 @@ export function resolveLocaleFromCandidates(
 export function resolveLocaleFromPreference(
   preference: unknown,
   systemCandidates: Iterable<unknown> = [],
+  supportedLocales: readonly LocaleCode[] = SUPPORTED_LOCALES,
 ): LocaleCode {
   const normalized =
     typeof preference === "string"
       ? normalizeLocalePreference(preference)
       : normalizeLocalizationPreference(preference).locale;
-  if (normalized && normalized !== "system") return normalized;
-  return resolveLocaleFromCandidates(systemCandidates);
+  if (normalized && normalized !== "system") {
+    return (
+      normalizeLocaleCode(normalized, supportedLocales) ??
+      resolveLocaleFromCandidates(systemCandidates, supportedLocales)
+    );
+  }
+  return resolveLocaleFromCandidates(systemCandidates, supportedLocales);
 }

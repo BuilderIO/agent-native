@@ -35,6 +35,8 @@ const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 `window.__AGENT_NATIVE_LOCALE__` before React hydrates. Public SSR routes can
 call `resolveLocaleFromRequest()` from `@agent-native/core/server` and pass the
 resolved locale/catalog into that script to avoid hydration mismatches.
+For custom locales, pass the same `supportedLocales` and `localeMetadata`
+to both server helpers.
 
 ## Catalogs
 
@@ -63,23 +65,36 @@ export const i18nCatalog = createAgentNativeI18nCatalog({
 
 `messages` bundles `en-US` directly so it is always available before any
 locale loads. `localeLoaders` dynamic-imports every other catalog so users
-only download the active locale. The supported locale codes are `en-US`,
-`zh-CN`, `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`,
-`hi-IN`, and `ar-SA`.
-
-This list is fixed by the framework. It is not just what this example
-happens to bundle. `LocaleCode` is a TypeScript union of exactly these
-codes, and `set-localization-preference` rejects anything else at runtime.
-Each locale also needs framework-curated metadata, such as text direction
-for right-to-left languages. Adding a new locale means extending the
-framework itself, not adding a catalog file to your app.
+only download the active locale. The framework's built-in locale codes are
+`en-US`, `zh-CN`, `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`,
+`ko-KR`, `pt-BR`, `hi-IN`, and `ar-SA`. Apps can also register
+additional canonical BCP-47 locales with their own metadata, such as native
+and English names and text direction.
 
 `createAgentNativeI18nCatalog` also accepts an optional `sourceLocale`,
 which defaults to `en-US`, and an optional `supportedLocales` array. Set
 `supportedLocales` when an app ships translations for only some of the
-framework's locales instead of all ten. It defaults to every locale the
-framework supports. `LanguagePicker` only lists locales in this set, and any
-detected or requested locale outside it falls back to `sourceLocale`.
+framework's locales instead of all ten. The default merges the built-in
+locales with the codes in `locales`. `LanguagePicker` only lists locales in
+this set, and any detected or requested locale outside it falls back to
+`sourceLocale`. `translations.locales` in `agent-native.json` is an
+explicit app-level allowlist and takes precedence when provided.
+
+Register app-owned locale metadata and optional framework overrides alongside
+the app catalog:
+
+```ts
+locales: [
+  { code: "it-IT", nativeName: "Italiano", englishName: "Italian", dir: "ltr" },
+],
+coreMessageOverrides: {
+  "it-IT": () => import("./it-IT-core-overrides"),
+},
+```
+
+The app's `localeLoaders` supplies its UI strings. Framework strings that are
+not included in `coreMessageOverrides` fall back to English, so a custom
+locale does not need a complete framework catalog.
 
 ## UI
 
@@ -108,7 +123,7 @@ Every app inherits:
 - `get-localization-preference` — read the current user's `{ locale, timezone }`
 - `set-localization-preference` — set `locale` and/or `timezone`, each optional
 
-`locale` is `"system"` or a supported BCP-47 locale. `timezone` is `"system"`
+`locale` is `"system"` or a valid BCP-47 locale registered by the app. `timezone` is `"system"`
 or an IANA zone such as `America/New_York`. It exists so scheduled and
 automation work runs in the user's zone instead of the host's. Setting only
 one field leaves the other unchanged, because `set-localization-preference`
