@@ -148,7 +148,12 @@ jobs:
             git rev-parse "$1^{commit}" 2>/dev/null
           }
           schema_files_between() {
-            git diff --name-only "$1" "$2" |
+            local changed_files
+            if ! changed_files="$(git diff --name-only "$1" "$2")"; then
+              echo "::error::Unable to compare schema-dependent paths between $1 and $2." >&2
+              return 2
+            fi
+            printf '%s\n' "$changed_files" |
               grep -Ev '\.(spec|test)\.[cm]?[jt]sx?$' |
               grep -E '(^|/)server/db/.+\.ts$|^packages/core/src/db/(schema|migrations|drizzle-migrations|migration-runtime|ensure-additive-columns|widen-columns)\.ts$|^packages/core/src/(resources|extensions|data-programs)/.+\.ts$|(^|/)store\.ts$|(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(scripts/)?migrate-production\.ts|drizzle(\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$|\.sql$' || {
                 status=$?
@@ -190,11 +195,6 @@ jobs:
               [[ -z "$pending_tag" ]] && continue
               pending_sha="$(commit_for_tag "$pending_tag")" || continue
               is_ancestor "$pending_sha" "$source_sha" || continue
-              pending_base="$(git rev-parse "$pending_sha^" 2>/dev/null || git hash-object -t tree /dev/null)"
-              if [[ -z "$(schema_files_between "$pending_base" "$pending_sha")" ]]; then
-                echo "::warning::Ignoring obsolete beta migration marker $pending_tag; its commit has no schema-dependent changes."
-                continue
-              fi
               resolved=false
               while IFS= read -r migrated_tag; do
                 [[ -z "$migrated_tag" ]] && continue
@@ -205,6 +205,14 @@ jobs:
                 break
               done <<< "$migrated_tags"
               [[ "$resolved" == true ]] && continue
+              pending_base="$(git hash-object -t tree /dev/null)"
+              if [[ -n "$latest_migrated_sha" ]] && is_ancestor "$latest_migrated_sha" "$pending_sha"; then
+                pending_base="$latest_migrated_sha"
+              fi
+              if [[ -z "$(schema_files_between "$pending_base" "$pending_sha")" ]]; then
+                echo "::warning::Ignoring obsolete beta migration marker $pending_tag; its range since the latest production migration has no schema-dependent changes."
+                continue
+              fi
               distance="$(git rev-list --count "$pending_sha..$source_sha")"
               if [[ -z "$unresolved_pending_distance" || "$distance" -lt "$unresolved_pending_distance" ]]; then
                 unresolved_pending_sha="$pending_sha"

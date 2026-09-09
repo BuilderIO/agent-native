@@ -268,6 +268,14 @@ describe("production Netlify site concurrency guard", () => {
       String(schemaGateStep?.run),
       /Ignoring obsolete beta migration marker/,
     );
+    assert.match(
+      String(schemaGateStep?.run),
+      /if ! changed_files="\$\(git diff --name-only "\$1" "\$2"\)"/,
+    );
+    assert.match(
+      String(schemaGateStep?.run),
+      /is_ancestor "\$latest_migrated_sha" "\$pending_sha"/,
+    );
     assert.doesNotMatch(
       String(schemaGateStep?.run),
       /packages\/core\/src\/db\/\|/,
