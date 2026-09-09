@@ -149,9 +149,6 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("handler: () => cycleTab(true)");
     expect(source).toContain("void navigate(topBarTabs[nextIdx].href);");
     expect(source).toContain("canCycleTab");
-    expect(source).not.toContain(
-      'event.target.closest("[data-mail-tab-list]")',
-    );
     expect(source).toContain("data-mail-tab-list");
     expect(source).toContain("prefetchEmails(");
     expect(source).toContain(

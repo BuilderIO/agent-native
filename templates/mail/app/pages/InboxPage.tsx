@@ -420,8 +420,7 @@ export function InboxPage() {
       activeInboxTab ||
       activeFilterId ||
       searchQuery ||
-      combineInbox ||
-      !isGoogleConnected
+      combineInbox
     )
       return;
     const defaultHref = resolveDefaultMailHref({

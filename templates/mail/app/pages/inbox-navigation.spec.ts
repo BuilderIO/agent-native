@@ -68,7 +68,7 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain(
       "const combineInbox = settings?.combineInbox === true;",
     );
-    expect(source).toContain("combineInbox ||");
+    expect(source).toContain("combineInbox\n    )");
     expect(source).toContain("!combineInbox && isPinnedTab");
     expect(source).toContain("!combineInbox &&\n    activeInboxTab");
   });

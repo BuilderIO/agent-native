@@ -91,12 +91,41 @@ describe("Mail private home route", () => {
     );
   });
 
-  it("does not synthesize Important when Google is disconnected", () => {
+  it("does not synthesize Important when Google status fails", () => {
     return expectInboxRedirect(
       clientLoader,
       { ok: true, pinnedLabels: undefined, googleConnected: false },
       "/inbox",
     );
+  });
+
+  it("returns neutral /inbox when Google status request rejects", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : (url as Request).url;
+        if (urlStr.includes("google/status")) {
+          throw new Error("status service down");
+        }
+        return new Response(JSON.stringify({ pinnedLabels: undefined }), {
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    return expect(
+      clientLoader({ request: new Request("https://mail.test/") } as never),
+    ).rejects.toSatisfy((thrown: unknown) => {
+      expect(thrown).toBeInstanceOf(Response);
+      const res = thrown as Response;
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toBe("/inbox");
+      return true;
+    });
   });
 
   it("routes to the first top label on client navigation when pins exist", () => {

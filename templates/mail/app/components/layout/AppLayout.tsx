@@ -1235,16 +1235,36 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const canCycleTab = useCallback(
     (event: KeyboardEvent) => {
       if (topBarTabs.length < 2) return false;
-      if (event.target instanceof Element) {
-        // Keep native Tab behavior inside modal/dialog popups where focus trapping is required
-        if (
-          event.target.closest(
-            '[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper]',
-          ) !== null
-        ) {
-          return false;
-        }
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return true;
+
+      // Keep native Tab behavior inside modal/dialog popups where focus trapping is required
+      if (
+        target.closest(
+          '[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper]',
+        ) !== null
+      ) {
+        return false;
       }
+
+      // Preserve native Tab traversal when focused on interactive controls outside the tab bar
+      // (buttons, links, checkboxes, selects, etc.), except for the tab bar itself or body/main view.
+      if (target.closest("[data-mail-tab-list]") !== null) {
+        return true;
+      }
+
+      const isInteractive =
+        target.matches(
+          'button, a[href], select, [role="button"], [role="checkbox"], [role="menuitem"], [role="option"], [tabindex]:not([tabindex="-1"])',
+        ) ||
+        target.closest(
+          'button, a[href], select, [role="button"], [role="checkbox"], [role="menuitem"], [role="option"]',
+        ) !== null;
+
+      if (isInteractive) {
+        return false;
+      }
+
       return true;
     },
     [topBarTabs.length],
