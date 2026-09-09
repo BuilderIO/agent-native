@@ -881,6 +881,52 @@ describe("createBuilderEngine", () => {
     expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
   });
 
+  it("marks OAuth custody for reconnect on a bare gateway 403", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(403, {
+          message: "Forbidden",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events.find((e) => e.type === "stop")?.errorCode).toBe(
+      "builder_auth_error",
+    );
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+    expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
+  });
+
+  it("preserves an explicit OAuth gateway policy 403", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(403, {
+          code: "forbidden",
+          message: "Not allowed",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((event) => event.type === "stop");
+
+    expect(stop?.errorCode).toBe("forbidden");
+    expect(stop?.error).toBe("Not allowed");
+    expect(oauthState.markReconnect).not.toHaveBeenCalled();
+  });
+
   it("marks the OAuth grant in the request organization", async () => {
     oauthState.ownerEmail = "person@example.com";
     oauthState.orgId = "org-request";
