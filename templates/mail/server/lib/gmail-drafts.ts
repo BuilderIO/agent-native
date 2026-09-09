@@ -31,7 +31,10 @@ function hasGmailScope(tokens: Record<string, unknown>): boolean {
   );
 }
 
-async function getAccessToken(accountEmail: string): Promise<string | null> {
+async function getAccessToken(
+  accountEmail: string,
+  ownerEmail: string,
+): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
     | StoredTokens
     | undefined;
@@ -41,7 +44,7 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
     tokens.expiry_date &&
     tokens.expiry_date < Date.now() + 5 * 60 * 1000
   ) {
-    const { clientId, clientSecret } = await getOAuth2Credentials(accountEmail);
+    const { clientId, clientSecret } = await getOAuth2Credentials(ownerEmail);
     const oauth = createOAuth2Client(clientId, clientSecret, "");
     const refreshed = await oauth.refreshToken(tokens.refresh_token);
     const updated = {
@@ -62,11 +65,11 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
 async function resolveAccountEmail(
   requested: string | undefined,
   ownerEmail: string,
-): Promise<string> {
+): Promise<string | null> {
   const accounts = (
     await listOAuthAccountsByOwner("google", ownerEmail)
   ).filter((account) => hasGmailScope(account.tokens));
-  if (requested && requested !== ownerEmail) {
+  if (requested) {
     if (!accounts.some((account) => account.accountId === requested)) {
       throw new Error("Account not owned by current user");
     }
@@ -75,7 +78,7 @@ async function resolveAccountEmail(
   return (
     accounts.find((account) => account.accountId === ownerEmail)?.accountId ??
     accounts[0]?.accountId ??
-    ownerEmail
+    null
   );
 }
 
@@ -100,7 +103,8 @@ export async function saveGmailDraft(args: {
     args.accountEmail,
     args.ownerEmail,
   );
-  const accessToken = await getAccessToken(accountEmail);
+  if (!accountEmail) return null;
+  const accessToken = await getAccessToken(accountEmail, args.ownerEmail);
   if (!accessToken) return null;
 
   let threadId = args.replyToThreadId;
@@ -186,7 +190,12 @@ export async function deleteGmailDraft(args: {
     args.accountEmail,
     args.ownerEmail,
   );
-  const accessToken = await getAccessToken(accountEmail);
+  if (!accountEmail) {
+    throw new Error(
+      "Gmail draft could not be deleted because the account is not connected.",
+    );
+  }
+  const accessToken = await getAccessToken(accountEmail, args.ownerEmail);
   if (!accessToken) {
     throw new Error(
       "Gmail draft could not be deleted because the account is not connected.",

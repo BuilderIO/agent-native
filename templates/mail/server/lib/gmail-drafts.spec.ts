@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   getOAuthTokens: vi.fn(),
   listOAuthAccountsByOwner: vi.fn(),
   saveOAuthTokens: vi.fn(),
+  createOAuth2Client: vi.fn(),
+  getOAuth2Credentials: vi.fn(),
   gmailGetMessage: vi.fn(),
   googleFetch: vi.fn(),
 }));
@@ -15,13 +17,13 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
 }));
 
 vi.mock("./google-api.js", () => ({
-  createOAuth2Client: vi.fn(),
+  createOAuth2Client: mocks.createOAuth2Client,
   gmailGetMessage: mocks.gmailGetMessage,
   googleFetch: mocks.googleFetch,
 }));
 
 vi.mock("./google-auth.js", () => ({
-  getOAuth2Credentials: vi.fn(),
+  getOAuth2Credentials: mocks.getOAuth2Credentials,
 }));
 
 import { saveGmailDraft } from "./gmail-drafts.js";
@@ -44,6 +46,17 @@ describe("saveGmailDraft", () => {
   });
 
   it("preserves Gmail reply threading and the resolved account", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: {
+          access_token: "token",
+          scope: "https://www.googleapis.com/auth/gmail.modify",
+        },
+      },
+    ]);
+
     const result = await saveGmailDraft({
       ownerEmail: "owner@example.com",
       to: "recipient@example.com",
@@ -78,7 +91,10 @@ describe("saveGmailDraft", () => {
       {
         accountId: "gmail@example.com",
         displayName: null,
-        tokens: { access_token: "token" },
+        tokens: {
+          access_token: "token",
+          scope: "https://www.googleapis.com/auth/gmail.modify",
+        },
       },
     ]);
 
@@ -94,5 +110,136 @@ describe("saveGmailDraft", () => {
       "google",
       "gmail@example.com",
     );
+  });
+
+  it("skips a non-Gmail owner account when choosing a default", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: {
+          access_token: "owner-token",
+          scope: "https://www.googleapis.com/auth/calendar.readonly",
+        },
+      },
+      {
+        accountId: "gmail@example.com",
+        displayName: null,
+        tokens: {
+          access_token: "gmail-token",
+          scope: "https://www.googleapis.com/auth/gmail.modify",
+        },
+      },
+    ]);
+
+    const result = await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Draft",
+    });
+
+    expect(result?.accountEmail).toBe("gmail@example.com");
+    expect(mocks.getOAuthTokens).toHaveBeenCalledWith(
+      "google",
+      "gmail@example.com",
+    );
+  });
+
+  it("rejects an explicitly selected account without Gmail scope", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: {
+          access_token: "owner-token",
+          scope: "https://www.googleapis.com/auth/calendar.readonly",
+        },
+      },
+      {
+        accountId: "gmail@example.com",
+        displayName: null,
+        tokens: {
+          access_token: "gmail-token",
+          scope: "https://www.googleapis.com/auth/gmail.modify",
+        },
+      },
+    ]);
+
+    await expect(
+      saveGmailDraft({
+        ownerEmail: "owner@example.com",
+        accountEmail: "owner@example.com",
+        to: "recipient@example.com",
+        subject: "Hello",
+        body: "Draft",
+      }),
+    ).rejects.toThrow("Account not owned by current user");
+    expect(mocks.getOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("keeps the local draft path when no Gmail account is connected", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: {
+          access_token: "owner-token",
+          scope: "https://www.googleapis.com/auth/calendar.readonly",
+        },
+      },
+    ]);
+
+    const result = await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Draft",
+    });
+
+    expect(result).toBeNull();
+    expect(mocks.getOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("refreshes a secondary account with the authenticated owner credentials", async () => {
+    const refreshToken = vi.fn().mockResolvedValue({
+      access_token: "refreshed-token",
+      expires_in: 3600,
+    });
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "gmail@example.com",
+        displayName: null,
+        tokens: {
+          access_token: "expiring-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() + 1000,
+          scope: "https://www.googleapis.com/auth/gmail.modify",
+        },
+      },
+    ]);
+    mocks.getOAuthTokens.mockResolvedValue({
+      access_token: "expiring-token",
+      refresh_token: "refresh-token",
+      expiry_date: Date.now() + 1000,
+    });
+    mocks.getOAuth2Credentials.mockResolvedValue({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+    });
+    mocks.createOAuth2Client.mockReturnValue({ refreshToken });
+
+    const result = await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Draft",
+    });
+
+    expect(result?.accountEmail).toBe("gmail@example.com");
+    expect(mocks.getOAuth2Credentials).toHaveBeenCalledWith(
+      "owner@example.com",
+    );
+    expect(refreshToken).toHaveBeenCalledWith("refresh-token");
   });
 });
