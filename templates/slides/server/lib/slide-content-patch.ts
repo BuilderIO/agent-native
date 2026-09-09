@@ -47,6 +47,16 @@ export type SlideContentEdit =
 
 export class SlideContentEditError extends Error {
   readonly code = "slide_content_edit_failed";
+  // Every failure here names the caller's mistake — an unmatched `find`, a bad
+  // occurrence, an expectedMatches miss. The action route flattens any error it
+  // cannot recognise to "Internal server error", so without these three fields
+  // the agent is told the server broke and retries the identical arguments
+  // instead of re-reading the slide. Duck-typed to match `isActionContractError`
+  // rather than importing `fail()`, which would pull the action layer into a lib
+  // the editor also imports.
+  readonly actionContractError = true;
+  readonly errorCode = "slide_content_edit_failed";
+  readonly statusCode = 400;
 
   constructor(message: string) {
     super(message);
