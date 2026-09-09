@@ -2046,12 +2046,10 @@ function postProcessStandalone(
         ...TIPTAP_WORKSPACE_OVERRIDES,
       };
     }
-    const localToolkit = localToolkitOverride();
-    if (localToolkit) {
-      sections.overrides ??= {};
-      sections.overrides['"@agent-native/toolkit"'] =
-        JSON.stringify(localToolkit);
-    }
+    sections.overrides = {
+      ...sections.overrides,
+      ...getLocalFrameworkPackageOverrides(),
+    };
     const localRecapCli = localRecapCliOverride();
     if (localRecapCli) {
       sections.overrides ??= {};
@@ -3520,22 +3518,36 @@ function getOwnPackageDependencyVersion(depName: string): string {
   return "latest";
 }
 
-function localToolkitOverride(): string | null {
-  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
-  const localToolkit = findLocalPackage("toolkit");
-  return localToolkit ? localPackageTarball(localToolkit) : null;
-}
-
 function localRecapCliOverride(): string | null {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
   const localRecapCli = findLocalPackage("recap-cli");
   return localRecapCli ? pathToFileURL(localRecapCli).href : null;
 }
 
+function getLocalFrameworkPackageOverrides(): Record<string, string> {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return {};
+
+  const overrides: Record<string, string> = {};
+  for (const packageDirName of [
+    "toolkit",
+    "agentkit-protocol",
+    "agentkit-client",
+    "agentkit-adapters",
+    "agentkit-conformance",
+  ]) {
+    const packageDir = findLocalPackage(packageDirName);
+    if (!packageDir) continue;
+    overrides[JSON.stringify(`@agent-native/${packageDirName}`)] =
+      JSON.stringify(localPackageTarball(packageDir));
+  }
+  return overrides;
+}
+
 function applyLocalWorkspaceOverrides(targetDir: string): void {
-  const localToolkit = localToolkitOverride();
+  const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
   const localRecapCli = localRecapCliOverride();
-  if (!localToolkit && !localRecapCli) return;
+  if (Object.keys(localFrameworkOverrides).length === 0 && !localRecapCli)
+    return;
 
   const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
   const existing = fs.existsSync(wsPath)
@@ -3543,9 +3555,7 @@ function applyLocalWorkspaceOverrides(targetDir: string): void {
     : "";
   const updated = mergeWorkspaceYamlSections(existing, {
     overrides: {
-      ...(localToolkit
-        ? { '"@agent-native/toolkit"': JSON.stringify(localToolkit) }
-        : {}),
+      ...localFrameworkOverrides,
       ...(localRecapCli
         ? { '"@agent-native/recap-cli"': JSON.stringify(localRecapCli) }
         : {}),
