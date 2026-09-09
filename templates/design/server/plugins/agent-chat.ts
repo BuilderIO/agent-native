@@ -15,10 +15,6 @@ const DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 12 * 60_000;
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   "view-screen",
-  // Pairs with view-screen: an external agent that can read the screen but
-  // cannot move it has to drive the browser to change screens, which is the
-  // UI automation the WebMCP contract exists to avoid.
-  "navigate",
   "list-designs",
   "list-design-systems",
   "list-design-templates",

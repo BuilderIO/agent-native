@@ -80,28 +80,26 @@ export async function applySlideContentEdits(
   edits: readonly SlideContentEdit[],
   format = false,
 ): Promise<SlideContentPatchResult> {
+  let content = currentContent;
+  const applied: string[] = [];
   try {
-    let content = currentContent;
-    const applied: string[] = [];
-
     for (const edit of edits) {
       const result = applyEdit(content, edit);
       content = result.content;
       applied.push(result.summary);
     }
-
-    const changed = content !== currentContent;
-
-    if (format) {
-      content = await formatSlideHtml(content);
-    }
-
-    return { content, applied, formatted: format, changed };
   } catch (error) {
     if (error instanceof SlideContentEditError) throw error;
     const message = error instanceof Error ? error.message : String(error);
     throw new SlideContentEditError(message);
   }
+
+  const changed = content !== currentContent;
+  if (format) {
+    content = await formatSlideHtml(content);
+  }
+
+  return { content, applied, formatted: format, changed };
 }
 
 export async function formatSlideHtml(content: string): Promise<string> {
@@ -130,11 +128,11 @@ export async function formatSlideHtml(content: string): Promise<string> {
       message.includes("Cannot find module 'prettier'") ||
       message.includes('Cannot find module "prettier"')
     ) {
-      throw new SlideContentEditError(
+      throw new Error(
         "HTML formatting is unavailable because Prettier is not installed",
       );
     }
-    throw new SlideContentEditError(`Unable to format slide HTML: ${message}`);
+    throw new Error(`Unable to format slide HTML: ${message}`);
   }
 }
 
