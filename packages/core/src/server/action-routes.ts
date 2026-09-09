@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   createError,
   defineEventHandler,
@@ -15,7 +16,9 @@ import {
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
+  validateActionArgs,
 } from "../action.js";
+import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
@@ -787,7 +790,12 @@ function mountActionRoutesInternal(
                   : isFrontendActionRequest(event)
                     ? "frontend"
                     : "http");
-              const result = await entry.run(params, {
+              // Built once and reused for both the needsApproval check below
+              // and entry.run() at the bottom: validateActionArgs marks this
+              // exact object as "already validated for this schema" (see
+              // `preValidatedForContext` in action.ts), which only works if
+              // run() receives the SAME context object that was marked.
+              const runContext: ActionRunContext = {
                 userEmail,
                 orgId: orgId ?? null,
                 appId: options?.appId,
@@ -796,12 +804,70 @@ function mountActionRoutesInternal(
                 actionName: name,
                 ...(resolvedCaller?.delegationJti
                   ? {
-                      networkProtocol: "a2a",
+                      networkProtocol: "a2a" as const,
                       networkId: resolvedCaller.delegationJti,
                       networkPeer: resolvedCaller.delegationIssuer,
                     }
                   : {}),
-              });
+              };
+              // WebMCP/HTTP-MCP tool calls skip the agent loop entirely, so
+              // `needsApproval` is never evaluated for them upstream — the
+              // action stays registered (see `mountWebMcpActionRoutes`) but
+              // this is the only place its gate still runs for this caller.
+              // Fail closed on a throw, same contract as the agent loop's
+              // approval check, and refuse with guidance instead of a bare
+              // rejection: a WebMCP caller has no approval UI of its own, so
+              // the message tells it to get the human's confirmation in chat.
+              if (caller === "webmcp" && entry.needsApproval !== undefined) {
+                // Decide against the same normalized value `run()` will
+                // actually execute with, not the raw wire JSON: a default
+                // (e.g. `dryRun` defaulting to true) or a coercion (string
+                // "false" → `false`) only exists after schema validation, so
+                // a predicate reading raw `params` can approve a call it
+                // would have gated had it seen what `run()` sees. When a
+                // schema is declared, validate once here against `runContext`
+                // (see above) so `run()` below skips re-parsing — a
+                // non-idempotent transform can't hand `run()` a different
+                // value than the one just approved, even one that validates
+                // down to a primitive. An invalid call throws
+                // `validateActionArgs`'s own "Invalid action parameters"
+                // error, which the catch block below already renders as 400.
+                if (
+                  entry.schema &&
+                  typeof entry.schema === "object" &&
+                  "~standard" in entry.schema
+                ) {
+                  params = await validateActionArgs(
+                    entry.schema as StandardSchemaV1,
+                    params,
+                    entry.tool.parameters,
+                    runContext,
+                  );
+                }
+                let mustApprove = false;
+                try {
+                  mustApprove =
+                    typeof entry.needsApproval === "function"
+                      ? Boolean(
+                          await entry.needsApproval(params, {
+                            userEmail,
+                            orgId: orgId ?? null,
+                            appId: options?.appId,
+                            caller,
+                          }),
+                        )
+                      : entry.needsApproval === true;
+                } catch {
+                  mustApprove = true;
+                }
+                if (mustApprove) {
+                  throw new ActionContractError(
+                    `"${name}" requires human approval for these arguments. WebMCP tool calls cannot grant that approval themselves — ask the user to confirm this action in chat, then call it there.`,
+                    { errorCode: "approval_required", statusCode: 409 },
+                  );
+                }
+              }
+              const result = await entry.run(params, runContext);
 
               // Auto-refresh the UI after a successful mutating action. GET
               // actions and actions explicitly flagged readOnly are skipped.
@@ -1006,13 +1072,17 @@ export function mountWebMcpActionRoutes(
   actions: Record<string, ActionEntry>,
   options?: MountWebMcpActionRoutesOptions,
 ) {
+  // `needsApproval` no longer excludes an action from discovery: the gate
+  // moved to per-call enforcement in `mountActionRoutesInternal` (evaluated
+  // against this call's actual args, caller === "webmcp"), so a plain call
+  // that never trips the predicate stays callable and a call that does gets
+  // a clear "ask the user to confirm" refusal instead of silently running.
   const eligible = Object.fromEntries(
     Object.entries(actions).filter(
       ([name, entry]) =>
         /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
         isActionExposedToExternalAgents(entry) &&
-        entry.agentTool !== false &&
-        entry.needsApproval === undefined,
+        entry.agentTool !== false,
     ),
   );
   const publicEligible = Object.fromEntries(
