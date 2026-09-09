@@ -8,6 +8,7 @@ import {
   isConfirmedAnonymousAuthSession,
   oauthReturnTarget,
   resolveGoogleAuthUrlPath,
+  shouldHideAuthSubtitle,
   type AuthPageProps,
 } from "./AuthPage.js";
 
@@ -20,6 +21,12 @@ function propsFromHtml(html: string): AuthPageProps {
 }
 
 describe("AuthPage", () => {
+  it("hides account-only guidance when local development sign-in is available", () => {
+    expect(shouldHideAuthSubtitle("signup", true)).toBe(true);
+    expect(shouldHideAuthSubtitle("signup", false)).toBe(false);
+    expect(shouldHideAuthSubtitle("login", true)).toBe(false);
+  });
+
   it("only confirms anonymous sessions from a readable auth response", () => {
     expect(
       isConfirmedAnonymousAuthSession(

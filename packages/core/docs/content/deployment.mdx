@@ -43,15 +43,17 @@ connection URL.
 
 ### Set the connection string
 
-Set `DATABASE_URL` in the deployment environment before the first production
-deploy.
+Set `DATABASE_URL` in the hosting provider's environment-variable or secret
+settings before the first production deploy. A local `.env` configures your
+machine only and is not uploaded by the deploy command.
 
 ### Add production secrets
 
-Set a stable `BETTER_AUTH_SECRET` for a standalone app. A workspace also needs
-`A2A_SECRET` when it uses signed cross-app requests or background handoffs. The
-[deployment environment reference](/docs/deployment-environment-variables)
-covers the rest of the production configuration.
+Generate a stable signing secret with `openssl rand -hex 32`, then set it as
+`BETTER_AUTH_SECRET` for a standalone app. A workspace also needs `A2A_SECRET`
+when it uses signed cross-app requests or background handoffs. The [deployment
+environment reference](/docs/deployment-environment-variables) covers the rest
+of the production configuration.
 
 </Steps>
 
@@ -68,7 +70,8 @@ An email provider is not required for email/password authentication. Without
 one, a deployed app uses email/password signup and login, skips signup email
 verification, and does not offer magic-link authentication.
 
-Connect Resend or SendGrid before deploying if you want magic links, email
+Agent-Native does not bundle an email-delivery account. Connect Resend or
+SendGrid before deploying if you want magic links, email
 verification, password resets, invitations, or share notifications. Set
 `RESEND_API_KEY` or `SENDGRID_API_KEY` in the deployment environment; SendGrid
 also needs `EMAIL_FROM`. See [Authentication](/docs/authentication) for the

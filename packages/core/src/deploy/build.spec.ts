@@ -2752,6 +2752,34 @@ describe("runNitroBuildPipeline", () => {
     ).toBeUndefined();
   });
 
+  it("skips exact immutable rules when the target limits header rule count", async () => {
+    const { cwd, clientDir, publicOutputDir } = setupFixture();
+    const nitro: any = {
+      options: {
+        output: { publicDir: publicOutputDir },
+        routeRules: { "/assets/**": { headers: { "x-test": "kept" } } },
+      },
+    };
+
+    await runNitroBuildPipeline({
+      nitro,
+      hooks: {
+        prepare: async () => {},
+        copyPublicAssets: async () => {},
+        nitroBuild: async () => {},
+      },
+      clientDir,
+      publicOutputDir,
+      appBasePath: "",
+      cwd,
+      includeImmutableAssetRouteRules: false,
+    });
+
+    expect(nitro.options.routeRules).toEqual({
+      "/assets/**": { headers: { "x-test": "kept" } },
+    });
+  });
+
   it("merges immutable headers into existing route rules", () => {
     const routeRules: Record<string, { headers?: Record<string, string> }> = {
       "/assets/entry.client-aB12_cdE.js": {

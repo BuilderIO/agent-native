@@ -322,16 +322,16 @@ type PgliteProcessLock = {
 };
 type PgliteProcessLockRegistry = Map<string, PgliteProcessLock>;
 
-const pgliteGlobal = globalThis as typeof globalThis & {
+const pgliteProcess = process as NodeJS.Process & {
   __agentNativePgliteClients?: PgliteClientRegistry;
   __agentNativePgliteProcessLocks?: PgliteProcessLockRegistry;
   __agentNativePgliteProcessExitCleanupRegistered?: boolean;
 };
-const _pgliteClients = (pgliteGlobal.__agentNativePgliteClients ??= new Map<
+const _pgliteClients = (pgliteProcess.__agentNativePgliteClients ??= new Map<
   string,
   Promise<any>
 >());
-const _pgliteProcessLocks = (pgliteGlobal.__agentNativePgliteProcessLocks ??=
+const _pgliteProcessLocks = (pgliteProcess.__agentNativePgliteProcessLocks ??=
   new Map<string, PgliteProcessLock>());
 
 function pgliteClientKey(dataDir: string): string {
@@ -411,8 +411,8 @@ function releasePgliteProcessLock(lock: PgliteProcessLock): void {
 }
 
 function registerPgliteProcessExitCleanup(): void {
-  if (pgliteGlobal.__agentNativePgliteProcessExitCleanupRegistered) return;
-  pgliteGlobal.__agentNativePgliteProcessExitCleanupRegistered = true;
+  if (pgliteProcess.__agentNativePgliteProcessExitCleanupRegistered) return;
+  pgliteProcess.__agentNativePgliteProcessExitCleanupRegistered = true;
   process.once("exit", () => {
     for (const lock of _pgliteProcessLocks.values()) {
       releasePgliteProcessLock(lock);

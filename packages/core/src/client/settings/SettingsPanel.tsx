@@ -41,6 +41,7 @@ import {
   IconApps,
   IconUsersGroup,
   IconTool,
+  IconAlertCircle,
 } from "@tabler/icons-react";
 import React, {
   Suspense,
@@ -862,6 +863,9 @@ function LLMSectionInner({
   >(null);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus>(null);
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
+  const [providerSettingsError, setProviderSettingsError] = useState<
+    string | null
+  >(null);
   const [envProbeAvailable, setEnvProbeAvailable] = useState(false);
   const [enginesLoaded, setEnginesLoaded] = useState(false);
   const [engineCatalogAvailable, setEngineCatalogAvailable] = useState(false);
@@ -1081,6 +1085,7 @@ function LLMSectionInner({
   const handleSave = async () => {
     if (!providerSettingsChanged || (!envVar && !isEndpointProvider)) return;
     setSaving(true);
+    setProviderSettingsError(null);
     try {
       const nextBaseUrl = isEndpointProvider ? baseUrl.trim() : "";
       await saveAgentEngineProviderSettings({
@@ -1101,6 +1106,10 @@ function LLMSectionInner({
       if (clearBaseUrl) setBaseUrlConfigured(false);
       notifyConfigChanged();
       setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setProviderSettingsError(
+        err instanceof Error ? err.message : String(err),
+      );
     } finally {
       setSaving(false);
     }
@@ -1614,6 +1623,18 @@ function LLMSectionInner({
                   >
                     Disconnect failed: {disconnectError}
                   </p>
+                )}
+                {providerSettingsError && (
+                  <div
+                    role="alert"
+                    className={cn(
+                      "flex items-center gap-1.5 text-destructive",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    <IconAlertCircle size={isPage ? 14 : 10} />
+                    {providerSettingsError}
+                  </div>
                 )}
                 {applyError && (
                   <p
