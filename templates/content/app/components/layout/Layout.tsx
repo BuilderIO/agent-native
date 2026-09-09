@@ -31,6 +31,7 @@ import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
+import { useCreativeContextExperiment } from "@/hooks/use-creative-context-experiment";
 import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
@@ -92,6 +93,7 @@ export function Layout({ children }: LayoutProps) {
   const pendingPathname = navigation.location?.pathname ?? null;
   const chromePathname = pendingPathname ?? location.pathname;
   const t = useT();
+  const creativeContextEnabled = useCreativeContextExperiment();
   const currentDocumentId = documentPageIdFromPathname(location.pathname);
   const pendingDocumentId = pendingPathname
     ? documentPageIdFromPathname(pendingPathname)
@@ -293,7 +295,9 @@ export function Layout({ children }: LayoutProps) {
           scope={documentScope}
           chatHistory={documentChatHistory}
           browserTabId={getBrowserTabId()}
-          composerSlot={<CreativeContextComposerChip />}
+          composerSlot={
+            creativeContextEnabled ? <CreativeContextComposerChip /> : undefined
+          }
         >
           <main
             className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
