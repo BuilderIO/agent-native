@@ -718,7 +718,9 @@ async function* emitHttpError(
   }
   if (
     status === 403 &&
-    (opts.recordLegacyCredentialFailure === false ||
+    ((opts.recordLegacyCredentialFailure === false &&
+      code === "http_403" &&
+      /^(?:forbidden|builder gateway returned 403)$/i.test(message.trim())) ||
       isBuilderCredentialAuthError(message))
   ) {
     await recordAuthFailureForCurrentLane({
