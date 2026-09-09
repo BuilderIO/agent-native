@@ -224,7 +224,7 @@ jobs:
           # status when GitHub Actions can access Netlify's masked secrets.
           schema_files="$(
             printf '%s\n' "$changed_files" |
-              grep -E '(^|/)(server/db/|packages/core/src/db/|packages/core/src/(resources|extensions|data-programs)/).+\.ts$|(^|/)store\.ts$|(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(scripts/)?migrate-production\.ts|drizzle(\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$|\.sql$' || {
+              grep -E '(^|/)(server/db/|packages/core/src/db/|packages/core/src/(resources|extensions|data-programs|sharing)/).+\.ts$|(^|/)store\.ts$|(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(scripts/)?migrate-production\.ts|drizzle(\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$|\.sql$' || {
                 status=$?
                 [[ "$status" -eq 1 ]] || exit "$status"
               }
