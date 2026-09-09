@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertAny: vi.fn(),
+  deleteDestination: vi.fn(),
   getDestinationById: vi.fn(),
   resolveSecret: vi.fn(),
+  upsertDestination: vi.fn(),
   validateFederatedOrganizationMembershipForCurrentRequest: vi.fn(),
 }));
 
@@ -25,8 +27,10 @@ vi.mock("@agent-native/core/integrations", () => ({
 }));
 
 vi.mock("../server/lib/dispatch-store.js", () => ({
+  deleteDestination: mocks.deleteDestination,
   getDestinationById: mocks.getDestinationById,
   recordAudit: vi.fn(),
+  upsertDestination: mocks.upsertDestination,
 }));
 
 import { ForbiddenError } from "@agent-native/core/sharing";
@@ -34,6 +38,8 @@ import { ForbiddenError } from "@agent-native/core/sharing";
 const sendPlatformMessage = (await import("./send-platform-message.js"))
   .default;
 const createPylonTicket = (await import("./create-pylon-ticket.js")).default;
+const deleteDestination = (await import("./delete-destination.js")).default;
+const upsertDestination = (await import("./upsert-destination.js")).default;
 
 const memberContext = {
   caller: "http" as const,
@@ -81,5 +87,28 @@ describe("Dispatch admin authorization", () => {
     ).rejects.toThrow("Requires dispatch role admin");
 
     expect(mocks.resolveSecret).not.toHaveBeenCalled();
+  });
+
+  it("denies organization members before changing a destination", async () => {
+    await expect(
+      upsertDestination.run(
+        {
+          name: "Support",
+          platform: "slack",
+          destination: "C1",
+        },
+        memberContext,
+      ),
+    ).rejects.toThrow("Requires dispatch role admin");
+
+    expect(mocks.upsertDestination).not.toHaveBeenCalled();
+  });
+
+  it("denies organization members before deleting a destination", async () => {
+    await expect(
+      deleteDestination.run({ id: "destination-1" }, memberContext),
+    ).rejects.toThrow("Requires dispatch role admin");
+
+    expect(mocks.deleteDestination).not.toHaveBeenCalled();
   });
 });

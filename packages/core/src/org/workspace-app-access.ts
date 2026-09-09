@@ -191,6 +191,27 @@ async function isActiveWorkspaceOrgMember(
   return membership.active;
 }
 
+async function isDispatchWorkspaceAppAccessAllowed(
+  context: WorkspaceAppAccessContext,
+  email: string,
+): Promise<boolean> {
+  const orgId = context.orgId?.trim() || null;
+  if (!orgId) return true;
+
+  try {
+    const member = await loadWorkspaceOrgMember(getDbExec(), orgId, email);
+    // Standalone Dispatch hosts can carry an org id before enabling the org
+    // schema. Preserve their authenticated-only access until that schema exists.
+    return Boolean(
+      member && (await isActiveWorkspaceOrgMember(member, orgId, email)),
+    );
+  } catch (error) {
+    if (isMissingOrganizationTableError(error)) return true;
+    console.error("[workspace-app-access] Dispatch access check failed", error);
+    return false;
+  }
+}
+
 /**
  * Enforce the workspace-app ACL before a hosted app's authenticated API
  * surface is reached. The app shell remains cacheable and anonymous; this
@@ -202,12 +223,11 @@ export async function isWorkspaceAppAccessAllowed(
 ): Promise<boolean> {
   const normalizedAppId = appId.trim();
   const email = normalizedEmail(context.email);
-  if (
-    !normalizedAppId ||
-    normalizedAppId.toLowerCase() === "dispatch" ||
-    !email
-  ) {
+  if (!normalizedAppId || !email) {
     return true;
+  }
+  if (normalizedAppId.toLowerCase() === "dispatch") {
+    return isDispatchWorkspaceAppAccessAllowed(context, email);
   }
 
   const hostedAccess = await hostedWorkspaceAppAccess(

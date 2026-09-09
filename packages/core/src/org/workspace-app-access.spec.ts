@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   includeUser: vi.fn(),
+  validateFederatedOrganizationMembershipForCurrentRequest: vi.fn(),
 }));
 
 vi.mock("../db/client.js", () => ({
@@ -14,6 +15,11 @@ vi.mock("../workspace-connections/groups.js", () => ({
     mocks.includeUser(...args),
 }));
 
+vi.mock("./federation.js", () => ({
+  validateFederatedOrganizationMembershipForCurrentRequest:
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest,
+}));
+
 import { isWorkspaceAppAccessAllowed } from "./workspace-app-access.js";
 
 describe("isWorkspaceAppAccessAllowed", () => {
@@ -22,6 +28,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
     vi.unstubAllGlobals();
     mocks.execute.mockReset();
     mocks.includeUser.mockReset();
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockReset();
   });
 
   it("allows the recorded owner in the app organization", async () => {
@@ -43,14 +50,43 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(true);
   });
 
-  it("allows authenticated users to access Dispatch without an org-role lookup", async () => {
+  it("allows active organization members to access Dispatch", async () => {
+    mocks.execute.mockResolvedValueOnce({ rows: [{ role: "member" }] });
+
     await expect(
       isWorkspaceAppAccessAllowed("dispatch", {
         email: "member@example.com",
         orgId: "org-1",
       }),
     ).resolves.toBe(true);
-    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("denies Dispatch access when a linked member was removed upstream", async () => {
+    mocks.execute.mockResolvedValueOnce({
+      rows: [
+        {
+          role: "admin",
+          identityAuthority: "https://identity.example.test",
+          identityId: "org-1",
+        },
+      ],
+    });
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
+      { active: false, role: null },
+    );
+
+    await expect(
+      isWorkspaceAppAccessAllowed("dispatch", {
+        email: "admin@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(
+      mocks.validateFederatedOrganizationMembershipForCurrentRequest,
+    ).toHaveBeenCalledWith({
+      orgId: "org-1",
+      email: "admin@example.com",
+    });
   });
 
   it("allows organization members for org-visible apps", async () => {
