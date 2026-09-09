@@ -60,6 +60,8 @@ import {
   createBuilderConnectState,
   createBuilderProject,
   createBuilderRelayRequest,
+  ensureBuilderProject,
+  findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
@@ -1714,6 +1716,79 @@ describe("Builder callback CSRF state", () => {
         source: {
           kind: "template",
           templateId: "agent-native-starter",
+        },
+        name: "Agent-Native Workspace",
+      });
+    });
+
+    it("finds a project connected to a repository through the deprecated API", async () => {
+      const fetchSpy = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            projects: [
+              {
+                id: "project-123",
+                name: "Agent-Native Workspace",
+                repoUrl:
+                  "https://github.com/BuilderIO/builder-agent-native-workspace.git",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        findBuilderProjectForRepo({
+          repoUrl:
+            "https://github.com/BuilderIO/builder-agent-native-workspace",
+        }),
+      ).resolves.toMatchObject({
+        projectId: "project-123",
+        created: false,
+      });
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+        "https://api.test.builder.io/projects?apiKey=pub-test&includeHidden=true",
+      );
+    });
+
+    it("creates a repository-backed project through the deprecated ensure API", async () => {
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ projects: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              project: {
+                id: "project-created",
+                name: "Agent-Native Workspace",
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const result = await ensureBuilderProject({
+        name: "Agent-Native Workspace",
+        repoUrl: "https://github.com/BuilderIO/legacy-workspace",
+      });
+
+      expect(result).toMatchObject({
+        projectId: "project-created",
+        repoUrl: "https://github.com/BuilderIO/legacy-workspace",
+        created: true,
+      });
+      expect(JSON.parse(fetchSpy.mock.calls[1]?.[1].body)).toEqual({
+        source: {
+          kind: "repo",
+          repoUrl: "https://github.com/BuilderIO/legacy-workspace",
         },
         name: "Agent-Native Workspace",
       });

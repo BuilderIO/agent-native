@@ -2088,6 +2088,10 @@ export interface RunBuilderAgentResult {
   status: string;
 }
 
+export interface BuilderProjectLookupArgs {
+  repoUrl: string;
+}
+
 export interface BuilderProjectResult {
   projectId: string;
   name: string;
@@ -2123,6 +2127,34 @@ function normalizeBuilderProjectString(
   return trimmed;
 }
 
+function normalizeBuilderRepoUrl(value: string): string {
+  const trimmed = value.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("Builder project repository URL is malformed");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("Builder project repository URL must use HTTP or HTTPS");
+  }
+  return trimmed;
+}
+
+function comparableBuilderRepoUrl(value: string): string {
+  try {
+    const parsed = new URL(value);
+    const pathname = parsed.pathname.replace(/\/+$/, "").replace(/\.git$/, "");
+    return `${parsed.hostname.toLowerCase()}${pathname.toLowerCase()}`;
+  } catch {
+    return value
+      .trim()
+      .replace(/\/+$/, "")
+      .replace(/\.git$/, "")
+      .toLowerCase();
+  }
+}
+
 function builderProjectBrowserUrl(projectId: string): string {
   return `${getBuilderAppHost().replace(/\/$/, "")}/app/projects/${encodeURIComponent(projectId)}`;
 }
@@ -2130,6 +2162,7 @@ function builderProjectBrowserUrl(projectId: string): string {
 function builderProjectFromRecord(
   value: unknown,
   created: boolean,
+  fallbackRepoUrl?: string,
 ): BuilderProjectResult | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -2143,7 +2176,7 @@ function builderProjectFromRecord(
   const repoUrl =
     typeof record.repoUrl === "string" && record.repoUrl.trim()
       ? record.repoUrl.trim()
-      : undefined;
+      : fallbackRepoUrl;
   return {
     projectId: normalizeBuilderProjectString(projectId, "project id"),
     name: normalizeBuilderProjectString(name, "project name"),
@@ -2389,20 +2422,69 @@ function builderApiErrorMessage(
   return fallback;
 }
 
-/**
- * Create a Builder project from a template through the public projects API.
- * This is the server-side bridge used by Dispatch; online Claude and ChatGPT
- * hosts do not need a separate Builder CMS MCP connector.
- */
+/** @deprecated Repository-backed Builder projects are retained for compatibility. */
+export async function findBuilderProjectForRepo(
+  args: BuilderProjectLookupArgs,
+): Promise<BuilderProjectResult | null> {
+  const repoUrl = normalizeBuilderRepoUrl(args.repoUrl);
+  const authorization = await resolveBuilderApiAuthorization(
+    "builder:projects:read",
+  );
+  const url = new URL("/projects", getBuilderApiHost());
+  if (authorization.legacyPublicKey)
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
+  url.searchParams.set("includeHidden", "true");
+
+  const response = await fetchBuilderApi(
+    url,
+    {
+      method: "GET",
+      headers: { Authorization: authorization.authorization },
+    },
+    "project lookup",
+  );
+  const parsed = await readBuilderApiObject(response, "project lookup");
+  if (!response.ok) {
+    throw new Error(
+      builderApiErrorMessage(
+        parsed,
+        `Builder project lookup failed (${response.status})`,
+      ),
+    );
+  }
+  if (!Array.isArray(parsed.projects)) {
+    throw new Error("Builder project lookup returned no projects list");
+  }
+
+  const comparableRepoUrl = comparableBuilderRepoUrl(repoUrl);
+  for (const project of parsed.projects) {
+    const normalized = builderProjectFromRecord(project, false);
+    if (
+      normalized?.repoUrl &&
+      comparableBuilderRepoUrl(normalized.repoUrl) === comparableRepoUrl
+    ) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+/** Creates from the default template; repoUrl remains for deprecated helpers. */
 export async function createBuilderProject(args: {
   name: string;
   templateId?: string;
+  repoUrl?: string;
 }): Promise<BuilderProjectResult> {
   const name = normalizeBuilderProjectString(args.name, "project name");
-  const templateId = normalizeBuilderProjectString(
-    args.templateId ?? DEFAULT_BUILDER_TEMPLATE_ID,
-    "template id",
-  );
+  const repoUrl = args.repoUrl
+    ? normalizeBuilderRepoUrl(args.repoUrl)
+    : undefined;
+  const templateId = repoUrl
+    ? undefined
+    : normalizeBuilderProjectString(
+        args.templateId ?? DEFAULT_BUILDER_TEMPLATE_ID,
+        "template id",
+      );
   const authorization = await resolveBuilderApiAuthorization(
     "builder:projects:write",
   );
@@ -2419,7 +2501,9 @@ export async function createBuilderProject(args: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        source: { kind: "template", templateId },
+        source: repoUrl
+          ? { kind: "repo", repoUrl }
+          : { kind: "template", templateId },
         name,
       }),
     },
@@ -2435,11 +2519,20 @@ export async function createBuilderProject(args: {
     );
   }
 
-  const project = builderProjectFromRecord(parsed.project, true);
+  const project = builderProjectFromRecord(parsed.project, true, repoUrl);
   if (!project) {
     throw new Error("Builder project creation returned no project id");
   }
   return project;
+}
+
+/** @deprecated Repository-backed Builder projects are retained for compatibility. */
+export async function ensureBuilderProject(args: {
+  name: string;
+  repoUrl: string;
+}): Promise<BuilderProjectResult> {
+  const existing = await findBuilderProjectForRepo({ repoUrl: args.repoUrl });
+  return existing ?? createBuilderProject(args);
 }
 
 function normalizeBuilderBranchUrl(value: unknown): string {
