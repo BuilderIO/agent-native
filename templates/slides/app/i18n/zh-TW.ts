@@ -283,6 +283,9 @@ const messages = {
     exportPptx: "匯出為 PPTX",
     connectGoogle: "連接 Google",
     openInGoogleSlides: "在 Google Slides 中開啟",
+    googleSlidesUnavailable: "無法使用",
+    googleSlidesUnavailableHint:
+      "由於尚未設定 Google 連線，目前無法匯出至 Google Slides。請改為匯出 PPTX，再將檔案匯入 Google Slides。",
     googleSlidesCreated: "已在 Google Slides 中開啟",
     googleSlidesCreatedHint: "已在你的 Google 雲端硬碟中建立此簡報的副本。",
     duplicateDeck: "複製幻燈片",

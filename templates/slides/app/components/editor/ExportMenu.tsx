@@ -35,6 +35,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { useDecks } from "@/context/DeckContext";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
+import { useGoogleSlidesExportAvailability } from "@/lib/google-slides-export-availability-client";
 
 /** Google Slides' File → Import dialog, primed to ask for a file. */
 const GOOGLE_SLIDES_IMPORT_URL =
@@ -226,6 +227,12 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
   ) {
     const t = useT();
     const { getDeck, flushDeckSave } = useDecks();
+    // Inline content is only mounted while the parent menu is open, so mounting
+    // is itself the signal there; the standalone menu tracks its own open state.
+    const [menuOpen, setMenuOpen] = useState(false);
+    const googleSlidesExport = useGoogleSlidesExportAvailability(
+      inline || menuOpen,
+    );
     const [exportStatus, setExportStatus] = useState<ExportStatus>({
       state: "idle",
     });
@@ -371,6 +378,16 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
 
     const handleExportGoogleSlides = async () => {
       if (!onExportGoogleSlides) return;
+      // The connect step is a top-level navigation to Google. When Google
+      // refuses the request itself the user leaves the editor and never comes
+      // back, so a known-broken integration must not start the flow at all.
+      if (!googleSlidesExport.available) {
+        updateExportStatus({
+          state: "error",
+          message: t("editorExport.googleSlidesUnavailableHint"),
+        });
+        return;
+      }
       if (!beginExport("google-slides")) return;
       try {
         const result = await onExportGoogleSlides();
@@ -450,10 +467,16 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         {onExportGoogleSlides && (
           <DropdownMenuItem
             onClick={() => void handleExportGoogleSlides()}
+            disabled={!googleSlidesExport.available}
             className="cursor-pointer"
           >
             <IconBrandGoogle className="size-4" />
             {t("editorExport.openInGoogleSlides")}
+            {googleSlidesExport.available ? null : (
+              <span className="ml-auto text-[11px] text-muted-foreground">
+                {t("editorExport.googleSlidesUnavailable")}
+              </span>
+            )}
           </DropdownMenuItem>
         )}
       </>
@@ -523,7 +546,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         {inline ? (
           inlineMenuContent
         ) : (
-          <DropdownMenu>
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap">
                 <IconUpload className="w-3.5 h-3.5" />

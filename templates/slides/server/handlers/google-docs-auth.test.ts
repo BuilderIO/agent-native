@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   getGooglePickerConfig: vi.fn(),
   isElectron: vi.fn(),
   isGoogleDocsOAuthConfigured: vi.fn(),
+  getGoogleOAuthClientId: vi.fn(),
+  resolveGoogleSlidesExportAvailability: vi.fn(),
   listGoogleDocsAccounts: vi.fn(),
   resolveManagedGoogleDriveAccount: vi.fn(),
   resolveOAuthRedirectUri: vi.fn(),
@@ -22,6 +24,7 @@ vi.mock("@agent-native/core/server", () => ({
   encodeOAuthState: mocks.encodeOAuthState,
   getAppUrl: vi.fn(),
   getSession: mocks.getSession,
+  getOrigin: () => "https://slides.example.com",
   getQuery: mocks.getQuery,
   isElectron: mocks.isElectron,
   oauthCallbackResponse: vi.fn(),
@@ -54,7 +57,13 @@ vi.mock("../lib/google-docs-oauth.js", () => ({
   hasGoogleDriveExportScope: (scope: string) =>
     scope.includes("drive.readonly"),
   isGoogleDocsOAuthConfigured: mocks.isGoogleDocsOAuthConfigured,
+  getGoogleOAuthClientId: mocks.getGoogleOAuthClientId,
   listGoogleDocsAccounts: mocks.listGoogleDocsAccounts,
+}));
+
+vi.mock("../lib/google-slides-export-availability.js", () => ({
+  resolveGoogleSlidesExportAvailability:
+    mocks.resolveGoogleSlidesExportAvailability,
 }));
 
 vi.mock("./request-auth-context.js", () => ({
@@ -85,6 +94,10 @@ describe("getGoogleDocsStatus", () => {
     );
     mocks.getGooglePickerConfig.mockResolvedValue({});
     mocks.isGoogleDocsOAuthConfigured.mockResolvedValue(true);
+    mocks.getGoogleOAuthClientId.mockResolvedValue("client-id");
+    mocks.resolveGoogleSlidesExportAvailability.mockResolvedValue({
+      available: true,
+    });
   });
 
   it("resolves OAuth setup inside the authenticated request context", async () => {
@@ -124,6 +137,37 @@ describe("getGoogleDocsStatus", () => {
       googleSlidesUrlImportReady: false,
       googleSlidesUrlImportError: "formatted: invalid_grant",
     });
+  });
+
+  it("reports that Google refuses the Slides export authorization request", async () => {
+    mocks.resolveGoogleSlidesExportAvailability.mockResolvedValue({
+      available: false,
+      reason: "oauth-rejected",
+      code: "redirect_uri_mismatch",
+    });
+
+    await expect(getGoogleDocsStatus({} as any)).resolves.toMatchObject({
+      googleSlidesExport: {
+        available: false,
+        reason: "oauth-rejected",
+        code: "redirect_uri_mismatch",
+      },
+    });
+  });
+
+  it("omits the export verdict rather than inventing one, and still serves Picker", async () => {
+    mocks.resolveGoogleSlidesExportAvailability.mockRejectedValue(
+      new Error("probe blew up"),
+    );
+
+    const result = await getGoogleDocsStatus({} as any);
+
+    expect(result).not.toHaveProperty("googleSlidesExport");
+    expect(result).toMatchObject({ connected: true });
+    expect(mocks.setResponseStatus).not.toHaveBeenCalledWith(
+      expect.anything(),
+      500,
+    );
   });
 
   it("keeps Picker setup failures distinct from disconnected accounts", async () => {

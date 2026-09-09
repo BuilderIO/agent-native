@@ -302,6 +302,9 @@ const messages = {
     exportPptx: "Exporter en PPTX",
     connectGoogle: "Connecter Google",
     openInGoogleSlides: "Ouvrir dans Google Slides",
+    googleSlidesUnavailable: "Indisponible",
+    googleSlidesUnavailableHint:
+      "L'export vers Google Slides est indisponible pour le moment car la connexion Google n'est pas configurée. Exportez en PPTX puis importez le fichier dans Google Slides.",
     googleSlidesCreated: "Ouvert dans Google Slides",
     googleSlidesCreatedHint:
       "Une copie de cette présentation a été créée dans votre Google Drive.",

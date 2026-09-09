@@ -288,6 +288,9 @@ const messages = {
     exportPptx: "导出为 PPTX",
     connectGoogle: "连接 Google",
     openInGoogleSlides: "在 Google Slides 中打开",
+    googleSlidesUnavailable: "不可用",
+    googleSlidesUnavailableHint:
+      "由于尚未配置 Google 连接，目前无法导出到 Google Slides。请改为导出 PPTX，然后将其导入 Google Slides。",
     googleSlidesCreated: "已在 Google Slides 中打开",
     googleSlidesCreatedHint: "已在你的 Google 云端硬盘中创建此演示文稿的副本。",
     duplicateDeck: "复制幻灯片",

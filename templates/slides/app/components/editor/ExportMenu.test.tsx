@@ -42,6 +42,13 @@ vi.mock("@agent-native/core/client/integrations", () => ({
   startWorkspaceProviderOAuth: vi.fn(),
 }));
 
+// Export routing is what this suite measures, and it counts export requests
+// exactly. The availability probe has its own suite in
+// ExportMenu.google-availability.test.tsx.
+vi.mock("@/lib/google-slides-export-availability-client", () => ({
+  useGoogleSlidesExportAvailability: () => ({ available: true }),
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     (

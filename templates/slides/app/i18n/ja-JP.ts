@@ -294,6 +294,9 @@ const messages = {
     exportPptx: "PPTX としてエクスポート",
     connectGoogle: "Google に接続",
     openInGoogleSlides: "Google Slides で開く",
+    googleSlidesUnavailable: "利用不可",
+    googleSlidesUnavailableHint:
+      "Google 連携が設定されていないため、Google Slides へのエクスポートは現在利用できません。代わりに PPTX として書き出し、Google Slides にインポートしてください。",
     googleSlidesCreated: "Google Slides で開きました",
     googleSlidesCreatedHint:
       "このデッキのコピーを Google ドライブに作成しました。",
