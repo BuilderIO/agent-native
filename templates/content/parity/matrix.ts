@@ -801,7 +801,13 @@ export const parityMatrix: ParityRow[] = [
     uiImplementation:
       "Version panel reads and restores through document version actions.",
     status: "action-backed",
-    actions: ["list-document-versions", "restore-document-version"],
+    actions: [
+      "list-document-versions",
+      "list-document-history",
+      "list-document-history-checkpoints",
+      "get-document-history-checkpoint",
+      "restore-document-version",
+    ],
     exception: null,
     reliabilityRisk: "none",
     spinePriority: "P0",

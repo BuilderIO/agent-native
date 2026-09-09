@@ -43,11 +43,10 @@ function scheduleBlocksRepairRetry(attempt = 1): void {
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the analytics db.ts v75-v83 incident this
 // convention was introduced to prevent.
-export const runContentMigrations = runMigrations(
-  [
-    {
-      version: 1,
-      sql: `CREATE TABLE IF NOT EXISTS documents (
+const contentMigrations = [
+  {
+    version: 1,
+    sql: `CREATE TABLE IF NOT EXISTS documents (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       parent_id TEXT,
@@ -65,10 +64,10 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 2,
-      sql: `CREATE TABLE IF NOT EXISTS document_sync_links (
+  },
+  {
+    version: 2,
+    sql: `CREATE TABLE IF NOT EXISTS document_sync_links (
       document_id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       provider TEXT NOT NULL DEFAULT 'notion',
@@ -86,10 +85,10 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 3,
-      sql: `CREATE TABLE IF NOT EXISTS document_versions (
+  },
+  {
+    version: 3,
+    sql: `CREATE TABLE IF NOT EXISTS document_versions (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       document_id TEXT NOT NULL,
@@ -97,10 +96,10 @@ export const runContentMigrations = runMigrations(
       content TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 4,
-      sql: `CREATE TABLE IF NOT EXISTS document_comments (
+  },
+  {
+    version: 4,
+    sql: `CREATE TABLE IF NOT EXISTS document_comments (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       document_id TEXT NOT NULL,
@@ -115,59 +114,59 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    // v5-v8: add owner_email to tables that may have been created before the
-    // column was part of the initial CREATE TABLE (v1-v4 now include it, but
-    // databases created with older schema versions still need the ALTER).
-    {
-      version: 5,
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
-    },
-    {
-      version: 6,
-      sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
-    },
-    {
-      version: 7,
-      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
-    },
-    {
-      version: 8,
-      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
-    },
-    {
-      version: 9,
-      // guard:allow-localhost-fallback — one-time migration backfilling the dev-mode owner on legacy rows that pre-date ownableColumns; runs once at boot, not per-request
-      sql: `UPDATE documents SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
-    },
-    {
-      version: 10,
-      // guard:allow-localhost-fallback — one-time migration backfilling legacy null owner_email values for dev-mode upgrade path
-      sql: `UPDATE document_versions SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
-    },
-    {
-      version: 11,
-      // guard:allow-localhost-fallback — one-time migration backfilling legacy null owner_email values for dev-mode upgrade path
-      sql: `UPDATE document_sync_links SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
-    },
-    {
-      version: 12,
-      // guard:allow-localhost-fallback — one-time migration backfilling legacy null owner_email values for dev-mode upgrade path
-      sql: `UPDATE document_comments SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
-    },
-    // v13-v14: add sharing columns (org_id, visibility) to documents.
-    {
-      version: 13,
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS org_id TEXT`,
-    },
-    {
-      version: 14,
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
-    },
-    // v15: companion shares table for per-principal grants.
-    {
-      version: 15,
-      sql: `CREATE TABLE IF NOT EXISTS document_shares (
+  },
+  // v5-v8: add owner_email to tables that may have been created before the
+  // column was part of the initial CREATE TABLE (v1-v4 now include it, but
+  // databases created with older schema versions still need the ALTER).
+  {
+    version: 5,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+  },
+  {
+    version: 6,
+    sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+  },
+  {
+    version: 7,
+    sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+  },
+  {
+    version: 8,
+    sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+  },
+  {
+    version: 9,
+    // guard:allow-localhost-fallback — one-time migration backfilling the dev-mode owner on legacy rows that pre-date ownableColumns; runs once at boot, not per-request
+    sql: `UPDATE documents SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
+  },
+  {
+    version: 10,
+    // guard:allow-localhost-fallback — one-time migration backfilling legacy null owner_email values for dev-mode upgrade path
+    sql: `UPDATE document_versions SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
+  },
+  {
+    version: 11,
+    // guard:allow-localhost-fallback — one-time migration backfilling legacy null owner_email values for dev-mode upgrade path
+    sql: `UPDATE document_sync_links SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
+  },
+  {
+    version: 12,
+    // guard:allow-localhost-fallback — one-time migration backfilling legacy null owner_email values for dev-mode upgrade path
+    sql: `UPDATE document_comments SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
+  },
+  // v13-v14: add sharing columns (org_id, visibility) to documents.
+  {
+    version: 13,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS org_id TEXT`,
+  },
+  {
+    version: 14,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
+  },
+  // v15: companion shares table for per-principal grants.
+  {
+    version: 15,
+    sql: `CREATE TABLE IF NOT EXISTS document_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -176,23 +175,23 @@ export const runContentMigrations = runMigrations(
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 16,
-      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_comments INTEGER NOT NULL DEFAULT 0`,
-    },
-    {
-      version: 17,
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS hide_from_search INTEGER NOT NULL DEFAULT 0`,
-    },
-    // v18: content-hash baseline for drift-free conflict detection.
-    {
-      version: 18,
-      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
-    },
-    {
-      version: 19,
-      sql: `CREATE TABLE IF NOT EXISTS document_property_definitions (
+  },
+  {
+    version: 16,
+    sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_comments INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    version: 17,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS hide_from_search INTEGER NOT NULL DEFAULT 0`,
+  },
+  // v18: content-hash baseline for drift-free conflict detection.
+  {
+    version: 18,
+    sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
+  },
+  {
+    version: 19,
+    sql: `CREATE TABLE IF NOT EXISTS document_property_definitions (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
@@ -205,10 +204,10 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 20,
-      sql: `CREATE TABLE IF NOT EXISTS document_property_values (
+  },
+  {
+    version: 20,
+    sql: `CREATE TABLE IF NOT EXISTS document_property_values (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       document_id TEXT NOT NULL,
@@ -217,18 +216,18 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 21,
-      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'always_show'`,
-    },
-    {
-      version: 22,
-      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS database_id TEXT`,
-    },
-    {
-      version: 23,
-      sql: `CREATE TABLE IF NOT EXISTS content_databases (
+  },
+  {
+    version: 21,
+    sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'always_show'`,
+  },
+  {
+    version: 22,
+    sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS database_id TEXT`,
+  },
+  {
+    version: 23,
+    sql: `CREATE TABLE IF NOT EXISTS content_databases (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
@@ -240,10 +239,10 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 24,
-      sql: `CREATE TABLE IF NOT EXISTS content_database_items (
+  },
+  {
+    version: 24,
+    sql: `CREATE TABLE IF NOT EXISTS content_database_items (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
@@ -253,70 +252,70 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 25,
-      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS view_config_json TEXT NOT NULL DEFAULT '{}'`,
-    },
-    // v26 repeats v18 idempotently for databases that previously ran this
-    // feature branch's old v18 property migration before merging main.
-    {
-      version: 26,
-      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
-    },
-    // v27: performance indexes. The list/tree path filters documents by owner +
-    // org and orders by position/updated_at, walks the tree via parent_id, and
-    // resolves per-principal grants from document_shares — none of which had any
-    // index. Plain CREATE INDEX IF NOT EXISTS so the same DDL applies on both
-    // Postgres and PGlite (no DESC, partial, or PG-only syntax).
-    {
-      version: 27,
-      sql: `CREATE INDEX IF NOT EXISTS documents_owner_org_updated_idx ON documents (owner_email, org_id, updated_at);
+  },
+  {
+    version: 25,
+    sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS view_config_json TEXT NOT NULL DEFAULT '{}'`,
+  },
+  // v26 repeats v18 idempotently for databases that previously ran this
+  // feature branch's old v18 property migration before merging main.
+  {
+    version: 26,
+    sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
+  },
+  // v27: performance indexes. The list/tree path filters documents by owner +
+  // org and orders by position/updated_at, walks the tree via parent_id, and
+  // resolves per-principal grants from document_shares — none of which had any
+  // index. Plain CREATE INDEX IF NOT EXISTS so the same DDL applies on both
+  // Postgres and PGlite (no DESC, partial, or PG-only syntax).
+  {
+    version: 27,
+    sql: `CREATE INDEX IF NOT EXISTS documents_owner_org_updated_idx ON documents (owner_email, org_id, updated_at);
         CREATE INDEX IF NOT EXISTS documents_parent_idx ON documents (parent_id);
         CREATE INDEX IF NOT EXISTS document_shares_resource_idx ON document_shares (resource_id, principal_type, principal_id)`,
-    },
-    // v28-v31: robust text-anchor + @mention metadata for document comments.
-    {
-      version: 28,
-      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS anchor_prefix TEXT`,
-    },
-    {
-      version: 29,
-      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS anchor_suffix TEXT`,
-    },
-    {
-      version: 30,
-      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS anchor_start_offset INTEGER`,
-    },
-    {
-      version: 31,
-      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT`,
-    },
-    // v32-v36: source metadata for database-mode local Markdown imports.
-    {
-      version: 32,
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_mode TEXT`,
-    },
-    {
-      version: 33,
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_kind TEXT`,
-    },
-    {
-      version: 34,
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_path TEXT`,
-    },
-    {
-      version: 35,
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_root_path TEXT`,
-    },
-    {
-      version: 36,
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_updated_at TEXT`,
-    },
-    // v37-v45: source-aware Builder database foundation tables (additive).
-    {
-      version: 37,
-      sql: `CREATE TABLE IF NOT EXISTS content_database_sources (
+  },
+  // v28-v31: robust text-anchor + @mention metadata for document comments.
+  {
+    version: 28,
+    sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS anchor_prefix TEXT`,
+  },
+  {
+    version: 29,
+    sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS anchor_suffix TEXT`,
+  },
+  {
+    version: 30,
+    sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS anchor_start_offset INTEGER`,
+  },
+  {
+    version: 31,
+    sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT`,
+  },
+  // v32-v36: source metadata for database-mode local Markdown imports.
+  {
+    version: 32,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_mode TEXT`,
+  },
+  {
+    version: 33,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_kind TEXT`,
+  },
+  {
+    version: 34,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_path TEXT`,
+  },
+  {
+    version: 35,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_root_path TEXT`,
+  },
+  {
+    version: 36,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_updated_at TEXT`,
+  },
+  // v37-v45: source-aware Builder database foundation tables (additive).
+  {
+    version: 37,
+    sql: `CREATE TABLE IF NOT EXISTS content_database_sources (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
@@ -334,10 +333,10 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 38,
-      sql: `CREATE TABLE IF NOT EXISTS content_database_source_fields (
+  },
+  {
+    version: 38,
+    sql: `CREATE TABLE IF NOT EXISTS content_database_source_fields (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       source_id TEXT NOT NULL,
@@ -355,10 +354,10 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 39,
-      sql: `CREATE TABLE IF NOT EXISTS content_database_source_rows (
+  },
+  {
+    version: 39,
+    sql: `CREATE TABLE IF NOT EXISTS content_database_source_rows (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       source_id TEXT NOT NULL,
@@ -376,10 +375,10 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 40,
-      sql: `CREATE TABLE IF NOT EXISTS content_database_source_change_sets (
+  },
+  {
+    version: 40,
+    sql: `CREATE TABLE IF NOT EXISTS content_database_source_change_sets (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       source_id TEXT NOT NULL,
@@ -396,22 +395,22 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 41,
-      sql: `ALTER TABLE content_database_source_change_sets ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'incoming'`,
-    },
-    {
-      version: 42,
-      sql: `ALTER TABLE content_database_source_change_sets ADD COLUMN IF NOT EXISTS push_mode TEXT`,
-    },
-    {
-      version: 43,
-      sql: `ALTER TABLE content_database_source_change_sets ADD COLUMN IF NOT EXISTS local_only INTEGER NOT NULL DEFAULT 1`,
-    },
-    {
-      version: 44,
-      sql: `CREATE TABLE IF NOT EXISTS content_database_source_change_reviews (
+  },
+  {
+    version: 41,
+    sql: `ALTER TABLE content_database_source_change_sets ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'incoming'`,
+  },
+  {
+    version: 42,
+    sql: `ALTER TABLE content_database_source_change_sets ADD COLUMN IF NOT EXISTS push_mode TEXT`,
+  },
+  {
+    version: 43,
+    sql: `ALTER TABLE content_database_source_change_sets ADD COLUMN IF NOT EXISTS local_only INTEGER NOT NULL DEFAULT 1`,
+  },
+  {
+    version: 44,
+    sql: `CREATE TABLE IF NOT EXISTS content_database_source_change_reviews (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       source_id TEXT NOT NULL,
@@ -423,10 +422,10 @@ export const runContentMigrations = runMigrations(
       note TEXT,
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 45,
-      sql: `CREATE TABLE IF NOT EXISTS content_database_source_executions (
+  },
+  {
+    version: 45,
+    sql: `CREATE TABLE IF NOT EXISTS content_database_source_executions (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       source_id TEXT NOT NULL,
@@ -441,14 +440,14 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 46,
-      sql: `ALTER TABLE content_database_source_rows ADD COLUMN IF NOT EXISTS source_values_json TEXT NOT NULL DEFAULT '{}'`,
-    },
-    {
-      version: 47,
-      sql: `CREATE INDEX IF NOT EXISTS content_database_sources_database_idx ON content_database_sources (database_id);
+  },
+  {
+    version: 46,
+    sql: `ALTER TABLE content_database_source_rows ADD COLUMN IF NOT EXISTS source_values_json TEXT NOT NULL DEFAULT '{}'`,
+  },
+  {
+    version: 47,
+    sql: `CREATE INDEX IF NOT EXISTS content_database_sources_database_idx ON content_database_sources (database_id);
         CREATE INDEX IF NOT EXISTS content_database_sources_owner_idx ON content_database_sources (owner_email);
         CREATE INDEX IF NOT EXISTS content_database_source_fields_source_idx ON content_database_source_fields (source_id);
         CREATE INDEX IF NOT EXISTS content_database_source_fields_property_idx ON content_database_source_fields (property_id);
@@ -462,14 +461,14 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS content_database_source_executions_source_idx ON content_database_source_executions (source_id);
         CREATE INDEX IF NOT EXISTS content_database_source_executions_change_set_idx ON content_database_source_executions (change_set_id);
         CREATE INDEX IF NOT EXISTS content_database_source_executions_idempotency_idx ON content_database_source_executions (idempotency_key)`,
-    },
-    {
-      // Independent backing store for ADDITIONAL "Blocks" property fields. The
-      // primary "Content" Blocks field is backed by documents.content; every
-      // other Blocks field on a row stores its own content here, keyed by
-      // (document_id, property_id), so no two Blocks fields ever share content.
-      version: 48,
-      sql: `CREATE TABLE IF NOT EXISTS document_block_field_contents (
+  },
+  {
+    // Independent backing store for ADDITIONAL "Blocks" property fields. The
+    // primary "Content" Blocks field is backed by documents.content; every
+    // other Blocks field on a row stores its own content here, keyed by
+    // (document_id, property_id), so no two Blocks fields ever share content.
+    version: 48,
+    sql: `CREATE TABLE IF NOT EXISTS document_block_field_contents (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       document_id TEXT NOT NULL,
@@ -478,37 +477,37 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 49,
-      sql: `CREATE INDEX IF NOT EXISTS document_block_field_contents_document_idx ON document_block_field_contents (document_id);
+  },
+  {
+    version: 49,
+    sql: `CREATE INDEX IF NOT EXISTS document_block_field_contents_document_idx ON document_block_field_contents (document_id);
         CREATE UNIQUE INDEX IF NOT EXISTS document_block_field_contents_doc_prop_idx ON document_block_field_contents (document_id, property_id)`,
-    },
-    // v50-v52: DB-enforced single-primary Blocks invariant. `primary_blocks_property_id`
-    // is the one source of truth for which property backs `documents.content`;
-    // `blocks_seeded` records that a database was seeded once, so an intentionally
-    // deleted primary is never silently recreated. Both are additive and safe on
-    // existing data.
-    {
-      version: 50,
-      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS primary_blocks_property_id TEXT`,
-    },
-    {
-      version: 51,
-      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS blocks_seeded INTEGER NOT NULL DEFAULT 0`,
-    },
-    // v52: one-time backfill for LEGACY databases that already had a primary
-    // "Content" Blocks definition (seeded by the previous read-path safety net)
-    // before these columns existed. Point primary_blocks_property_id at that
-    // definition and mark the database seeded. Idempotent: only fills rows that
-    // are still NULL, and re-running is a no-op. Databases with NO primary
-    // definition are intentionally left unseeded — the startup repair seeds them
-    // exactly once via the authenticated path. The correlated subquery picks the
-    // primary definition by its options JSON marker (`"primary":true`); the
-    // simple `%...%` LIKE works in Postgres and PGlite.
-    {
-      version: 52,
-      sql: `UPDATE content_databases
+  },
+  // v50-v52: DB-enforced single-primary Blocks invariant. `primary_blocks_property_id`
+  // is the one source of truth for which property backs `documents.content`;
+  // `blocks_seeded` records that a database was seeded once, so an intentionally
+  // deleted primary is never silently recreated. Both are additive and safe on
+  // existing data.
+  {
+    version: 50,
+    sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS primary_blocks_property_id TEXT`,
+  },
+  {
+    version: 51,
+    sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS blocks_seeded INTEGER NOT NULL DEFAULT 0`,
+  },
+  // v52: one-time backfill for LEGACY databases that already had a primary
+  // "Content" Blocks definition (seeded by the previous read-path safety net)
+  // before these columns existed. Point primary_blocks_property_id at that
+  // definition and mark the database seeded. Idempotent: only fills rows that
+  // are still NULL, and re-running is a no-op. Databases with NO primary
+  // definition are intentionally left unseeded — the startup repair seeds them
+  // exactly once via the authenticated path. The correlated subquery picks the
+  // primary definition by its options JSON marker (`"primary":true`); the
+  // simple `%...%` LIKE works in Postgres and PGlite.
+  {
+    version: 52,
+    sql: `UPDATE content_databases
         SET primary_blocks_property_id = (
               SELECT d.id FROM document_property_definitions d
               WHERE d.database_id = content_databases.id
@@ -524,30 +523,30 @@ export const runContentMigrations = runMigrations(
                 AND d.type = 'blocks'
                 AND d.options_json LIKE '%"primary":true%'
             )`,
-    },
-    // v53-v54: ownership metadata for inline databases. Nullable by design:
-    // full-page databases and non-owning references leave these empty.
-    {
-      version: 53,
-      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_document_id TEXT`,
-    },
-    {
-      version: 54,
-      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_block_id TEXT`,
-    },
-    // v55: soft-delete marker for inline database lifecycle. Nullable keeps
-    // existing databases active; cleanup remains a later explicit path.
-    {
-      version: 55,
-      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
-    },
-    // v56-v57: DB-backed Builder MDX documents keep their raw sidecar files in a
-    // document-scoped cache. Local-file Builder MDX still uses in-repo sidecars
-    // as the portable source of truth; these rows only make pulled SQL documents
-    // round-trip through the visual editor and push validator.
-    {
-      version: 56,
-      sql: `CREATE TABLE IF NOT EXISTS builder_doc_sidecars (
+  },
+  // v53-v54: ownership metadata for inline databases. Nullable by design:
+  // full-page databases and non-owning references leave these empty.
+  {
+    version: 53,
+    sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_document_id TEXT`,
+  },
+  {
+    version: 54,
+    sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_block_id TEXT`,
+  },
+  // v55: soft-delete marker for inline database lifecycle. Nullable keeps
+  // existing databases active; cleanup remains a later explicit path.
+  {
+    version: 55,
+    sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
+  },
+  // v56-v57: DB-backed Builder MDX documents keep their raw sidecar files in a
+  // document-scoped cache. Local-file Builder MDX still uses in-repo sidecars
+  // as the portable source of truth; these rows only make pulled SQL documents
+  // round-trip through the visual editor and push validator.
+  {
+    version: 56,
+    sql: `CREATE TABLE IF NOT EXISTS builder_doc_sidecars (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
@@ -558,22 +557,22 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 57,
-      sql: `CREATE INDEX IF NOT EXISTS builder_doc_sidecars_document_idx ON builder_doc_sidecars (document_id);
+  },
+  {
+    version: 57,
+    sql: `CREATE INDEX IF NOT EXISTS builder_doc_sidecars_document_idx ON builder_doc_sidecars (document_id);
         CREATE UNIQUE INDEX IF NOT EXISTS builder_doc_sidecars_doc_path_idx ON builder_doc_sidecars (document_id, path)`,
-    },
-    {
-      version: 58,
-      sql: `ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_status TEXT NOT NULL DEFAULT 'hydrated';
+  },
+  {
+    version: 58,
+    sql: `ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_status TEXT NOT NULL DEFAULT 'hydrated';
         ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_attempted_at TEXT;
         ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_error TEXT;
         ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_version TEXT`,
-    },
-    {
-      version: 59,
-      sql: `CREATE TABLE IF NOT EXISTS content_database_body_hydration_queue (
+  },
+  {
+    version: 59,
+    sql: `CREATE TABLE IF NOT EXISTS content_database_body_hydration_queue (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
@@ -590,37 +589,37 @@ export const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
-    },
-    {
-      version: 60,
-      sql: `CREATE INDEX IF NOT EXISTS content_database_body_hydration_queue_source_idx ON content_database_body_hydration_queue (source_id, priority, created_at);
+  },
+  {
+    version: 60,
+    sql: `CREATE INDEX IF NOT EXISTS content_database_body_hydration_queue_source_idx ON content_database_body_hydration_queue (source_id, priority, created_at);
         CREATE UNIQUE INDEX IF NOT EXISTS content_database_body_hydration_queue_item_idx ON content_database_body_hydration_queue (database_item_id);
         CREATE INDEX IF NOT EXISTS content_database_items_body_hydration_idx ON content_database_items (database_id, body_hydration_status)`,
-    },
-    {
-      version: 61,
-      name: "document-sync-links-claim-column",
-      // Best-effort cross-instance serialization for Notion pull/push: a
-      // conditional UPDATE claims this column before making Notion API calls
-      // so two concurrent syncs for the same document (different tabs,
-      // different serverless instances) don't race Notion mutations against
-      // each other. See server/lib/notion-sync.ts's use of this column.
-      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_claimed_at TEXT`,
-    },
-    {
-      version: 62,
-      name: "document-comments-notion-discussion-id-column",
-      // Notion groups a top-level comment and its replies under one
-      // discussion_id. Storing it locally lets sync-notion-comments create
-      // replies with `discussion_id` (instead of `parent`) so they thread
-      // under the existing Notion discussion in both directions instead of
-      // becoming unrelated top-level comments. See actions/sync-notion-comments.ts.
-      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS notion_discussion_id TEXT`,
-    },
-    {
-      version: 63,
-      name: "builder-source-refresh-hot-path-indexes",
-      sql: `CREATE INDEX IF NOT EXISTS content_database_items_database_position_idx ON content_database_items (database_id, position);
+  },
+  {
+    version: 61,
+    name: "document-sync-links-claim-column",
+    // Best-effort cross-instance serialization for Notion pull/push: a
+    // conditional UPDATE claims this column before making Notion API calls
+    // so two concurrent syncs for the same document (different tabs,
+    // different serverless instances) don't race Notion mutations against
+    // each other. See server/lib/notion-sync.ts's use of this column.
+    sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_claimed_at TEXT`,
+  },
+  {
+    version: 62,
+    name: "document-comments-notion-discussion-id-column",
+    // Notion groups a top-level comment and its replies under one
+    // discussion_id. Storing it locally lets sync-notion-comments create
+    // replies with `discussion_id` (instead of `parent`) so they thread
+    // under the existing Notion discussion in both directions instead of
+    // becoming unrelated top-level comments. See actions/sync-notion-comments.ts.
+    sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS notion_discussion_id TEXT`,
+  },
+  {
+    version: 63,
+    name: "builder-source-refresh-hot-path-indexes",
+    sql: `CREATE INDEX IF NOT EXISTS content_database_items_database_position_idx ON content_database_items (database_id, position);
         CREATE INDEX IF NOT EXISTS content_database_items_document_idx ON content_database_items (document_id);
         CREATE INDEX IF NOT EXISTS content_database_source_rows_source_created_idx ON content_database_source_rows (source_id, created_at);
         CREATE INDEX IF NOT EXISTS content_database_source_rows_source_document_idx ON content_database_source_rows (source_id, document_id);
@@ -629,23 +628,23 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS content_database_source_fields_source_key_idx ON content_database_source_fields (source_id, source_field_key);
         CREATE INDEX IF NOT EXISTS content_database_source_fields_source_property_idx ON content_database_source_fields (source_id, property_id);
         CREATE INDEX IF NOT EXISTS content_database_body_hydration_queue_source_document_idx ON content_database_body_hydration_queue (source_id, document_id, priority, created_at)`,
-    },
-    {
-      version: 64,
-      name: "document-property-value-hot-path-indexes",
-      sql: `CREATE INDEX IF NOT EXISTS document_property_values_document_property_idx ON document_property_values (document_id, property_id);
+  },
+  {
+    version: 64,
+    name: "document-property-value-hot-path-indexes",
+    sql: `CREATE INDEX IF NOT EXISTS document_property_values_document_property_idx ON document_property_values (document_id, property_id);
         CREATE INDEX IF NOT EXISTS document_property_values_property_document_idx ON document_property_values (property_id, document_id)`,
-    },
-    {
-      version: 65,
-      name: "content-owned-descriptions",
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+  },
+  {
+    version: 65,
+    name: "content-owned-descriptions",
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
         ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`,
-    },
-    {
-      version: 66,
-      name: "document-preview-drafts-private-cas",
-      sql: `CREATE TABLE IF NOT EXISTS document_preview_drafts (
+  },
+  {
+    version: 66,
+    name: "document-preview-drafts-private-cas",
+    sql: `CREATE TABLE IF NOT EXISTS document_preview_drafts (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL,
         org_id TEXT NOT NULL DEFAULT '',
@@ -661,19 +660,19 @@ export const runContentMigrations = runMigrations(
       );
       CREATE UNIQUE INDEX IF NOT EXISTS document_preview_drafts_owner_org_document_unique ON document_preview_drafts (owner_email, org_id, document_id);
       CREATE INDEX IF NOT EXISTS document_preview_drafts_owner_org_document_idx ON document_preview_drafts (owner_email, org_id, document_id)`,
-    },
-    {
-      version: 67,
-      name: "builder-source-execution-attempt-token",
-      sql: `ALTER TABLE content_database_source_executions ADD COLUMN IF NOT EXISTS attempt_token TEXT`,
-    },
-    {
-      version: 68,
-      name: "builder-source-execution-claims",
-      // Non-destructive concurrency fence. Existing duplicate execution rows
-      // remain intact as ambiguity evidence; the claim chooses one canonical
-      // row for every future prepare/execute path.
-      sql: `CREATE TABLE IF NOT EXISTS content_database_source_execution_claims (
+  },
+  {
+    version: 67,
+    name: "builder-source-execution-attempt-token",
+    sql: `ALTER TABLE content_database_source_executions ADD COLUMN IF NOT EXISTS attempt_token TEXT`,
+  },
+  {
+    version: 68,
+    name: "builder-source-execution-claims",
+    // Non-destructive concurrency fence. Existing duplicate execution rows
+    // remain intact as ambiguity evidence; the claim chooses one canonical
+    // row for every future prepare/execute path.
+    sql: `CREATE TABLE IF NOT EXISTS content_database_source_execution_claims (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL DEFAULT 'local@localhost',
         source_id TEXT NOT NULL,
@@ -683,22 +682,22 @@ export const runContentMigrations = runMigrations(
       );
       CREATE UNIQUE INDEX IF NOT EXISTS content_database_source_execution_claims_source_key_unique
         ON content_database_source_execution_claims (source_id, idempotency_key)`,
-    },
-    {
-      version: 69,
-      name: "builder-source-execution-claims-owner-scope",
-      sql: `ALTER TABLE content_database_source_execution_claims ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
+  },
+  {
+    version: 69,
+    name: "builder-source-execution-claims-owner-scope",
+    sql: `ALTER TABLE content_database_source_execution_claims ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
       UPDATE content_database_source_execution_claims
         SET owner_email = COALESCE(
           (SELECT owner_email FROM content_database_source_executions
             WHERE content_database_source_executions.id = content_database_source_execution_claims.execution_id),
           owner_email
         )`,
-    },
-    {
-      version: 70,
-      name: "content-spaces-table",
-      sql: `CREATE TABLE IF NOT EXISTS content_spaces (
+  },
+  {
+    version: 70,
+    name: "content-spaces-table",
+    sql: `CREATE TABLE IF NOT EXISTS content_spaces (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         kind TEXT NOT NULL,
@@ -710,11 +709,11 @@ export const runContentMigrations = runMigrations(
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
-    },
-    {
-      version: 71,
-      name: "content-space-catalog-items-table",
-      sql: `CREATE TABLE IF NOT EXISTS content_space_catalog_items (
+  },
+  {
+    version: 71,
+    name: "content-space-catalog-items-table",
+    sql: `CREATE TABLE IF NOT EXISTS content_space_catalog_items (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL,
         catalog_database_id TEXT NOT NULL,
@@ -724,18 +723,18 @@ export const runContentMigrations = runMigrations(
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
-    },
-    {
-      version: 72,
-      name: "content-space-columns",
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS space_id TEXT;
+  },
+  {
+    version: 72,
+    name: "content-space-columns",
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS space_id TEXT;
         ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS space_id TEXT;
         ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS system_role TEXT`,
-    },
-    {
-      version: 73,
-      name: "content-space-hot-path-indexes",
-      sql: `CREATE UNIQUE INDEX IF NOT EXISTS content_spaces_files_database_unique ON content_spaces (files_database_id);
+  },
+  {
+    version: 73,
+    name: "content-space-hot-path-indexes",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS content_spaces_files_database_unique ON content_spaces (files_database_id);
         CREATE INDEX IF NOT EXISTS content_spaces_owner_org_idx ON content_spaces (owner_email, org_id);
         CREATE INDEX IF NOT EXISTS content_spaces_org_idx ON content_spaces (org_id);
         CREATE UNIQUE INDEX IF NOT EXISTS content_space_catalog_items_catalog_space_unique ON content_space_catalog_items (catalog_database_id, space_id);
@@ -745,11 +744,11 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS documents_space_idx ON documents (space_id);
         CREATE INDEX IF NOT EXISTS content_databases_space_idx ON content_databases (space_id);
         CREATE UNIQUE INDEX IF NOT EXISTS content_databases_space_system_role_unique ON content_databases (space_id, system_role)`,
-    },
-    {
-      version: 74,
-      name: "content-database-items-canonical-membership",
-      sql: `DROP INDEX IF EXISTS content_space_catalog_items_catalog_item_unique;
+  },
+  {
+    version: 74,
+    name: "content-database-items-canonical-membership",
+    sql: `DROP INDEX IF EXISTS content_space_catalog_items_catalog_item_unique;
         DROP INDEX IF EXISTS content_database_body_hydration_queue_item_idx;
         UPDATE content_space_catalog_items
         SET database_item_id = (
@@ -847,27 +846,27 @@ export const runContentMigrations = runMigrations(
         );
         CREATE UNIQUE INDEX IF NOT EXISTS content_database_items_database_document_unique
           ON content_database_items (database_id, document_id)`,
-    },
-    {
-      version: 75,
-      name: "content-files-system-properties",
-      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS system_role TEXT;
+  },
+  {
+    version: 75,
+    name: "content-files-system-properties",
+    sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS system_role TEXT;
         ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS files_system_properties_seeded INTEGER NOT NULL DEFAULT 0;
         CREATE UNIQUE INDEX IF NOT EXISTS document_property_definitions_database_system_role_unique
           ON document_property_definitions (database_id, system_role)`,
-    },
-    {
-      version: 76,
-      name: "document-trash-lifecycle",
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_at TEXT;
+  },
+  {
+    version: 76,
+    name: "document-trash-lifecycle",
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_at TEXT;
         ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_root_id TEXT;
         CREATE INDEX IF NOT EXISTS documents_trash_idx ON documents (owner_email, trashed_at, trash_root_id)`,
-    },
-    {
-      version: 77,
-      name: "backfill-database-trash-roots",
-      // guard:allow-unscoped — boot migration claims only archived database trees that predate document Trash metadata.
-      sql: `WITH RECURSIVE legacy_database_trash(document_id, root_id, deleted_at) AS (
+  },
+  {
+    version: 77,
+    name: "backfill-database-trash-roots",
+    // guard:allow-unscoped — boot migration claims only archived database trees that predate document Trash metadata.
+    sql: `WITH RECURSIVE legacy_database_trash(document_id, root_id, deleted_at) AS (
           SELECT documents.id, documents.id, MIN(content_databases.deleted_at)
           FROM documents
           INNER JOIN content_databases
@@ -907,11 +906,11 @@ export const runContentMigrations = runMigrations(
             FROM legacy_database_trash
             WHERE legacy_database_trash.document_id = documents.id
           )`,
-    },
-    {
-      version: 78,
-      name: "content-database-item-stable-key-claims",
-      sql: `CREATE TABLE IF NOT EXISTS content_database_item_key_claims (
+  },
+  {
+    version: 78,
+    name: "content-database-item-stable-key-claims",
+    sql: `CREATE TABLE IF NOT EXISTS content_database_item_key_claims (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL DEFAULT 'local@localhost',
         org_id TEXT,
@@ -926,16 +925,16 @@ export const runContentMigrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS content_database_item_key_claims_database_property_value_unique ON content_database_item_key_claims (database_id, property_id, key_value_json);
       CREATE INDEX IF NOT EXISTS content_database_item_key_claims_item_idx ON content_database_item_key_claims (item_id);
       CREATE INDEX IF NOT EXISTS content_database_item_key_claims_document_idx ON content_database_item_key_claims (document_id)`,
-    },
-    {
-      version: 79,
-      name: "content-database-item-stable-key-single-active-claim",
-      sql: `CREATE UNIQUE INDEX IF NOT EXISTS content_database_item_key_claims_database_property_document_unique ON content_database_item_key_claims (database_id, property_id, document_id)`,
-    },
-    {
-      version: 80,
-      name: "content-database-migration-receipts",
-      sql: `CREATE TABLE IF NOT EXISTS content_database_migration_receipts (
+  },
+  {
+    version: 79,
+    name: "content-database-item-stable-key-single-active-claim",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS content_database_item_key_claims_database_property_document_unique ON content_database_item_key_claims (database_id, property_id, document_id)`,
+  },
+  {
+    version: 80,
+    name: "content-database-migration-receipts",
+    sql: `CREATE TABLE IF NOT EXISTS content_database_migration_receipts (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL DEFAULT 'local@localhost',
         org_id TEXT,
@@ -955,11 +954,11 @@ export const runContentMigrations = runMigrations(
         ON content_database_migration_receipts (database_id, idempotency_key);
       CREATE INDEX IF NOT EXISTS content_database_migration_receipts_owner_database_idx
         ON content_database_migration_receipts (owner_email, database_id)`,
-    },
-    {
-      version: 81,
-      name: "content-block-field-identities",
-      sql: `CREATE TABLE IF NOT EXISTS document_block_fields (
+  },
+  {
+    version: 81,
+    name: "content-block-field-identities",
+    sql: `CREATE TABLE IF NOT EXISTS document_block_fields (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL DEFAULT 'local@localhost',
         document_id TEXT NOT NULL,
@@ -973,11 +972,11 @@ export const runContentMigrations = runMigrations(
         ON document_block_fields (document_id, property_id);
       CREATE INDEX IF NOT EXISTS document_block_fields_owner_document_idx
         ON document_block_fields (owner_email, document_id)`,
-    },
-    {
-      version: 82,
-      name: "content-block-identities-and-tombstones",
-      sql: `CREATE TABLE IF NOT EXISTS document_blocks (
+  },
+  {
+    version: 82,
+    name: "content-block-identities-and-tombstones",
+    sql: `CREATE TABLE IF NOT EXISTS document_blocks (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL DEFAULT 'local@localhost',
         field_id TEXT NOT NULL,
@@ -998,23 +997,23 @@ export const runContentMigrations = runMigrations(
         ON document_blocks (field_id, state, sort_index);
       CREATE INDEX IF NOT EXISTS document_blocks_parent_idx
         ON document_blocks (parent_id)`,
-    },
-    // The current schema uses BOOLEAN while the legacy INTEGER migration above
-    // is stored as BIGINT. Convert the stored column before Drizzle sends
-    // boolean values.
-    {
-      version: 83,
-      name: "content-block-addressable-postgres-boolean",
-      sql: {
-        postgres: `ALTER TABLE document_blocks ALTER COLUMN addressable DROP DEFAULT;
+  },
+  // The current schema uses BOOLEAN while the legacy INTEGER migration above
+  // is stored as BIGINT. Convert the stored column before Drizzle sends
+  // boolean values.
+  {
+    version: 83,
+    name: "content-block-addressable-postgres-boolean",
+    sql: {
+      postgres: `ALTER TABLE document_blocks ALTER COLUMN addressable DROP DEFAULT;
         ALTER TABLE document_blocks ALTER COLUMN addressable TYPE boolean USING addressable::text::boolean;
         ALTER TABLE document_blocks ALTER COLUMN addressable SET DEFAULT true`,
-      },
     },
-    {
-      version: 84,
-      name: "content-database-row-mutation-contract",
-      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS natural_key_property_id TEXT;
+  },
+  {
+    version: 84,
+    name: "content-database-row-mutation-contract",
+    sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS natural_key_property_id TEXT;
       CREATE TABLE IF NOT EXISTS content_database_row_mutation_receipts (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -1040,25 +1039,25 @@ export const runContentMigrations = runMigrations(
         ON content_database_row_mutation_receipts (owner_email, database_id);
       CREATE INDEX IF NOT EXISTS content_database_row_mutation_receipts_document_idx
         ON content_database_row_mutation_receipts (document_id)`,
-    },
-    {
-      version: 85,
-      name: "content-document-version-chat-context",
-      sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
-    },
-    {
-      version: 86,
-      name: "builder-body-hydration-terminal-evidence",
-      sql: `ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_reason TEXT;
+  },
+  {
+    version: 85,
+    name: "content-document-version-chat-context",
+    sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
+  },
+  {
+    version: 86,
+    name: "builder-body-hydration-terminal-evidence",
+    sql: `ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_reason TEXT;
         ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_provider_status TEXT;
         ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_attempt_count INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_retryable INTEGER;
         ALTER TABLE content_database_body_hydration_queue ADD COLUMN IF NOT EXISTS next_attempt_at TEXT`,
-    },
-    {
-      version: 87,
-      name: "content-document-body-revision-and-edit-receipts",
-      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS body_revision INTEGER NOT NULL DEFAULT 0;
+  },
+  {
+    version: 87,
+    name: "content-document-body-revision-and-edit-receipts",
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS body_revision INTEGER NOT NULL DEFAULT 0;
       CREATE TABLE IF NOT EXISTS document_edit_receipts (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -1080,6 +1079,27 @@ export const runContentMigrations = runMigrations(
         ON document_edit_receipts (document_id, caller_scope, idempotency_key);
       CREATE INDEX IF NOT EXISTS document_edit_receipts_owner_document_idx
         ON document_edit_receipts (owner_email, document_id)`,
+  },
+];
+
+export const runContentMigrations = runMigrations(
+  [
+    ...contentMigrations,
+    {
+      version: 90,
+      name: "content-document-history-grouping",
+      sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS actor_email TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS actor_kind TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS origin TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS group_kind TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS group_id TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS operation TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS checkpoint_kind TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS updated_at TEXT;
+      CREATE INDEX IF NOT EXISTS document_versions_owner_document_created_idx
+        ON document_versions (owner_email, document_id, created_at, id);
+      CREATE INDEX IF NOT EXISTS document_versions_owner_document_group_idx
+        ON document_versions (owner_email, document_id, group_id, created_at, id)`,
     },
     {
       version: 88,
