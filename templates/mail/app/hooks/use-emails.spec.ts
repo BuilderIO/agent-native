@@ -145,6 +145,24 @@ describe("useEmails query warming", () => {
   });
 });
 
+describe("useMarkRead", () => {
+  it("updates and rolls back the mounted thread cache", () => {
+    const source = emailsHookSource();
+    const hook = source.slice(
+      source.indexOf("export function useMarkRead()"),
+      source.indexOf("export function useMarkThreadRead()"),
+    );
+
+    expect(hook).toContain("getCachedThread(resolvedThreadId)");
+    expect(hook).toContain(
+      "message.id === id ? { ...message, isRead } : message",
+    );
+    expect(hook).toContain(
+      "setCachedThread(context.threadId, context.previousThread)",
+    );
+  });
+});
+
 describe("serializePinnedLabelsUpdate", () => {
   it("runs pinned-label writes in order", async () => {
     const { serializePinnedLabelsUpdate } = await import("./use-emails");

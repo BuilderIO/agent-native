@@ -961,6 +961,7 @@ export function EmailThread({
             id: email.id,
             isRead: !email.isRead,
             accountEmail: email.accountEmail,
+            threadId,
           });
         },
       },
@@ -973,6 +974,7 @@ export function EmailThread({
             id: email.id,
             isRead: true,
             accountEmail: email.accountEmail,
+            threadId,
           });
         },
       },
@@ -985,6 +987,7 @@ export function EmailThread({
             id: email.id,
             isRead: false,
             accountEmail: email.accountEmail,
+            threadId,
           });
         },
       },
@@ -1029,6 +1032,7 @@ export function EmailThread({
               id: email.id,
               isRead: false,
               accountEmail: email.accountEmail,
+              threadId,
             });
           break;
         case "prev":
@@ -1254,6 +1258,7 @@ export function EmailThread({
                             id: email.id,
                             isRead: !email.isRead,
                             accountEmail: email.accountEmail,
+                            threadId,
                           })
                         }
                         className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
