@@ -2537,14 +2537,10 @@ export function DocumentSidebar({
                         favoritesPersonalView.isLoading
                       }
                       activeDocumentId={activeDocumentId}
-                      manualReorder={
-                        updateFavoritesPersonalView.isPending
-                          ? undefined
-                          : {
-                              labels: sidebarReorderLabels,
-                              onReorder: handlePinnedReorder,
-                            }
-                      }
+                      manualReorder={{
+                        labels: sidebarReorderLabels,
+                        onReorder: handlePinnedReorder,
+                      }}
                       onOpenItem={(item) => {
                         const document = documents.find(
                           (candidate) => candidate.id === item.document.id,

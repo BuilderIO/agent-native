@@ -9,13 +9,16 @@ import {
   type ContentRecentResult,
 } from "../shared/content-personal-navigation.js";
 import { documentDiscoveryWhere } from "./_document-discovery-query.js";
+import { parseDatabaseViewConfig } from "./_property-utils.js";
 
 export function contentRecentSettingKey() {
   return `content-recent:${JSON.stringify(getRequestOrgId() ?? null)}`;
 }
 
 const viewIdentitySchema = z.object({
-  views: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+  views: z
+    .array(z.object({ id: z.string().trim().min(1), name: z.string() }))
+    .optional(),
 });
 
 export async function resolveContentRecentEntries(
@@ -77,11 +80,10 @@ export async function resolveContentRecentEntries(
       const database = databasesById.get(entry.target.databaseId);
       if (!database || database.documentId !== document.id) continue;
       if (entry.target.viewId) {
-        // Do not normalize a missing exact View into the database's default View.
-        const config = viewIdentitySchema.parse(
-          JSON.parse(database.viewConfigJson),
-        );
-        const view = config.views?.find(
+        // Validate before the legacy parser, which otherwise coerces unreadable JSON to a default.
+        viewIdentitySchema.parse(JSON.parse(database.viewConfigJson));
+        const config = parseDatabaseViewConfig(database.viewConfigJson);
+        const view = config.views.find(
           (candidate) => candidate.id === entry.target.viewId,
         );
         if (!view) continue;

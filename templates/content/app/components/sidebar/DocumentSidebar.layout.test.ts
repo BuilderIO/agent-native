@@ -523,7 +523,7 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).toContain("sidebarOrder={favoritesOrder.order}");
     expect(sidebar).toContain("handlePinnedReorder");
-    expect(sidebar).toContain("updateFavoritesPersonalView.isPending");
+    expect(sidebar).not.toContain("updateFavoritesPersonalView.isPending");
     expect(sidebar).toContain("onReorder: handlePinnedReorder");
     expect(sidebar).toContain(
       "flex h-7 w-full min-w-0 items-center rounded-md px-1",

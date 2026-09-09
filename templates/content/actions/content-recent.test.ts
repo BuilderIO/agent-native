@@ -87,6 +87,62 @@ beforeEach(() => {
 });
 
 describe("Recent access resolution", () => {
+  it("rejects corrupt View identities rather than turning them into an implicit default", async () => {
+    rowsOnce([{ id: "page", title: "Database", icon: null }]);
+    rowsOnce([
+      {
+        id: "db",
+        documentId: "page",
+        viewConfigJson: JSON.stringify({
+          views: [{ id: "", name: "Invalid" }],
+        }),
+      },
+    ]);
+    await expect(
+      resolveContentRecentEntries(alice.userEmail, [
+        entry("page", { databaseId: "db", viewId: "default" }),
+      ]),
+    ).rejects.toThrow();
+  });
+
+  it.each([{}, { views: [] }, { sorts: [], filters: [], columnWidths: {} }])(
+    "resolves the canonical initial Table from legacy configuration %j",
+    async (viewConfig) => {
+      const visit = entry("page", { databaseId: "db", viewId: "default" });
+      rowsOnce([{ id: "page", title: "New database", icon: null }]);
+      rowsOnce([
+        {
+          id: "db",
+          documentId: "page",
+          viewConfigJson: JSON.stringify(viewConfig),
+        },
+      ]);
+      expect(
+        await resolveContentRecentEntries(alice.userEmail, [visit]),
+      ).toEqual([
+        { ...visit, title: "New database", icon: null, viewName: "Table" },
+      ]);
+    },
+  );
+
+  it("does not invent a removed default View when other saved Views exist", async () => {
+    rowsOnce([{ id: "page", title: "Database", icon: null }]);
+    rowsOnce([
+      {
+        id: "db",
+        documentId: "page",
+        viewConfigJson: JSON.stringify({
+          views: [{ id: "board", name: "Board" }],
+        }),
+      },
+    ]);
+    expect(
+      await resolveContentRecentEntries(alice.userEmail, [
+        entry("page", { databaseId: "db", viewId: "default" }),
+      ]),
+    ).toEqual([]);
+  });
+
   it("uses only the current org context and the requesting user", async () => {
     boundary.orgId = "current-org";
     rowsOnce([]);
@@ -171,6 +227,18 @@ describe("Recent access resolution", () => {
 });
 
 describe("Recent action persistence", () => {
+  it("records a newly created database's implicit default View", async () => {
+    rowsOnce([{ id: "page", title: "New database", icon: null }]);
+    rowsOnce([{ id: "db", documentId: "page", viewConfigJson: "{}" }]);
+    const target = { documentId: "page", databaseId: "db", viewId: "default" };
+    expect(await recordVisit.run(target, alice)).toEqual({ recorded: true });
+    expect(
+      stored.get(settingId(alice.userEmail, contentRecentSettingKey())),
+    ).toMatchObject({
+      entries: [{ target }],
+    });
+  });
+
   it("isolates both user and current-context settings", async () => {
     boundary.orgId = "org-a";
     rowsOnce([{ id: "page", title: "Page", icon: null }]);
