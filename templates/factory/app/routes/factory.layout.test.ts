@@ -66,6 +66,28 @@ describe("Factory route factory switching", () => {
     expect(source).toContain("bg-emerald-500");
     expect(source).toContain('title={t("factoryRoute.pastRuns")}');
   });
+
+  it("does not steal the selected automation while the list catches up", () => {
+    const source = readSource();
+    expect(source).toContain("if (selectedId && !automationMissing) return;");
+    expect(source).toContain("mergeListedAutomationDraft");
+    expect(source).toContain("automationsQuery.refetch().finally(");
+    expect(source).not.toContain(
+      "automations.find((automation) => automation.id === selectedId) ??\n    automations[0]",
+    );
+  });
+
+  it("resyncs the editor after a save and refuses to run a stale config", () => {
+    const source = readSource();
+    // Save normalizes the row, so the draft must stop counting as unsaved or it
+    // never accepts a server update again.
+    expect(source).toMatch(
+      /syncedConfigKeyRef\.current = null;\n\s+await automationsQuery\.refetch\(\);/,
+    );
+    expect(source).toContain("draftHasUnsavedEdits(draft)");
+    expect(source).toContain("factoryRoute.automationRunNeedsSave");
+    expect(source).toContain("factoryRoute.automationNotFound");
+  });
 });
 
 describe("Factory route tabs", () => {

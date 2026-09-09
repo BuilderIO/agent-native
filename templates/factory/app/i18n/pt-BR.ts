@@ -476,6 +476,7 @@ const messages = {
     automationEvent: "Evento",
     automationTimezone: "Fuso horário",
     selectAutomation: "Selecione uma automação para editar.",
+    automationNotFound: "Essa automação não existe mais.",
     automationModel: "Modelo",
     automationDisplayName: "Nome de exibição",
     automationDisplayNamePlaceholder: "Por exemplo, feedback do Slack",
@@ -493,6 +494,8 @@ const messages = {
     automationSaved: "Salvo",
     automationSaveFailed: "Não foi possível salvar a automação.",
     automationRunFailed: "Não foi possível executar a automação.",
+    automationRunNeedsSave:
+      "Salve suas alterações antes de executar esta automação.",
     automationRunning: "Em execução",
     runNow: "Executar agora",
     automationHealthTitle: "Saúde do agendador",

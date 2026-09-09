@@ -485,6 +485,7 @@ const messages = {
     automationEvent: "Événement",
     automationTimezone: "Fuseau horaire",
     selectAutomation: "Sélectionnez une automatisation à modifier.",
+    automationNotFound: "Cette automatisation n'existe plus.",
     automationModel: "Modèle",
     automationDisplayName: "Nom affiché",
     automationDisplayNamePlaceholder: "Par exemple, retour Slack",
@@ -503,6 +504,8 @@ const messages = {
     automationSaved: "Enregistré",
     automationSaveFailed: "Impossible d'enregistrer l'automatisation.",
     automationRunFailed: "Impossible d'exécuter l'automatisation.",
+    automationRunNeedsSave:
+      "Enregistrez vos modifications avant d'exécuter cette automatisation.",
     automationRunning: "En cours",
     runNow: "Exécuter maintenant",
     automationHealthTitle: "État du planificateur",

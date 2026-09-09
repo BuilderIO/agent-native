@@ -483,6 +483,7 @@ const messages = {
     automationEvent: "Evento",
     automationTimezone: "Zona horaria",
     selectAutomation: "Selecciona una automatización para editarla.",
+    automationNotFound: "Esa automatización ya no existe.",
     automationModel: "Modelo",
     automationDisplayName: "Nombre visible",
     automationDisplayNamePlaceholder: "Por ejemplo, feedback de Slack",
@@ -501,6 +502,8 @@ const messages = {
     automationSaved: "Guardado",
     automationSaveFailed: "No se pudo guardar la automatización.",
     automationRunFailed: "No se pudo ejecutar la automatización.",
+    automationRunNeedsSave:
+      "Guarda los cambios antes de ejecutar esta automatización.",
     automationRunning: "En ejecución",
     runNow: "Ejecutar ahora",
     automationHealthTitle: "Estado del programador",
