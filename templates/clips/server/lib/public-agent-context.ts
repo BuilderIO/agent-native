@@ -2,6 +2,7 @@ import { appStateGet } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   getSession,
+  runWithRequestContext,
   signScopedAgentAccessToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
@@ -34,6 +35,8 @@ import {
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
 import { recordAgentView } from "./agent-views.js";
+import { allowsLegacyS3ObjectForPersistedMedia } from "./media-storage-provenance.js";
+import { fetchS3ObjectByUrl } from "./s3-upload-provider.js";
 import { verifySharePassword } from "./share-password.js";
 
 export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
@@ -753,6 +756,35 @@ function messageForMediaFetchError(err: unknown): string {
   return "Recording media could not be fetched.";
 }
 
+const MEDIA_FETCH_TIMEOUT_MS = 30_000;
+
+async function fetchSignedProviderMedia(
+  recording: PublicAgentRecording,
+  url: string,
+): Promise<Response | null> {
+  const allowLegacyObjectKey = allowsLegacyS3ObjectForPersistedMedia({
+    requestedUrl: url,
+    persistedUrl: recording.videoUrl,
+    editsJson: recording.editsJson,
+  });
+  const signed = await runWithRequestContext(
+    {
+      userEmail: recording.ownerEmail ?? undefined,
+      orgId: recording.organizationId ?? undefined,
+    },
+    () =>
+      fetchS3ObjectByUrl(url, {
+        timeoutMs: MEDIA_FETCH_TIMEOUT_MS,
+        recordingId: recording.id,
+        ...(allowLegacyObjectKey ? { allowLegacyObjectKey } : {}),
+      }),
+  );
+  if (!signed) return null;
+  if (signed.status === 200) return signed;
+  await signed.body?.cancel().catch(() => undefined);
+  return null;
+}
+
 export async function loadRecordingMediaBytes(
   recording: PublicAgentRecording,
 ): Promise<{ bytes: Uint8Array; mimeType: string }> {
@@ -802,13 +834,24 @@ export async function loadRecordingMediaBytes(
 
   let response: Response;
   try {
-    response = isAppRelativeUrl
-      ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(30_000) })
-      : await ssrfSafeFetch(
+    if (isAppRelativeUrl) {
+      response = await fetch(resolvedVideoUrl, {
+        signal: AbortSignal.timeout(MEDIA_FETCH_TIMEOUT_MS),
+      });
+    } else {
+      // Provider-hosted media (R2 / S3) lives at the bucket's private API
+      // endpoint unless a public base URL is configured, so an unsigned GET
+      // is rejected (R2 answers 400). Read it with a signed request first —
+      // the same path `/api/video/:id` uses — and only fall back to a plain
+      // fetch for URLs the configured provider does not own (CDN, legacy).
+      response =
+        (await fetchSignedProviderMedia(recording, resolvedVideoUrl)) ??
+        (await ssrfSafeFetch(
           resolvedVideoUrl,
-          { signal: AbortSignal.timeout(30_000) },
+          { signal: AbortSignal.timeout(MEDIA_FETCH_TIMEOUT_MS) },
           { maxRedirects: 3 },
-        );
+        ));
+    }
   } catch (err) {
     throw new RecordingMediaFetchError(
       messageForMediaFetchError(err),
