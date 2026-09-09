@@ -1,5 +1,4 @@
-import { ActionContractError } from "@agent-native/core";
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 

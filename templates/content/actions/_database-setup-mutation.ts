@@ -1,4 +1,4 @@
-import { ActionContractError } from "@agent-native/core";
+import { ActionContractError } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";

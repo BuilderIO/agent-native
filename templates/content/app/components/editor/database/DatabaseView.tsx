@@ -7588,10 +7588,17 @@ function DatabaseSettingsPanelSheet({
         className="bottom-0 top-12 z-40 flex h-auto w-[320px] max-w-[calc(100vw-1rem)] flex-col gap-0 p-0 sm:max-w-[calc(100vw-1rem)]"
         onInteractOutside={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => {
-          if (triggerRef.current?.isConnected) {
-            event.preventDefault();
-            triggerRef.current.focus();
+          event.preventDefault();
+          const activeElement = window.document.activeElement;
+          if (
+            activeElement instanceof HTMLElement &&
+            activeElement !== window.document.body &&
+            event.target instanceof HTMLElement &&
+            !event.target.contains(activeElement)
+          ) {
+            return;
           }
+          triggerRef.current?.focus();
         }}
         onClick={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}

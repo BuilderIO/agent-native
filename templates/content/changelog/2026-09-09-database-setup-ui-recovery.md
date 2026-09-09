@@ -3,4 +3,4 @@ type: fixed
 date: 2026-09-09
 ---
 
-New pages retain their first title edit, and database settings close with Escape and return keyboard focus to the settings button.
+New pages save their first title edit, open databases recover after agent Trash and restore actions, and database settings preserve keyboard focus when closing or returning to Add property.

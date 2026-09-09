@@ -208,6 +208,32 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
+  it("refreshes document and Trash lists after external database lifecycle changes", () => {
+    const predicate = contentActionInvalidatePredicate("/page/database-page");
+
+    for (const queryName of [
+      "list-content-databases",
+      "list-documents",
+      "list-trashed-content-databases",
+      "list-trashed-documents",
+    ]) {
+      const query = { queryKey: ["action", queryName, {}] };
+      expect(
+        predicate(query, [
+          { source: "action", key: "delete-content-database" },
+        ]),
+      ).toBe(true);
+      expect(
+        predicate(query, [
+          { source: "action", key: "restore-content-database" },
+        ]),
+      ).toBe(true);
+      expect(
+        predicate(query, [{ source: "action", key: "update-document" }]),
+      ).toBe(false);
+    }
+  });
+
   it("refreshes only the active personal-view query for personal presentation writes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");
     const personalViewQuery = {

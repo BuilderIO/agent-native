@@ -397,6 +397,7 @@ export function PageEditorSurface({
     dataUpdatedAt,
     errorUpdateCount,
     errorUpdatedAt,
+    isFetching,
     isError,
   });
   loadFailureRef.current = loadFailure;
@@ -429,6 +430,7 @@ export function PageEditorSurface({
       loadFailureRef.current = {
         documentId,
         baselineErrorUpdateCount: errorUpdateCount,
+        recoveryFetchStarted: false,
         failed: false,
       };
       await documentQuery.refetch();
@@ -550,10 +552,19 @@ export function documentEditorLoadState({
   const activeAdmittedDocumentId =
     admittedDocumentId === documentId ? admittedDocumentId : null;
 
-  if (
-    hasDocument &&
-    (isDocumentCreationPending || activeAdmittedDocumentId === documentId)
-  ) {
+  if (hasDocument && isDocumentCreationPending) {
+    return {
+      view: "editor" as const,
+      admittedDocumentId: documentId,
+    };
+  }
+  if (!isFetching && isError && isDocumentLoadUnavailableError(error)) {
+    return {
+      view: "unavailable" as const,
+      admittedDocumentId: null,
+    };
+  }
+  if (hasDocument && activeAdmittedDocumentId === documentId) {
     return {
       view: "editor" as const,
       admittedDocumentId: documentId,
@@ -583,6 +594,7 @@ export function documentEditorLoadState({
 type DocumentLoadFailureState = {
   documentId: string;
   baselineErrorUpdateCount: number;
+  recoveryFetchStarted: boolean;
   failed: boolean;
 };
 
@@ -593,6 +605,7 @@ export function updateDocumentLoadFailureState({
   dataUpdatedAt,
   errorUpdateCount,
   errorUpdatedAt,
+  isFetching,
   isError,
 }: {
   previous: DocumentLoadFailureState | null;
@@ -601,19 +614,37 @@ export function updateDocumentLoadFailureState({
   dataUpdatedAt: number;
   errorUpdateCount: number;
   errorUpdatedAt: number;
+  isFetching: boolean;
   isError: boolean;
 }): DocumentLoadFailureState {
   if (previous?.documentId !== documentId) {
     return {
       documentId,
       baselineErrorUpdateCount: errorUpdateCount,
+      recoveryFetchStarted: !isError && isFetching && errorUpdateCount > 0,
       failed:
         isError || (errorUpdateCount > 0 && errorUpdatedAt > dataUpdatedAt),
     };
   }
+  if (previous.failed && isFetching && !previous.recoveryFetchStarted) {
+    return { ...previous, recoveryFetchStarted: true };
+  }
+  if (
+    previous.failed &&
+    previous.recoveryFetchStarted &&
+    !isFetching &&
+    !isError &&
+    dataUpdatedAt > errorUpdatedAt
+  ) {
+    return { ...previous, recoveryFetchStarted: false, failed: false };
+  }
   if (admitted || previous.failed) return previous;
   return errorUpdateCount > previous.baselineErrorUpdateCount
-    ? { ...previous, failed: true }
+    ? {
+        ...previous,
+        recoveryFetchStarted: !isError && isFetching,
+        failed: true,
+      }
     : previous;
 }
 

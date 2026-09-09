@@ -81,6 +81,18 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
   "update-content-database-personal-view",
 ]);
 
+const DATABASE_LIFECYCLE_MUTATIONS = new Set([
+  "delete-content-database",
+  "restore-content-database",
+]);
+
+const DATABASE_LIFECYCLE_QUERIES = new Set([
+  "list-content-databases",
+  "list-documents",
+  "list-trashed-content-databases",
+  "list-trashed-documents",
+]);
+
 const CONTENT_MUTATIONS = new Set([
   ...COMMENT_MUTATIONS,
   ...DOCUMENT_MUTATIONS,
@@ -135,6 +147,14 @@ function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
   );
 }
 
+function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" &&
+    typeof query.queryKey[1] === "string" &&
+    DATABASE_LIFECYCLE_QUERIES.has(query.queryKey[1])
+  );
+}
+
 export function contentDocumentIdFromPathname(
   pathname: string,
 ): string | undefined {
@@ -158,6 +178,14 @@ export function contentActionInvalidatePredicate(
         : undefined;
     if (documentId === undefined) {
       return false;
+    }
+    if (isDatabaseLifecycleQuery(query)) {
+      return events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          DATABASE_LIFECYCLE_MUTATIONS.has(event.key),
+      );
     }
     if (
       typeof targetId === "string" &&

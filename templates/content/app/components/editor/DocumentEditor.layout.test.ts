@@ -314,6 +314,7 @@ describe("document editor layout", () => {
       dataUpdatedAt: initial.dataUpdatedAt,
       errorUpdateCount: initial.errorUpdateCount,
       errorUpdatedAt: initial.errorUpdatedAt,
+      isFetching: initial.isFetching,
       isError: initial.isError,
     });
     const unsubscribe = observer.subscribe(() => {});
@@ -339,6 +340,7 @@ describe("document editor layout", () => {
       dataUpdatedAt: replacement.dataUpdatedAt,
       errorUpdateCount: replacement.errorUpdateCount,
       errorUpdatedAt: replacement.errorUpdatedAt,
+      isFetching: replacement.isFetching,
       isError: replacement.isError,
     });
     expect(failure.failed).toBe(true);
@@ -350,6 +352,7 @@ describe("document editor layout", () => {
         dataUpdatedAt: replacement.dataUpdatedAt,
         errorUpdateCount: replacement.errorUpdateCount,
         errorUpdatedAt: replacement.errorUpdatedAt,
+        isFetching: replacement.isFetching,
         isError: replacement.isError,
       }).failed,
     ).toBe(true);
@@ -358,6 +361,56 @@ describe("document editor layout", () => {
     await queryClient.cancelQueries({
       queryKey: ["document", "document-a"],
       exact: true,
+    });
+  });
+
+  it("clears a latched load failure only after an observed refetch succeeds", () => {
+    const failed = {
+      documentId: "document-a",
+      baselineErrorUpdateCount: 1,
+      recoveryFetchStarted: false,
+      failed: true,
+    };
+    expect(
+      updateDocumentLoadFailureState({
+        previous: failed,
+        documentId: "document-a",
+        admitted: false,
+        dataUpdatedAt: 200,
+        errorUpdateCount: 1,
+        errorUpdatedAt: 100,
+        isFetching: false,
+        isError: false,
+      }),
+    ).toBe(failed);
+
+    const refetching = updateDocumentLoadFailureState({
+      previous: failed,
+      documentId: "document-a",
+      admitted: false,
+      dataUpdatedAt: 200,
+      errorUpdateCount: 1,
+      errorUpdatedAt: 100,
+      isFetching: true,
+      isError: false,
+    });
+    expect(refetching).toEqual({ ...failed, recoveryFetchStarted: true });
+
+    expect(
+      updateDocumentLoadFailureState({
+        previous: refetching,
+        documentId: "document-a",
+        admitted: false,
+        dataUpdatedAt: 300,
+        errorUpdateCount: 1,
+        errorUpdatedAt: 100,
+        isFetching: false,
+        isError: false,
+      }),
+    ).toEqual({
+      ...failed,
+      recoveryFetchStarted: false,
+      failed: false,
     });
   });
 
@@ -376,6 +429,23 @@ describe("document editor layout", () => {
         error: null,
       }),
     ).toEqual({ view: "error", admittedDocumentId: null });
+  });
+
+  it("shows unavailable when an admitted document refetch settles with 404", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "document-a",
+        admittedDocumentId: "document-a",
+        hasDocument: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        hasLoadFailure: false,
+        isManualRetrying: false,
+        error: { status: 404 },
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
   });
 
   it("waits for manual Retry to finish before admitting its success", () => {

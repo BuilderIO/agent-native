@@ -1,4 +1,4 @@
-import { ActionContractError } from "@agent-native/core";
+import { ActionContractError } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq, isNull, sql } from "drizzle-orm";
