@@ -45,7 +45,7 @@ export const appConfig = z.object({
     .min(1)
     .optional()
     .meta({
-      env: ["AGENT_NATIVE_APP_ID", "APP_ID"],
+      env: ["AGENT_NATIVE_APP_ID", "APP_ID", "AGENT_APP"],
       doc: "Stable identity of this app deployment.",
     }),
   workspaceId: z

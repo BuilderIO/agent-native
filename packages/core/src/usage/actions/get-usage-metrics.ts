@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { listAppUsageMetrics } from "../metrics-store.js";
+import { resolveUsageAppKey } from "../store.js";
 
 export default defineAction({
   description:
@@ -20,12 +21,7 @@ export default defineAction({
       {
         ownerEmail: ctx.userEmail,
         orgId: ctx.orgId,
-        app:
-          ctx.appId ??
-          appId ??
-          process.env.AGENT_APP ??
-          process.env.APP_NAME ??
-          "app",
+        app: resolveUsageAppKey(ctx.appId ?? appId),
       },
     );
   },

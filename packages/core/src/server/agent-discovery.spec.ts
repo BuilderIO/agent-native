@@ -30,7 +30,9 @@ const DISCOVERY_ENV_KEYS = [
   "URL",
   "DEPLOY_URL",
   "VERCEL",
+  "VERCEL_ENV",
   "VERCEL_URL",
+  "VERCEL_BRANCH_URL",
   "VERCEL_PROJECT_PRODUCTION_URL",
   "NETLIFY",
   "NETLIFY_LOCAL",
@@ -454,6 +456,56 @@ describe("agent discovery", () => {
       description: "Workspace-specific mail app",
       url: "https://workspace.example.test/mail",
     });
+  });
+
+  it.each([
+    ["VERCEL_URL", "workspace-preview.vercel.app"],
+    ["VERCEL_BRANCH_URL", "workspace-branch.vercel.app"],
+  ] as const)(
+    "derives sibling workspace app URLs from the Vercel %s when no workspace origin is configured",
+    async (key, host) => {
+      process.env.VERCEL_ENV = "preview";
+      process.env[key] = host;
+      process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+        apps: [
+          {
+            id: "dispatch",
+            name: "Dispatch",
+            path: "/dispatch",
+            isDispatch: true,
+          },
+          {
+            id: "starter",
+            name: "Starter",
+            path: "/starter",
+          },
+        ],
+      });
+
+      const agents = await discoverAgents("dispatch");
+
+      expect(agents.find((agent) => agent.id === "starter")?.url).toBe(
+        `https://${host}/starter`,
+      );
+    },
+  );
+
+  it("derives production sibling workspace app URLs from the Vercel project URL", async () => {
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "workspace.example.com";
+    process.env.VERCEL_URL = "workspace-deployment.vercel.app";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "starter", name: "Starter", path: "/starter" },
+      ],
+    });
+
+    const agents = await discoverAgents("dispatch");
+
+    expect(agents.find((agent) => agent.id === "starter")?.url).toBe(
+      "https://workspace.example.com/starter",
+    );
   });
 
   it("resolves the trusted Dispatch callback only from the workspace manifest", () => {

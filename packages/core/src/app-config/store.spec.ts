@@ -166,6 +166,7 @@ describe("app identity", () => {
     for (const key of [
       "AGENT_NATIVE_APP_ID",
       "APP_ID",
+      "AGENT_APP",
       "AGENT_NATIVE_WORKSPACE_APP_ID",
       "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
       "APP_NAME",
@@ -401,6 +402,10 @@ describe("env layer", () => {
     expect(
       readEnvConfigLayer(appConfigSchema, { APP_ID: "fallback" }).app,
     ).toEqual({ id: "fallback" });
+
+    expect(
+      readEnvConfigLayer(appConfigSchema, { AGENT_APP: "legacy" }).app,
+    ).toEqual({ id: "legacy" });
   });
 
   it("treats a blank alias as absent and falls through to the next", () => {

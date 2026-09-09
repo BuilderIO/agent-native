@@ -45,6 +45,44 @@ const CAPTURE_FINALIZE_INCOMPLETE_PREFIX: &str = "capture finalize incomplete: "
 /// old ScreenCaptureKit session live, the exact contention this guard exists
 /// to prevent.
 const CAPTURE_STOP_PENDING_PREFIX: &str = "capture stop pending: ";
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+}
+
+#[cfg(target_os = "macos")]
+fn has_screen_capture_permission() -> bool {
+    // SAFETY: CoreGraphics preflight takes no pointers and only returns the
+    // cached TCC decision for the calling process. It does not prompt.
+    unsafe { CGPreflightScreenCaptureAccess() }
+}
+
+#[cfg(target_os = "macos")]
+fn looks_like_screen_capture_permission_error(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("declined tcc")
+        || lower.contains("screen recording permission denied")
+        || lower.contains("window, display capture")
+}
+
+fn screen_capture_permission_message(action: &str) -> String {
+    format!(
+        "Screen Recording permission denied while {action}. Open System Settings > Privacy & Security > Screen & System Audio Recording, enable Clips, restart Clips, and try again."
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn should_skip_screencapture_fallback(sck_err: &str) -> Option<String> {
+    if !has_screen_capture_permission() || looks_like_screen_capture_permission_error(sck_err) {
+        Some(screen_capture_permission_message(
+            "starting the native screen recorder",
+        ))
+    } else {
+        None
+    }
+}
 // Keep native chunks comfortably under serverless request/event limits.
 const GCS_CHUNK_ALIGN_BYTES: usize = 256 * 1024;
 const UPLOAD_CHUNK_BYTES: usize = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
@@ -124,7 +162,10 @@ mod fragment_fence_backend_tests {
     #[test]
     fn fragment_fence_rejects_unsupported_backend() {
         let child = Command::new("/usr/bin/true").spawn().unwrap();
-        let backend = NativeFullscreenBackend::Screencapture { child };
+        let backend = NativeFullscreenBackend::Screencapture {
+            child,
+            output_path: PathBuf::from("/tmp/next.mp4"),
+        };
         assert!(backend
             .request_fragment_fence(PathBuf::from("/tmp/next.mp4"))
             .is_err());
@@ -410,6 +451,7 @@ struct RestartInfo {
 pub(crate) enum NativeFullscreenBackend {
     Screencapture {
         child: Child,
+        output_path: PathBuf,
     },
     #[cfg(target_os = "macos")]
     ScreenCaptureKit {
@@ -765,7 +807,7 @@ pub(crate) fn start_segmented_custom_screencapturekit_backend_at(
 impl Drop for NativeFullscreenBackend {
     fn drop(&mut self) {
         match self {
-            NativeFullscreenBackend::Screencapture { child } => {
+            NativeFullscreenBackend::Screencapture { child, .. } => {
                 if matches!(child.try_wait(), Ok(None)) {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -1441,6 +1483,12 @@ fn start_native_session_locked(
                 // macOS version, so falling back to it here could race the
                 // same still-tearing-down session this guard exists to avoid.
                 return Err(sck_err);
+            }
+            if let Some(permission_err) = should_skip_screencapture_fallback(&sck_err) {
+                eprintln!(
+                    "[clips-tray] ScreenCaptureKit recording unavailable due to screen-capture permission; not falling back to screencapture: {sck_err}"
+                );
+                return Err(permission_err);
             }
             if include_audio {
                 let mic_description = if has_specific_mic {
@@ -2373,7 +2421,8 @@ pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingS
         return;
     };
     if let Some(session) = guard.as_mut() {
-        if let Some(NativeFullscreenBackend::Screencapture { child }) = session.backend.as_mut() {
+        if let Some(NativeFullscreenBackend::Screencapture { child, .. }) = session.backend.as_mut()
+        {
             if matches!(child.try_wait(), Ok(None)) {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -3116,6 +3165,12 @@ fn start_segment_backend(
                     // still-tearing-down session this guard exists to avoid.
                     return Err(sck_err);
                 }
+                if let Some(permission_err) = should_skip_screencapture_fallback(&sck_err) {
+                    eprintln!(
+                        "[clips-tray] ScreenCaptureKit resume unavailable due to screen-capture permission; not falling back to screencapture: {sck_err}"
+                    );
+                    return Err(permission_err);
+                }
                 if include_audio {
                     let mic_description = if mic_device_id
                         .is_some_and(|value| !value.trim().is_empty())
@@ -3500,7 +3555,10 @@ pub(crate) fn start_screencapture_backend_at(
     }
     eprintln!("[clips-tray] screencapture recording started");
     Ok((
-        NativeFullscreenBackend::Screencapture { child },
+        NativeFullscreenBackend::Screencapture {
+            child,
+            output_path: output_path.to_path_buf(),
+        },
         region_width,
         region_height,
     ))
@@ -5656,6 +5714,69 @@ mod bounded_capture_stop_tests {
     }
 }
 
+#[cfg(all(test, target_os = "macos"))]
+mod screencapture_fallback_tests {
+    use super::{looks_like_screen_capture_permission_error, verify_screencapture_output};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_recording_path(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!(
+            "clips-native-screen-test-{name}-{}-{stamp}.mov",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn detects_screen_capture_tcc_denial() {
+        assert!(looks_like_screen_capture_permission_error(
+            "Content unavailable: The user declined TCCs for application, window, display capture"
+        ));
+        assert!(looks_like_screen_capture_permission_error(
+            "Screen Recording permission denied"
+        ));
+        assert!(!looks_like_screen_capture_permission_error(
+            "ScreenCaptureKit stop failed: connection interrupted"
+        ));
+    }
+
+    #[test]
+    fn fallback_output_validation_rejects_missing_file() {
+        let path = temp_recording_path("missing");
+        let _ = std::fs::remove_file(&path);
+
+        let err = verify_screencapture_output(&path, None).unwrap_err();
+
+        assert!(err.contains("stopped without writing a recording file"));
+        assert!(err.contains("Screen Recording permission denied"));
+    }
+
+    #[test]
+    fn fallback_output_validation_rejects_empty_file() {
+        let path = temp_recording_path("empty");
+        std::fs::write(&path, b"").expect("create empty fallback file");
+
+        let err = verify_screencapture_output(&path, None).unwrap_err();
+
+        assert!(err.contains("produced an empty recording file"));
+        assert!(err.contains("Screen Recording permission denied"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fallback_output_validation_accepts_non_empty_file() {
+        let path = temp_recording_path("non-empty");
+        std::fs::write(&path, b"not-empty").expect("create fallback file");
+
+        assert!(verify_screencapture_output(&path, None).is_ok());
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
 /// Stop the active recording. When `wait_for_finalize` is set (save/upload
 /// paths — the file is about to be moved) this blocks until ScreenCaptureKit
 /// signals the recording finished, so the caller never moves a half-written
@@ -5666,8 +5787,8 @@ pub(crate) fn stop_native_recording(
     wait_for_finalize: bool,
 ) -> Result<(), String> {
     match backend {
-        NativeFullscreenBackend::Screencapture { child } => {
-            stop_screencapture(child, wait_for_finalize)
+        NativeFullscreenBackend::Screencapture { child, output_path } => {
+            stop_screencapture(child, output_path, wait_for_finalize)
         }
         #[cfg(target_os = "macos")]
         NativeFullscreenBackend::CustomScreenCaptureKit {
@@ -5786,13 +5907,53 @@ pub(crate) fn stop_native_recording(
     }
 }
 
-fn stop_screencapture(child: &mut Child, wait_for_finalize: bool) -> Result<(), String> {
-    if child
+fn verify_screencapture_output(
+    path: &Path,
+    status: Option<std::process::ExitStatus>,
+) -> Result<(), String> {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.len() > 0 => Ok(()),
+        Ok(_) => {
+            let status_detail = status
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "unknown status".to_string());
+            let message = format!(
+                "macOS screencapture fallback produced an empty recording file ({status_detail}) at {}. {}",
+                path.display(),
+                screen_capture_permission_message("saving the fallback recording")
+            );
+            eprintln!("[clips-tray] {message}");
+            Err(message)
+        }
+        Err(err) => {
+            let status_detail = status
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "unknown status".to_string());
+            let message = format!(
+                "macOS screencapture fallback stopped without writing a recording file ({status_detail}) at {}: {err}. {}",
+                path.display(),
+                screen_capture_permission_message("saving the fallback recording")
+            );
+            eprintln!("[clips-tray] {message}");
+            Err(message)
+        }
+    }
+}
+
+fn stop_screencapture(
+    child: &mut Child,
+    output_path: &Path,
+    wait_for_finalize: bool,
+) -> Result<(), String> {
+    if let Some(status) = child
         .try_wait()
         .map_err(|e| format!("screencapture status check failed: {e}"))?
-        .is_some()
     {
-        return Ok(());
+        return if wait_for_finalize {
+            verify_screencapture_output(output_path, Some(status))
+        } else {
+            Ok(())
+        };
     }
 
     let pid = child.id().to_string();
@@ -5826,12 +5987,11 @@ fn stop_screencapture(child: &mut Child, wait_for_finalize: bool) -> Result<(), 
 
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
-        if child
+        if let Some(status) = child
             .try_wait()
             .map_err(|e| format!("screencapture wait failed: {e}"))?
-            .is_some()
         {
-            return Ok(());
+            return verify_screencapture_output(output_path, Some(status));
         }
         if Instant::now() >= deadline {
             let _ = child.kill();

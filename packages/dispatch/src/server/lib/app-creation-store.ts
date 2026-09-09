@@ -5,12 +5,18 @@ import { fileURLToPath } from "node:url";
 
 import { signA2AToken } from "@agent-native/core/a2a";
 import { getDbExec } from "@agent-native/core/db";
-import { getOrgA2ASecret, getOrgDomain } from "@agent-native/core/org";
+import {
+  getOrgA2ASecret,
+  getOrgDomain,
+  isWorkspaceAppAccessAllowed,
+} from "@agent-native/core/org";
 import {
   ensureBuilderProject,
   getBuilderBranchProjectId,
   getRequestContext,
   isIntegrationCallerRequest,
+  resolveAppRuntimeUrl,
+  resolveVercelDeploymentProtectionHeaders,
   resolveBuilderCredentialsDetailed,
   runBuilderAgent,
 } from "@agent-native/core/server";
@@ -122,6 +128,11 @@ export interface WorkspaceAppSummary {
   archived?: boolean;
   /** Safe server-side eligibility projection for the workspace SSO action. */
   workspaceSso?: boolean;
+}
+
+interface WorkspaceAppDiscovery {
+  apps: WorkspaceAppSummary[];
+  authoritative: boolean;
 }
 
 export interface ListWorkspaceAppsOptions {
@@ -464,17 +475,13 @@ function applyWorkspaceAppMetadataOverride(
 // code belongs here; changes to authorship, content trust, or sharing require
 // an explicit auth, origin, or sandbox boundary before this invariant changes.
 function workspaceAppUrl(appPath: string): string | null {
-  const configuredBase =
-    process.env.WORKSPACE_GATEWAY_URL ||
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL ||
-    null;
-  const base = configuredBase ? projectEnvironmentUrl(configuredBase) : null;
+  const base = resolveAppRuntimeUrl();
   if (!base) return null;
   try {
-    return new URL(appPath, `${base.replace(/\/$/, "")}/`).toString();
+    return new URL(
+      appPath,
+      `${projectEnvironmentUrl(base).replace(/\/$/, "")}/`,
+    ).toString();
   } catch {
     return null;
   }
@@ -1123,8 +1130,16 @@ async function fetchAgentCardMetadata(
   );
 
   try {
+    const protectionHeaders =
+      resolveVercelDeploymentProtectionHeaders(agentCardUrl);
     const response = await fetch(agentCardUrl, {
-      headers: { accept: "application/json" },
+      headers: {
+        accept: "application/json",
+        ...protectionHeaders,
+      },
+      ...(protectionHeaders["x-vercel-protection-bypass"]
+        ? { redirect: "manual" as const }
+        : {}),
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -1215,11 +1230,13 @@ function appRecordTimestamp(value: string | null | undefined): number {
  */
 async function ensureWorkspaceAppRecords(
   apps: WorkspaceAppSummary[],
+  options: { reconcile?: boolean } = {},
 ): Promise<WorkspaceAppSummary[]> {
   const readyApps = apps.filter(
     (app) => app.status !== "pending" && !app.isDispatch,
   );
-  if (readyApps.length === 0) return apps;
+  const shouldReconcile = options.reconcile === true;
+  if (!shouldReconcile && readyApps.length === 0) return apps;
 
   const orgId = currentOrgId();
   const metadata = await readWorkspaceAppMetadataSettings();
@@ -1236,12 +1253,19 @@ async function ensureWorkspaceAppRecords(
   try {
     const existingRecords = new Map<
       string,
-      { owner_email?: unknown; org_id?: unknown; visibility?: unknown }
+      {
+        owner_email?: unknown;
+        org_id?: unknown;
+        visibility?: unknown;
+        name?: unknown;
+        description?: unknown;
+        path?: unknown;
+      }
     >();
     for (let start = 0; start < readyApps.length; start += 500) {
       const ids = readyApps.slice(start, start + 500).map((app) => app.id);
       const result = await db.execute({
-        sql: `SELECT id, owner_email, org_id, visibility
+        sql: `SELECT id, owner_email, org_id, visibility, name, description, path
               FROM workspace_apps
               WHERE id IN (${ids.map(() => "?").join(", ")})`,
         args: ids,
@@ -1289,17 +1313,95 @@ async function ensureWorkspaceAppRecords(
         });
         records.set(app.id, { ownerEmail, orgId, visibility });
       } else {
+        const existingOwnerEmail =
+          cleanOptionalText(existing.owner_email) ?? "";
+        const existingOrgId = cleanOptionalText(existing.org_id) ?? null;
+        // A registry row belongs to the org that created it. Never reassign a
+        // row from another org just because a caller listed the same manifest.
+        if (existingOrgId && existingOrgId !== orgId) {
+          records.set(app.id, {
+            ownerEmail: existingOwnerEmail,
+            orgId: existingOrgId,
+            visibility: existing.visibility === "private" ? "private" : "org",
+          });
+          continue;
+        }
+
+        const override = metadata.apps[app.id];
+        // A stored creation override is the only trusted source that can
+        // repair an owner. The deploy manifest itself is caller-controlled.
+        const ownerEmail =
+          cleanOptionalText(override?.createdBy) ?? existingOwnerEmail;
+        const nextOrgId = existingOrgId ?? orgId ?? null;
+        const nextDescription = app.description || null;
+        const existingName =
+          typeof existing.name === "string" ? existing.name : "";
+        const existingDescription =
+          typeof existing.description === "string"
+            ? existing.description
+            : null;
+        const existingPath =
+          typeof existing.path === "string" ? existing.path : "";
+        const presentationChanged =
+          existingName !== app.name ||
+          existingDescription !== nextDescription ||
+          existingPath !== app.path;
+        const ownershipChanged =
+          ownerEmail !== existingOwnerEmail || nextOrgId !== existingOrgId;
+
+        if (presentationChanged || ownershipChanged) {
+          const orgPredicate = orgId
+            ? "(org_id = ? OR org_id IS NULL)"
+            : "org_id IS NULL";
+          await db.execute({
+            sql: `UPDATE workspace_apps
+                  SET owner_email = ?, org_id = ?, name = ?, description = ?, path = ?, updated_at = ?
+                  WHERE id = ? AND ${orgPredicate}`,
+            args: [
+              ownerEmail,
+              nextOrgId,
+              app.name,
+              nextDescription,
+              app.path,
+              Date.now(),
+              app.id,
+              ...(orgId ? [orgId] : []),
+            ],
+          });
+        }
+
         records.set(app.id, {
-          ownerEmail:
-            typeof existing.owner_email === "string"
-              ? existing.owner_email
-              : "",
-          orgId:
-            (typeof existing.org_id === "string"
-              ? existing.org_id
-              : ""
-            ).trim() || null,
+          ownerEmail,
+          orgId: nextOrgId,
           visibility: existing.visibility === "private" ? "private" : "org",
+        });
+      }
+    }
+
+    if (shouldReconcile && orgId) {
+      const currentAppIds = new Set(apps.map((app) => app.id));
+      const result = await db.execute({
+        sql: "SELECT id FROM workspace_apps WHERE org_id = ?",
+        args: [orgId],
+      });
+      const staleIds = result.rows
+        .map((row) => cleanOptionalText((row as Record<string, unknown>).id))
+        .filter(
+          (id): id is string =>
+            !!id && id !== "dispatch" && !currentAppIds.has(id),
+        );
+
+      for (let start = 0; start < staleIds.length; start += 500) {
+        const ids = staleIds.slice(start, start + 500);
+        await db.execute({
+          sql: `WITH removed AS (
+                  DELETE FROM workspace_apps
+                  WHERE id IN (${ids.map(() => "?").join(", ")}) AND org_id = ?
+                  RETURNING id
+                )
+                DELETE FROM workspace_app_shares
+                WHERE resource_id IN (SELECT id FROM removed)`,
+          args: [...ids, orgId],
         });
       }
     }
@@ -1351,7 +1453,14 @@ async function filterWorkspaceAppsByAccess(
       continue;
     }
     if (app.isDispatch) {
-      visibleIds.add(app.id);
+      if (
+        await isWorkspaceAppAccessAllowed(app.id, {
+          email: userEmail,
+          orgId,
+        })
+      ) {
+        visibleIds.add(app.id);
+      }
       continue;
     }
     candidates.push(app);
@@ -1486,9 +1595,7 @@ function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
   }
 }
 
-async function readWorkspaceAppsFromGateway(): Promise<
-  WorkspaceAppSummary[] | null
-> {
+async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | null> {
   const configuredBase = process.env.WORKSPACE_GATEWAY_URL;
   if (!configuredBase) return null;
   const base = projectEnvironmentUrl(configuredBase);
@@ -1563,10 +1670,17 @@ async function readWorkspaceAppsFromGateway(): Promise<
     return url;
   };
 
+  const protectionHeaders = resolveVercelDeploymentProtectionHeaders(
+    baseUrl.toString(),
+  );
   const headers = {
     accept: "application/json",
     ...authHeaders,
+    ...protectionHeaders,
   };
+  const protectedRedirect = protectionHeaders["x-vercel-protection-bypass"]
+    ? { redirect: "manual" as const }
+    : {};
 
   try {
     if (isLocalWorkspaceGateway(baseUrl)) {
@@ -1574,15 +1688,17 @@ async function readWorkspaceAppsFromGateway(): Promise<
         gatewayUrl(WORKSPACE_APPS_GATEWAY_PATH),
         {
           headers,
+          ...protectedRedirect,
           signal: controller.signal,
         },
       );
       if (localResponse.ok) {
-        return parseWorkspaceAppsManifest(
+        const apps = parseWorkspaceAppsManifest(
           // coercion-ok: malformed gateway JSON is an unavailable registry and
           // must fall through to the local manifest sources.
           await localResponse.json().catch(() => null),
         );
+        return apps ? { apps, authoritative: true } : null;
       }
     }
 
@@ -1603,14 +1719,16 @@ async function readWorkspaceAppsFromGateway(): Promise<
     actionUrl.searchParams.set("audience", "all");
     const actionResponse = await fetch(actionUrl, {
       headers,
+      ...protectedRedirect,
       signal: controller.signal,
     });
     if (!actionResponse.ok) return null;
-    return parseWorkspaceAppsManifest(
+    const apps = parseWorkspaceAppsManifest(
       // coercion-ok: malformed gateway JSON is an unavailable registry and
       // must fall through to the local manifest sources.
       await actionResponse.json().catch(() => null),
     );
+    return apps ? { apps, authoritative: false } : null;
   } catch {
     return null;
   } finally {
@@ -1837,15 +1955,15 @@ export async function updateWorkspaceAppMetadata(input: {
 export async function listWorkspaceApps(
   options: ListWorkspaceAppsOptions = {},
 ): Promise<WorkspaceAppSummary[]> {
-  const finalize = async (apps: WorkspaceAppSummary[]) => {
+  const finalize = async (apps: WorkspaceAppSummary[], reconcile = false) => {
     const annotated = await applyArchivedAndPending(apps, options);
-    const recorded = await ensureWorkspaceAppRecords(annotated);
+    const recorded = await ensureWorkspaceAppRecords(annotated, { reconcile });
     const visible = await filterWorkspaceAppsByAccess(recorded);
     return maybeIncludeAgentCards(visible, options);
   };
   const gatewayApps = await readWorkspaceAppsFromGateway();
   if (gatewayApps) {
-    return finalize(gatewayApps);
+    return finalize(gatewayApps.apps, gatewayApps.authoritative);
   }
 
   const workspaceRoot = findWorkspaceRoot();
@@ -1854,13 +1972,13 @@ export async function listWorkspaceApps(
       ? readWorkspaceAppsFromFilesystem(workspaceRoot)
       : null;
   if (localFilesystemApps) {
-    return finalize(localFilesystemApps);
+    return finalize(localFilesystemApps, true);
   }
 
   const manifestApps =
     readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
   if (manifestApps) {
-    return finalize(manifestApps);
+    return finalize(manifestApps, true);
   }
 
   if (!workspaceRoot) {

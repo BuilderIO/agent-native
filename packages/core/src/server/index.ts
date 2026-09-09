@@ -587,6 +587,7 @@ export {
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
+  resolveVercelDeploymentProtectionHeaders,
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
@@ -710,7 +711,11 @@ export {
   type RenderedEmail,
   type EmailCta,
 } from "./email-template.js";
-export { getAppProductionUrl, getFirstPartyProdUrl } from "./app-url.js";
+export {
+  getAppProductionUrl,
+  getFirstPartyProdUrl,
+  resolveAppRuntimeUrl,
+} from "./app-url.js";
 export {
   getConfiguredAppBasePath,
   normalizeAppBasePath,

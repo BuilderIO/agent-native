@@ -101,6 +101,20 @@ vi.mock("@agent-native/core/settings", () => ({
   getOrgSetting: (...args: any[]) => mocks.getOrgSetting(...args),
 }));
 
+vi.mock("@agent-native/core/org", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/org")>();
+  return {
+    ...actual,
+    isWorkspaceAppAccessAllowed: vi.fn(
+      async (_appId: string, context: { orgId?: string | null } = {}) =>
+        !context.orgId ||
+        mocks.state.orgRole === "owner" ||
+        mocks.state.orgRole === "admin",
+    ),
+  };
+});
+
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/sharing")>();
@@ -122,6 +136,10 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
     runBuilderAgent: (...args: any[]) => mocks.runBuilderAgent(...args),
     getBuilderBranchProjectId: (...args: any[]) =>
       mocks.getBuilderBranchProjectId(...args),
+    resolveAppRuntimeUrl: (...args: any[]) =>
+      actual.resolveAppRuntimeUrl(...args),
+    resolveVercelDeploymentProtectionHeaders: (...args: any[]) =>
+      actual.resolveVercelDeploymentProtectionHeaders(...args),
   };
 });
 
@@ -240,6 +258,11 @@ describe("listWorkspaceApps", () => {
       "URL",
       "APP_URL",
       "BETTER_AUTH_URL",
+      "VERCEL",
+      "VERCEL_ENV",
+      "VERCEL_URL",
+      "VERCEL_BRANCH_URL",
+      "VERCEL_PROJECT_PRODUCTION_URL",
     ]) {
       vi.stubEnv(key, "");
     }
@@ -266,6 +289,22 @@ describe("listWorkspaceApps", () => {
       ...overrides,
     };
   }
+
+  it.each(["owner", "admin", "member"] as const)(
+    "applies the organization role gate to Dispatch registry links for %s",
+    async (role) => {
+      stubNoPendingContext();
+      stubManifest();
+      mocks.state.orgRole = role;
+
+      const apps = await runWithRequestContext(
+        { userEmail: `${role}@example.test`, orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.some((app) => app.id === "dispatch")).toBe(role !== "member");
+    },
+  );
 
   it("prefers the live workspace gateway manifest when available", async () => {
     const fetchMock = vi.fn(async () => {
@@ -321,6 +360,25 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
+  it("derives manifest app URLs from the Vercel preview when no workspace origin is configured", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "todo", name: "Todo", path: "/todo" },
+    ]);
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", "workspace-preview.vercel.app");
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "todo")?.url).toBe(
+      "https://workspace-preview.vercel.app/todo",
+    );
+  });
+
   it("uses the authenticated workspace action for hosted gateways", async () => {
     const fetchMock = vi.fn(async (url: string | URL) => {
       if (String(url).includes("/_workspace/apps")) {
@@ -370,6 +428,39 @@ describe("listWorkspaceApps", () => {
     );
     expect(apps.map((app) => app.id)).toEqual(["atlas"]);
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
+  });
+
+  it("passes the Vercel protection bypass to the hosted workspace registry", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify([
+          {
+            id: "private-app",
+            name: "Private app",
+            path: "/private-app",
+          },
+        ]),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-vercel-bypass");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", "agent-workspace.builder.io");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    await runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+      listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "x-vercel-protection-bypass": "test-vercel-bypass",
+        }),
+      }),
+    );
   });
 
   it("projects hosted workspace discovery onto the beta request lane", async () => {
@@ -561,6 +652,114 @@ describe("listWorkspaceApps", () => {
       "org",
       "org",
     ]);
+  });
+
+  it("reconciles renamed manifest records and refreshes trusted metadata", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      {
+        id: "brand-assets",
+        name: "Brand Assets",
+        description: "Current description",
+        path: "/brand-assets",
+      },
+    ]);
+    mocks.settings.set("workspace-app-metadata:org:org-123", {
+      apps: {
+        "brand-assets": { createdBy: "creator@example.test" },
+      },
+    });
+
+    const records = [
+      {
+        id: "assets",
+        owner_email: "creator@example.test",
+        org_id: "org-123",
+        visibility: "org",
+        name: "Assets",
+        description: "Removed app",
+        path: "/assets",
+      },
+      {
+        id: "brand-assets",
+        owner_email: "wrong@example.test",
+        org_id: null,
+        visibility: "private",
+        name: "Assets",
+        description: "Old description",
+        path: "/assets",
+      },
+    ];
+    const execute = vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      const args =
+        typeof statement === "string"
+          ? []
+          : ((statement as { args?: unknown[] })?.args ?? []);
+      if (sql.startsWith("SELECT id, owner_email, org_id, visibility")) {
+        const ids = new Set(args as string[]);
+        return {
+          rows: records.filter((record) => ids.has(record.id)),
+          rowsAffected: 0,
+        };
+      }
+      if (sql.startsWith("SELECT id FROM workspace_apps WHERE org_id = ?")) {
+        return {
+          rows: records.map(({ id }) => ({ id })),
+          rowsAffected: 0,
+        };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+    mocks.getDbExec.mockReturnValue({ execute });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "viewer@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch", "brand-assets"]);
+    expect(apps.find((app) => app.id === "brand-assets")).toMatchObject({
+      name: "Brand Assets",
+      description: "Current description",
+      path: "/brand-assets",
+      owner: "creator@example.test",
+      visibility: "private",
+    });
+
+    const update = execute.mock.calls.find(([statement]) =>
+      String((statement as { sql?: unknown })?.sql ?? "").startsWith(
+        "UPDATE workspace_apps",
+      ),
+    );
+    expect(update?.[0]).toMatchObject({
+      args: [
+        "creator@example.test",
+        "org-123",
+        "Brand Assets",
+        "Current description",
+        "/brand-assets",
+        expect.any(Number),
+        "brand-assets",
+        "org-123",
+      ],
+    });
+
+    const removal = execute.mock.calls.find(([statement]) =>
+      String((statement as { sql?: unknown })?.sql ?? "").includes(
+        "WITH removed AS",
+      ),
+    );
+    expect(removal?.[0]).toMatchObject({
+      args: ["assets", "org-123"],
+    });
+    expect(String((removal?.[0] as { sql?: unknown })?.sql ?? "")).toContain(
+      "DELETE FROM workspace_app_shares",
+    );
   });
 
   it("does not project manifest ownership over an empty SQL owner record", async () => {

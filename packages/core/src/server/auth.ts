@@ -3810,9 +3810,12 @@ function createAuthGuardFn(
     const session = await getSession(event);
     if (session) {
       const workspaceAppId = getAppConfig().app.workspaceId?.trim() || "";
+      const sharedWorkspaceAccessPath =
+        p === "/_agent-native/org/me" ||
+        p === "/_agent-native/actions/list-workspace-apps";
       if (
         workspaceAppId &&
-        workspaceAppId !== "dispatch" &&
+        !sharedWorkspaceAccessPath &&
         (p.startsWith("/api/") || p.startsWith("/_agent-native/")) &&
         !(await isWorkspaceAppAccessAllowed(workspaceAppId, {
           email: session.email,

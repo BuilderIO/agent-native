@@ -43,6 +43,7 @@ export type { AcceptPendingResult } from "./accept-pending.js";
 export { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 export type { AutoJoinDomainResult } from "./auto-join-domain.js";
 export { invalidateMemberOrgCaches } from "./request-org-cache.js";
+export { isWorkspaceAppAccessAllowed } from "./workspace-app-access.js";
 
 export {
   defineAppRoles,

@@ -150,9 +150,7 @@ export function normalizeUsageAppKey(value: string): string {
 function appKeys(value: string): string[] {
   const raw = value.trim().toLowerCase();
   const normalized = normalizeUsageAppKey(value);
-  return [...new Set([raw, normalized, `agent-native-${normalized}`])].filter(
-    Boolean,
-  );
+  return [...new Set([raw, normalized, `agent-native-${normalized}`])];
 }
 
 export function usageAppScope(app: string): QueryScope {
@@ -455,9 +453,10 @@ export async function listAppUsageMetrics(
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const now = Date.now();
   const sinceMs = now - sinceDays * DAY_MS;
-  const app = accessInput.app.trim() || "this app";
-  const appKey = normalizeUsageAppKey(app);
-  const appScope = usageAppScope(app);
+  const appId = accessInput.app.trim();
+  const app = appId || "this app";
+  const appKey = normalizeUsageAppKey(appId);
+  const appScope = usageAppScope(appId);
   const resolved = await resolveScope(accessInput, scope, input.userEmail);
 
   const baseArgs = [...appScope.args, ...resolved.ownerScope.args, sinceMs];
