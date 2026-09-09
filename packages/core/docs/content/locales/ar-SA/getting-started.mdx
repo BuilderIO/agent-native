@@ -16,8 +16,8 @@ Agent-Native هو إطار عمل TypeScript مفتوح المصدر لبناء 
 
 ## المتطلبات الأساسية
 
-- [Node.js](https://nodejs.org) 22 أو أحدث
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 أو أحدث
+- [pnpm](https://pnpm.io) مثبت ومتاح في `PATH`
 - اتصال LLM للوكيل: Builder.io، أو مفتاح API من Anthropic أو OpenAI، أو نموذج
   Ollama محلي
 
@@ -26,7 +26,7 @@ Agent-Native هو إطار عمل TypeScript مفتوح المصدر لبناء 
 في دليل جديد، ابدأ من قالب Chat:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -105,7 +105,8 @@ export default defineAction({
 
 ## استدعاء الإجراء من React
 
-أضف مسارًا في `app/routes/hello.tsx`:
+يتضمن القالب `actions/hello.ts`، لكنه لا يتضمن صفحة له. أنشئ
+`app/routes/hello.tsx`:
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";

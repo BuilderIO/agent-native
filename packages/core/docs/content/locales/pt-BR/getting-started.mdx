@@ -13,8 +13,8 @@ Neste guia, você criará um agente com uma UI de chat e chamará a ação `hell
 
 ## Pré-requisitos
 
-- [Node.js](https://nodejs.org) 22 ou posterior
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 ou posterior
+- [pnpm](https://pnpm.io) instalado e disponível no seu `PATH`
 - Uma conexão com LLM para o agente: Builder.io, uma chave de API Anthropic ou OpenAI, ou um modelo Ollama local
 
 ## Crie um agente
@@ -22,7 +22,7 @@ Neste guia, você criará um agente com uma UI de chat e chamará a ação `hell
 Em um novo diretório, comece pelo modelo de Chat:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -92,7 +92,8 @@ Leia [Definindo ações](/docs/actions-defining) para a API completa.
 
 ## Chame a ação pelo React
 
-Adicione uma rota em `app/routes/hello.tsx`:
+O modelo inclui `actions/hello.ts`, mas não uma página para ela. Crie
+`app/routes/hello.tsx`:
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";

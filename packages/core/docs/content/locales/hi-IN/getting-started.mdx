@@ -17,8 +17,8 @@ code से call करता है।
 
 ## आवश्यकताएं
 
-- [Node.js](https://nodejs.org) 22 या बाद का संस्करण
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 या बाद का संस्करण
+- [pnpm](https://pnpm.io) इंस्टॉल हो और आपके `PATH` में उपलब्ध हो
 - Agent के लिए LLM connection: Builder.io, Anthropic या OpenAI API key, या local Ollama model
 
 ## Agent बनाएं
@@ -26,7 +26,7 @@ code से call करता है।
 नई directory में Chat template से शुरू करें:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -103,7 +103,8 @@ export default defineAction({
 
 ## React से action call करें
 
-`app/routes/hello.tsx` पर route जोड़ें:
+Template में `actions/hello.ts` शामिल है, लेकिन उसके लिए page नहीं है।
+`app/routes/hello.tsx` बनाएं:
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";

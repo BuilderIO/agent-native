@@ -17,8 +17,8 @@ En esta guía, crearás un agente con una interfaz de chat y llamarás a su acci
 
 ## Requisitos previos
 
-- [Node.js](https://nodejs.org) 22 o posterior
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 o posterior
+- [pnpm](https://pnpm.io) instalado y disponible en tu `PATH`
 - Una conexión de LLM para el agente: Builder.io, una clave de API de Anthropic
   u OpenAI, o un modelo local de Ollama
 
@@ -27,7 +27,7 @@ En esta guía, crearás un agente con una interfaz de chat y llamarás a su acci
 En un directorio nuevo, empieza con la plantilla de Chat:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -112,7 +112,8 @@ Consulta [Definir acciones](/docs/actions-defining) para ver la API completa.
 
 ## Llamar a la acción desde React
 
-Añade una ruta en `app/routes/hello.tsx`:
+La plantilla incluye `actions/hello.ts`, pero no una página para ella. Crea
+`app/routes/hello.tsx`:
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";

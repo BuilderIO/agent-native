@@ -17,8 +17,8 @@ dessen enthaltene `hello`-Action über den Agenten und die UI auf.
 
 ## Voraussetzungen
 
-- [Node.js](https://nodejs.org) 22 oder höher
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 oder höher
+- [pnpm](https://pnpm.io), installiert und über Ihren `PATH` verfügbar
 - Eine LLM-Verbindung für den Agenten: Builder.io, ein Anthropic- oder
   OpenAI-API-Schlüssel oder ein lokales Ollama-Modell
 
@@ -27,7 +27,7 @@ dessen enthaltene `hello`-Action über den Agenten und die UI auf.
 Beginnen Sie in einem neuen Verzeichnis mit dem Chat-Template:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -110,7 +110,8 @@ Die vollständige API finden Sie unter [Actions definieren](/docs/actions-defini
 
 ## Die Action über React aufrufen
 
-Fügen Sie eine Route unter `app/routes/hello.tsx` hinzu:
+Das Template enthält `actions/hello.ts`, aber noch keine Seite dafür. Erstellen
+Sie `app/routes/hello.tsx`:
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";

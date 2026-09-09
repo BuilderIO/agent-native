@@ -13,8 +13,8 @@ Agent-Native 是一个开源 TypeScript 框架，用于构建配备直观 UI 的
 
 ## 前提条件
 
-- [Node.js](https://nodejs.org) 22 或更高版本
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22 或更高版本
+- [pnpm](https://pnpm.io) 已安装并可通过 `PATH` 运行
 - 供智能体使用的 LLM 连接：Builder.io、Anthropic 或 OpenAI API 密钥，或本地 Ollama 模型
 
 ## 创建智能体
@@ -22,7 +22,7 @@ Agent-Native 是一个开源 TypeScript 框架，用于构建配备直观 UI 的
 在一个新目录中，从 Chat 模板开始：
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -92,7 +92,8 @@ export default defineAction({
 
 ## 从 React 调用动作
 
-在 `app/routes/hello.tsx` 中添加路由：
+模板包含 `actions/hello.ts`，但没有对应页面。创建
+`app/routes/hello.tsx`：
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";

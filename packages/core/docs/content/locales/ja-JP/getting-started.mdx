@@ -16,8 +16,8 @@ Agent-Nativeは、直感的なUIを備えた自律型エージェントを構築
 
 ## 前提条件
 
-- [Node.js](https://nodejs.org) 22以降
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22以降
+- [pnpm](https://pnpm.io)がインストールされ、`PATH`から実行できること
 - エージェント用のLLM接続: Builder.io、AnthropicまたはOpenAIのAPIキー、またはローカルのOllamaモデル
 
 ## エージェントを作成する
@@ -25,7 +25,7 @@ Agent-Nativeは、直感的なUIを備えた自律型エージェントを構築
 新しいディレクトリでChatテンプレートから始めます。
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -97,7 +97,8 @@ export default defineAction({
 
 ## Reactからアクションを呼び出す
 
-`app/routes/hello.tsx`にルートを追加します。
+テンプレートには`actions/hello.ts`が含まれますが、そのページはありません。
+`app/routes/hello.tsx`を作成します。
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
