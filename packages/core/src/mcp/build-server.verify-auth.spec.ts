@@ -187,6 +187,19 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res).toEqual({ authed: false });
   });
 
+  it.each([123, { id: "org_123" }, ""])(
+    "rejects an A2A JWT with malformed org_id: %j",
+    async (orgId) => {
+      const token = await sign({
+        sub: "ci@example.com",
+        org_id: orgId,
+      });
+      const res = await verifyAuth(`Bearer ${token}`);
+      expect(res).toEqual({ authed: false });
+      expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("preserves the framework first-party MCP marker from audience-bound connect-scoped tokens", async () => {
     isJtiRevokedMock.mockResolvedValue(false);
     const token = await sign(

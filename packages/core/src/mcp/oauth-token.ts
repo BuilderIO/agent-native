@@ -82,6 +82,19 @@ export function hasMcpOAuthScope(
   return scopes.includes(scope);
 }
 
+/** Return null for a malformed present claim so auth callers fail closed. */
+export function parseMcpOAuthOrgIdClaim(
+  payload: Record<string, unknown>,
+): { orgId: string | null | undefined } | null {
+  if (!Object.prototype.hasOwnProperty.call(payload, "org_id")) {
+    return { orgId: undefined };
+  }
+  if (payload.org_id === null) return { orgId: null };
+  return typeof payload.org_id === "string" && payload.org_id
+    ? { orgId: payload.org_id }
+    : null;
+}
+
 export async function signMcpOAuthAccessToken(params: {
   ownerEmail: string;
   orgId?: string | null;
@@ -212,13 +225,11 @@ export async function verifyMcpOAuthAccessToken(
     if (!scopes.some((s) => MCP_OAUTH_SCOPES.includes(s as any))) {
       return null;
     }
+    const orgIdClaim = parseMcpOAuthOrgIdClaim(payload);
+    if (!orgIdClaim) return null;
     return {
       userEmail: payload.sub,
-      orgId: Object.prototype.hasOwnProperty.call(payload, "org_id")
-        ? typeof payload.org_id === "string"
-          ? payload.org_id
-          : null
-        : undefined,
+      orgId: orgIdClaim.orgId,
       orgDomain:
         typeof payload.org_domain === "string" ? payload.org_domain : undefined,
       scopes,

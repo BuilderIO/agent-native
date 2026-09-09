@@ -86,6 +86,7 @@ import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
+  parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
@@ -2943,16 +2944,13 @@ export async function verifyAuth(
       }
     }
 
-    const claimedOrgId = Object.prototype.hasOwnProperty.call(payload, "org_id")
-      ? typeof payload.org_id === "string" && payload.org_id
-        ? payload.org_id
-        : null
-      : undefined;
+    const orgIdClaim = parseMcpOAuthOrgIdClaim(payload);
+    if (!orgIdClaim) return { authed: false };
     const orgResolution = await resolveConnectTokenOrgId(
       tokenScope === MCP_CONNECT_SCOPE
         ? (payload.jti as string | undefined)
         : undefined,
-      claimedOrgId,
+      orgIdClaim.orgId,
     );
     if (orgResolution.status === "unavailable") {
       return { authed: false };
