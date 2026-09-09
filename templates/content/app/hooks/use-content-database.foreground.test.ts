@@ -1,4 +1,6 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const useActionQuery = vi.hoisted(() => vi.fn());
@@ -33,12 +35,16 @@ describe("foreground database read after cached creation", () => {
     ];
     const data = { database: { id: "database" }, items: [] };
     client.setQueryData(queryKey, data);
-    useContentDatabase(
-      "database-page",
-      100,
-      undefined,
-      refetchOnMount ? { refetchOnMount } : undefined,
-    );
+    function Probe() {
+      useContentDatabase(
+        "database-page",
+        100,
+        undefined,
+        refetchOnMount ? { refetchOnMount } : undefined,
+      );
+      return null;
+    }
+    renderToStaticMarkup(createElement(Probe));
     const options = useActionQuery.mock.calls.find(
       ([name]) => name === "get-content-database",
     )![2];

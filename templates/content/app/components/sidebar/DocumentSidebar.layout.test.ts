@@ -515,7 +515,7 @@ describe("document sidebar layout", () => {
     expect(sections).toContain("aria-expanded={expanded}");
     expect(sections).toContain('expanded && "rotate-90"');
     expect(sections).toContain("renderPinned(sections.pinned.limit)");
-    expect(sidebar).toContain("favoritesDocumentId");
+    expect(sidebar).toContain("useContentDatabaseById(favoritesDatabaseId)");
     expect(sidebar).toContain("favoritesData.items,");
     expect(sidebar).toContain(").slice(0, limit)");
     expect(sidebar).toContain(

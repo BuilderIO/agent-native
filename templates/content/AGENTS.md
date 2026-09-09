@@ -91,12 +91,9 @@ Every action carries its own schema, and the rest of the app-specific surface
 `remove-local-file-source`) is registered too — use `tool-search` instead of
 scanning a table here.
 
-Pinned, workspace roots, and Files Custom order use personal View preferences,
-without changing membership positions or parentage. Use the `navigation` patch
-on `update-content-database-personal-view` for `activeViewId` or one View's
-`sidebarOrder: { viewId, mode, itemIds }`; it atomically preserves other settings.
-Shared database row ordering still uses `move-database-item`. Recent records
-successful foreground visits; reading or editing a Page does not record a visit.
+Sidebar order and active Views use `update-content-database-personal-view`'s
+`navigation` patch, never parentage or membership. Shared row order uses
+`move-database-item`. Recent records foreground visits, not reads or edits.
 
 ## Source Changes
 

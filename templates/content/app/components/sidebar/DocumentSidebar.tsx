@@ -26,7 +26,6 @@ import {
   IconRestore,
   IconSearch,
   IconSettings,
-  IconPin,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -894,12 +893,8 @@ export function DocumentSidebar({
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
   const workspaceCatalogDatabaseId =
     contentSpacesQuery.data?.catalogDatabaseId ?? null;
-  const workspaceCatalogDocumentId =
-    contentSpacesQuery.data?.catalogDocumentId ?? null;
   const favoritesDatabaseId =
     contentSpacesQuery.data?.favoritesDatabaseId ?? null;
-  const favoritesDocumentId =
-    contentSpacesQuery.data?.favoritesDocumentId ?? null;
   const favoritesDatabase = useContentDatabaseById(favoritesDatabaseId);
   const workspaceCatalogDatabase = useContentDatabaseById(
     workspaceCatalogDatabaseId,
@@ -1323,8 +1318,10 @@ export function DocumentSidebar({
   );
 
   const treeDocuments = filterDocumentTreeDocuments(documents);
-  const { localFileMode, databaseDocuments, showFavorites } =
-    getDocumentSidebarSections(documents, treeDocuments);
+  const { localFileMode, databaseDocuments } = getDocumentSidebarSections(
+    documents,
+    treeDocuments,
+  );
 
   const activeDocument = activeDocumentId
     ? documents.find((doc) => doc.id === activeDocumentId)
