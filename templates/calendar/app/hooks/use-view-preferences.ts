@@ -35,6 +35,7 @@ interface ViewPreferencesContextValue {
   updateAccountColorMode: (
     accountEmail: string,
     accountColorMode: CalendarColorMode,
+    googleCalendarPreferenceKey?: string,
   ) => void;
   updateGoogleCalendarVisibility: (
     preferenceKey: string,
@@ -432,7 +433,11 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
   );
 
   const updateAccountColorMode = useCallback(
-    (accountEmail: string, accountColorMode: CalendarColorMode) => {
+    (
+      accountEmail: string,
+      accountColorMode: CalendarColorMode,
+      googleCalendarPreferenceKey?: string,
+    ) => {
       const requestId =
         (accountPreferenceRequestIds.current[accountEmail] ?? 0) + 1;
       accountPreferenceRequestIds.current[accountEmail] = requestId;
@@ -442,12 +447,17 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
 
       setPrefs((prev) => {
         rollbackPrefs = prev;
+        const googleCalendarColors = { ...prev.googleCalendarColors };
+        if (googleCalendarPreferenceKey) {
+          delete googleCalendarColors[googleCalendarPreferenceKey];
+        }
         const next = normalizeCalendarViewPreferences({
           ...prev,
           accountColorModes: {
             ...prev.accountColorModes,
             [accountEmail]: accountColorMode,
           },
+          googleCalendarColors,
         });
         save(next);
         window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
@@ -463,6 +473,12 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
           callAction("update-calendar-visual-preferences", {
             accountEmail,
             accountColorMode,
+            ...(googleCalendarPreferenceKey
+              ? {
+                  googleCalendarPreferenceKey,
+                  googleCalendarColor: null,
+                }
+              : {}),
           }),
       )
         .then((result) => {
@@ -473,6 +489,19 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
           if (!preferences) return;
           const serverPrefs = normalizeCalendarViewPreferences(preferences);
           setPrefs((current) => {
+            const googleCalendarColors = {
+              ...current.googleCalendarColors,
+            };
+            if (googleCalendarPreferenceKey) {
+              const persistedColor =
+                serverPrefs.googleCalendarColors[googleCalendarPreferenceKey];
+              if (persistedColor) {
+                googleCalendarColors[googleCalendarPreferenceKey] =
+                  persistedColor;
+              } else {
+                delete googleCalendarColors[googleCalendarPreferenceKey];
+              }
+            }
             const next = normalizeCalendarViewPreferences({
               ...current,
               accountColorModes: {
@@ -481,6 +510,7 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
                   serverPrefs.accountColorModes[accountEmail] ??
                   accountColorMode,
               },
+              googleCalendarColors,
             });
             if (calendarViewPreferencesEqual(current, next)) return current;
             save(next);
@@ -499,7 +529,16 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
               ) {
                 return current;
               }
+              if (
+                googleCalendarPreferenceKey &&
+                current.googleCalendarColors[googleCalendarPreferenceKey]
+              ) {
+                return current;
+              }
               const accountColorModes = { ...current.accountColorModes };
+              const googleCalendarColors = {
+                ...current.googleCalendarColors,
+              };
               const previousAccountMode =
                 rollbackPrefs.accountColorModes[accountEmail];
               if (previousAccountMode) {
@@ -507,9 +546,22 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
               } else {
                 delete accountColorModes[accountEmail];
               }
+              if (googleCalendarPreferenceKey) {
+                const previousGoogleCalendarColor =
+                  rollbackPrefs.googleCalendarColors[
+                    googleCalendarPreferenceKey
+                  ];
+                if (previousGoogleCalendarColor) {
+                  googleCalendarColors[googleCalendarPreferenceKey] =
+                    previousGoogleCalendarColor;
+                } else {
+                  delete googleCalendarColors[googleCalendarPreferenceKey];
+                }
+              }
               const next = normalizeCalendarViewPreferences({
                 ...current,
                 accountColorModes,
+                googleCalendarColors,
               });
               if (calendarViewPreferencesEqual(current, next)) return current;
               save(next);
