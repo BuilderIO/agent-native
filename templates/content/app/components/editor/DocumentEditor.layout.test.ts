@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   databaseConversionRequest,
   databaseMembershipDatabaseTitle,
+  documentCanonicalMutationsEnabled,
   documentEditorBreadcrumbItems,
   documentEditorBreadcrumbNavigationItems,
   documentEditorDefaultIconKind,
@@ -16,10 +17,12 @@ import {
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
   isDocumentLoadUnavailableError,
+  isSuggestionConflictActionError,
   metadataUpdatesWithPendingTitle,
   positionAnchoredCommentCard,
   refreshUnchangedContentSaveWatermark,
   suggestionPresentation,
+  suggestionAmendmentTargetIsResolved,
   resizeDocumentTitleTextarea,
   shouldShowNewDocumentTypeChooser,
   titleMatchConfirmsSave,
@@ -34,6 +37,78 @@ import {
 import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("blocks every document metadata mutation while suggesting", () => {
+    expect(documentCanonicalMutationsEnabled(true, false)).toBe(true);
+    expect(documentCanonicalMutationsEnabled(false, false)).toBe(false);
+    expect(documentCanonicalMutationsEnabled(true, true)).toBe(false);
+
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const titlePasteHandler = source.slice(
+      source.indexOf("const handleTitlePaste"),
+      source.indexOf("// Auto-focus title"),
+    );
+    expect(titlePasteHandler).toContain(
+      "documentCanonicalMutationsEnabled(editorCanEdit, isSuggesting)",
+    );
+    const iconPickerStart = source.indexOf("<EmojiPicker");
+    expect(source.slice(iconPickerStart - 250, iconPickerStart)).toContain(
+      "documentCanonicalMutationsEnabled(",
+    );
+    const iconPicker = source.slice(
+      iconPickerStart,
+      source.indexOf(") : document.icon"),
+    );
+    expect(
+      iconPicker.match(
+        /documentCanonicalMutationsEnabled\(\s*editorCanEdit,\s*isSuggesting,\s*\)/g,
+      ),
+    ).toHaveLength(1);
+    expect(source).toContain(
+      "canEdit: documentCanonicalMutationsEnabled(canEdit, isSuggesting)",
+    );
+  });
+
+  it("recognizes resolved amendment targets and action conflicts", () => {
+    expect(
+      suggestionAmendmentTargetIsResolved("suggestion-1", [
+        { id: "suggestion-1", status: "pending" },
+      ]),
+    ).toBe(false);
+    expect(
+      suggestionAmendmentTargetIsResolved("suggestion-1", [
+        { id: "suggestion-1", status: "accepted" },
+      ]),
+    ).toBe(true);
+    expect(
+      isSuggestionConflictActionError(
+        Object.assign(new Error("changed"), {
+          errorCode: "suggestion_conflict",
+        }),
+      ),
+    ).toBe(true);
+    expect(isSuggestionConflictActionError(new Error("network"))).toBe(false);
+
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const flush = source.slice(
+      source.indexOf("const flushSuggestionDraft"),
+      source.indexOf("const startSuggestionDraft"),
+    );
+    expect(
+      flush.indexOf("suggestionDraft === base.initialContent"),
+    ).toBeLessThan(
+      flush.indexOf("suggestionAmendmentConflict || amendmentTargetIsResolved"),
+    );
+    expect(source).toContain(
+      "isSuggesting &&\n          amendmentDraftIsDirty &&\n          suggestionAmendmentConflict",
+    );
+  });
+
   it("refreshes a remaining insertion anchor after accepting an earlier nearby replacement", () => {
     const before =
       "Alpha Beta Gamma. Added words.\nThe team will publish on Friday.";
@@ -55,6 +130,11 @@ describe("document editor layout", () => {
       suffix: current.slice(current.indexOf("\n"), current.indexOf("\n") + 32),
     });
     expect(presentation?.afterText).toBe(" Next.");
+    expect(presentation?.afterPresentation).toEqual({
+      source: insertion.after.markdown,
+      from: insertion.anchor.from,
+      to: insertion.anchor.from + insertion.after.changedText.length,
+    });
   });
   it("shifts a saved suggestion anchor past a new earlier draft insertion", () => {
     const before = "Alpha publish Friday";
@@ -68,6 +148,11 @@ describe("document editor layout", () => {
 
     expect(presentation?.anchor.from).toBe(current.indexOf("publish"));
     expect(presentation?.beforeText).toBe("publish");
+    expect(presentation?.beforePresentation).toEqual({
+      source: deletion!.before.markdown,
+      from: deletion!.anchor.from,
+      to: deletion!.anchor.to,
+    });
   });
   it("lets nested menus consume Escape before dismissing comment focus", () => {
     const source = readFileSync(
@@ -276,17 +361,13 @@ describe("document editor layout", () => {
       handler.indexOf("debouncedSave("),
     );
     expect(source).toContain('{t("editor.keepLocalDraft")}');
-    expect(source).toContain(
-      "void handleContentSaveNow(localDraft, true).then(",
-    );
+    expect(source).toContain("void handleContentSaveNow(localDraft, true);");
     expect(source).toContain("handleContentSaveNow(result.content, true)");
     expect(source).toContain("if (options.adoptCurrentServerBase)");
     expect(source).toContain(
-      "if (persisted) setDocumentReconcileConflict(null)",
+      "else if (contentEditVersionRef.current === contentEditVersion)",
     );
-    expect(source).toContain(
-      "else setDocumentReconcileConflict({ localDraft })",
-    );
+    expect(source).toContain("if (!result.contentPersisted)");
   });
 
   it("keeps a seeded document behind the skeleton while its fetch is pending", () => {

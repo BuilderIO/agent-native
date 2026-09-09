@@ -259,6 +259,7 @@ export function useCollabReconcile({
   const collab = !!ydoc;
   const isSettingContentRef = useRef(false);
   const lastEmittedRef = useRef("");
+  const lastRegisteredLocalEmissionRef = useRef<string | null>(null);
   // Ring of recent local emissions (see pushEmittedRing). Lets the reconcile
   // recognize a stale-but-recent echo of our OWN (possibly partial, debounced)
   // save so a lagging poll never clobbers freshly-typed text.
@@ -459,14 +460,54 @@ export function useCollabReconcile({
     shouldSeed,
   ]);
 
+  const peerReconcileWaitRef = useRef<{
+    editor: Editor;
+    ydoc: YDoc | null;
+    value: string;
+    contentUpdatedAt: string | null | undefined;
+    contentRevision: string | null | undefined;
+    collabSynced: boolean;
+    isLeadClient: boolean;
+    editable: boolean;
+    deadline: number | null;
+  } | null>(null);
+
   // Reconcile authoritative external markdown (agent edit, source patch, or a
   // peer edit mirrored to SQL) into the live editor. In collab mode only the
   // lead client applies it through setContent; Yjs propagates the result to
   // every other client. In non-collab mode this is the original controlled-value
   // reconcile, unchanged.
   useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
+    if (!editor || editor.isDestroyed) {
+      peerReconcileWaitRef.current = null;
+      return;
+    }
 
+    const previousWait = peerReconcileWaitRef.current;
+    if (
+      !previousWait ||
+      previousWait.editor !== editor ||
+      previousWait.ydoc !== ydoc ||
+      previousWait.value !== value ||
+      previousWait.contentUpdatedAt !== contentUpdatedAt ||
+      previousWait.contentRevision !== contentRevision ||
+      previousWait.collabSynced !== collabSynced ||
+      previousWait.isLeadClient !== isLeadClient ||
+      previousWait.editable !== editable
+    ) {
+      peerReconcileWaitRef.current = {
+        editor,
+        ydoc,
+        value,
+        contentUpdatedAt,
+        contentRevision,
+        collabSynced,
+        isLeadClient,
+        editable,
+        deadline: null,
+      };
+    }
+    const peerWait = peerReconcileWaitRef.current!;
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
     // With peers present, a peer's edit also arrives via Yjs. Defer one poll
@@ -542,6 +583,15 @@ export function useCollabReconcile({
           (value === lastAppliedValueRef.current ||
             normalizedValue === lastAppliedSerializedRef.current))
       ) {
+        peerWait.deadline = null;
+        // Equality on the first controlled render is also a successful apply:
+        // useEditor may already have initialized from `value`. Record that
+        // baseline so a same-revision parent render cannot restore stale props
+        // over a local edit made while a toolbar or popover owns focus.
+        if (currentMarkdown === normalizedValue) {
+          lastAppliedValueRef.current = value;
+          lastAppliedSerializedRef.current = currentMarkdown;
+        }
         if (contentRevision) {
           authoritativeBaseRef.current = { value, revision: contentRevision };
           reportedConflictRevisionRef.current = null;
@@ -552,7 +602,14 @@ export function useCollabReconcile({
         return;
       }
 
+      const revisionChangedAtSameTimestamp =
+        !!contentRevision &&
+        !!authoritativeBaseRef.current &&
+        contentRevision !== authoritativeBaseRef.current.revision &&
+        !!contentUpdatedAt &&
+        contentUpdatedAt === lastAppliedUpdatedAtRef.current;
       const externalNewer =
+        revisionChangedAtSameTimestamp ||
         !lastAppliedUpdatedAtRef.current ||
         !contentUpdatedAt ||
         contentUpdatedAt > lastAppliedUpdatedAtRef.current;
@@ -560,6 +617,7 @@ export function useCollabReconcile({
       // Only the lead client applies an authoritative snapshot into the shared
       // Y.Doc; peers receive it through Yjs sync.
       if (collab && !isLeadClient) {
+        peerWait.deadline = null;
         if (contentUpdatedAt && !externalNewer) {
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
         }
@@ -575,31 +633,46 @@ export function useCollabReconcile({
       if (typingRecently) {
         if (externalNewer) {
           retry = setTimeout(() => apply(deferred), 700);
+        } else {
+          peerWait.deadline = null;
         }
         return;
       }
-      // Older-or-equal content is a stale poll / lagging echo. Drop it while
-      // focused (a peer/agent edit would be NEWER and retries above). In
-      // NON-COLLAB mode there is no peer, so older-or-equal external content is
-      // ALWAYS stale — dropping it regardless of focus stops a lagging
-      // `get-visual-plan` poll from reverting a just-applied local structural
-      // change (drag-to-columns) while the editor is blurred (the drag grips the
-      // handle, not the prose, so `isFocused` is false at drop time). Gated on
-      // `lastAppliedSerializedRef` so the very first seed (nothing applied yet,
-      // also not-newer) still lands.
-      const seeded = lastAppliedSerializedRef.current !== null;
-      if (!externalNewer && (editorFocused || (!collab && seeded))) return;
+      // Once an authoritative snapshot has been applied, an unchanged or older
+      // SQL echo cannot overwrite subsequent local OR remote Yjs edits. The
+      // idle lead can receive a peer's edit before that peer's SQL save arrives.
+      // A fresh mount still reconciles stale CRDT state before it has a baseline.
+      const hasAppliedSnapshot = lastAppliedSerializedRef.current !== null;
+      const currentIsRegisteredLocalEmission =
+        lastRegisteredLocalEmissionRef.current !== null &&
+        currentMarkdown === lastRegisteredLocalEmissionRef.current;
+      if (
+        !externalNewer &&
+        (editorFocused ||
+          hasAppliedSnapshot ||
+          currentIsRegisteredLocalEmission)
+      ) {
+        peerWait.deadline = null;
+        return;
+      }
 
       // Race guard: with peers present, let Yjs deliver a peer's edit first.
       // Defer once and re-check — a peer edit makes the equality check above
       // no-op next pass; an agent/source edit still differs and applies.
       if (collab && externalNewer && !deferred && peerCountRef.current > 0) {
-        retry = setTimeout(() => apply(true), PEER_SETTLE_MS);
-        return;
+        // Inline serializers can change on every presence/poll render. Keep
+        // this snapshot's deadline while the effect refreshes its callbacks.
+        peerWait.deadline ??= Date.now() + PEER_SETTLE_MS;
+        const remaining = peerWait.deadline - Date.now();
+        if (remaining > 0) {
+          retry = setTimeout(() => apply(true), remaining);
+          return;
+        }
       }
 
       const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
+        peerWait.deadline = null;
         // Re-check doc-equivalence at apply time. Between the decision above and
         // this task a peer/Yjs edit (or our own prior apply) may have made
         // the editor already represent this value — re-applying would be a
@@ -617,6 +690,11 @@ export function useCollabReconcile({
             normalized === lastAppliedSerializedRef.current)
         ) {
           lastAppliedValueRef.current = value;
+          lastAppliedSerializedRef.current = beforeMarkdown;
+          if (contentRevision) {
+            authoritativeBaseRef.current = { value, revision: contentRevision };
+            reportedConflictRevisionRef.current = null;
+          }
           if (contentUpdatedAt) {
             lastAppliedUpdatedAtRef.current = contentUpdatedAt;
           }
@@ -680,7 +758,7 @@ export function useCollabReconcile({
           lastAppliedSerializedRef.current = merged;
           if (contentUpdatedAt)
             lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-          if (reconciled.status === "applied" && merged !== normalized) {
+          if (merged !== normalized) {
             onBaseAwareReconcile({
               status: "merged",
               content: merged,
@@ -738,6 +816,8 @@ export function useCollabReconcile({
     contentUpdatedAt,
     contentRevision,
     editor,
+    ydoc,
+    editable,
     value,
     collab,
     collabSynced,
@@ -790,6 +870,7 @@ export function useCollabReconcile({
     if (collab && !markdown.trim()) return false;
     lastEmittedRef.current = markdown;
     pushEmittedRing(recentEmittedRef.current, markdown);
+    lastRegisteredLocalEmissionRef.current = markdown;
     return true;
   };
 

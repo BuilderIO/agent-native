@@ -6,9 +6,18 @@ import {
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
+import {
+  suggestionFormattingSourceRange,
+  suggestionFormattingSourceSlice,
+} from "@shared/suggestion-formatting";
+import { suggestionTextPresentationForSource } from "@shared/suggestion-text";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema } from "@tiptap/core";
-import { NodeSelection, type Transaction } from "@tiptap/pm/state";
+import {
+  NodeSelection,
+  TextSelection,
+  type Transaction,
+} from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import {
   act,
@@ -24,6 +33,71 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+
+import {
+  createSuggestionDraftSession,
+  previewSuggestionDraft,
+  recordSuggestionReplacementIntent,
+  suggestionDraftOperations,
+} from "./suggestions/draft-session";
+
+it("maps a native escaped-backtick code proposal and preserves native Undo", () => {
+  const editor = new Editor({
+    extensions: [StarterKit],
+    content: nfmToDoc("\\`"),
+  });
+  try {
+    const baseline = docToNfm(editor.getJSON() as any);
+    const session = createSuggestionDraftSession({
+      id: "undo-format",
+      baseContent: baseline,
+      baseRevision: "one",
+      startedAt: "2026-09-08T00:00:00.000Z",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 2 });
+    editor.commands.toggleCode();
+    const draft = docToNfm(editor.getJSON() as any);
+    expect(draft).toBe("`` ` ``");
+    const operations = suggestionDraftOperations(session, draft);
+    expect(operations).toHaveLength(1);
+    expect(operations[0]).toMatchObject({
+      kind: "set_inline_mark",
+      before: { changedText: "\\`" },
+      after: { changedText: "`` ` ``" },
+    });
+    expect(previewSuggestionDraft(session, draft, null).status).toBe("ready");
+    for (const presentation of ["draft", "canonical"] as const) {
+      const source = presentation === "draft" ? draft : baseline;
+      const sourceEditor = createMarkdownEditor(source);
+      try {
+        const anchor =
+          presentation === "draft"
+            ? draftSuggestionAnchors(operations, draft)[0]!
+            : operations[0]!.anchor;
+        expect(
+          suggestionHighlightSpec(sourceEditor.state.doc, {
+            id: `escaped-backtick-${presentation}`,
+            kind: operations[0]!.kind,
+            beforeText: operations[0]!.before.changedText,
+            afterText: operations[0]!.after.changedText,
+            anchor,
+            presentation,
+          }),
+        ).not.toBeNull();
+      } finally {
+        sourceEditor.destroy();
+      }
+    }
+    expect(docToNfm(editor.getJSON() as any)).toBe(draft);
+    expect(session.baseContent).toBe(baseline);
+    expect(editor.commands.undo()).toBe(true);
+    expect(
+      previewSuggestionDraft(session, docToNfm(editor.getJSON() as any), null),
+    ).toEqual({ status: "ready", suggestions: [] });
+  } finally {
+    editor.destroy();
+  }
+});
 
 type TooltipProviderProps = Omit<
   ComponentProps<typeof TooltipProvider>,
@@ -51,6 +125,7 @@ import {
   parseNfmForCollabReconcile,
   ensurePendingImageUpload,
   restorePendingImagePicker,
+  runIfMediaCreationAllowed,
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
@@ -63,11 +138,106 @@ import {
   shouldSeedCollaborativeContent,
   serializeEditorDraftForPersistence,
   suggestionReplacementIntentForTransaction,
+  type VisualEditorSuggestion,
   VisualEditor,
   suggestionHighlightSpec,
 } from "./VisualEditor";
 
 describe("suggestion replacement intent", () => {
+  it("keeps a suffix Add after native backspaces cancel an insertion in a mixed session", () => {
+    const editor = createMarkdownEditor(
+      "This reads better compared to the original.\n\nEditors publish carefully.\n\nFinal sentence.",
+    );
+    const baseContent = docToNfm(editor.state.doc.toJSON());
+    const session = createSuggestionDraftSession({
+      id: "mixed-native",
+      baseContent,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    editor.on("beforeTransaction", ({ transaction }) => {
+      const intent = suggestionReplacementIntentForTransaction(
+        transaction,
+        editor.state.selection,
+      );
+      if (intent)
+        recordSuggestionReplacementIntent(
+          session,
+          intent,
+          intent.beforeMarkdown,
+        );
+    });
+    const select = (from: number, to = from) =>
+      editor.view.dispatch(
+        editor.state.tr.setSelection(
+          TextSelection.create(editor.state.doc, from, to),
+        ),
+      );
+    const find = (text: string) => {
+      let found = -1;
+      editor.state.doc.descendants((node, pos) => {
+        if (node.isText && node.text?.includes(text))
+          found = pos + node.text.indexOf(text);
+      });
+      expect(found).toBeGreaterThanOrEqual(0);
+      return found;
+    };
+    try {
+      const original = "This reads better compared to the original.";
+      const replacement = "This reads more clearly than the original.";
+      select(find(original), find(original) + original.length);
+      editor.view.dispatch(editor.state.tr.insertText(replacement));
+      select(find("publish"), find("publish") + "publish".length);
+      editor.view.dispatch(editor.state.tr.deleteSelection());
+      const canceled = " Added words.";
+      select(find("Final sentence.") + "Final sentence".length);
+      for (const character of canceled)
+        editor.view.dispatch(editor.state.tr.insertText(character));
+      for (let index = 0; index < canceled.length; index++) {
+        const caret = editor.state.selection.from;
+        editor.view.dispatch(editor.state.tr.delete(caret - 1, caret));
+      }
+      const canceledOperations = suggestionDraftOperations(
+        session,
+        docToNfm(editor.state.doc.toJSON()),
+      );
+      expect(canceledOperations).toHaveLength(2);
+      select(find("Final sentence.") + "Final sentence.".length);
+      for (const character of canceled)
+        editor.view.dispatch(editor.state.tr.insertText(character));
+      expect(
+        suggestionDraftOperations(
+          session,
+          docToNfm(editor.state.doc.toJSON()),
+        ).map((operation) => [
+          operation.kind,
+          operation.before.changedText,
+          operation.after.changedText,
+        ]),
+      ).toEqual([
+        ["replace_text", original, replacement],
+        ["delete_text", "publish", ""],
+        ["insert_text", "", canceled],
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("does not treat collapsed-caret deletion as selected overwrite", () => {
+    const editor = createMarkdownEditor("Final sentence. Added words.");
+    try {
+      const caret = editor.state.doc.content.size - 1;
+      expect(
+        suggestionReplacementIntentForTransaction(
+          editor.state.tr.delete(caret - 1, caret),
+          { from: caret, to: caret, empty: true },
+        ),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
   it("captures whole-document replacement without inserting inline markers at the root", () => {
     const editor = createMarkdownEditor(
       "First paragraph.\n\nSecond paragraph.",
@@ -79,6 +249,7 @@ describe("suggestion replacement intent", () => {
           0,
           editor.state.doc.content.size,
         ),
+        { from: 0, to: editor.state.doc.content.size, empty: false },
       );
       expect(intent).not.toBeNull();
       expect(intent!.beforeText).toBe(intent!.beforeMarkdown);
@@ -99,6 +270,7 @@ describe("suggestion replacement intent", () => {
       });
       const intent = suggestionReplacementIntentForTransaction(
         editor.state.tr.insertText("different", last, last + 4),
+        { from: last, to: last + 4, empty: false },
       );
       expect(intent).not.toBeNull();
       expect(intent!.startOffset).toBe(
@@ -115,7 +287,13 @@ describe("suggestion replacement intent", () => {
     try {
       const transaction = editor.state.tr.insertText("workflows", 10, 18);
 
-      expect(suggestionReplacementIntentForTransaction(transaction)).toEqual({
+      expect(
+        suggestionReplacementIntentForTransaction(transaction, {
+          from: 10,
+          to: 18,
+          empty: false,
+        }),
+      ).toEqual({
         beforeText: "workflow",
         afterText: "workflows",
         startOffset: 9,
@@ -130,7 +308,13 @@ describe("suggestion replacement intent", () => {
     const editor = createMarkdownEditor("Use this workflow today.");
     try {
       const transaction = editor.state.tr.insertText("s", 18);
-      expect(suggestionReplacementIntentForTransaction(transaction)).toBeNull();
+      expect(
+        suggestionReplacementIntentForTransaction(transaction, {
+          from: 18,
+          to: 18,
+          empty: true,
+        }),
+      ).toBeNull();
     } finally {
       editor.destroy();
     }
@@ -173,6 +357,252 @@ describe("live suggestion presentation", () => {
       content: nfmToDoc(content),
     });
   }
+  it.each([
+    "**Echo**",
+    "*Echo*",
+    "~~Echo~~",
+    "`Echo`",
+    '<span underline="true">Echo</span>',
+    "[Echo](https://example.test)",
+  ])(
+    "anchors a saved and draft formatting change %s to only its text",
+    (formatted) => {
+      const before = "Echo sample.\nOther paragraph.";
+      const after = formatted + before.slice(4);
+      for (const presentation of ["draft", "canonical"] as const) {
+        const editor = createSuggestionEditor(
+          presentation === "draft" ? after : before,
+        );
+        try {
+          const spec = suggestionHighlightSpec(editor.state.doc, {
+            id: "format",
+            kind: "set_inline_mark",
+            beforeText: "Echo",
+            afterText: formatted,
+            anchor: { from: 0, prefix: "", suffix: before.slice(4) },
+            presentation,
+          });
+          expect(spec).toMatchObject({ kind: "mark", from: 1, to: 5 });
+          setSuggestionHighlights(editor.view, { specs: [spec!] });
+          expect(
+            editor.view.dom.querySelector('[data-suggestion-id="format"]')
+              ?.textContent,
+          ).toBe("Echo");
+          expect(docToNfm(editor.state.doc.toJSON())).toBe(
+            presentation === "draft" ? after : before,
+          );
+        } finally {
+          editor.destroy();
+        }
+      }
+    },
+  );
+  it("leaves stale split context unavailable rather than preferring a partially matching target", () => {
+    const editor = createSuggestionEditor("BBBB target x\nC target y");
+    try {
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "stale",
+          kind: "delete_text",
+          beforeText: "target",
+          afterText: "",
+          anchor: { from: 5, prefix: "BBBB ", suffix: " y" },
+          presentation: "canonical",
+        }),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+  it.each(["draft", "canonical"] as const)(
+    "uses current-source coordinates for a repeated mixed %s hard-break range",
+    (presentation) => {
+      const content = "x<br>".repeat(20);
+      const editor = createSuggestionEditor(content);
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: "periodic",
+          kind: presentation === "draft" ? "insert_text" : "delete_text",
+          beforeText: presentation === "draft" ? "" : "x<br>",
+          afterText: presentation === "draft" ? "x<br>" : "",
+          anchor: {
+            from: 25,
+            prefix: content.slice(0, 25),
+            suffix: content.slice(30, 62),
+          },
+          presentation,
+        });
+        expect(spec).toMatchObject({ from: 11, to: 13 });
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+  it("maps composed draft offsets from the current source rather than its baseline", () => {
+    const content = "Earlier addition. " + "x<br>".repeat(20);
+    const from = "Earlier addition. ".length + 25;
+    const editor = createSuggestionEditor(content);
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "composed",
+        kind: "insert_text",
+        beforeText: "",
+        afterText: "x<br>",
+        anchor: {
+          from,
+          prefix: content.slice(Math.max(0, from - 32), from),
+          suffix: content.slice(from + 5, from + 37),
+        },
+        presentation: "draft",
+      });
+      expect(spec).toMatchObject({ from: 29, to: 31 });
+      const stale = suggestionHighlightSpec(editor.state.doc, {
+        id: "ambiguous",
+        kind: "insert_text",
+        beforeText: "",
+        afterText: "x<br>",
+        anchor: { from: 25, prefix: "", suffix: "" },
+        presentation: "draft",
+      });
+      expect(stale).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("does not use raw offsets when formatting changes the current source mapping", () => {
+    const editor = createSuggestionEditor("**prefix** " + "x<br>".repeat(20));
+    try {
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "ambiguous-format",
+          kind: "insert_text",
+          beforeText: "",
+          afterText: "x<br>",
+          anchor: { from: 35, prefix: "", suffix: "" },
+          presentation: "draft",
+        }),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+  it.each(["<br>", "\n"])(
+    "gives a draft %j addition a visible anchored marker without changing content",
+    (breakText) => {
+      const content = `Ec${breakText}ho`;
+      const editor = createSuggestionEditor(content);
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: "break",
+          kind: "insert_text",
+          beforeText: "",
+          afterText: breakText,
+          anchor: { from: 2, prefix: "Ec", suffix: "ho" },
+          presentation: "draft",
+        });
+        expect(spec).toMatchObject({ kind: "insert", from: 3 });
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(
+          editor.view.dom.querySelector('[data-suggestion-id="break"]')
+            ?.textContent,
+        ).toBe("↵");
+        expect(docToNfm(editor.state.doc.toJSON())).toBe(content);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+  it.each(["draft", "canonical"] as const)(
+    "renders a %s hard-break deletion without losing the structural anchor",
+    (presentation) => {
+      const content = presentation === "draft" ? "Echo" : "Ec<br>ho";
+      const editor = createSuggestionEditor(content);
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: "break",
+          kind: "delete_text",
+          beforeText: "<br>",
+          afterText: "",
+          anchor: { from: 2, prefix: "Ec", suffix: "ho" },
+          presentation,
+        });
+        expect(spec).toMatchObject({ from: 3 });
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(
+          editor.view.dom.querySelector(".suggestion-delete-widget")
+            ?.textContent,
+        ).toBe("↵");
+        expect(docToNfm(editor.state.doc.toJSON())).toBe(content);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+  it("anchors mixed text and hard breaks to the intended repeated occurrence", () => {
+    const editor = createSuggestionEditor("Ec<br>ho and Ec<br>ho");
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "mixed",
+        kind: "insert_text",
+        beforeText: "",
+        afterText: "Ec<br>ho",
+        anchor: { from: 13, prefix: "Ec<br>ho and ", suffix: "" },
+        presentation: "draft",
+      });
+      expect(spec).toMatchObject({ from: 11, to: 16, kind: "mark" });
+      const missing = suggestionHighlightSpec(editor.state.doc, {
+        id: "missing",
+        kind: "insert_text",
+        beforeText: "",
+        afterText: "<br>",
+        anchor: { from: 2, prefix: "Wrong", suffix: "context" },
+        presentation: "draft",
+      });
+      expect(missing).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("anchors a generated hard break beside an independent paragraph merge", () => {
+    const base =
+      "Alpha \nbeta gamma.\nRepeat repeat repeat.\nBold italic underline strike code link.";
+    const draft =
+      "Alpha beta gamma.\nRepeat <br>repeat repeat.\nBold italic underline strike code link.";
+    const operations = markdownSuggestionOperations(base, draft);
+    expect(operations).toHaveLength(2);
+    expect(operations[1]!.after.changedText).toBe("<br>");
+    for (const presentation of ["draft", "canonical"] as const) {
+      const source = presentation === "draft" ? draft : base;
+      const editor = createSuggestionEditor(source);
+      try {
+        const anchors =
+          presentation === "draft"
+            ? draftSuggestionAnchors(operations, draft)
+            : operations.map((operation) => operation.anchor);
+        const specs = operations.map((operation, index) =>
+          suggestionHighlightSpec(editor.state.doc, {
+            id: `structural-${index}`,
+            kind: operation.kind,
+            beforeText: operation.before.changedText,
+            afterText: operation.after.changedText,
+            anchor: anchors[index]!,
+            presentation,
+          }),
+        );
+        expect(specs.every(Boolean)).toBe(true);
+        setSuggestionHighlights(editor.view, {
+          specs: specs.filter((spec) => spec !== null),
+        });
+        expect(
+          editor.view.dom.querySelector('[data-suggestion-id="structural-1"]')
+            ?.textContent,
+        ).toBe("↵");
+        expect(docToNfm(editor.state.doc.toJSON())).toBe(source);
+      } finally {
+        editor.destroy();
+      }
+    }
+  });
   it("keeps a deletion visible after an earlier draft insertion changes its context", () => {
     const base =
       "Alpha Beta Gamma.\nThe team will publish on Friday.\nThird paragraph stays unchanged.";
@@ -252,6 +682,650 @@ describe("live suggestion presentation", () => {
       editor.destroy();
     }
   });
+
+  it.each(["draft", "canonical"] as const)(
+    "anchors mixed replacement and insertion operations beside existing marks in %s presentation",
+    (presentation) => {
+      const canonical = [
+        "**Bold** sample.",
+        "*Italic* sample.",
+        "~~Strike~~ sample.",
+        "`Code` sample.",
+        '<span underline="true">Underline</span> sample.',
+        "[Link](https://example.test) sample.",
+      ].join("\n");
+      const draft = canonical
+        .replace("**Bold**", "*Changed*")
+        .replace("*Italic* sample.", "*Italic* sample. Extra.");
+      const session = createSuggestionDraftSession({
+        id: "mixed-marks",
+        baseContent: canonical,
+        baseRevision: "revision-one",
+        startedAt: "now",
+      });
+      recordSuggestionReplacementIntent(session, {
+        beforeText: "Bold",
+        startOffset: canonical.indexOf("Bold"),
+      });
+      const operations = suggestionDraftOperations(session, draft);
+      expect(operations.map((operation) => operation.kind)).toEqual([
+        "replace_text",
+        "insert_text",
+      ]);
+
+      const editor = createSuggestionEditor(
+        presentation === "draft" ? draft : canonical,
+      );
+      const anchors =
+        presentation === "draft"
+          ? draftSuggestionAnchors(operations, draft)
+          : operations.map((operation) => operation.anchor);
+      try {
+        const specs = operations.map((operation, index) =>
+          suggestionHighlightSpec(editor.state.doc, {
+            id: `mixed-${index}`,
+            kind: operation.kind,
+            beforeText: operation.before.changedText,
+            afterText: operation.after.changedText,
+            anchor: anchors[index]!,
+            presentation,
+          }),
+        );
+        expect(specs.every(Boolean)).toBe(true);
+        if (presentation === "canonical") {
+          const italicParagraphEnd =
+            editor.state.doc.child(0).nodeSize +
+            1 +
+            editor.state.doc.child(1).content.size;
+          expect(specs[1]).toMatchObject({
+            kind: "insert",
+            from: italicParagraphEnd,
+          });
+        }
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("preserves zero-width source boundaries around paragraphs and hard breaks", () => {
+    const specAt = (source: string, from: number) => {
+      const editor = createSuggestionEditor(source);
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: `boundary-${from}`,
+        kind: "insert_text",
+        beforeText: "",
+        afterText: "added",
+        anchor: {
+          from,
+          prefix: source.slice(Math.max(0, from - 32), from),
+          suffix: source.slice(from, from + 32),
+        },
+        presentation: "canonical",
+      });
+      return { editor, spec };
+    };
+
+    const paragraphSource = "First paragraph.\nSecond paragraph.";
+    const beforeParagraph = specAt(
+      paragraphSource,
+      paragraphSource.indexOf("\n"),
+    );
+    const afterParagraph = specAt(
+      paragraphSource,
+      paragraphSource.indexOf("\n") + 1,
+    );
+    const hardBreakSource = "Ec<br>ho";
+    const beforeHardBreak = specAt(
+      hardBreakSource,
+      hardBreakSource.indexOf("<br>"),
+    );
+    const afterHardBreak = specAt(
+      hardBreakSource,
+      hardBreakSource.indexOf("<br>") + "<br>".length,
+    );
+    try {
+      expect(beforeParagraph.spec).toMatchObject({
+        kind: "insert",
+        from: 1 + beforeParagraph.editor.state.doc.child(0).content.size,
+      });
+      expect(afterParagraph.spec).toMatchObject({
+        kind: "insert",
+        from: afterParagraph.editor.state.doc.child(0).nodeSize + 1,
+      });
+      let hardBreakPosition = -1;
+      beforeHardBreak.editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === "hardBreak") hardBreakPosition = pos;
+      });
+      expect(hardBreakPosition).toBeGreaterThan(0);
+      expect(beforeHardBreak.spec).toMatchObject({
+        kind: "insert",
+        from: hardBreakPosition,
+      });
+      expect(afterHardBreak.spec).toMatchObject({
+        kind: "insert",
+        from: hardBreakPosition + 1,
+      });
+    } finally {
+      beforeParagraph.editor.destroy();
+      afterParagraph.editor.destroy();
+      beforeHardBreak.editor.destroy();
+      afterHardBreak.editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      name: "marked paragraphs",
+      canonical: "**Bold** one.\n*Italic* two.",
+    },
+    {
+      name: "marked hard break",
+      canonical: "**Bold** one.<br>*Italic* two.",
+    },
+  ])(
+    "anchors an actual selected replacement across $name in draft and canonical presentation",
+    ({ canonical }) => {
+      const sourceEditor = createMarkdownEditor(canonical);
+      const session = createSuggestionDraftSession({
+        id: "cross-structure",
+        baseContent: canonical,
+        baseRevision: "revision-one",
+        startedAt: "now",
+      });
+      try {
+        const from = 1;
+        const to = sourceEditor.state.doc.content.size - 1;
+        sourceEditor.commands.setTextSelection({ from, to });
+        const transaction = sourceEditor.state.tr.insertText("Changed");
+        const intent = suggestionReplacementIntentForTransaction(
+          transaction,
+          sourceEditor.state.selection,
+        );
+        expect(intent).not.toBeNull();
+        expect(
+          canonical.slice(
+            intent!.startOffset,
+            intent!.startOffset + intent!.beforeText.length,
+          ),
+        ).toBe(intent!.beforeText);
+        recordSuggestionReplacementIntent(
+          session,
+          intent!,
+          intent!.beforeMarkdown,
+        );
+        sourceEditor.view.dispatch(transaction);
+        const draft = docToNfm(sourceEditor.state.doc.toJSON());
+        const operations = suggestionDraftOperations(session, draft);
+        expect(operations).toHaveLength(1);
+        expect(operations[0]!.kind).toBe("replace_text");
+
+        for (const presentation of ["draft", "canonical"] as const) {
+          const editor = createSuggestionEditor(
+            presentation === "draft" ? draft : canonical,
+          );
+          try {
+            const anchor =
+              presentation === "draft"
+                ? draftSuggestionAnchors(operations, draft)[0]!
+                : operations[0]!.anchor;
+            expect(
+              suggestionHighlightSpec(editor.state.doc, {
+                id: `cross-structure-${presentation}`,
+                kind: operations[0]!.kind,
+                beforeText: operations[0]!.before.changedText,
+                afterText: operations[0]!.after.changedText,
+                anchor,
+                presentation,
+              }),
+            ).not.toBeNull();
+          } finally {
+            editor.destroy();
+          }
+        }
+      } finally {
+        sourceEditor.destroy();
+      }
+    },
+  );
+
+  it("keeps an exact native replacement across a marked hard break and renders both sides bold", () => {
+    const canonical = "**Prefix Upper**<br>**Lower suffix.**";
+    const sourceEditor = createMarkdownEditor(canonical);
+    const session = createSuggestionDraftSession({
+      id: "marked-hardbreak-exact",
+      baseContent: canonical,
+      baseRevision: "revision-one",
+      startedAt: "now",
+    });
+    try {
+      sourceEditor.commands.setTextSelection({ from: 8, to: 19 });
+      const transaction = sourceEditor.state.tr.insertText("Across");
+      const intent = suggestionReplacementIntentForTransaction(
+        transaction,
+        sourceEditor.state.selection,
+      );
+      expect(intent).toMatchObject({
+        beforeText: "Upper**<br>**Lower",
+        afterText: "Across",
+        startOffset: 9,
+      });
+      recordSuggestionReplacementIntent(
+        session,
+        intent!,
+        intent!.beforeMarkdown,
+      );
+      sourceEditor.view.dispatch(transaction);
+      const draft = docToNfm(sourceEditor.state.doc.toJSON());
+      expect(draft).toBe("**Prefix Across suffix.**");
+      const [operation] = suggestionDraftOperations(session, draft);
+      expect(operation).toMatchObject({
+        kind: "replace_text",
+        before: { changedText: "Upper**<br>**Lower" },
+        after: { changedText: "Across" },
+        anchor: { from: 9, to: 27 },
+      });
+
+      for (const presentation of ["draft", "canonical"] as const) {
+        const editor = createSuggestionEditor(
+          presentation === "draft" ? draft : canonical,
+        );
+        try {
+          const anchor =
+            presentation === "draft"
+              ? draftSuggestionAnchors([operation!], draft)[0]!
+              : operation!.anchor;
+          const spec = suggestionHighlightSpec(editor.state.doc, {
+            id: `marked-hardbreak-${presentation}`,
+            kind: operation!.kind,
+            beforeText: operation!.before.changedText,
+            afterText: operation!.after.changedText,
+            beforePresentation: {
+              source: operation!.before.markdown,
+              from: operation!.anchor.from,
+              to: operation!.anchor.to,
+            },
+            afterPresentation: {
+              source: operation!.after.markdown,
+              from: operation!.anchor.from,
+              to: operation!.anchor.from + operation!.after.changedText.length,
+            },
+            anchor,
+            presentation,
+          });
+          expect(spec).toMatchObject(
+            presentation === "draft"
+              ? { from: 8, to: 14, kind: "mark" }
+              : { from: 8, to: 19, kind: "replace" },
+          );
+          setSuggestionHighlights(editor.view, { specs: [spec!] });
+          if (presentation === "draft") {
+            expect(
+              editor.view.dom.querySelector(".suggestion-delete-widget")
+                ?.textContent,
+            ).toBe("Upper↵Lower");
+            expect(
+              editor.view.dom.querySelectorAll(
+                ".suggestion-delete-widget strong",
+              ),
+            ).toHaveLength(2);
+          } else {
+            expect(
+              editor.view.dom.querySelector(".suggestion-insert")?.textContent,
+            ).toBe("Across");
+            expect(
+              editor.view.dom.querySelector(".suggestion-insert strong")
+                ?.textContent,
+            ).toBe("Across");
+          }
+          expect(editor.view.dom.textContent).not.toContain("**");
+        } finally {
+          editor.destroy();
+        }
+      }
+    } finally {
+      sourceEditor.destroy();
+    }
+  });
+
+  it("keeps a registered native Tab indent visible on a marked replacement", () => {
+    const canonical = [
+      "***Changed*** sample.",
+      "*Italic* sample.",
+      '<span underline="true">Underline</span> sample.',
+      "~~Strike~~ sample.",
+      "`Code` sample.",
+      "[Link](https://example.test) sample.",
+      "**Prefix Across suffix.**",
+    ].join("\n");
+    const editor = createSuggestionEditor(canonical);
+    const session = createSuggestionDraftSession({
+      id: "native-indent-marked-replacement",
+      baseContent: canonical,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    const find = (text: string) => {
+      let found = -1;
+      editor.state.doc.descendants((node, pos) => {
+        if (found < 0 && node.isText && node.text?.includes(text))
+          found = pos + node.text.indexOf(text);
+      });
+      return found;
+    };
+    try {
+      const changed = find("Changed");
+      editor.commands.setTextSelection({
+        from: changed,
+        to: changed + "Changed".length,
+      });
+      const transaction = editor.state.tr.insertText("Bright");
+      const intent = suggestionReplacementIntentForTransaction(
+        transaction,
+        editor.state.selection,
+      )!;
+      recordSuggestionReplacementIntent(session, intent, intent.beforeMarkdown);
+      editor.view.dispatch(transaction);
+      const bright = find("Bright");
+      editor.commands.setTextSelection({
+        from: bright,
+        to: bright + "Bright".length,
+      });
+      expect(editor.commands.toggleItalic()).toBe(true);
+      expect(editor.commands.keyboardShortcut("Tab")).toBe(true);
+
+      const draft = docToNfm(editor.getJSON() as any);
+      const [operation] = suggestionDraftOperations(session, draft);
+      expect(draft.startsWith("\t**Bright** sample.")).toBe(true);
+      expect(operation).toMatchObject({
+        before: { changedText: "***Changed***" },
+        after: { changedText: "\t**Bright**" },
+        anchor: { from: 0, to: 13 },
+      });
+      const context = {
+        source: operation!.after.markdown,
+        from: operation!.anchor.from,
+        to: operation!.anchor.from + operation!.after.changedText.length,
+      };
+      expect(operation!.after.markdown.slice(context.from, context.to)).toBe(
+        operation!.after.changedText,
+      );
+      expect(
+        suggestionTextPresentationForSource(
+          operation!.after.changedText,
+          context,
+        ),
+      ).toMatchObject([
+        { type: "indent", value: "⇥" },
+        { type: "strong", children: [{ type: "text", value: "Bright" }] },
+      ]);
+      expect(
+        suggestionFormattingSourceRange(
+          context.source,
+          context.from,
+          context.to,
+        ),
+      ).toMatchObject({ from: 0, to: 6 });
+      const anchor = draftSuggestionAnchors([operation!], draft)[0]!;
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "native-indent-marked-replacement",
+          kind: operation!.kind,
+          beforeText: operation!.before.changedText,
+          afterText: operation!.after.changedText,
+          beforePresentation: {
+            source: operation!.before.markdown,
+            from: operation!.anchor.from,
+            to: operation!.anchor.to,
+          },
+          afterPresentation: context,
+          anchor,
+          presentation: "draft",
+        }),
+      ).not.toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    ["Plain sample.", "Tab", "\tPlain sample.", "after", "paragraph"],
+    ["\tPlain sample.", "Shift-Tab", "Plain sample.", "before", "paragraph"],
+    ["# Plain heading", "Tab", "\t# Plain heading", "after", "heading"],
+    ["\t# Plain heading", "Shift-Tab", "# Plain heading", "before", "heading"],
+  ] as const)(
+    "renders a registered native %s structural indent change for a %s",
+    (canonical, shortcut, draft, comparisonSide, _blockType) => {
+      const editor = createSuggestionEditor(canonical);
+      try {
+        editor.commands.setTextSelection(1);
+        expect(editor.commands.keyboardShortcut(shortcut)).toBe(true);
+        expect(docToNfm(editor.getJSON() as any)).toBe(draft);
+        const [operation] = markdownSuggestionOperations(canonical, draft);
+        const comparison = operation![comparisonSide];
+        const to =
+          comparisonSide === "before"
+            ? operation!.anchor.to
+            : operation!.anchor.from + comparison.changedText.length;
+        expect(
+          suggestionFormattingSourceSlice(
+            comparison.markdown,
+            operation!.anchor.from,
+            to,
+          ),
+        ).toEqual([{ type: "indent", text: "⇥" }]);
+        const draftAnchor = draftSuggestionAnchors([operation!], draft)[0]!;
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: `native-${shortcut}-${comparisonSide}`,
+          kind: operation!.kind,
+          beforeText: operation!.before.changedText,
+          afterText: operation!.after.changedText,
+          beforePresentation: {
+            source: operation!.before.markdown,
+            from: operation!.anchor.from,
+            to: operation!.anchor.to,
+          },
+          afterPresentation: {
+            source: operation!.after.markdown,
+            from: draftAnchor.from,
+            to: draftAnchor.from + operation!.after.changedText.length,
+          },
+          anchor: draftAnchor,
+          presentation: "draft",
+        });
+        expect(spec).toMatchObject({
+          kind: shortcut === "Tab" ? "insert" : "delete",
+        });
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(
+          editor.view.dom.querySelector(
+            `[data-suggestion-id="native-${shortcut}-${comparisonSide}"]`,
+          )?.textContent,
+        ).toBe("⇥");
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("uses the registered Tab indent for a marked heading replacement", () => {
+    const canonical = "# ***Changed*** heading";
+    const editor = createSuggestionEditor(canonical);
+    const session = createSuggestionDraftSession({
+      id: "native-heading-indent",
+      baseContent: canonical,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    try {
+      editor.commands.setTextSelection({ from: 1, to: 8 });
+      const transaction = editor.state.tr.insertText("Bright");
+      const intent = suggestionReplacementIntentForTransaction(
+        transaction,
+        editor.state.selection,
+      )!;
+      recordSuggestionReplacementIntent(session, intent, intent.beforeMarkdown);
+      editor.view.dispatch(transaction);
+      editor.commands.setTextSelection({ from: 1, to: 7 });
+      expect(editor.commands.toggleItalic()).toBe(true);
+      expect(editor.commands.keyboardShortcut("Tab")).toBe(true);
+      const draft = docToNfm(editor.getJSON() as any);
+      expect(draft).toBe("\t# **Bright** heading");
+      const operations = suggestionDraftOperations(session, draft);
+      expect(operations).toHaveLength(2);
+      const presentations = operations.map((operation) =>
+        suggestionTextPresentationForSource(operation.after.changedText, {
+          source: operation.after.markdown,
+          from: operation.anchor.from,
+          to: operation.anchor.from + operation.after.changedText.length,
+        }),
+      );
+      expect(presentations).toContainEqual([{ type: "indent", value: "⇥" }]);
+      expect(presentations).toContainEqual([
+        { type: "strong", children: [{ type: "text", value: "Bright" }] },
+      ]);
+      for (const presentation of presentations) {
+        expect(presentation).not.toBeNull();
+      }
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fails closed when a suggestion presentation context is stale", () => {
+    const editor = createSuggestionEditor("**Echo**");
+    try {
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "stale-presentation",
+          kind: "replace_text",
+          beforeText: "Echo",
+          afterText: "Other",
+          beforePresentation: {
+            source: "**Different**",
+            from: 2,
+            to: 6,
+          },
+          anchor: { from: 2, prefix: "**", suffix: "**" },
+          presentation: "canonical",
+        }),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      name: "replacement inside bold text",
+      canonical: "**Bold** sample.",
+      draft: "**Build** sample.",
+      beforeText: "ol",
+      afterText: "uil",
+      canonicalFrom: 3,
+      draftFrom: 3,
+      kind: "replace_text",
+    },
+    {
+      name: "deletion inside bold text",
+      canonical: "**Bold** sample.",
+      draft: "**Bd** sample.",
+      beforeText: "ol",
+      afterText: "",
+      canonicalFrom: 3,
+      draftFrom: 3,
+      kind: "delete_text",
+    },
+    {
+      name: "insertion inside bold text",
+      canonical: "**Bold** sample.",
+      draft: "**Bo!ld** sample.",
+      beforeText: "",
+      afterText: "!",
+      canonicalFrom: 4,
+      draftFrom: 4,
+      kind: "insert_text",
+    },
+    {
+      name: "replacement in the second repeated marked word",
+      canonical: "**Echo** and **Echo**",
+      draft: "**Echo** and **EOHo**",
+      beforeText: "ch",
+      afterText: "OH",
+      canonicalFrom: 16,
+      draftFrom: 16,
+      kind: "replace_text",
+    },
+    {
+      name: "replacement of escaped marked text",
+      canonical: "**A\\*B**",
+      draft: "**AxB**",
+      beforeText: "\\*",
+      afterText: "x",
+      canonicalFrom: 3,
+      draftFrom: 3,
+      kind: "replace_text",
+    },
+    {
+      name: "replacement of inline-code punctuation",
+      canonical: "``a`b``",
+      draft: "`axb`",
+      beforeText: "`",
+      afterText: "x",
+      canonicalFrom: 3,
+      draftFrom: 2,
+      kind: "replace_text",
+    },
+    {
+      name: "replacement in link text that also occurs in its href",
+      canonical: "[same](https://same.test) sample.",
+      draft: "[sOMe](https://same.test) sample.",
+      beforeText: "am",
+      afterText: "OM",
+      canonicalFrom: 2,
+      draftFrom: 2,
+      kind: "replace_text",
+    },
+  ])(
+    "anchors a source-exact $name in draft and canonical presentation",
+    ({
+      canonical,
+      draft,
+      beforeText,
+      afterText,
+      canonicalFrom,
+      draftFrom,
+      kind,
+    }) => {
+      for (const presentation of ["draft", "canonical"] as const) {
+        const source = presentation === "draft" ? draft : canonical;
+        const from = presentation === "draft" ? draftFrom : canonicalFrom;
+        const quote = presentation === "draft" ? afterText : beforeText;
+        const editor = createSuggestionEditor(source);
+        try {
+          expect(
+            suggestionHighlightSpec(editor.state.doc, {
+              id: `inside-mark-${presentation}`,
+              kind: kind as VisualEditorSuggestion["kind"],
+              beforeText,
+              afterText,
+              anchor: {
+                from,
+                prefix: source.slice(Math.max(0, from - 32), from),
+                suffix: source.slice(
+                  from + quote.length,
+                  from + quote.length + 32,
+                ),
+              },
+              presentation,
+            }),
+          ).not.toBeNull();
+        } finally {
+          editor.destroy();
+        }
+      }
+    },
+  );
 
   it.each(["draft", "canonical"] as const)(
     "makes a %s paragraph-break deletion visible",
@@ -531,6 +1605,15 @@ describe("slash image picker lifecycle", () => {
 });
 
 describe("media draft persistence", () => {
+  it("denies stale media side effects in Suggesting and retains ordinary callbacks", () => {
+    const sideEffect = vi.fn();
+
+    expect(runIfMediaCreationAllowed(true, sideEffect)).toBe(false);
+    expect(sideEffect).not.toHaveBeenCalled();
+    expect(runIfMediaCreationAllowed(false, sideEffect)).toBe(true);
+    expect(sideEffect).toHaveBeenCalledTimes(1);
+  });
+
   it("detects a media source enrichment but not unrelated media movement", () => {
     const editor = createFullEditor();
     const transactions: Transaction[] = [];

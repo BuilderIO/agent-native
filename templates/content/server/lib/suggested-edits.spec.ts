@@ -324,6 +324,61 @@ describe("applyMarkdownSuggestionOperation", () => {
     anchor: { from: 6, to: 9, prefix: "Alpha ", suffix: " Omega" },
   };
 
+  it.each([false, true])(
+    "retains exact saved proposals after surrounding acceptances, reverse=%s",
+    (reverse) => {
+      const saved =
+        "This reads better compared to the original.\nEditors publish carefully.\nFinal sentence.";
+      const surrounding = change(
+        saved,
+        0,
+        71,
+        "This reads more clearly than the original.\u00a0Indeed.\nEditors publish carefully.\nAlso:\u00a0",
+      );
+      const addition = change(
+        saved,
+        86,
+        86,
+        "\u00a0Added words\u00a0revised\u00a0finally.",
+      );
+      let current = saved;
+      for (const edit of reverse
+        ? [addition, surrounding]
+        : [surrounding, addition]) {
+        const result = applyMarkdownSuggestionOperation(current, edit);
+        expect(result).not.toBeNull();
+        current = result!;
+      }
+      expect(current).toBe(
+        "This reads more clearly than the original.\u00a0Indeed.\nEditors publish carefully.\nAlso:\u00a0Final sentence.\u00a0Added words\u00a0revised\u00a0finally.",
+      );
+      expect(
+        applyMarkdownSuggestionOperation(
+          current,
+          change(saved, 52, 59, "review"),
+        ),
+      ).toBe(current.replace("publish", "review"));
+      expect(
+        applyMarkdownSuggestionOperation(
+          current,
+          change(saved, 44, 44, "Review note.\u00a0"),
+        ),
+      ).toBe(current.replace("Editors", "Review note.\u00a0Editors"));
+      const remaining = [
+        change(saved, 52, 59, "review"),
+        change(saved, 44, 44, "Review note.\u00a0"),
+      ];
+      for (const edit of reverse ? remaining.reverse() : remaining) {
+        const result = applyMarkdownSuggestionOperation(current, edit);
+        expect(result).not.toBeNull();
+        current = result!;
+      }
+      expect(current).toBe(
+        "This reads more clearly than the original.\u00a0Indeed.\nReview note.\u00a0Editors review carefully.\nAlso:\u00a0Final sentence.\u00a0Added words\u00a0revised\u00a0finally.",
+      );
+    },
+  );
+
   it("applies an independent edit after unrelated canonical changes", () => {
     expect(
       applyMarkdownSuggestionOperation(

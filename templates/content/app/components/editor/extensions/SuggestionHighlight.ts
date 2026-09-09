@@ -1,6 +1,12 @@
+import {
+  suggestionTextPresentationForSource,
+  suggestionTextPresentation,
+  type SuggestionPresentationContext,
+  type SuggestionPresentationNode,
+} from "@shared/suggestion-text";
 import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 /**
@@ -22,6 +28,8 @@ export interface SuggestionHighlightSpec {
   to: number;
   insertedText?: string;
   deletedText?: string;
+  insertedPresentation?: SuggestionPresentationContext;
+  deletedPresentation?: SuggestionPresentationContext;
   editableBoundary?: boolean;
   editableText?: boolean;
 }
@@ -60,6 +68,55 @@ function classes(base: string, active: boolean): string {
   return active ? `${base} suggestion-highlight--active` : base;
 }
 
+function appendPresentationNode(
+  parent: HTMLElement,
+  node: SuggestionPresentationNode,
+): void {
+  if (node.type === "text" || node.type === "indent") {
+    parent.append(document.createTextNode(node.value));
+    return;
+  }
+
+  const element = document.createElement(
+    node.type === "strong"
+      ? "strong"
+      : node.type === "emphasis"
+        ? "em"
+        : node.type === "strike"
+          ? "s"
+          : node.type === "underline"
+            ? "u"
+            : node.type === "code"
+              ? "code"
+              : "span",
+  );
+  if (node.type === "code") {
+    element.className = "rounded bg-muted px-1 font-mono text-[0.9em]";
+  } else if (node.type === "link") {
+    element.className = "underline underline-offset-2";
+  }
+  for (const child of node.children) appendPresentationNode(element, child);
+  parent.append(element);
+
+  if (node.type === "link") {
+    parent.append(document.createTextNode(` (${node.url})`));
+  }
+}
+
+function appendSuggestionText(
+  parent: HTMLElement,
+  content: string,
+  context?: SuggestionPresentationContext,
+): void {
+  const nodes = context
+    ? suggestionTextPresentationForSource(content, context)
+    : suggestionTextPresentation(content);
+  if (!nodes) return;
+  for (const node of nodes) {
+    appendPresentationNode(parent, node);
+  }
+}
+
 function insertionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   return () => {
     const widget = document.createElement("span");
@@ -74,8 +131,11 @@ function insertionWidget(spec: SuggestionHighlightSpec, active: boolean) {
     widget.setAttribute("role", "button");
     widget.setAttribute("tabindex", "0");
     widget.setAttribute("aria-label", "Inspect suggested insertion");
-    // textContent deliberately keeps persisted proposal text out of HTML.
-    widget.textContent = spec.insertedText?.replace(/\n/g, "↵") ?? "";
+    appendSuggestionText(
+      widget,
+      spec.insertedText ?? "",
+      spec.insertedPresentation,
+    );
     return widget;
   };
 }
@@ -97,7 +157,11 @@ function deletionWidget(spec: SuggestionHighlightSpec, active: boolean) {
       widget.setAttribute("tabindex", "0");
       widget.setAttribute("aria-label", "Inspect suggested deletion");
     }
-    widget.textContent = spec.deletedText?.replace(/\n/g, "↵") ?? "";
+    appendSuggestionText(
+      widget,
+      spec.deletedText ?? "",
+      spec.deletedPresentation,
+    );
     return widget;
   };
 }
@@ -154,6 +218,7 @@ function buildDecorations(
       decorations.push(
         Decoration.widget(anchor, insertionWidget(spec, active), {
           key: `${spec.suggestionId}:inserted`,
+          marks: [],
           side: 1,
           ...attrs,
         }),
@@ -171,6 +236,7 @@ function buildDecorations(
               spec.deletedText,
               active,
             ]),
+            marks: [],
             side: 1,
             ...attrs,
           },
@@ -246,6 +312,9 @@ export const SuggestionHighlight = Extension.create({
 export function setSuggestionHighlights(
   view: EditorView,
   meta: SuggestionHighlightMeta,
+  selection?: Selection,
 ): void {
-  view.dispatch(view.state.tr.setMeta(suggestionHighlightKey, meta));
+  const transaction = view.state.tr.setMeta(suggestionHighlightKey, meta);
+  if (selection) transaction.setSelection(selection);
+  view.dispatch(transaction);
 }

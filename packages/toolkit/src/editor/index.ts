@@ -19,6 +19,7 @@ export {
   applyDocSurgically,
   defaultParseValue,
   diffTopLevel,
+  planDocReconcile,
   type TopLevelDiff,
 } from "./surgical-apply.js";
 export {

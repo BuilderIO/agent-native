@@ -714,10 +714,71 @@ export function resolveHostedBuilderHandoff(
   return connectBuilder ? { "connect-builder": connectBuilder } : {};
 }
 
+type AgentChatPluginCleanup = () => void | Promise<void>;
+
+function createAgentChatPluginLifecycle() {
+  const cleanups = new Set<AgentChatPluginCleanup>();
+  const pendingCleanups = new Set<Promise<void>>();
+  let closed = false;
+
+  const runCleanup = (cleanup: AgentChatPluginCleanup): void => {
+    const pending = Promise.resolve()
+      .then(cleanup)
+      .catch((error: unknown) => {
+        console.warn("[agent-chat] Plugin cleanup failed:", error);
+      });
+    pendingCleanups.add(pending);
+    void pending.finally(() => pendingCleanups.delete(pending));
+  };
+
+  const addCleanup = (cleanup: AgentChatPluginCleanup): void => {
+    if (closed) {
+      runCleanup(cleanup);
+      return;
+    }
+    cleanups.add(cleanup);
+  };
+
+  return {
+    addCleanup,
+    startTimeout(
+      callback: () => void,
+      delayMs: number,
+    ): ReturnType<typeof setTimeout> | undefined {
+      if (closed) return undefined;
+      const timer = setTimeout(callback, delayMs);
+      addCleanup(() => clearTimeout(timer));
+      return timer;
+    },
+    startInterval(
+      callback: () => void,
+      intervalMs: number,
+    ): ReturnType<typeof setInterval> | undefined {
+      if (closed) return undefined;
+      const timer = setInterval(callback, intervalMs);
+      addCleanup(() => clearInterval(timer));
+      return timer;
+    },
+    beginClose(): void {
+      if (closed) return;
+      closed = true;
+      const registered = [...cleanups];
+      cleanups.clear();
+      for (const cleanup of registered) runCleanup(cleanup);
+    },
+    async drainCleanups(): Promise<void> {
+      while (pendingCleanups.size > 0) {
+        await Promise.allSettled([...pendingCleanups]);
+      }
+    },
+  };
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
   return (nitroApp: any) => {
+    const lifecycle = createAgentChatPluginLifecycle();
     markDefaultPluginProvided(nitroApp, "agent-chat");
     // Nitro v3 calls plugins synchronously and doesn't await async return
     // values. We track the async init so the framework's readiness gate
@@ -817,7 +878,10 @@ export function createAgentChatPlugin(
           );
         }
         await mcpManager.reconfigure(mcpConfig);
-        startMcpConfigRefresh(mcpManager);
+        const stopMcpConfigRefresh = startMcpConfigRefresh(mcpManager);
+        if (stopMcpConfigRefresh) {
+          lifecycle.addCleanup(stopMcpConfigRefresh);
+        }
       };
       /**
        * Start MCP initialization at most once, and return the run in flight.
@@ -6950,8 +7014,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
         } else {
           // Start after a 10-second delay to let the server fully initialize
-          setTimeout(() => {
-            setInterval(() => {
+          lifecycle.startTimeout(() => {
+            lifecycle.startInterval(() => {
               processRecurringJobs(schedulerDeps).catch((err) => {
                 console.error(
                   "[recurring-jobs] Scheduler error:",
@@ -6996,8 +7060,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               inFlight = false;
             }
           };
-          setTimeout(() => void sweep(), 15_000);
-          setInterval(() => void sweep(), 30_000);
+          lifecycle.startTimeout(() => void sweep(), 15_000);
+          lifecycle.startInterval(() => void sweep(), 30_000);
         })();
       }
 
@@ -7027,8 +7091,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
-        setTimeout(() => {
-          setInterval(() => {
+        lifecycle.startTimeout(() => {
+          lifecycle.startInterval(() => {
             const now = Date.now();
             if (now - lastSweep < SWEEP_INTERVAL_MS) return;
             lastSweep = now;
@@ -7183,11 +7247,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
       (() => {
         if (isBackgroundRuntime || sweepsDisabled) return;
-        setTimeout(() => {
+        lifecycle.startTimeout(() => {
           (async () => {
             const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
               await import("../agent/run-store.js");
-            startIntervalJob(
+            const job = startIntervalJob(
               async () => {
                 const {
                   listUnclaimedBackgroundRunRows,
@@ -7231,6 +7295,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               },
               { intervalMs: UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS },
             );
+            lifecycle.addCleanup(() => job.stop());
           })().catch(() => {
             // best-effort — if run-store fails to load, the slow sweep below
             // still provides eventual (loud) recovery.
@@ -7249,8 +7314,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
-        setTimeout(() => {
-          setInterval(() => {
+        lifecycle.startTimeout(() => {
+          lifecycle.startInterval(() => {
             const now = Date.now();
             if (now - lastSweep < SWEEP_INTERVAL_MS) return;
             lastSweep = now;
@@ -7374,6 +7439,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         "/.well-known/agent-card.json",
         "/_agent-native/a2a",
       ],
+    });
+    nitroApp.hooks?.hook?.("close", async () => {
+      lifecycle.beginClose();
+      await initPromise;
+      await lifecycle.drainCleanups();
     });
   };
 }

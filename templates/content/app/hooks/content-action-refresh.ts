@@ -86,6 +86,27 @@ const CONTENT_MUTATIONS = new Set([
   ...DOCUMENT_MUTATIONS,
 ]);
 
+const SUGGESTION_MUTATIONS = new Set([
+  "create-resource-suggestion",
+  "update-resource-suggestion",
+  "decide-resource-suggestion",
+]);
+
+const REVIEW_MUTATIONS = new Set([
+  "create-resource-suggestion",
+  "decide-resource-suggestion",
+  "create-review-comment",
+  "reply-review-comment",
+  "resolve-review-thread",
+  "delete-review-comment",
+  "consume-review-feedback",
+  "send-review-thread-to-agent",
+  "set-review-status",
+  "react-to-review-comment",
+  "set-review-thread-unread",
+  "set-review-thread-muted",
+]);
+
 function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
   if (query.queryKey[0] !== "action") return false;
   if (
@@ -100,6 +121,36 @@ function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
     typeof args === "object" &&
     (("id" in args && args.id === documentId) ||
       ("documentId" in args && args.documentId === documentId))
+  );
+}
+
+function queryTargetsDocumentReviewResource(
+  query: ActionQuery,
+  actionName: "list-resource-suggestions" | "list-review-comments",
+  documentId: string,
+): boolean {
+  if (query.queryKey[0] !== "action" || query.queryKey[1] !== actionName)
+    return false;
+  const args = query.queryKey[2];
+  return (
+    !!args &&
+    typeof args === "object" &&
+    "resourceType" in args &&
+    args.resourceType === "document" &&
+    "resourceId" in args &&
+    args.resourceId === documentId
+  );
+}
+
+function eventsIncludeMutation(
+  events: readonly ActionEvent[],
+  mutations: ReadonlySet<string>,
+): boolean {
+  return events.some(
+    (event) =>
+      event.source === "action" &&
+      typeof event.key === "string" &&
+      mutations.has(event.key),
   );
 }
 
@@ -148,6 +199,24 @@ export function contentActionInvalidatePredicate(
   return (query, events) => {
     if (documentId === undefined) {
       return false;
+    }
+    if (
+      queryTargetsDocumentReviewResource(
+        query,
+        "list-resource-suggestions",
+        documentId,
+      )
+    ) {
+      return eventsIncludeMutation(events, SUGGESTION_MUTATIONS);
+    }
+    if (
+      queryTargetsDocumentReviewResource(
+        query,
+        "list-review-comments",
+        documentId,
+      )
+    ) {
+      return eventsIncludeMutation(events, REVIEW_MUTATIONS);
     }
     if (queryTargetsDocument(query, documentId)) {
       return events.some(

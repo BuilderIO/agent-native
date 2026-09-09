@@ -59,6 +59,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "comments.suggestionDelete": "Delete",
       "comments.suggestionWith": "with",
       "comments.suggestionReplace": "Replace",
+      "editor.sourceComponent.previewUnavailable": "Preview unavailable",
     })[key] ?? key,
 }));
 vi.mock("@agent-native/core/client/markdown", () => ({
@@ -106,6 +107,20 @@ vi.mock("@agent-native/core/client/review", () => ({
               : []),
           ]
         : [],
+      discussion:
+        targetId === "pending-pointer-decision"
+          ? {
+              reactions: {},
+              threadPreferences: {
+                "thread-pending-pointer-decision": {
+                  muted: false,
+                  unread: false,
+                },
+              },
+              canReact: true,
+              canSetThreadPreferences: true,
+            }
+          : undefined,
     },
     isLoading: false,
   }),
@@ -114,6 +129,9 @@ vi.mock("@agent-native/core/client/review", () => ({
     isPending: false,
     error: null,
   }),
+  useReactToReviewComment: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetReviewThreadUnread: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetReviewThreadMuted: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@/hooks/use-comments", () => ({
   useCreateComment: () => ({ mutate: vi.fn(), isPending: false }),
@@ -149,6 +167,19 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     <div>{children}</div>
   ),
   DropdownMenuSeparator: () => <hr />,
+  DropdownMenuItem: ({
+    children,
+    disabled,
+    onSelect,
+  }: {
+    children: ReactNode;
+    disabled?: boolean;
+    onSelect?: () => void;
+  }) => (
+    <button disabled={disabled} onClick={onSelect}>
+      {children}
+    </button>
+  ),
   DropdownMenuCheckboxItem: ({
     children,
     onCheckedChange,
@@ -173,6 +204,649 @@ it("shows semantic markers for whitespace-only saved and draft changes", () => {
   expect(suggestionTextForDisplay("\t")).toBe("⇥");
   expect(suggestionTextForDisplay("\n")).toBe("↵");
   expect(suggestionTextForDisplay("word word\nnext")).toBe("word word↵next");
+});
+
+it("shows semantic markers for a source-contextual whitespace-only operation", async () => {
+  const suggestion = suggestionFixture({
+    id: "pending-context-whitespace",
+    threadId: "thread-pending-context-whitespace",
+    revision: 1,
+    authorEmail: "reviewer@example.test",
+    actorKind: "human",
+    createdAt: "2026-09-06T12:00:00.000Z",
+    status: "pending",
+    operations: [
+      {
+        id: "context-whitespace-operation",
+        ordinal: 0,
+        kind: "insert_text",
+        targetId: "body",
+        before: { markdown: "ab", changedText: "" },
+        after: { markdown: "a \tb", changedText: " \t" },
+        anchor: { from: 1, to: 1, prefix: "a", suffix: "b" },
+        schemaVersion: 1,
+      },
+    ],
+  });
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  function Harness() {
+    const replyDrafts = useCommentReplyDrafts("document-context-whitespace");
+    return (
+      <CommentsSidebar
+        documentId="document-context-whitespace"
+        replyDrafts={replyDrafts}
+        suggestions={[suggestion]}
+        presentation="history"
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    expect(container.textContent).toContain("Add: “·⇥”");
+    expect(container.textContent).not.toContain("Add: “ \t”");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it.each([
+  ["", "<br>", "Add: “↵”", ""],
+  ["<br>", "", "Delete: “↵”", ""],
+  ["Ec<br>ho", "Ec<br/>again", "with: “Ec↵again”", "Replace: “Ec↵ho”"],
+])(
+  "renders meaningful hard-break summaries for before %j and after %j",
+  async (before, after, primary, detail) => {
+    const suggestion = suggestionFixture({
+      id: "pending-break",
+      threadId: "thread-pending-break",
+      revision: 1,
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations: [
+        {
+          id: "break-operation",
+          ordinal: 0,
+          kind:
+            before && after
+              ? "replace_text"
+              : before
+                ? "delete_text"
+                : "insert_text",
+          before: { changedText: before },
+          after: { changedText: after },
+          schemaVersion: 1,
+        },
+      ],
+    });
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    let controller!: ReturnType<typeof useCommentReplyDrafts>;
+    function Harness() {
+      controller = useCommentReplyDrafts("document-break");
+      return (
+        <CommentsSidebar
+          documentId="document-break"
+          replyDrafts={controller}
+          suggestions={[suggestion]}
+          presentation="history"
+          forceVisible
+        />
+      );
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      expect(container.textContent).toContain(primary);
+      if (detail) {
+        await act(async () =>
+          controller.setOpenReply(suggestion.threadId, suggestion.id, false),
+        );
+        expect(container.textContent).toContain(detail);
+      }
+      expect(container.textContent).not.toContain("<br");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  },
+);
+
+it("renders exact marked hard-break replacement summaries without delimiter leakage", async () => {
+  const beforeMarkdown = "**Prefix Upper**<br>**Lower suffix.**";
+  const from = beforeMarkdown.indexOf("Upper");
+  const to = beforeMarkdown.indexOf("Lower") + "Lower".length;
+  const afterMarkdown = `${beforeMarkdown.slice(0, from)}Across${beforeMarkdown.slice(to)}`;
+  const suggestion = suggestionFixture({
+    id: "pending-marked-break",
+    threadId: "thread-pending-marked-break",
+    revision: 1,
+    authorEmail: "reviewer@example.test",
+    actorKind: "human",
+    createdAt: "2026-09-06T12:00:00.000Z",
+    status: "pending",
+    operations: [
+      {
+        id: "marked-break-operation",
+        ordinal: 0,
+        kind: "replace_text",
+        targetId: "body",
+        before: {
+          markdown: beforeMarkdown,
+          changedText: beforeMarkdown.slice(from, to),
+        },
+        after: { markdown: afterMarkdown, changedText: "Across" },
+        anchor: {
+          from,
+          to,
+          prefix: beforeMarkdown.slice(0, from),
+          suffix: beforeMarkdown.slice(to),
+        },
+        schemaVersion: 1,
+      },
+    ],
+  });
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  let controller!: ReturnType<typeof useCommentReplyDrafts>;
+  function Harness() {
+    controller = useCommentReplyDrafts("document-marked-break");
+    return (
+      <CommentsSidebar
+        documentId="document-marked-break"
+        replyDrafts={controller}
+        suggestions={[suggestion]}
+        presentation="history"
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    expect(container.querySelector("strong")?.textContent).toBe("Across");
+    await act(async () =>
+      controller.setOpenReply(suggestion.threadId, suggestion.id, false),
+    );
+    expect(
+      [...container.querySelectorAll("strong")].map(
+        (element) => element.textContent,
+      ),
+    ).toEqual(["Across", "Upper", "Lower"]);
+    expect(container.textContent).toContain("Upper↵Lower");
+    expect(container.textContent).not.toContain("**");
+    expect(container.textContent).not.toContain("<br>");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("preserves all history filters across rail and Sheet remounts, resetting only for a new document or reveal intent", async () => {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  let controller!: ReturnType<typeof useCommentReplyDrafts>;
+  function Harness({
+    documentId,
+    layout,
+  }: {
+    documentId: string;
+    layout: string;
+  }) {
+    controller = useCommentReplyDrafts(documentId);
+    return (
+      <CommentsSidebar
+        key={layout}
+        replyDrafts={controller}
+        documentId={documentId}
+        presentation="history"
+        forceVisible
+      />
+    );
+  }
+  const filters = {
+    status: "pending" as const,
+    kind: "suggestions" as const,
+    author: "reviewer@example.test",
+  };
+  try {
+    await act(async () =>
+      root.render(<Harness documentId="one" layout="rail" />),
+    );
+    await act(async () => controller.setHistoryFilters(filters));
+    await act(async () =>
+      root.render(<Harness documentId="one" layout="sheet" />),
+    );
+    expect(controller.historyFilters).toEqual(filters);
+    await act(async () =>
+      root.render(<Harness documentId="one" layout="rail" />),
+    );
+    expect(controller.historyFilters).toEqual(filters);
+    await act(async () => controller.revealHistory("conflict", null));
+    expect(controller.historyFilters).toEqual({
+      status: "all",
+      kind: "all",
+      author: null,
+    });
+    await act(async () => controller.setHistoryFilters(filters));
+    await act(async () => controller.revealHistory("conflict", null));
+    expect(controller.historyFilters).toEqual(filters);
+    await act(async () => controller.revealHistory(null, "explicit-link"));
+    expect(controller.historyFilters.status).toBe("all");
+    await act(async () => controller.setHistoryFilters(filters));
+    await act(async () =>
+      root.render(<Harness documentId="two" layout="sheet" />),
+    );
+    expect(controller.historyFilters).toEqual({
+      status: "all",
+      kind: "all",
+      author: null,
+    });
+    await act(async () =>
+      root.render(<Harness documentId="one" layout="rail" />),
+    );
+    expect(controller.historyFilters.status).toBe("all");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("focuses a linked thread once without focusing its reply composer", async () => {
+  const suggestion = suggestionFixture({
+    id: "pending-link",
+    threadId: "thread-pending-link",
+    revision: 1,
+    authorEmail: "reviewer@example.test",
+    actorKind: "human",
+    createdAt: "2026-09-06T12:00:00.000Z",
+    status: "pending",
+    operations: [],
+  });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const scroll = vi
+    .spyOn(HTMLElement.prototype, "scrollIntoView")
+    .mockImplementation(() => {});
+  const consumed = vi.fn();
+  function Harness({ focus }: { focus: boolean }) {
+    const drafts = useCommentReplyDrafts("document-link");
+    return (
+      <CommentsSidebar
+        replyDrafts={drafts}
+        documentId="document-link"
+        suggestions={[suggestion]}
+        presentation="history"
+        canComment
+        forceVisible
+        focusSuggestionId={focus ? suggestion.id : null}
+        onSuggestionFocused={consumed}
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness focus={false} />));
+    expect(scroll).not.toHaveBeenCalled();
+    await act(async () => root.render(<Harness focus />));
+    await act(
+      async () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(consumed).toHaveBeenCalledTimes(1);
+    expect(document.activeElement?.getAttribute("tabindex")).toBe("-1");
+    expect(document.activeElement?.tagName).not.toBe("TEXTAREA");
+    await act(async () => root.render(<Harness focus={false} />));
+    await act(
+      async () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    expect(scroll).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+    scroll.mockRestore();
+    container.remove();
+  }
+});
+
+it.each([
+  ["editor.acceptSuggestion", "accepted", "ltr"],
+  ["editor.rejectSuggestion", "rejected", "rtl"],
+] as const)(
+  "decides a focused expanded suggestion on the first native-like %s pointer sequence as %s in %s",
+  async (label, decision, direction) => {
+    const suggestion = suggestionFixture({
+      id: "pending-pointer-decision",
+      threadId: "thread-pending-pointer-decision",
+      revision: 1,
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations: [
+        {
+          ordinal: 0,
+          kind: "replace_text",
+          before: { changedText: "before" },
+          after: { changedText: "after" },
+          schemaVersion: 1,
+        },
+      ],
+    });
+    const container = document.createElement("div");
+    container.dir = direction;
+    document.body.append(container);
+    const root = createRoot(container);
+    const onDecide = vi.fn();
+    function Harness({ compact = false }: { compact?: boolean }) {
+      const drafts = useCommentReplyDrafts("document-pointer-decision");
+      return (
+        <CommentsSidebar
+          replyDrafts={drafts}
+          documentId="document-pointer-decision"
+          suggestions={[suggestion]}
+          presentation="history"
+          canComment
+          canDecideSuggestions
+          onDecideSuggestion={(_, nextDecision) => onDecide(nextDecision)}
+          forceVisible
+          compact={compact}
+        />
+      );
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      const card = container.querySelector<HTMLElement>(
+        `[data-suggestion-id="${suggestion.id}"] [data-thread-card]`,
+      )!;
+      const summary = [...card.querySelectorAll<HTMLElement>("div")].find(
+        (element) => element.textContent === "with: “after”",
+      )!;
+      await act(async () => summary.click());
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 70));
+      });
+      const composer = card.querySelector<HTMLTextAreaElement>("textarea")!;
+      expect(document.activeElement).toBe(composer);
+      const commentHeader = card.querySelector<HTMLElement>(
+        ".group\\/comment > div",
+      )!;
+      expect(commentHeader.className).toContain("pr-16");
+      expect(commentHeader.className).not.toContain("pe-16");
+      let moreActions = card.querySelector<HTMLButtonElement>(
+        'button[aria-label="comments.moreActions"]',
+      )!;
+      expect(moreActions.className).toContain("md:opacity-0");
+      moreActions.focus();
+      expect(document.activeElement).toBe(moreActions);
+      composer.focus();
+
+      const trigger = card.querySelector<HTMLButtonElement>(
+        `button[aria-label="${label}"]`,
+      )!;
+      await act(async () => {
+        trigger.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, cancelable: true }),
+        );
+        const mouseDown = new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+        });
+        trigger.dispatchEvent(mouseDown);
+        if (!mouseDown.defaultPrevented) trigger.focus();
+        trigger.dispatchEvent(
+          new MouseEvent("mouseup", { bubbles: true, cancelable: true }),
+        );
+        trigger.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            detail: 1,
+          }),
+        );
+      });
+
+      expect(document.activeElement).toBe(trigger);
+      expect(onDecide).toHaveBeenCalledOnce();
+      expect(onDecide).toHaveBeenCalledWith(decision);
+      expect(trigger.isConnected).toBe(true);
+      expect(card.querySelector(`button[aria-label="${label}"]`)).toBe(trigger);
+
+      await act(async () => root.render(<Harness compact />));
+      moreActions = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="comments.moreActions"]',
+      )!;
+      expect(moreActions.className).not.toContain("md:opacity-0");
+      moreActions.focus();
+      expect(document.activeElement).toBe(moreActions);
+      expect(
+        container.querySelector<HTMLElement>(".group\\/comment > div")!
+          .className,
+      ).toContain("pr-16");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  },
+);
+
+it.each(["ordinary", "suggestion"] as const)(
+  "preserves the active %s reply and backward caret range across responsive remounts",
+  async (kind) => {
+    const saved = suggestionFixture({
+      id: "pending-responsive",
+      threadId: "thread-pending-responsive",
+      revision: 1,
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations: [
+        {
+          ordinal: 0,
+          kind: "insert_text",
+          before: { changedText: "" },
+          after: { changedText: "proposal" },
+          schemaVersion: 1,
+        },
+      ],
+    });
+    const thread = {
+      threadId: "ordinary-responsive",
+      resolved: false,
+      quotedText: null,
+      prefix: null,
+      suffix: null,
+      startOffset: null,
+      comments: [
+        {
+          id: "ordinary-root",
+          document_id: "responsive",
+          thread_id: "ordinary-responsive",
+          parent_id: null,
+          content: "Review this",
+          quoted_text: null,
+          anchor_prefix: null,
+          anchor_suffix: null,
+          anchor_start_offset: null,
+          mentions: [],
+          author_email: "reviewer@example.test",
+          author_name: "Reviewer",
+          resolved: 0,
+          created_at: "2026-09-06T12:00:00.000Z",
+          updated_at: "2026-09-06T12:00:00.000Z",
+          notion_comment_id: null,
+        },
+      ],
+    };
+    const threadId = kind === "suggestion" ? saved.threadId : thread.threadId;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    let drafts!: ReturnType<typeof useCommentReplyDrafts>;
+    function Harness({ surface }: { surface: string }) {
+      drafts = useCommentReplyDrafts("responsive");
+      return (
+        <CommentsSidebar
+          key={surface}
+          replyDrafts={drafts}
+          documentId="responsive"
+          threads={kind === "ordinary" ? [thread] : []}
+          suggestions={kind === "suggestion" ? [saved] : []}
+          presentation={surface === "sheet" ? "history" : "inline"}
+          canComment
+          forceVisible
+        />
+      );
+    }
+    const settle = async () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 70));
+      });
+    try {
+      await act(async () => root.render(<Harness surface="rail" />));
+      const reply = [...container.querySelectorAll("button")].find(
+        (button) => button.textContent === "comments.reply",
+      );
+      await act(async () => reply!.click());
+      await act(async () =>
+        drafts.setText(threadId, "First line\nSecond line"),
+      );
+      await settle();
+      let input = container.querySelector("textarea")!;
+      input.setSelectionRange(3, 15, "backward");
+      input.dispatchEvent(new Event("select"));
+      for (const surface of ["sheet", "rail"]) {
+        await act(async () => root.render(<Harness surface={surface} />));
+        await settle();
+        expect(container.querySelectorAll("textarea")).toHaveLength(1);
+        input = container.querySelector("textarea")!;
+        expect(input.value).toBe("First line\nSecond line");
+        expect(document.activeElement).toBe(input);
+        expect([
+          input.selectionStart,
+          input.selectionEnd,
+          input.selectionDirection,
+        ]).toEqual([3, 15, "backward"]);
+      }
+      input.blur();
+      await act(async () => root.render(<Harness surface="sheet" />));
+      await settle();
+      expect(document.activeElement).not.toBe(
+        container.querySelector("textarea"),
+      );
+      await act(async () => drafts.setOpenReply(null));
+      await act(async () => root.render(<Harness surface="rail" />));
+      expect(container.querySelector("textarea")).toBeNull();
+      expect(drafts.get(threadId).text).toBe("First line\nSecond line");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  },
+);
+
+it("hands focus from a retained inert history rail to the sheet without clearing its range", async () => {
+  const saved = suggestionFixture({
+    id: "pending-inert",
+    threadId: "thread-pending-inert",
+    revision: 1,
+    authorEmail: "reviewer@example.test",
+    actorKind: "human",
+    createdAt: "2026-09-06T12:00:00.000Z",
+    status: "pending",
+    operations: [
+      {
+        ordinal: 0,
+        kind: "insert_text",
+        before: { changedText: "" },
+        after: { changedText: "proposal" },
+        schemaVersion: 1,
+      },
+    ],
+  });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  let drafts!: ReturnType<typeof useCommentReplyDrafts>;
+  function Harness({
+    compact = false,
+    retained = true,
+  }: {
+    compact?: boolean;
+    retained?: boolean;
+  }) {
+    drafts = useCommentReplyDrafts("inert-handoff");
+    const sidebar = (
+      <CommentsSidebar
+        replyDrafts={drafts}
+        documentId="inert-handoff"
+        suggestions={[saved]}
+        presentation="history"
+        canComment
+        forceVisible
+      />
+    );
+    return (
+      <>
+        <aside inert={compact || undefined} data-history-rail>
+          {retained ? sidebar : null}
+        </aside>
+        {compact ? <section data-sheet>{sidebar}</section> : null}
+      </>
+    );
+  }
+  const settle = async () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 70));
+    });
+  try {
+    await act(async () => root.render(<Harness />));
+    const reply = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "comments.reply",
+    );
+    await act(async () => reply!.click());
+    await act(async () =>
+      drafts.setText(saved.threadId, "First line\nSecond line"),
+    );
+    await settle();
+    const oldInput = container.querySelector("textarea")!;
+    oldInput.setSelectionRange(3, 15, "backward");
+    oldInput.dispatchEvent(new Event("select"));
+    await act(async () => root.render(<Harness compact />));
+    expect(oldInput.isConnected).toBe(true);
+    expect(oldInput.closest("[inert]")).not.toBeNull();
+    // happy-dom does not dispatch the browser's blur when an ancestor becomes inert.
+    oldInput.blur();
+    await settle();
+    const input = container.querySelector<HTMLTextAreaElement>(
+      "[data-sheet] textarea",
+    )!;
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("First line\nSecond line");
+    expect([
+      input.selectionStart,
+      input.selectionEnd,
+      input.selectionDirection,
+    ]).toEqual([3, 15, "backward"]);
+    expect(
+      [...container.querySelectorAll("textarea")].filter(
+        (element) => !element.closest("[inert]"),
+      ),
+    ).toEqual([input]);
+    await act(async () => root.render(<Harness compact retained={false} />));
+    expect(document.activeElement).toBe(input);
+    expect(drafts.focus.current?.threadId).toBe(saved.threadId);
+    input.blur();
+    expect(drafts.focus.current).toBeNull();
+    await act(async () => root.render(<Harness />));
+    await settle();
+    expect(document.activeElement).not.toBe(
+      container.querySelector("textarea"),
+    );
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
 });
 
 it("matches Notion operation order, disclosure, and full-line colors for draft and saved cards", async () => {
@@ -284,6 +958,54 @@ it("matches Notion operation order, disclosure, and full-line colors for draft a
     ).toContain("text-muted-foreground");
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+it("shows an explicit unavailable label for invalid provided suggestion context", async () => {
+  const saved = suggestionFixture({
+    id: "invalid-presentation",
+    revision: 1,
+    threadId: "thread-invalid-presentation",
+    authorEmail: "reviewer@example.test",
+    actorKind: "human",
+    createdAt: "2026-09-06T12:00:00.000Z",
+    status: "pending",
+    operations: [
+      {
+        ordinal: 0,
+        kind: "insert_text",
+        before: { markdown: "**Other**", changedText: "" },
+        after: { markdown: "**Other**", changedText: "proposal" },
+        anchor: { from: 2, to: 2, prefix: "**", suffix: "Other**" },
+        schemaVersion: 1,
+      },
+    ],
+  });
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  function Harness() {
+    const replyDrafts = useCommentReplyDrafts("document-invalid-presentation");
+    return (
+      <CommentsSidebar
+        replyDrafts={replyDrafts}
+        documentId="document-invalid-presentation"
+        suggestions={[saved]}
+        presentation="history"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const card = container.querySelector(
+      '[data-suggestion-id="invalid-presentation"]',
+    );
+    expect(card?.textContent).toContain("Preview unavailable");
+    expect(card?.textContent).not.toContain("proposal");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
   }
 });
 
@@ -646,6 +1368,8 @@ it("keeps decided suggestion history readable and replies only to pending thread
     expect(container.textContent).toContain(
       "existing reply rejected-suggestion",
     );
+    expect(container.textContent).toContain("comments.accepted");
+    expect(container.textContent).toContain("comments.rejected");
     expect(container.textContent).toContain("with: “proposal”");
     expect(container.textContent).not.toContain("Replace: “original”");
     const detailButtons = [...container.querySelectorAll("button")].filter(

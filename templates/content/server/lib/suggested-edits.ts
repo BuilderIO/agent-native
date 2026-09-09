@@ -17,6 +17,7 @@ import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
 
 import { createVisualEditorExtensions } from "../../app/components/editor/VisualEditor.js";
 import { nfmToDoc } from "../../shared/nfm.js";
+import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { resolveMarkdownSuggestionRange } from "../../shared/suggestion-rebase.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 
@@ -373,6 +374,6 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operation.kind.split("_").join(" ");
   },
   buildUrl(resourceId, suggestionId) {
-    return `/page/${encodeURIComponent(resourceId)}?suggestion=${encodeURIComponent(suggestionId)}`;
+    return contentSuggestionPath(resourceId, suggestionId);
   },
 };

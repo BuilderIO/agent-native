@@ -46,6 +46,7 @@ interface DocText {
 export function buildDocText(
   doc: ProseMirrorNode,
   blockSeparator = "",
+  hardBreakSeparator: "" | "\n" = "",
 ): DocText {
   let text = "";
   let hasTextblock = false;
@@ -62,6 +63,10 @@ export function buildDocText(
         length: node.text.length,
       });
       text += node.text;
+    }
+    if (node.type.name === "hardBreak" && hardBreakSeparator) {
+      segments.push({ textStart: text.length, pmFrom: pos, length: 1 });
+      text += hardBreakSeparator;
     }
     return true;
   });
@@ -92,8 +97,9 @@ export function resolveAnchorPoint(
     startOffset?: number;
   },
   blockSeparator = "",
+  hardBreakSeparator: "" | "\n" = "",
 ): number | null {
-  const docText = buildDocText(doc, blockSeparator);
+  const docText = buildDocText(doc, blockSeparator, hardBreakSeparator);
   const prefix = anchor.prefix ?? "";
   const suffix = anchor.suffix ?? "";
   if (!prefix && !suffix) return null;
@@ -200,11 +206,12 @@ export function resolveAnchor(
     startOffset?: number;
   },
   blockSeparator = "",
+  hardBreakSeparator: "" | "\n" = "",
 ): ResolvedRange | null {
   const quote = anchor.quotedText;
   if (!quote) return null;
 
-  const docText = buildDocText(doc, blockSeparator);
+  const docText = buildDocText(doc, blockSeparator, hardBreakSeparator);
   const hay = docText.text;
   if (!hay.includes(quote)) return null;
 

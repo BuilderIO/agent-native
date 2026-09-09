@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { assertReviewableResourceAccess } from "../registry.js";
 import { getReviewThreadRoot, setReviewThreadPreference } from "../store.js";
 
@@ -23,10 +23,19 @@ export default defineAction({
       args.threadId,
       { resourceType: args.resourceType, resourceId: args.resourceId },
       { userEmail: (ctx as any)?.userEmail, orgId: (ctx as any)?.orgId },
+      { bypassScope: true },
     );
-    if (!root) throw new Error("Review thread not found");
+    if (!root || root.status === "deleted")
+      fail("Review thread not found", {
+        statusCode: 404,
+        errorCode: "not_found",
+      });
     const userEmail = (ctx as any)?.userEmail;
-    if (!userEmail) throw new Error("A signed-in user is required");
+    if (!userEmail)
+      fail("A signed-in user is required", {
+        statusCode: 401,
+        errorCode: "unauthenticated",
+      });
     return setReviewThreadPreference({
       threadId: args.threadId,
       userEmail,

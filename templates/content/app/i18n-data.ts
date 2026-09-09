@@ -3228,10 +3228,18 @@ const enUS = {
     genericError: "Something went wrong",
   },
   editor: {
+    suggestionFormattingUnsupported:
+      "This formatting cannot be suggested safely. Your draft is kept. Undo the last edit to continue.",
+    suggestionFormattingBaselineUnsupported:
+      "Some page formatting cannot be suggested safely. An editor can update it before you retry.",
     suggestionAmendmentEmpty:
       "This edit matches the current page. Reject the suggestion to remove it.",
     suggestionAmendmentFailed: "Could not save suggestion",
+    suggestionAmendmentResolved:
+      "This suggestion changed elsewhere. Your unsaved draft is still here.",
+    discardSuggestionDraft: "Discard draft",
     bold: "Bold",
+    underline: "Underline",
     italic: "Italic",
     strikethrough: "Strikethrough",
     code: "Code",
@@ -3401,6 +3409,19 @@ const enUS = {
     suggestionWith: "with",
     suggestionReplace: "Replace",
     suggestionDetails: "Suggestion details",
+    moreActions: "More actions",
+    addReaction: "Add reaction",
+    markUnread: "Mark unread",
+    markRead: "Mark read",
+    mute: "Mute thread",
+    unmute: "Unmute thread",
+    unread: "Unread",
+    copyLink: "Copy link",
+    linkCopied: "Link copied",
+    copyLinkFailed: "Couldn't copy link",
+    toolFailed: "Couldn't update discussion",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "This suggestion is unavailable",
     typeFilter: "Type",
     statusFilter: "Status",
     authorFilter: "Person",
@@ -9599,6 +9620,177 @@ const contentReferenceMessagesByLocale = {
   },
 } satisfies Partial<Record<LocaleCode, typeof enUS.editor.reference>>;
 
+const reviewDiscussionMessagesByLocale = {
+  "zh-CN": {
+    moreActions: "更多操作",
+    addReaction: "添加回应",
+    markUnread: "标为未读",
+    markRead: "标为已读",
+    mute: "静音此讨论",
+    unmute: "取消静音",
+    unread: "未读",
+    copyLink: "复制链接",
+    linkCopied: "链接已复制",
+    copyLinkFailed: "无法复制链接",
+    toolFailed: "无法更新讨论",
+    reactionCount: "{{reaction}}：{{count}}",
+    linkUnavailable: "此建议不可用",
+  },
+  "zh-TW": {
+    moreActions: "更多操作",
+    addReaction: "新增回應",
+    markUnread: "標為未讀",
+    markRead: "標為已讀",
+    mute: "靜音此討論",
+    unmute: "取消靜音",
+    unread: "未讀",
+    copyLink: "複製連結",
+    linkCopied: "已複製連結",
+    copyLinkFailed: "無法複製連結",
+    toolFailed: "無法更新討論",
+    reactionCount: "{{reaction}}：{{count}}",
+    linkUnavailable: "此建議無法使用",
+  },
+  "es-ES": {
+    moreActions: "Más acciones",
+    addReaction: "Añadir reacción",
+    markUnread: "Marcar como no leído",
+    markRead: "Marcar como leído",
+    mute: "Silenciar hilo",
+    unmute: "Activar notificaciones del hilo",
+    unread: "No leído",
+    copyLink: "Copiar enlace",
+    linkCopied: "Enlace copiado",
+    copyLinkFailed: "No se pudo copiar el enlace",
+    toolFailed: "No se pudo actualizar la conversación",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "Esta sugerencia no está disponible",
+  },
+  "fr-FR": {
+    moreActions: "Autres actions",
+    addReaction: "Ajouter une réaction",
+    markUnread: "Marquer comme non lu",
+    markRead: "Marquer comme lu",
+    mute: "Désactiver les notifications du fil",
+    unmute: "Réactiver les notifications du fil",
+    unread: "Non lu",
+    copyLink: "Copier le lien",
+    linkCopied: "Lien copié",
+    copyLinkFailed: "Impossible de copier le lien",
+    toolFailed: "Impossible de mettre à jour la discussion",
+    reactionCount: "{{reaction}} : {{count}}",
+    linkUnavailable: "Cette suggestion n’est pas disponible",
+  },
+  "de-DE": {
+    moreActions: "Weitere Aktionen",
+    addReaction: "Reaktion hinzufügen",
+    markUnread: "Als ungelesen markieren",
+    markRead: "Als gelesen markieren",
+    mute: "Diskussion stummschalten",
+    unmute: "Stummschaltung aufheben",
+    unread: "Ungelesen",
+    copyLink: "Link kopieren",
+    linkCopied: "Link kopiert",
+    copyLinkFailed: "Link konnte nicht kopiert werden",
+    toolFailed: "Diskussion konnte nicht aktualisiert werden",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "Dieser Vorschlag ist nicht verfügbar",
+  },
+  "ja-JP": {
+    moreActions: "その他の操作",
+    addReaction: "リアクションを追加",
+    markUnread: "未読にする",
+    markRead: "既読にする",
+    mute: "スレッドをミュート",
+    unmute: "ミュートを解除",
+    unread: "未読",
+    copyLink: "リンクをコピー",
+    linkCopied: "リンクをコピーしました",
+    copyLinkFailed: "リンクをコピーできませんでした",
+    toolFailed: "ディスカッションを更新できませんでした",
+    reactionCount: "{{reaction}}：{{count}}",
+    linkUnavailable: "この提案は利用できません",
+  },
+  "ko-KR": {
+    moreActions: "추가 작업",
+    addReaction: "반응 추가",
+    markUnread: "읽지 않음으로 표시",
+    markRead: "읽음으로 표시",
+    mute: "스레드 알림 끄기",
+    unmute: "스레드 알림 켜기",
+    unread: "읽지 않음",
+    copyLink: "링크 복사",
+    linkCopied: "링크를 복사했습니다",
+    copyLinkFailed: "링크를 복사할 수 없습니다",
+    toolFailed: "토론을 업데이트할 수 없습니다",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "이 제안을 사용할 수 없습니다",
+  },
+  "pt-BR": {
+    moreActions: "Mais ações",
+    addReaction: "Adicionar reação",
+    markUnread: "Marcar como não lida",
+    markRead: "Marcar como lida",
+    mute: "Silenciar conversa",
+    unmute: "Reativar notificações da conversa",
+    unread: "Não lida",
+    copyLink: "Copiar link",
+    linkCopied: "Link copiado",
+    copyLinkFailed: "Não foi possível copiar o link",
+    toolFailed: "Não foi possível atualizar a discussão",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "Esta sugestão não está disponível",
+  },
+  "hi-IN": {
+    moreActions: "अन्य कार्रवाइयाँ",
+    addReaction: "प्रतिक्रिया जोड़ें",
+    markUnread: "अपठित चिह्नित करें",
+    markRead: "पठित चिह्नित करें",
+    mute: "थ्रेड म्यूट करें",
+    unmute: "थ्रेड अनम्यूट करें",
+    unread: "अपठित",
+    copyLink: "लिंक कॉपी करें",
+    linkCopied: "लिंक कॉपी किया गया",
+    copyLinkFailed: "लिंक कॉपी नहीं किया जा सका",
+    toolFailed: "चर्चा अपडेट नहीं की जा सकी",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "यह सुझाव उपलब्ध नहीं है",
+  },
+  "ar-SA": {
+    moreActions: "المزيد من الإجراءات",
+    addReaction: "إضافة تفاعل",
+    markUnread: "وضع علامة كغير مقروء",
+    markRead: "وضع علامة كمقروء",
+    mute: "كتم المحادثة",
+    unmute: "إلغاء كتم المحادثة",
+    unread: "غير مقروء",
+    copyLink: "نسخ الرابط",
+    linkCopied: "تم نسخ الرابط",
+    copyLinkFailed: "تعذر نسخ الرابط",
+    toolFailed: "تعذر تحديث المناقشة",
+    reactionCount: "{{reaction}}: {{count}}",
+    linkUnavailable: "هذا الاقتراح غير متاح",
+  },
+} satisfies Record<
+  Exclude<LocaleCode, "en-US">,
+  Pick<
+    typeof enUS.comments,
+    | "moreActions"
+    | "addReaction"
+    | "markUnread"
+    | "markRead"
+    | "mute"
+    | "unmute"
+    | "unread"
+    | "copyLink"
+    | "linkCopied"
+    | "copyLinkFailed"
+    | "toolFailed"
+    | "reactionCount"
+    | "linkUnavailable"
+  >
+>;
+
 const commentMessagesByLocale = {
   "zh-CN": {
     filter: "筛选",
@@ -9924,6 +10116,74 @@ function mergeMessages(overrides: PartialMessages): Messages {
   };
 }
 
+const suggestionFormattingMessagesByLocale = {
+  "zh-CN": [
+    "无法安全地建议此格式。草稿已保留。撤销上一次编辑以继续。",
+    "页面中的某些格式无法安全地建议更改。编辑者可以先更新这些格式，然后您再重试。",
+  ],
+  "zh-TW": [
+    "無法安全地建議此格式。草稿已保留。復原上一次編輯以繼續。",
+    "頁面中的某些格式無法安全地建議變更。編輯者可以先更新這些格式，然後您再重試。",
+  ],
+  "es-ES": [
+    "Este formato no se puede sugerir de forma segura. Tu borrador se conserva. Deshaz la última edición para continuar.",
+    "Algunos formatos de la página no se pueden sugerir de forma segura. Un editor puede actualizarlos antes de que vuelvas a intentarlo.",
+  ],
+  "fr-FR": [
+    "Cette mise en forme ne peut pas être suggérée de façon fiable. Votre brouillon est conservé. Annulez la dernière modification pour continuer.",
+    "Certaines mises en forme de la page ne peuvent pas être suggérées de façon fiable. Une personne disposant des droits de modification peut les mettre à jour avant votre nouvel essai.",
+  ],
+  "de-DE": [
+    "Diese Formatierung kann nicht sicher vorgeschlagen werden. Dein Entwurf bleibt erhalten. Mache die letzte Änderung rückgängig, um fortzufahren.",
+    "Einige Seitenformatierungen können nicht sicher vorgeschlagen werden. Eine Person mit Bearbeitungsrechten kann sie vor deinem nächsten Versuch aktualisieren.",
+  ],
+  "ja-JP": [
+    "この書式は安全に提案できません。下書きは保持されています。続行するには最後の編集を元に戻してください。",
+    "ページの一部の書式は安全に提案できません。編集権限のある人が書式を更新してから再試行してください。",
+  ],
+  "ko-KR": [
+    "이 서식은 안전하게 제안할 수 없습니다. 초안은 유지됩니다. 계속하려면 마지막 편집을 실행 취소하세요.",
+    "페이지의 일부 서식은 안전하게 제안할 수 없습니다. 편집 권한이 있는 사람이 서식을 업데이트한 후 다시 시도하세요.",
+  ],
+  "pt-BR": [
+    "Esta formatação não pode ser sugerida com segurança. Seu rascunho foi mantido. Desfaça a última edição para continuar.",
+    "Algumas formatações da página não podem ser sugeridas com segurança. Uma pessoa com permissão de edição pode atualizá-las antes de você tentar novamente.",
+  ],
+  "hi-IN": [
+    "इस स्वरूपण का सुरक्षित रूप से सुझाव नहीं दिया जा सकता। आपका ड्राफ़्ट सुरक्षित है। जारी रखने के लिए पिछला संपादन पूर्ववत करें।",
+    "पेज के कुछ स्वरूपण का सुरक्षित रूप से सुझाव नहीं दिया जा सकता। दोबारा कोशिश करने से पहले कोई संपादक उसे अपडेट कर सकता है।",
+  ],
+  "ar-SA": [
+    "لا يمكن اقتراح هذا التنسيق بأمان. تم الاحتفاظ بمسودتك. تراجع عن آخر تعديل للمتابعة.",
+    "لا يمكن اقتراح بعض تنسيقات الصفحة بأمان. يمكن لشخص لديه صلاحية التعديل تحديثها قبل إعادة المحاولة.",
+  ],
+};
+
+const underlineMessagesByLocale = {
+  "zh-CN": "下划线",
+  "zh-TW": "底線",
+  "es-ES": "Subrayado",
+  "fr-FR": "Souligné",
+  "de-DE": "Unterstrichen",
+  "ja-JP": "下線",
+  "ko-KR": "밑줄",
+  "pt-BR": "Sublinhado",
+  "hi-IN": "रेखांकित",
+  "ar-SA": "تسطير",
+};
+const removeLinkMessagesByLocale = {
+  "zh-CN": "移除链接",
+  "zh-TW": "移除連結",
+  "es-ES": "Quitar enlace",
+  "fr-FR": "Supprimer le lien",
+  "de-DE": "Link entfernen",
+  "ja-JP": "リンクを削除",
+  "ko-KR": "링크 제거",
+  "pt-BR": "Remover link",
+  "hi-IN": "लिंक हटाएँ",
+  "ar-SA": "إزالة الرابط",
+};
+
 function mergeMessagesForLocale(
   locale: Exclude<LocaleCode, "en-US">,
   overrides: PartialMessages,
@@ -9985,7 +10245,11 @@ function mergeMessagesForLocale(
   });
   return {
     ...base,
-    comments: { ...base.comments, ...commentMessagesByLocale[locale] },
+    comments: {
+      ...base.comments,
+      ...commentMessagesByLocale[locale],
+      ...reviewDiscussionMessagesByLocale[locale],
+    },
     landing: { ...base.landing, ...landingMessagesByLocale[locale] },
     root: { ...base.root, ...rawLiteralOverrides.root },
     team: { ...base.team, ...rawLiteralOverrides.team },
@@ -10000,6 +10264,12 @@ function mergeMessagesForLocale(
     editor: {
       ...base.editor,
       ...rawLiteralOverrides.editor,
+      underline: underlineMessagesByLocale[locale],
+      suggestionFormattingUnsupported:
+        suggestionFormattingMessagesByLocale[locale][0]!,
+      suggestionFormattingBaselineUnsupported:
+        suggestionFormattingMessagesByLocale[locale][1]!,
+      removeLink: removeLinkMessagesByLocale[locale],
       media: { ...base.editor.media, ...rawLiteralOverrides.editor?.media },
       properties: base.editor.properties,
       reference: {
@@ -12018,6 +12288,9 @@ const contentExactEnglishTranslations = {
     editor: {
       suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
       suggestionAmendmentFailed: "無法儲存建議",
+      suggestionAmendmentResolved:
+        "此建議已在其他地方變更。你未儲存的草稿仍保留在這裡。",
+      discardSuggestionDraft: "捨棄草稿",
       toolbar: {
         info: "資訊",
         closeUtilityPanel: "關閉面板",
@@ -12063,6 +12336,9 @@ const contentExactEnglishTranslations = {
     editor: {
       suggestionAmendmentEmpty: "此编辑与当前页面相同。拒绝建议即可移除。",
       suggestionAmendmentFailed: "无法保存建议",
+      suggestionAmendmentResolved:
+        "此建议已在其他地方更改。你未保存的草稿仍保留在这里。",
+      discardSuggestionDraft: "丢弃草稿",
       failedToCreatePage: "创建页面失败",
       slash: {
         blockEquation: "块级公式",
@@ -12131,6 +12407,9 @@ const contentExactEnglishTranslations = {
       suggestionAmendmentEmpty:
         "Esta edición coincide con la página actual. Rechaza la sugerencia para eliminarla.",
       suggestionAmendmentFailed: "No se pudo guardar la sugerencia",
+      suggestionAmendmentResolved:
+        "Esta sugerencia cambió en otro lugar. Tu borrador sin guardar sigue aquí.",
+      discardSuggestionDraft: "Descartar borrador",
       failedToCreatePage: "No se pudo crear la página",
       slash: {
         blockEquation: "Ecuación en bloque",
@@ -12203,6 +12482,9 @@ const contentExactEnglishTranslations = {
       suggestionAmendmentEmpty:
         "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
       suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
+      suggestionAmendmentResolved:
+        "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",
+      discardSuggestionDraft: "Ignorer le brouillon",
       failedToCreatePage: "Impossible de créer la page",
       slash: {
         blockEquation: "Équation en bloc",
@@ -12275,6 +12557,9 @@ const contentExactEnglishTranslations = {
       suggestionAmendmentEmpty:
         "Diese Bearbeitung entspricht der aktuellen Seite. Lehnen Sie den Vorschlag ab, um ihn zu entfernen.",
       suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
+      suggestionAmendmentResolved:
+        "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",
+      discardSuggestionDraft: "Entwurf verwerfen",
       failedToCreatePage: "Seite konnte nicht erstellt werden",
       slash: {
         blockEquation: "Blockgleichung",
@@ -12348,6 +12633,9 @@ const contentExactEnglishTranslations = {
       suggestionAmendmentEmpty:
         "この編集は現在のページと同じです。提案を削除するには却下してください。",
       suggestionAmendmentFailed: "提案を保存できませんでした",
+      suggestionAmendmentResolved:
+        "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",
+      discardSuggestionDraft: "下書きを破棄",
       failedToCreatePage: "ページを作成できませんでした",
       slash: {
         blockEquation: "ブロック数式",
@@ -12420,6 +12708,9 @@ const contentExactEnglishTranslations = {
       suggestionAmendmentEmpty:
         "이 편집 내용은 현재 페이지와 같습니다. 제안을 삭제하려면 거부하세요.",
       suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
+      suggestionAmendmentResolved:
+        "이 제안은 다른 곳에서 변경되었습니다. 저장하지 않은 초안은 여기에 그대로 있습니다.",
+      discardSuggestionDraft: "초안 삭제",
       failedToCreatePage: "페이지를 만들지 못했습니다",
       slash: {
         blockEquation: "블록 수식",
@@ -12491,6 +12782,9 @@ const contentExactEnglishTranslations = {
       suggestionAmendmentEmpty:
         "Essa edição corresponde à página atual. Rejeite a sugestão para removê-la.",
       suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
+      suggestionAmendmentResolved:
+        "Esta sugestão foi alterada em outro lugar. Seu rascunho não salvo continua aqui.",
+      discardSuggestionDraft: "Descartar rascunho",
       failedToCreatePage: "Não foi possível criar a página",
       slash: {
         blockEquation: "Equação em bloco",
@@ -12563,6 +12857,9 @@ const contentExactEnglishTranslations = {
       suggestionAmendmentEmpty:
         "यह संपादन मौजूदा पेज से मेल खाता है। इसे हटाने के लिए सुझाव को अस्वीकार करें।",
       suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
+      suggestionAmendmentResolved:
+        "यह सुझाव कहीं और बदल दिया गया है। आपका सेव न किया गया ड्राफ़्ट अभी भी यहाँ है।",
+      discardSuggestionDraft: "ड्राफ़्ट हटाएँ",
       failedToCreatePage: "पेज नहीं बनाया जा सका",
       slash: {
         blockEquation: "ब्लॉक समीकरण",
@@ -12632,6 +12929,9 @@ const contentExactEnglishTranslations = {
       suggestionAmendmentEmpty:
         "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
       suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
+      suggestionAmendmentResolved:
+        "تم تغيير هذا الاقتراح في مكان آخر. لا تزال مسودتك غير المحفوظة هنا.",
+      discardSuggestionDraft: "تجاهل المسودة",
       failedToCreatePage: "تعذر إنشاء الصفحة",
       slash: {
         blockEquation: "معادلة مستقلة",

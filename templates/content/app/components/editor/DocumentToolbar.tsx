@@ -47,6 +47,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type Ref,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -528,6 +529,7 @@ interface DocumentToolbarProps {
   canSuggest?: boolean;
   suggesting?: boolean;
   onSuggestingChange?: (suggesting: boolean) => void;
+  editorEscapeTargetRef?: Ref<HTMLButtonElement>;
 }
 
 export function DocumentToolbar({
@@ -561,6 +563,7 @@ export function DocumentToolbar({
   canSuggest = false,
   suggesting = false,
   onSuggestingChange,
+  editorEscapeTargetRef,
 }: DocumentToolbarProps) {
   const sidebarTrigger = useSidebarTrigger();
   const t = useT();
@@ -1042,6 +1045,7 @@ export function DocumentToolbar({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
+                    ref={editorEscapeTargetRef}
                     className="ms-0.5 flex size-7 items-center justify-center rounded-sm text-primary/70 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={t("editor.toolbar.stopSuggesting")}
                     onClick={() => onSuggestingChange?.(false)}
@@ -1085,6 +1089,7 @@ export function DocumentToolbar({
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <button
+                    ref={suggesting ? undefined : editorEscapeTargetRef}
                     className={cn(
                       "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
                       utilityPanel === "info" && "bg-accent text-foreground",

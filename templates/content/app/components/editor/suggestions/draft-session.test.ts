@@ -7,6 +7,7 @@ import {
   editableSuggestionDraft,
   freshestSavedSuggestions,
   persistSuggestionDraftOperations,
+  previewSuggestionDraft,
   recordSuggestionReplacementIntent,
   suggestionDraftOperations,
   suggestionOperationKey,
@@ -15,6 +16,24 @@ import {
 } from "./draft-session";
 
 describe("suggestion draft session", () => {
+  it("exposes unsupported formatting without producing persistable partial operations", () => {
+    const baseContent = "<span underline=true color=red>Echo</span>";
+    const session = createSuggestionDraftSession({
+      id: "unsupported",
+      baseContent,
+      baseRevision: "one",
+      startedAt: "2026-09-08T00:00:00.000Z",
+    });
+    const content = baseContent.replace("Echo", "ECHO");
+    expect(previewSuggestionDraft(session, content, null)).toEqual({
+      status: "unsupported-formatting",
+      content,
+    });
+    expect(() => suggestionDraftOperations(session, content)).toThrow(
+      "cannot be mapped faithfully",
+    );
+    expect(session.baseContent).toBe(baseContent);
+  });
   it("keeps a multi-location amendment within the saved single proposal", () => {
     const session = createSuggestionDraftSession({
       id: "amendment",

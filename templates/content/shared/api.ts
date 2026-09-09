@@ -37,6 +37,7 @@ export interface Document {
   accessRole?: DocumentAccessRole;
   canView?: boolean;
   canComment?: boolean;
+  canSuggest?: boolean;
   canEdit?: boolean;
   canManage?: boolean;
   source?: DocumentSourceInfo;

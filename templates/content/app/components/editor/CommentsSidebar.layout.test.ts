@@ -2,6 +2,7 @@
 
 import { readFileSync } from "node:fs";
 
+import { suggestionTextPresentation } from "@shared/suggestion-text";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CommentThread } from "@/hooks/use-comments";
@@ -29,13 +30,51 @@ function rect(top: number) {
 }
 
 describe("comments sidebar layout", () => {
+  it("keeps stale suggestions discoverable in the pending filter", () => {
+    const source = readFileSync(
+      "app/components/editor/CommentsSidebar.tsx",
+      "utf8",
+    );
+    expect(source).toContain(
+      'suggestion.status === "pending" || suggestion.status === "stale"',
+    );
+    expect(source).toMatch(/historyStatus === "pending"\) &&\s+!unresolved/);
+  });
+  it("restricts link-driven selection and history reveal to a fresh explicit URL intent", () => {
+    const source = readFileSync(
+      "app/components/editor/DocumentEditor.tsx",
+      "utf8",
+    );
+    const start = source.indexOf(
+      'const suggestionId = new URLSearchParams(location.search).get("suggestion")',
+    );
+    const end = source.indexOf("const handleKeyDown", start);
+    const linkEffect = source.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(linkEffect).toMatch(/if \(!suggestionId\) \{[\s\S]*?return;/);
+    expect(linkEffect).toContain("appliedSuggestionLinkRef.current === key");
+    expect(
+      linkEffect.indexOf("appliedSuggestionLinkRef.current = key"),
+    ).toBeLessThan(
+      linkEffect.indexOf("setSelectedSuggestionId(suggestion.id)"),
+    );
+    expect(linkEffect).toContain("setCommentsBrowseOpen(true)");
+    expect(linkEffect).toContain(
+      "replyDrafts.setOpenReply(suggestion.threadId, suggestion.id, false)",
+    );
+    expect(linkEffect).toContain("setFocusSuggestionId(suggestion.id)");
+    expect(source.match(/setFocusSuggestionId\(suggestion.id\)/g)).toHaveLength(
+      1,
+    );
+  });
   it("reveals a failed decision even when history was filtered to pending", () => {
     const source = readFileSync(
       "app/components/editor/CommentsSidebar.tsx",
       "utf8",
     );
-    expect(source).toMatch(
-      /if \(!activeConflictId\) return;[\s\S]*?setHistoryStatus\("all"\);[\s\S]*?setHistoryKind\("all"\);[\s\S]*?setHistoryAuthor\(null\);/,
+    expect(source).toContain("replyDrafts.revealHistory(");
+    expect(source).toContain(
+      "if (key) setHistoryFilters(defaultHistoryFilters)",
     );
     expect(source).toContain("Number(right.id === activeConflictId)");
   });
@@ -245,7 +284,10 @@ describe("comments sidebar layout", () => {
     const globalStyles = readFileSync("app/global.css", { encoding: "utf8" });
 
     expect(source).not.toContain('container.addEventListener("scroll"');
-    expect(source).not.toContain("scrollIntoView");
+    expect(source.match(/scrollIntoView/g)).toHaveLength(1);
+    expect(source).toMatch(
+      /if \(!focusRequested\) return;[\s\S]*?requestAnimationFrame[\s\S]*?target\.scrollIntoView/,
+    );
     expect(source).not.toContain("data-comment-connector");
     expect(source).toContain("data-unanchored-comments");
     expect(source).not.toContain("CommentConnector");
@@ -354,14 +396,14 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain("selectedThreadIsOpen");
-    expect(source).toContain(
-      'presentation === "inline" && canComment && selectedThreadIsOpen',
+    expect(source).toMatch(
+      /presentation === "inline" &&\s+canComment &&\s+selectedThreadIsOpen/,
     );
-    expect(source).toContain("setReplyingThreadId(nextReplyingThreadId)");
+    expect(source).toContain("setReplyingThreadId(selectedThreadId)");
     expect(source).toContain("setReplyingThreadId(thread.threadId)");
     expect(source).not.toContain("current === thread.threadId ? null");
     expect(source).toMatch(
-      /useLayoutEffect\(\(\) => \{[\s\S]*?setReplyingThreadId\(nextReplyingThreadId\)/,
+      /useLayoutEffect\(\(\) => \{[\s\S]*?setReplyingThreadId\(selectedThreadId\)/,
     );
   });
 
@@ -387,9 +429,18 @@ describe("comments sidebar layout", () => {
     expect(source).toContain(
       "renderSuggestionCard(thread.suggestion, marginTop)",
     );
-    expect(source).toContain("renderSuggestionText(previousText)");
+    expect(source).toContain(
+      "renderSuggestionText(previousText, previousPresentation)",
+    );
     expect(source).toContain('t("comments.suggestionWith")');
-    expect(source).toContain("const trailingWhitespace = display.match");
+    expect(source).toContain(
+      "<SuggestionText content={content} context={context} />",
+    );
+    const presentation = suggestionTextPresentation("**Echo**  ");
+    expect(presentation[presentation.length - 1]).toEqual({
+      type: "text",
+      value: "  ",
+    });
     expect(source).toContain(
       'className="w-full min-w-0 overflow-hidden rounded-lg bg-popover',
     );
@@ -471,12 +522,23 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source).toContain("createComment.isPending");
-    expect(source).toContain("onSuccess: (result) => {");
-    expect(source).toContain("onError: (error) => {");
-    expect(source).toContain('toast.error(t("empty.genericError")');
-    expect(source).toMatch(
-      /createComment\.mutate\([\s\S]*?onSuccess: \(result\) => \{[\s\S]*?setPendingText\(""\)[\s\S]*?onPendingDone\?\.\(result\.threadId\)/,
+    const submit = source.slice(
+      source.indexOf("const handlePendingSubmit ="),
+      source.indexOf("const handlePendingCancel ="),
+    );
+    const failure = submit.slice(submit.indexOf("catch (error)"));
+
+    expect(submit).toContain("pendingSubmitting) return;");
+    expect(submit).toContain("const id = pendingComment.id;");
+    expect(submit).toMatch(
+      /onPendingChange\(id, \(\) => \(\{ submitting: true \}\)\)[\s\S]*?const result = await createComment\.mutateAsync\([\s\S]*?onPendingDone\(id, result\.threadId\);[\s\S]*?catch \(error\)/,
+    );
+    expect(failure).toContain(
+      "onPendingChange(id, () => ({ submitting: false }));",
+    );
+    expect(failure).toContain('toast.error(t("empty.genericError")');
+    expect(failure).not.toMatch(
+      /onPendingDone|setPendingComment|text:|mentions:/,
     );
   });
 

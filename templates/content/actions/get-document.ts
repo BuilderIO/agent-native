@@ -2,9 +2,10 @@ import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { roleSatisfies } from "@agent-native/core/sharing";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb } from "../server/db/index.js";
+import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
@@ -27,6 +28,10 @@ import {
   resolvePropertyDatabaseForDocument,
   serializeDatabase,
 } from "./_property-utils.js";
+import {
+  canSuggestDocument,
+  documentHasInlineDatabase,
+} from "./_suggestion-eligibility.js";
 
 function canEditRole(role: string) {
   return role === "owner" || role === "admin" || role === "editor";
@@ -146,6 +151,60 @@ export default defineAction({
       // not the private database document that owns those definitions.
       requireDatabaseAccess: propertyDatabaseAccess !== null,
     });
+    const source = serializeDocumentSource(doc);
+    const hasInlineDatabase = documentHasInlineDatabase(doc.content ?? "");
+    let isOrdinaryDatabaseItem = false;
+    let isExternallyLinked = false;
+    if (
+      canCommentRole(access.role) &&
+      !database &&
+      !source?.mode &&
+      !hasInlineDatabase
+    ) {
+      const db = getDb();
+      const [ordinaryMembership, externalLink] = await Promise.all([
+        db
+          .select({ id: schema.contentDatabaseItems.id })
+          .from(schema.contentDatabaseItems)
+          .innerJoin(
+            schema.contentDatabases,
+            eq(
+              schema.contentDatabases.id,
+              schema.contentDatabaseItems.databaseId,
+            ),
+          )
+          .where(
+            and(
+              eq(schema.contentDatabaseItems.documentId, doc.id),
+              isNull(schema.contentDatabases.deletedAt),
+              isNull(schema.contentDatabases.systemRole),
+            ),
+          )
+          .limit(1),
+        db
+          .select({ documentId: schema.documentSyncLinks.documentId })
+          .from(schema.documentSyncLinks)
+          .where(
+            and(
+              eq(schema.documentSyncLinks.documentId, doc.id),
+              ne(schema.documentSyncLinks.state, "unlinked"),
+            ),
+          )
+          .limit(1),
+      ]);
+      isOrdinaryDatabaseItem = ordinaryMembership.length > 0;
+      isExternallyLinked = externalLink.length > 0;
+    }
+    const canSuggest = canSuggestDocument({
+      canComment: canCommentRole(access.role),
+      isDatabase: Boolean(database),
+      isOrdinaryDatabaseItem,
+      isExternallyLinked,
+      isSourceOwned: Boolean(
+        doc.sourceMode || doc.sourceKind || doc.sourcePath,
+      ),
+      hasInlineDatabase,
+    });
 
     return {
       id: doc.id,
@@ -168,9 +227,10 @@ export default defineAction({
       isFavorite: favoriteIds.has(doc.id),
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
-      source: serializeDocumentSource(doc),
+      source,
       accessRole: access.role,
       canComment: canCommentRole(access.role),
+      canSuggest,
       canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),
       database: database

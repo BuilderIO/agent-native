@@ -2374,6 +2374,7 @@ audio.media-block__content {
 
 /* ===== Bubble Toolbar ===== */
 .bubble-toolbar {
+  z-index: 20;
   display: flex;
   align-items: center;
   background: hsl(var(--popover));
@@ -2444,6 +2445,10 @@ audio.media-block__content {
   line-height: inherit;
   vertical-align: baseline;
   white-space: break-spaces;
+}
+
+.notion-editor .suggestion-inline-widget[data-suggestion-widget] code {
+  color: inherit;
 }
 
 .notion-editor .suggestion-delete {
@@ -2555,7 +2560,16 @@ audio.media-block__content {
   opacity: 0.16;
 }
 
-.notion-editor .collaboration-cursor__caret {
+.notion-editor .collaboration-carets__selection,
+.notion-editor .ProseMirror-yjs-selection {
+  display: inline;
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.notion-editor .collaboration-cursor__caret,
+.notion-editor .collaboration-carets__caret {
   border-left: 2px solid;
   border-color: currentColor;
   display: inline;
@@ -2566,11 +2580,14 @@ audio.media-block__content {
   pointer-events: none;
   line-height: 1;
 }
-.notion-editor .collaboration-cursor__label {
+
+.notion-editor .collaboration-cursor__label,
+.notion-editor .collaboration-carets__label {
   position: absolute;
   top: -1.4em;
   left: -1px;
   display: inline-block;
+  width: max-content;
   max-width: min(180px, 50vw);
   overflow: hidden;
   text-overflow: ellipsis;

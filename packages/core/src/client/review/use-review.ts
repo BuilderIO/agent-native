@@ -1,3 +1,5 @@
+import { useQueryClient } from "@tanstack/react-query";
+
 import type {
   ResourceSuggestion,
   SuggestionDecision,
@@ -7,6 +9,8 @@ import type {
 import type {
   ReviewComment,
   ReviewCommentKind,
+  ReviewDiscussionState,
+  ReviewThreadPreference,
   ReviewMention,
   ReviewResolutionTarget,
   ReviewStatus,
@@ -25,6 +29,7 @@ export interface ListReviewCommentsParams {
 
 export interface ListReviewCommentsResult {
   comments: ReviewComment[];
+  discussion: ReviewDiscussionState;
   reviewStatus: ReviewStatusEntry | null;
   summary: {
     openCount: number;
@@ -65,6 +70,75 @@ export interface ReplyReviewCommentInput {
   resolutionTarget?: ReviewResolutionTarget | null;
   mentions?: ReviewMention[];
   metadata?: Record<string, unknown>;
+}
+
+export interface ReactToReviewCommentInput {
+  resourceType: string;
+  resourceId: string;
+  commentId: string;
+  reaction: string;
+  active: boolean;
+}
+
+export interface SetReviewThreadUnreadInput {
+  resourceType: string;
+  resourceId: string;
+  threadId: string;
+  unread: boolean;
+}
+
+export interface SetReviewThreadMutedInput {
+  resourceType: string;
+  resourceId: string;
+  threadId: string;
+  muted: boolean;
+}
+
+export function useReactToReviewComment() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    {
+      commentId: string;
+      actorEmail: string;
+      reaction: string;
+      active: boolean;
+    },
+    ReactToReviewCommentInput
+  >("react-to-review-comment", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-review-comments"],
+      }),
+  });
+}
+
+export function useSetReviewThreadUnread() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ReviewThreadPreference & { threadId: string },
+    SetReviewThreadUnreadInput
+  >("set-review-thread-unread", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-review-comments"],
+      }),
+  });
+}
+
+export function useSetReviewThreadMuted() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ReviewThreadPreference & { threadId: string },
+    SetReviewThreadMutedInput
+  >("set-review-thread-muted", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-review-comments"],
+      }),
+  });
 }
 
 export interface ResolveReviewThreadInput {

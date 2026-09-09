@@ -2,6 +2,7 @@ import type {
   ResourceSuggestion,
   SuggestionOperation,
 } from "@agent-native/core/review";
+import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
 
 import {
   draftSuggestionAnchors,
@@ -275,6 +276,24 @@ export function draftSuggestionsForSession(
       anchor: anchors[index]!,
     };
   });
+}
+
+export function previewSuggestionDraft(
+  session: SuggestionDraftSession,
+  content: string,
+  authorEmail: string | null,
+):
+  | { status: "ready"; suggestions: DraftSuggestion[] }
+  | { status: "unsupported-formatting"; content: string } {
+  try {
+    return {
+      status: "ready",
+      suggestions: draftSuggestionsForSession(session, content, authorEmail),
+    };
+  } catch (error) {
+    if (!(error instanceof SuggestionFormattingMappingError)) throw error;
+    return { status: "unsupported-formatting", content };
+  }
 }
 
 export function unpersistedDraftSuggestions(

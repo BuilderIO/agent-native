@@ -20,7 +20,12 @@ const schema = new Schema({
     paragraph: { group: "block", content: "text*", toDOM: () => ["p", 0] },
     text: {},
   },
-  marks: {},
+  marks: {
+    strong: { toDOM: () => ["strong", 0] },
+    emphasis: { toDOM: () => ["em", 0] },
+    underline: { toDOM: () => ["u", 0] },
+    strike: { toDOM: () => ["s", 0] },
+  },
 });
 
 function doc(text: string): ProseMirrorNode {
@@ -133,6 +138,82 @@ describe("SuggestionHighlight", () => {
     expect(deletion.type.toDOM().hasAttribute("data-suggestion-widget")).toBe(
       true,
     );
+  });
+
+  it("makes contextual whitespace-only insertion and deletion widgets visible", () => {
+    const source = "a \tb";
+    const context = { source, from: 1, to: 3 };
+    const editorState = setSpecs(state(), [
+      {
+        suggestionId: "context-insert-space",
+        kind: "insert",
+        from: 1,
+        to: 1,
+        insertedText: " \t",
+        insertedPresentation: context,
+      },
+      {
+        suggestionId: "context-delete-space",
+        kind: "delete",
+        from: 7,
+        to: 7,
+        deletedText: " \t",
+        deletedPresentation: context,
+      },
+    ]);
+    const decorations = suggestionHighlightKey
+      .getState(editorState)!
+      .decorations.find();
+    const insert = decorations.find(
+      (decoration) => decoration.spec.key === "context-insert-space:inserted",
+    ) as any;
+    const deletion = decorations.find((decoration) =>
+      decoration.spec.key.includes("context-delete-space"),
+    ) as any;
+
+    expect(insert.type.toDOM().textContent).toBe("·⇥");
+    expect(deletion.type.toDOM().textContent).toBe("·⇥");
+  });
+
+  it("makes contextual marked newlines visible in widgets", () => {
+    const source = "`Ec<br>ho`";
+    const editorState = setSpecs(state(), [
+      {
+        suggestionId: "context-code-break",
+        kind: "insert",
+        from: 1,
+        to: 1,
+        insertedText: source,
+        insertedPresentation: {
+          source,
+          from: 0,
+          to: source.length,
+        },
+      },
+    ]);
+    const widget = suggestionHighlightKey
+      .getState(editorState)!
+      .decorations.find()[0] as any;
+    const dom = widget.type.toDOM();
+    expect(dom.querySelector("code")?.textContent).toBe("Ec↵ho");
+  });
+
+  it("makes structural indentation visible in a zero-width widget", () => {
+    const source = "\tParagraph";
+    const editorState = setSpecs(state(), [
+      {
+        suggestionId: "context-indent",
+        kind: "insert",
+        from: 1,
+        to: 1,
+        insertedText: "\t",
+        insertedPresentation: { source, from: 0, to: 1 },
+      },
+    ]);
+    const widget = suggestionHighlightKey
+      .getState(editorState)!
+      .decorations.find()[0] as any;
+    expect(widget.type.toDOM().textContent).toBe("⇥");
   });
 
   it("uses text geometry and an I-beam for every suggestion presentation", () => {
@@ -286,6 +367,156 @@ describe("SuggestionHighlight", () => {
     expect(dom.textContent).toBe("<img src=x>");
     expect(dom.querySelector("img")).toBeNull();
     expect(dom.getAttribute("data-suggestion-id")).toBe("safe");
+  });
+
+  it("renders inserted and deleted NFM with the same safe formatting as the sidebar", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
+      encoding: "utf8",
+    });
+    const marked =
+      '**Bold** *Italic* ~~Strike~~ `Code` <span underline="true">Underline</span> [Link](https://example.test)';
+    const editorState = setSpecs(state("Keep"), [
+      {
+        suggestionId: "marked-insert",
+        kind: "insert",
+        from: 1,
+        to: 1,
+        insertedText: marked,
+      },
+      {
+        suggestionId: "marked-delete",
+        kind: "delete",
+        from: 1,
+        to: 1,
+        deletedText: marked,
+      },
+    ]);
+    const decorations = suggestionHighlightKey
+      .getState(editorState)!
+      .decorations.find();
+    const inserted = (
+      decorations.find(
+        (decoration) => decoration.spec.key === "marked-insert:inserted",
+      ) as any
+    ).type.toDOM() as HTMLElement;
+    const deleted = (
+      decorations.find((decoration) =>
+        String(decoration.spec.key).includes("marked-delete"),
+      ) as any
+    ).type.toDOM() as HTMLElement;
+
+    for (const widget of [inserted, deleted]) {
+      expect(widget.textContent).toBe(
+        "Bold Italic Strike Code Underline Link (https://example.test)",
+      );
+      expect(widget.querySelector("strong")?.textContent).toBe("Bold");
+      expect(widget.querySelector("em")?.textContent).toBe("Italic");
+      expect(widget.querySelector("s")?.textContent).toBe("Strike");
+      expect(widget.querySelector("code")?.textContent).toBe("Code");
+      expect(widget.querySelector("u")?.textContent).toBe("Underline");
+      expect(widget.querySelector("a")).toBeNull();
+      expect(widget.innerHTML).not.toContain("**");
+    }
+    expect(inserted.className).toContain("suggestion-proposed-text");
+    expect(deleted.className).toContain("suggestion-deleted-text");
+    expect(css).toMatch(
+      /\.notion-editor \.suggestion-inline-widget\[data-suggestion-widget\] code\s*\{[^}]*color: inherit;/,
+    );
+  });
+
+  it.each([
+    ["# heading", "# heading"],
+    ["> quote", "> quote"],
+    ["- one\n- two", "- one↵- two"],
+    ["- [ ] task", "- [ ] task"],
+    ["```ts\nconst x = 1;\n```", "```ts↵const x = 1;↵```"],
+  ])(
+    "preserves block-leading fragment %j in insertion and deletion widgets",
+    (content, expected) => {
+      const editorState = setSpecs(state("Keep"), [
+        {
+          suggestionId: "literal-insert",
+          kind: "insert",
+          from: 1,
+          to: 1,
+          insertedText: content,
+        },
+        {
+          suggestionId: "literal-delete",
+          kind: "delete",
+          from: 1,
+          to: 1,
+          deletedText: content,
+        },
+      ]);
+      const decorations = suggestionHighlightKey
+        .getState(editorState)!
+        .decorations.find();
+      const inserted = (
+        decorations.find(
+          (decoration) => decoration.spec.key === "literal-insert:inserted",
+        ) as any
+      ).type.toDOM() as HTMLElement;
+      const deleted = (
+        decorations.find((decoration) =>
+          String(decoration.spec.key).includes("literal-delete"),
+        ) as any
+      ).type.toDOM() as HTMLElement;
+
+      expect(inserted.textContent).toBe(expected);
+      expect(deleted.textContent).toBe(expected);
+    },
+  );
+
+  it("keeps widget formatting independent from adjacent document marks", () => {
+    const nativeMarks = [
+      schema.marks.strong.create(),
+      schema.marks.emphasis.create(),
+      schema.marks.underline.create(),
+      schema.marks.strike.create(),
+    ];
+    let editorState = EditorState.create({
+      doc: schema.node("doc", null, [
+        schema.node("paragraph", null, [
+          schema.text("Before "),
+          schema.text("Changed", nativeMarks),
+        ]),
+      ]),
+      plugins: [createSuggestionHighlightPlugin()],
+    });
+    editorState = setSpecs(editorState, [
+      {
+        suggestionId: "marked-insert",
+        kind: "insert",
+        from: 8,
+        to: 8,
+        insertedText: "*Inserted*",
+      },
+      {
+        suggestionId: "marked-delete",
+        kind: "delete",
+        from: 8,
+        to: 8,
+        deletedText: "**Deleted**",
+      },
+    ]);
+    const mount = document.createElement("div");
+    const view = new EditorView(mount, { state: editorState });
+    const inserted = mount.querySelector<HTMLElement>(
+      '[data-suggestion-id="marked-insert"][data-suggestion-widget]',
+    )!;
+    const deleted = mount.querySelector<HTMLElement>(
+      '[data-suggestion-id="marked-delete"][data-suggestion-widget]',
+    )!;
+
+    for (const widget of [inserted, deleted]) {
+      expect(widget.closest("strong, em, u, s")).toBeNull();
+    }
+    expect(inserted.querySelector("em")?.textContent).toBe("Inserted");
+    expect(deleted.querySelector("strong")?.textContent).toBe("Deleted");
+    expect(mount.querySelector("strong em u s")?.textContent).toBe("Changed");
+
+    view.destroy();
   });
 
   it("renders draft deletion ghosts as non-focusable editable boundaries", () => {

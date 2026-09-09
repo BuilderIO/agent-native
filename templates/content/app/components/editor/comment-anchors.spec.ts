@@ -30,6 +30,37 @@ function mkDoc(paragraphs: string[]): PMNode {
 }
 
 describe("comment-anchors", () => {
+  it("includes hard breaks only in the opt-in suggestion text space", () => {
+    const richSchema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { group: "block", content: "inline*" },
+        text: { group: "inline" },
+        hardBreak: { inline: true, group: "inline" },
+      },
+    });
+    const doc = richSchema.node("doc", null, [
+      richSchema.node("paragraph", null, [
+        richSchema.text("Ec"),
+        richSchema.node("hardBreak"),
+        richSchema.text("ho"),
+      ]),
+    ]);
+    expect(buildDocText(doc).text).toBe("Echo");
+    expect(captureAnchor(doc, 4, 6)).toMatchObject({
+      quotedText: "ho",
+      startOffset: 2,
+    });
+    expect(buildDocText(doc, "\n", "\n").text).toBe("Ec\nho");
+    expect(
+      resolveAnchor(
+        doc,
+        { quotedText: "\n", prefix: "Ec", suffix: "ho" },
+        "\n",
+        "\n",
+      ),
+    ).toEqual({ from: 3, to: 4 });
+  });
   it("captures and resolves a selection round-trip", () => {
     const doc = mkDoc(["Hello world foo"]);
     // "world" sits at char index 6 → ProseMirror pos 7 (pos 0 precedes the

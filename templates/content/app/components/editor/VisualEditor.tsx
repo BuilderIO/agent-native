@@ -23,6 +23,12 @@ import {
   parseRegistryBlockData,
   type ParsedRegistryBlock,
 } from "@shared/nfm-registry";
+import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
+import {
+  suggestionAnchorText,
+  suggestionTextPresentationForSource,
+  type SuggestionPresentationContext,
+} from "@shared/suggestion-text";
 import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
 import {
   isNodeEmpty,
@@ -48,6 +54,7 @@ import {
   AllSelection,
   NodeSelection,
   Selection,
+  TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
@@ -70,6 +77,7 @@ import type { CommentThread } from "@/hooks/use-comments";
 
 import { BubbleToolbar } from "./BubbleToolbar";
 import {
+  buildDocText,
   resolveAnchor,
   resolveAnchorPoint,
   type CommentTextAnchor,
@@ -741,6 +749,63 @@ const NormalizeTableHeaders = Extension.create({
   },
 });
 
+function pendingNativeSuggestionSelection(
+  view: EditorView,
+  specs: SuggestionHighlightSpec[],
+):
+  | { status: "not-applicable" }
+  | { status: "unmappable"; error: unknown }
+  | { status: "mapped"; selection: TextSelection } {
+  const native = view.dom.ownerDocument.getSelection();
+  if (
+    !view.editable ||
+    !view.hasFocus() ||
+    !native ||
+    native.isCollapsed ||
+    native.rangeCount !== 1 ||
+    !native.anchorNode?.isConnected ||
+    !native.focusNode?.isConnected ||
+    !view.dom.contains(native.anchorNode) ||
+    !view.dom.contains(native.focusNode) ||
+    [native.anchorNode, native.focusNode].some((node) =>
+      (node instanceof Element ? node : node.parentElement)?.closest(
+        '[contenteditable="false"], [data-suggestion-edit-boundary]',
+      ),
+    )
+  )
+    return { status: "not-applicable" };
+  try {
+    const anchor = view.posAtDOM(native.anchorNode, native.anchorOffset);
+    const head = view.posAtDOM(native.focusNode, native.focusOffset);
+    if (
+      ![anchor, head].every(
+        (position) =>
+          Number.isInteger(position) &&
+          position >= 0 &&
+          position <= view.state.doc.content.size,
+      ) ||
+      anchor === head ||
+      (view.state.selection.anchor === anchor &&
+        view.state.selection.head === head) ||
+      !view.state.doc.resolve(anchor).parent.inlineContent ||
+      !view.state.doc.resolve(head).parent.inlineContent ||
+      !specs.some(
+        (spec) =>
+          spec.editableText &&
+          Math.min(anchor, head) < spec.to &&
+          Math.max(anchor, head) > spec.from,
+      )
+    )
+      return { status: "not-applicable" };
+    return {
+      status: "mapped",
+      selection: TextSelection.create(view.state.doc, anchor, head),
+    };
+  } catch (error) {
+    return { status: "unmappable", error };
+  }
+}
+
 export interface VisualEditorSuggestion {
   id: string;
   kind:
@@ -751,6 +816,8 @@ export interface VisualEditorSuggestion {
     | "set_inline_mark";
   beforeText: string;
   afterText: string;
+  beforePresentation?: SuggestionPresentationContext;
+  afterPresentation?: SuggestionPresentationContext;
   anchor: { from: number; prefix: string; suffix: string };
   /** Draft documents already contain the proposed result; canonical ones do not. */
   presentation: "draft" | "canonical";
@@ -760,23 +827,87 @@ function suggestionAnchorRange(
   doc: ProseMirrorNode,
   suggestion: VisualEditorSuggestion,
 ): { from: number; to: number } | null {
-  const quote =
+  const source = docToNfm(doc.toJSON());
+  const rawQuote =
     suggestion.presentation === "draft"
       ? suggestion.afterText
       : suggestion.beforeText;
-  if (quote) {
-    return resolveAnchor(
-      doc,
-      {
-        quotedText: quote,
-        prefix: suggestion.anchor.prefix,
-        suffix: suggestion.anchor.suffix,
-        startOffset: suggestion.anchor.from,
-      },
-      "\n",
-    );
+  const sourceFrom = suggestion.anchor.from;
+  const sourceTo = sourceFrom + rawQuote.length;
+  const sourceMatches =
+    source.slice(sourceFrom, sourceTo) === rawQuote &&
+    source.slice(
+      Math.max(0, sourceFrom - suggestion.anchor.prefix.length),
+      sourceFrom,
+    ) === suggestion.anchor.prefix &&
+    source.slice(sourceTo, sourceTo + suggestion.anchor.suffix.length) ===
+      suggestion.anchor.suffix;
+  const sourceRangeToPm = (from: number, to: number) => {
+    const mapped = suggestionFormattingSourceRange(source, from, to);
+    if (!mapped) return null;
+    const plain = buildDocText(doc);
+    if (plain.text !== mapped.text) return null;
+    const position = (offset: number, affinity: "left" | "right") => {
+      let textOffset = 0;
+      let result: number | null = null;
+      let firstPosition: number | null = null;
+      let finalPosition: number | null = null;
+      doc.descendants((node, pos) => {
+        if (!node.isText || result !== null) return;
+        const size = node.text!.length;
+        firstPosition ??= pos;
+        const startsWithinNode =
+          affinity === "left" ? offset > textOffset : offset >= textOffset;
+        const endsWithinNode =
+          affinity === "left"
+            ? offset <= textOffset + size
+            : offset < textOffset + size;
+        if (startsWithinNode && endsWithinNode)
+          result = pos + offset - textOffset;
+        textOffset += size;
+        finalPosition = pos + size;
+      });
+      if (result !== null) return result;
+      if (offset === 0) return firstPosition;
+      return offset === textOffset ? finalPosition : null;
+    };
+    const pmFrom = position(mapped.from, mapped.fromAffinity);
+    const pmTo =
+      mapped.from === mapped.to
+        ? pmFrom
+        : position(mapped.to, mapped.toAffinity);
+    return pmFrom !== null && pmTo !== null && pmTo >= pmFrom
+      ? { from: pmFrom, to: pmTo }
+      : null;
+  };
+  if (sourceMatches) {
+    const exactRange = sourceRangeToPm(sourceFrom, sourceTo);
+    if (exactRange) return exactRange;
   }
-
+  const mappedSource = suggestionAnchorText(source);
+  if (suggestion.kind === "set_inline_mark") {
+    let from = sourceFrom;
+    if (!sourceMatches) {
+      const needle =
+        suggestion.anchor.prefix + rawQuote + suggestion.anchor.suffix;
+      const match = source.indexOf(needle);
+      if (match < 0 || source.indexOf(needle, match + 1) >= 0) return null;
+      from = match + suggestion.anchor.prefix.length;
+    }
+    const mappedRange = sourceRangeToPm(from, from + rawQuote.length);
+    return mappedRange && mappedRange.to > mappedRange.from
+      ? mappedRange
+      : null;
+  }
+  const startOffset =
+    sourceMatches && mappedSource === buildDocText(doc, "\n", "\n").text
+      ? suggestionAnchorText(source.slice(0, sourceFrom)).length
+      : undefined;
+  const quote = suggestionAnchorText(
+    suggestion.presentation === "draft"
+      ? suggestion.afterText
+      : suggestion.beforeText,
+  );
   if (
     suggestion.presentation === "draft" &&
     suggestion.beforeText &&
@@ -787,27 +918,66 @@ function suggestionAnchorRange(
     return { from: 1, to: 1 };
   }
 
-  // Suggestion contexts come from NFM, which separates paragraphs with one newline.
-  const position = resolveAnchorPoint(
+  const prefix =
+    startOffset === undefined
+      ? suggestionAnchorText(suggestion.anchor.prefix)
+      : mappedSource.slice(0, startOffset);
+  const suffix =
+    startOffset === undefined
+      ? suggestionAnchorText(suggestion.anchor.suffix)
+      : mappedSource.slice(startOffset + quote.length);
+  const from = resolveAnchorPoint(
     doc,
-    {
-      prefix: suggestion.anchor.prefix,
-      suffix: suggestion.anchor.suffix,
-      startOffset: suggestion.anchor.from,
-    },
+    { prefix, suffix: quote + suffix },
+    "\n",
     "\n",
   );
-  if (position == null) return null;
-  return { from: position, to: position };
+  if (from === null) return null;
+  if (!quote) return { from, to: from };
+  const to = resolveAnchorPoint(
+    doc,
+    { prefix: prefix + quote, suffix },
+    "\n",
+    "\n",
+  );
+  return to !== null && to > from ? { from, to } : null;
 }
 
 export function suggestionHighlightSpec(
   doc: ProseMirrorNode,
   suggestion: VisualEditorSuggestion,
 ): SuggestionHighlightSpec | null {
+  const beforePresentation = suggestion.beforePresentation
+    ? suggestionTextPresentationForSource(
+        suggestion.beforeText,
+        suggestion.beforePresentation,
+      )
+    : undefined;
+  const afterPresentation = suggestion.afterPresentation
+    ? suggestionTextPresentationForSource(
+        suggestion.afterText,
+        suggestion.afterPresentation,
+      )
+    : undefined;
+  if (beforePresentation === null || afterPresentation === null) return null;
   const range = suggestionAnchorRange(doc, suggestion);
   if (!range) return null;
   if (suggestion.presentation === "draft") {
+    if (
+      /^\n+$/.test(suggestionAnchorText(suggestion.afterText)) ||
+      (afterPresentation &&
+        afterPresentation.length > 0 &&
+        afterPresentation.every((node) => node.type === "indent"))
+    ) {
+      return {
+        suggestionId: suggestion.id,
+        kind: "insert",
+        from: range.from,
+        to: range.to,
+        insertedText: suggestion.afterText,
+        insertedPresentation: suggestion.afterPresentation,
+      };
+    }
     if (!suggestion.afterText) {
       return {
         suggestionId: suggestion.id,
@@ -815,6 +985,7 @@ export function suggestionHighlightSpec(
         from: range.from,
         to: range.to,
         deletedText: suggestion.beforeText,
+        deletedPresentation: suggestion.beforePresentation,
         editableBoundary: true,
       };
     }
@@ -825,10 +996,19 @@ export function suggestionHighlightSpec(
       to: range.to,
       deletedText:
         suggestion.kind === "replace_text" ? suggestion.beforeText : undefined,
+      deletedPresentation:
+        suggestion.kind === "replace_text"
+          ? suggestion.beforePresentation
+          : undefined,
       editableBoundary: suggestion.kind === "replace_text",
       editableText: true,
     };
   }
+  const structuralDeletion =
+    /^\n+$/.test(suggestionAnchorText(suggestion.beforeText)) ||
+    (beforePresentation &&
+      beforePresentation.length > 0 &&
+      beforePresentation.every((node) => node.type === "indent"));
   return {
     suggestionId: suggestion.id,
     kind:
@@ -844,10 +1024,11 @@ export function suggestionHighlightSpec(
     from: range.from,
     to: range.to,
     insertedText: suggestion.afterText,
-    deletedText:
-      suggestion.beforeText.includes("\n") && !suggestion.beforeText.trim()
-        ? suggestion.beforeText
-        : undefined,
+    insertedPresentation: suggestion.afterPresentation,
+    deletedText: structuralDeletion ? suggestion.beforeText : undefined,
+    deletedPresentation: structuralDeletion
+      ? suggestion.beforePresentation
+      : undefined,
   };
 }
 
@@ -895,6 +1076,7 @@ interface VisualEditorProps {
   }) => void;
   onChange: (markdown: string) => void;
   onSaveContent?: (markdown: string) => boolean | Promise<boolean>;
+  onEscape?: () => void;
   /** Yjs document for collaborative editing. */
   ydoc?: YDoc | null;
   /** True after the collab provider has loaded persisted Y.Doc state. */
@@ -904,6 +1086,8 @@ interface VisualEditorProps {
   /** Current user info for cursor labels. */
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
+  /** True while edits are captured as supported page-body suggestions. */
+  suggesting?: boolean;
   /** Local-file docs should not persist mount-time/schema normalization echoes. */
   localFileMode?: boolean;
   /** Workspace-relative local artifact path for resolving inline references. */
@@ -968,13 +1152,19 @@ export interface VisualEditorHistoryController {
 
 export function suggestionReplacementIntentForTransaction(
   transaction: Transaction,
+  selection: Pick<Selection, "from" | "to" | "empty">,
 ): {
   beforeText: string;
   afterText: string;
   startOffset: number;
   beforeMarkdown: string;
 } | null {
-  if (!transaction.docChanged || transaction.steps.length !== 1) return null;
+  if (
+    selection.empty ||
+    !transaction.docChanged ||
+    transaction.steps.length !== 1
+  )
+    return null;
   const ranges: Array<{
     oldStart: number;
     oldEnd: number;
@@ -990,6 +1180,7 @@ export function suggestionReplacementIntentForTransaction(
     return null;
   }
   const { oldStart, oldEnd, newStart, newEnd } = ranges[0]!;
+  if (oldStart !== selection.from || oldEnd !== selection.to) return null;
   const beforeText = transaction.before.textBetween(oldStart, oldEnd, "\n");
   const afterText = transaction.doc.textBetween(newStart, newEnd, "\n");
   if (!beforeText || beforeText === afterText) return null;
@@ -1273,6 +1464,7 @@ interface VisualEditorExtensionOptions {
   } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
+  canMutateMedia?: () => boolean;
   onJoinTitle?: (text: string) => void;
   resolveNotionPageLink?: (notionPageId: string) => NotionPageLink | null;
   onOpenNotionPageLink?: (documentId: string) => void;
@@ -1309,6 +1501,15 @@ export function hasAncestorType(
 type MediaNodeType = "image" | "video" | "audio";
 
 const MEDIA_NODE_TYPES = new Set<MediaNodeType>(["image", "video", "audio"]);
+
+export function runIfMediaCreationAllowed(
+  suggesting: boolean,
+  action: () => void,
+): boolean {
+  if (suggesting) return false;
+  action();
+  return true;
+}
 
 function mediaSourceCounts(doc: ProseMirrorNode) {
   const counts = new Map<string, number>();
@@ -1873,6 +2074,7 @@ export function createVisualEditorExtensions({
   user,
   onImageComment,
   onImageFilePickerRequest,
+  canMutateMedia,
   onJoinTitle,
   resolveNotionPageLink,
   onOpenNotionPageLink,
@@ -1934,16 +2136,19 @@ export function createVisualEditorExtensions({
         documentId,
         onImageComment,
         onImageFilePickerRequest,
+        canMutateMedia,
       }),
       VideoNode.configure({
         HTMLAttributes: { class: "notion-video" },
         documentId,
         onVideoComment: onImageComment,
+        canMutateMedia,
       }),
       AudioNode.configure({
         HTMLAttributes: { class: "notion-audio" },
         documentId,
         onAudioComment: onImageComment,
+        canMutateMedia,
       }),
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
       CustomTable.configure({
@@ -2335,11 +2540,13 @@ export function VisualEditor({
   onBaseAwareReconcile,
   onChange,
   onSaveContent,
+  onEscape,
   ydoc,
   collabSynced = true,
   awareness,
   user,
   editable = true,
+  suggesting = false,
   localFileMode = false,
   localFilePath,
   referenceDepth,
@@ -2366,6 +2573,8 @@ export function VisualEditor({
 }: VisualEditorProps) {
   const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
+  const suggestingRef = useRef(suggesting);
+  suggestingRef.current = suggesting;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePickerRef = useRef<PendingImagePicker | null>(null);
@@ -2383,6 +2592,9 @@ export function VisualEditor({
     onSuggestionReplacementIntent,
   );
   onSuggestionReplacementIntentRef.current = onSuggestionReplacementIntent;
+  const suggestionTransactionSelections = useRef(
+    new WeakMap<Transaction, Selection>(),
+  );
   const onHistoryStateChangeRef = useRef(onHistoryStateChange);
   onHistoryStateChangeRef.current = onHistoryStateChange;
   const historyStateNotificationRef = useRef<VisualEditorHistoryState | null>(
@@ -2425,12 +2637,15 @@ export function VisualEditor({
   );
   const onImageFilePickerRequest = useCallback(
     (request: PendingImagePicker) => {
-      if (pendingImagePickerRef.current) return;
-      pendingImagePickerRef.current = request;
-      imageFileInputRef.current?.click();
+      runIfMediaCreationAllowed(suggestingRef.current, () => {
+        if (pendingImagePickerRef.current) return;
+        pendingImagePickerRef.current = request;
+        imageFileInputRef.current?.click();
+      });
     },
     [],
   );
+  const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const resolveNotionPageLink = useCallback((notionPageId: string) => {
     const normalized = notionPageId.replace(/-/g, "").toLowerCase();
     return (
@@ -2482,15 +2697,18 @@ export function VisualEditor({
     };
   }, [fallbackAwareness]);
 
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
   const extensions = useMemo(
-    () =>
-      createVisualEditorExtensions({
+    () => [
+      ...createVisualEditorExtensions({
         documentId,
         ydoc,
         localAwareness,
         user,
         onImageComment: onComment,
         onImageFilePickerRequest,
+        canMutateMedia,
         onJoinTitle,
         resolveNotionPageLink,
         onOpenNotionPageLink,
@@ -2499,6 +2717,34 @@ export function VisualEditor({
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
       }),
+      Extension.create({
+        name: "contentEditorEscape",
+        priority: 0,
+        addProseMirrorPlugins() {
+          return [
+            new Plugin({
+              props: {
+                handleKeyDown(view, event) {
+                  if (
+                    event.key !== "Escape" ||
+                    event.defaultPrevented ||
+                    event.isComposing ||
+                    event.keyCode === 229 ||
+                    event.target !== view.dom ||
+                    !onEscapeRef.current
+                  )
+                    return false;
+                  // Run after editor commands, before ProseMirror's native Escape fallback.
+                  event.preventDefault();
+                  onEscapeRef.current();
+                  return true;
+                },
+              },
+            }),
+          ];
+        },
+      }),
+    ],
     [
       documentId,
       ydoc,
@@ -2506,6 +2752,7 @@ export function VisualEditor({
       user,
       onComment,
       onImageFilePickerRequest,
+      canMutateMedia,
       onJoinTitle,
       resolveNotionPageLink,
       onOpenNotionPageLink,
@@ -2576,6 +2823,7 @@ export function VisualEditor({
     [content, localFileMode, t],
   );
   onMediaSourceCommittedRef.current = async (editorToPersist, transaction) => {
+    if (suggestingRef.current) return;
     const guards = guardsRef.current;
     if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
     try {
@@ -2625,23 +2873,23 @@ export function VisualEditor({
         ) {
           return false;
         }
-
-        event.preventDefault();
-        const coords = view.posAtCoords({
-          left: event.clientX,
-          top: event.clientY,
+        return runIfMediaCreationAllowed(suggestingRef.current, () => {
+          event.preventDefault();
+          const coords = view.posAtCoords({
+            left: event.clientX,
+            top: event.clientY,
+          });
+          const position = coords?.pos ?? view.state.selection.from;
+          if (imageFiles.length > 0) {
+            void uploadAndInsertImageFiles(view, imageFiles, position);
+          }
+          if (videoFiles.length > 0) {
+            void uploadAndInsertVideoFiles(view, videoFiles, position);
+          }
+          if (audioFiles.length > 0) {
+            void uploadAndInsertAudioFiles(view, audioFiles, position);
+          }
         });
-        const position = coords?.pos ?? view.state.selection.from;
-        if (imageFiles.length > 0) {
-          void uploadAndInsertImageFiles(view, imageFiles, position);
-        }
-        if (videoFiles.length > 0) {
-          void uploadAndInsertVideoFiles(view, videoFiles, position);
-        }
-        if (audioFiles.length > 0) {
-          void uploadAndInsertAudioFiles(view, audioFiles, position);
-        }
-        return true;
       },
       handlePaste(view, event) {
         if (view.editable) markUserEditIntent();
@@ -2657,30 +2905,32 @@ export function VisualEditor({
         ) {
           return false;
         }
-
-        event.preventDefault();
-        if (imageFiles.length > 0) {
-          void uploadAndInsertImageFiles(
-            view,
-            imageFiles,
-            view.state.selection.from,
-          );
-        }
-        if (videoFiles.length > 0) {
-          void uploadAndInsertVideoFiles(
-            view,
-            videoFiles,
-            view.state.selection.from,
-          );
-        }
-        if (audioFiles.length > 0) {
-          void uploadAndInsertAudioFiles(
-            view,
-            audioFiles,
-            view.state.selection.from,
-          );
-        }
-        return true;
+        // Let ProseMirror continue handling any textual clipboard payload, but
+        // never start an excluded media upload while composing a suggestion.
+        return runIfMediaCreationAllowed(suggestingRef.current, () => {
+          event.preventDefault();
+          if (imageFiles.length > 0) {
+            void uploadAndInsertImageFiles(
+              view,
+              imageFiles,
+              view.state.selection.from,
+            );
+          }
+          if (videoFiles.length > 0) {
+            void uploadAndInsertVideoFiles(
+              view,
+              videoFiles,
+              view.state.selection.from,
+            );
+          }
+          if (audioFiles.length > 0) {
+            void uploadAndInsertAudioFiles(
+              view,
+              audioFiles,
+              view.state.selection.from,
+            );
+          }
+        });
       },
       handleDOMEvents: {
         beforeinput(view) {
@@ -2718,10 +2968,11 @@ export function VisualEditor({
           ) {
             return false;
           }
-          event.preventDefault();
-          event.dataTransfer!.dropEffect = "copy";
-          setIsDraggingMedia(true);
-          return true;
+          return runIfMediaCreationAllowed(suggestingRef.current, () => {
+            event.preventDefault();
+            event.dataTransfer!.dropEffect = "copy";
+            setIsDraggingMedia(true);
+          });
         },
         dragleave(view, event) {
           const wrapper = view.dom.closest(".visual-editor-wrapper");
@@ -2805,9 +3056,15 @@ export function VisualEditor({
       }
       if (isActiveSlashCommandDraft(editor)) return;
       if (shouldSkipMediaDraftPersistence(editor)) return;
-      const replacementIntent = onSuggestionReplacementIntentRef.current
-        ? suggestionReplacementIntentForTransaction(transaction)
-        : null;
+      const priorSelection =
+        suggestionTransactionSelections.current.get(transaction);
+      const replacementIntent =
+        onSuggestionReplacementIntentRef.current && priorSelection
+          ? suggestionReplacementIntentForTransaction(
+              transaction,
+              priorSelection,
+            )
+          : null;
       if (replacementIntent) {
         onSuggestionReplacementIntentRef.current?.(replacementIntent);
       }
@@ -2817,6 +3074,19 @@ export function VisualEditor({
     },
   });
   historyEditorRef.current = editor;
+  useEffect(() => {
+    if (!editor) return;
+    const capture = ({ transaction }: { transaction: Transaction }) => {
+      suggestionTransactionSelections.current.set(
+        transaction,
+        editor.state.selection,
+      );
+    };
+    editor.on("beforeTransaction", capture);
+    return () => {
+      editor.off("beforeTransaction", capture);
+    };
+  }, [editor]);
 
   useEffect(() => {
     if (!editor) {
@@ -2852,6 +3122,7 @@ export function VisualEditor({
       input.value = "";
       const request = pendingImagePickerRef.current;
       pendingImagePickerRef.current = null;
+      if (suggestingRef.current) return;
       if (!editor || !file || !request) return;
 
       const uploadId = createMediaUploadId("image");
@@ -2864,7 +3135,7 @@ export function VisualEditor({
         await completeImageFileUpload({
           file,
           stageAttributes: (src) => {
-            if (editor.isDestroyed) return;
+            if (editor.isDestroyed || suggestingRef.current) return;
             staged = commitPendingImageUpload(editor.view, request, uploadId, {
               src,
               uploadId,
@@ -2877,7 +3148,7 @@ export function VisualEditor({
             );
           },
           commitAttributes: (src) => {
-            if (editor.isDestroyed) return;
+            if (editor.isDestroyed || suggestingRef.current) return;
             committed = commitPendingImageUpload(
               editor.view,
               request,
@@ -2886,7 +3157,8 @@ export function VisualEditor({
             );
           },
           persistCommittedImage: async () => {
-            if (!committed || editor.isDestroyed) return false;
+            if (!committed || editor.isDestroyed || suggestingRef.current)
+              return false;
             return await persistEditorContent(editor, {
               immediate: true,
               userInitiated: true,
@@ -3245,10 +3517,12 @@ export function VisualEditor({
       onSuggestionAnchorsChange?.(
         Array.from(new Set(specs.map((spec) => spec.suggestionId))),
       );
-      setSuggestionHighlights(editor.view, {
-        specs,
-        activeId: activeSuggestionId ?? null,
-      });
+      const selection = pendingNativeSuggestionSelection(editor.view, specs);
+      setSuggestionHighlights(
+        editor.view,
+        { specs, activeId: activeSuggestionId ?? null },
+        selection.status === "mapped" ? selection.selection : undefined,
+      );
     };
     const onTransaction = ({ transaction }: { transaction: Transaction }) => {
       if (transaction.docChanged) apply();
@@ -3390,6 +3664,7 @@ export function VisualEditor({
         <SlashCommandMenu
           editor={editor}
           documentId={documentId}
+          suggesting={suggesting}
           notionPageId={notionPageId}
           onDraftCommitted={() =>
             persistEditorContent(editor, { userInitiated: true })

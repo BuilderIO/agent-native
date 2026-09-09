@@ -55,6 +55,7 @@ export type PageOwnedDocumentCachePatch = Pick<
   | "visibility"
   | "accessRole"
   | "canComment"
+  | "canSuggest"
   | "canEdit"
   | "canManage"
   | "source"
@@ -273,6 +274,9 @@ export function mergeDocumentIntoDocumentCache(
     visibility: document.visibility,
     accessRole: document.accessRole,
     canComment: document.canComment,
+    ...(document.canSuggest !== undefined
+      ? { canSuggest: document.canSuggest }
+      : {}),
     canEdit: document.canEdit,
     canManage: document.canManage,
     source: document.source,

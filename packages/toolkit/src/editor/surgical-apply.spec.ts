@@ -252,6 +252,88 @@ describe("applyDocSurgically", () => {
 });
 
 describe("reconcileDocAgainstBase", () => {
+  it.each([
+    { base: "Alpha", server: "Accepted", live: "Accepted" },
+    {
+      base: "Alpha\n\nBravo",
+      server: "Accepted\n\nBravo",
+      live: "Accepted\n\nBravo local",
+    },
+  ])(
+    "acknowledges common replacements without a transaction: $live",
+    ({ base, server, live }) => {
+      const editor = makeEditor(live);
+      try {
+        const before = editor.state.doc;
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, server),
+        );
+        expect(result.status).toBe("noop");
+        expect(editor.state.doc).toBe(before);
+        expect(md(editor)).toBe(live);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    {
+      base: "Alpha\n\nBravo",
+      server: "Accepted\n\nBravo",
+      live: "Different\n\nBravo local",
+    },
+    {
+      base: "Alpha\n\nBravo",
+      server: "Accepted\n\nBravo server",
+      live: "Accepted\n\nBravo local",
+    },
+    {
+      base: "Alpha\n\nBravo",
+      server: "Bravo\n\nAlpha",
+      live: "Bravo\n\nAlpha local",
+    },
+    {
+      base: "Same\n\nMiddle\n\nSame",
+      server: "Accepted\n\nMiddle\n\nSame",
+      live: "Accepted\n\nMiddle local\n\nSame",
+    },
+  ])(
+    "preserves conflicting or ambiguous common-change candidates: $live",
+    ({ base, server, live }) => {
+      const editor = makeEditor(live);
+      try {
+        const before = editor.state.doc;
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, server),
+        );
+        expect(["conflict", "failed"]).toContain(result.status);
+        expect(editor.state.doc).toBe(before);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("applies remaining server changes beside a common replacement and local edit", () => {
+    const editor = makeEditor("Accepted\n\nBravo local\n\nCharlie");
+    try {
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "Alpha\n\nBravo\n\nCharlie"),
+        parse(editor, "Accepted\n\nBravo\n\nCharlie server"),
+      );
+      expect(result.status).toBe("applied");
+      expect(md(editor)).toBe("Accepted\n\nBravo local\n\nCharlie server");
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("merges a server insertion between unchanged blocks with a separate local edit", () => {
     const editor = makeEditor("Alpha\n\nBravo\n\nCharlie local");
     try {

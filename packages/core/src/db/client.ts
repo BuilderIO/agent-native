@@ -7,6 +7,7 @@ import path from "path";
  * expose PostgreSQL semantics to the rest of the framework.
  */
 import { getAppConfig } from "../app-config/index.js";
+import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 import {
   beginDatabaseOperation,
@@ -54,6 +55,40 @@ export interface DbExec {
 
 export interface DbExecConfig {
   url?: string;
+}
+
+type PgliteTransactionContext = {
+  client: any;
+  exec: DbExec;
+};
+
+type PgliteTransactionContexts = ReadonlyMap<string, PgliteTransactionContext>;
+
+type PgliteTransactionStorage = {
+  getStore(): PgliteTransactionContexts | undefined;
+  run<T>(store: PgliteTransactionContexts, callback: () => T): T;
+};
+
+const PgliteTransactionStorage = getAsyncLocalStorageCtor();
+const pgliteTransactionGlobal = globalThis as typeof globalThis & {
+  __agentNativePgliteTransactionStorage?: PgliteTransactionStorage;
+};
+const pgliteTransactionStorage =
+  pgliteTransactionGlobal.__agentNativePgliteTransactionStorage ??
+  (PgliteTransactionStorage
+    ? (pgliteTransactionGlobal.__agentNativePgliteTransactionStorage =
+        new PgliteTransactionStorage<PgliteTransactionContexts>())
+    : undefined);
+
+/** Active native PGlite transaction for this database and async call chain. */
+export function getActivePgliteTransactionClient(url: string): any | undefined {
+  return pgliteTransactionStorage?.getStore()?.get(pgliteClientKeyFromUrl(url))
+    ?.client;
+}
+
+function getActivePgliteTransactionExec(url: string): DbExec | undefined {
+  return pgliteTransactionStorage?.getStore()?.get(pgliteClientKeyFromUrl(url))
+    ?.exec;
 }
 
 function hasCloudflareRuntime(): boolean {
@@ -255,6 +290,10 @@ export function pgliteRuntimeDataDir(dataDir: string): string {
       ? path.join(...safeParts)
       : path.join("data", "pglite");
   return path.join("/tmp", safeRelative);
+}
+
+export function pgliteClientKeyFromUrl(url: string): string {
+  return pgliteClientKey(pgliteRuntimeDataDir(pgliteDataDirFromUrl(url)));
 }
 
 async function preparePgliteDataDir(dataDir: string): Promise<string> {
@@ -1640,14 +1679,36 @@ async function createDbExecInternal(
 
   if (isPgliteUrl(url)) {
     const client = await getPgliteClient(url);
+    const clientKey = pgliteClientKeyFromUrl(url);
     return {
-      execute: (sql) => executePglite(client, sql),
+      execute: (sql) =>
+        executePglite(getActivePgliteTransactionClient(url) ?? client, sql),
       async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
-        return client.transaction((tx: any) =>
-          fn({
+        if (getActivePgliteTransactionExec(url)) {
+          throw new Error(
+            "Nested PGlite transactions are not supported; reuse the active transaction handle.",
+          );
+        }
+        if (!pgliteTransactionStorage) {
+          throw new Error(
+            "PGlite transactions require AsyncLocalStorage so database access stays on the active transaction handle.",
+          );
+        }
+        return client.transaction((tx: any) => {
+          const transactionExec: DbExec = {
             execute: (sql) => executePglite(tx, sql),
-          }),
-        );
+          };
+          const activeTransactions = new Map(
+            pgliteTransactionStorage.getStore(),
+          );
+          activeTransactions.set(clientKey, {
+            client: tx,
+            exec: transactionExec,
+          });
+          return pgliteTransactionStorage.run(activeTransactions, () =>
+            fn(transactionExec),
+          );
+        });
       },
     };
   }

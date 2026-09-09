@@ -29,6 +29,9 @@ import {
   insertInlineDatabaseBlock,
   parseSlashCommandQuery,
   parseInlineGeneratePrompt,
+  runGeneratePromptIfAllowed,
+  slashCommandAllowedInMode,
+  slashCommandsForMode,
   SlashCommandMenu,
   setCodeBlockFromSlashCommand,
   setPlainTextBlock,
@@ -68,6 +71,72 @@ describe("inline slash generate command parsing", () => {
 });
 
 describe("generate command affordances", () => {
+  it("denies a stale Generate popover submission after Suggesting starts", () => {
+    const send = vi.fn();
+
+    expect(runGeneratePromptIfAllowed(true, send)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    expect(runGeneratePromptIfAllowed(false, send)).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps inline Generate text intact while Suggesting", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>/generate rewrite this</p>",
+    });
+    editor.commands.focus("end");
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, {
+                  editor,
+                  suggesting: true,
+                }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => Promise.resolve());
+
+      expect(editor.getText()).toBe("/generate rewrite this");
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
+
   it("uses slash commands and the shared composer instead of a space shortcut", () => {
     const source = readSlashCommandMenuSource();
 
@@ -82,6 +151,32 @@ describe("generate command affordances", () => {
 });
 
 describe("slash command menu trigger", () => {
+  it("fails closed to the supported suggestion operation grammar", () => {
+    const safeAction = vi.fn();
+    const unsafeAction = vi.fn();
+    const commands = [
+      {
+        title: "Paragraph",
+        suggestionSafe: true,
+        action: safeAction,
+      },
+      { title: "Database", action: unsafeAction },
+    ];
+
+    expect(slashCommandsForMode(commands, true)).toEqual([commands[0]]);
+    expect(slashCommandsForMode(commands, false)).toEqual(commands);
+    expect(slashCommandAllowedInMode(commands[0]!, true)).toBe(true);
+    expect(slashCommandAllowedInMode(commands[1]!, true)).toBe(false);
+    expect(slashCommandAllowedInMode(commands[1]!, false)).toBe(true);
+    expect(safeAction).not.toHaveBeenCalled();
+    expect(unsafeAction).not.toHaveBeenCalled();
+    expect(
+      buildHeadingCommands("toggle").every(
+        (item) => item.suggestionSafe === true,
+      ),
+    ).toBe(true);
+  });
+
   it("repositions after an ancestor scroll moves the caret", () => {
     const source = readSlashCommandMenuSource();
 
@@ -258,6 +353,120 @@ describe("slash command menu trigger", () => {
 
       expect(editor.getText()).not.toContain("/table");
       expect(editor.view.dom.querySelectorAll("table")).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
+
+  it("rechecks suggestion policy before a queued unsupported command can run", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>/database</p>",
+    });
+    editor.commands.focus("end");
+    const renderMenu = (suggesting: boolean) =>
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(
+            "div",
+            { className: "visual-editor-wrapper" },
+            createElement(EditorContent, { editor }),
+            createElement(SlashCommandMenu, { editor, suggesting }),
+          ),
+        ),
+      );
+
+    try {
+      await act(async () => {
+        root.render(renderMenu(false));
+        await Promise.resolve();
+        root.render(renderMenu(true));
+        await Promise.resolve();
+      });
+
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => Promise.resolve());
+
+      expect(editor.getText()).toBe("/database");
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
+
+  it("keeps supported text-block commands executable while suggesting", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>/code</p>",
+    });
+    editor.commands.focus("end");
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, {
+                  editor,
+                  suggesting: true,
+                }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => Promise.resolve());
+
+      expect(editor.getText()).not.toContain("/code");
+      expect(editor.getJSON().content?.[0]?.type).toBe("codeBlock");
     } finally {
       await act(async () => root.unmount());
       editor.destroy();
