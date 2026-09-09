@@ -19,8 +19,9 @@ import {
   listWorkspaceConnectionsForUser,
   summarizeWorkspaceConnectionProviderReadiness,
 } from "@agent-native/core/workspace-connections";
-import { dispatchActions } from "@agent-native/dispatch/actions";
 import { z } from "zod";
+
+import { dispatchActions } from "./index.js";
 
 const httpBoolean = z.preprocess((value) => {
   if (typeof value !== "string") return value;
