@@ -103,6 +103,13 @@ function SearchLoading() {
   );
 }
 
+function focusSearchInput(control: HTMLElement) {
+  control
+    .closest('[role="dialog"]')
+    ?.querySelector<HTMLInputElement>('[role="combobox"]')
+    ?.focus();
+}
+
 function SearchPage({
   query,
   spaceId,
@@ -143,7 +150,10 @@ function SearchPage({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => void results.refetch()}
+          onClick={(event) => {
+            focusSearchInput(event.currentTarget);
+            void results.refetch();
+          }}
         >
           {t("root.searchRetry")}
         </Button>
@@ -222,6 +232,9 @@ function SearchPage({
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ")
               event.stopPropagation();
+          }}
+          onClick={(event) => {
+            focusSearchInput(event.currentTarget);
           }}
         >
           <Button

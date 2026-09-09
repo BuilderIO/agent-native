@@ -230,7 +230,7 @@ function AppSetup() {
   return <LocalFolderLiveSync />;
 }
 
-function ThemeToggleItem() {
+function ThemeToggleItem({ query }: { query: string }) {
   const { theme, setTheme } = useTheme();
   const t = useT();
   const [selectedTheme, setSelectedTheme] = useState<ThemeOption>("system");
@@ -251,17 +251,27 @@ function ThemeToggleItem() {
     setTheme(next);
   };
 
+  if (
+    query.trim() &&
+    ![t("root.toggleTheme"), "theme", "dark", "light", "system", "mode"].some(
+      (label) => label.toLowerCase().includes(query.trim().toLowerCase()),
+    )
+  )
+    return null;
+
   return (
-    <CommandMenu.Item
-      onSelect={handleSelect}
-      keywords={["theme", "dark", "light", "system", "mode"]}
-    >
-      <ActiveIcon size={16} />
-      {t("root.toggleTheme")}
-      <span className="ml-auto text-xs text-muted-foreground">
-        {t(`theme.${activeOption.value}`)}
-      </span>
-    </CommandMenu.Item>
+    <CommandMenu.Group heading={t("root.commandAppearance")}>
+      <CommandMenu.Item
+        onSelect={handleSelect}
+        keywords={["theme", "dark", "light", "system", "mode"]}
+      >
+        <ActiveIcon size={16} />
+        {t("root.toggleTheme")}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {t(`theme.${activeOption.value}`)}
+        </span>
+      </CommandMenu.Item>
+    </CommandMenu.Group>
   );
 }
 
@@ -329,10 +339,13 @@ function ContentCommandMenu({
       changelog={changelog}
       changelogKey="content"
       renderResults={(search) => (
-        <ContentCommandSearchResults
-          query={search}
-          onOpenChange={onOpenChange}
-        />
+        <>
+          <ContentCommandSearchResults
+            query={search}
+            onOpenChange={onOpenChange}
+          />
+          <ThemeToggleItem query={search} />
+        </>
       )}
     >
       <CommandMenu.Group heading={t("root.commandContent")}>
@@ -340,9 +353,6 @@ function ContentCommandMenu({
           <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>
-      </CommandMenu.Group>
-      <CommandMenu.Group heading={t("root.commandAppearance")}>
-        <ThemeToggleItem />
       </CommandMenu.Group>
     </CommandMenu>
   );
