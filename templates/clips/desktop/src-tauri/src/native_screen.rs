@@ -5775,6 +5775,33 @@ mod screencapture_fallback_tests {
         assert!(verify_screencapture_output(&path, None).is_ok());
         let _ = std::fs::remove_file(&path);
     }
+
+    #[test]
+    fn fallback_output_validation_rejects_failed_exit_even_with_bytes() {
+        let path = temp_recording_path("failed-exit");
+        std::fs::write(&path, b"partial").expect("create partial fallback file");
+        let status = std::process::Command::new("/usr/bin/false")
+            .status()
+            .expect("run failing command");
+
+        let err = verify_screencapture_output(&path, Some(status)).unwrap_err();
+
+        assert!(err.contains("exited unsuccessfully"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fallback_output_validation_accepts_sigint_stop() {
+        let path = temp_recording_path("sigint-stop");
+        std::fs::write(&path, b"finalized").expect("create fallback file");
+        let status = std::process::Command::new("/bin/sh")
+            .args(["-c", "kill -INT $$"])
+            .status()
+            .expect("run signal command");
+
+        assert!(verify_screencapture_output(&path, Some(status)).is_ok());
+        let _ = std::fs::remove_file(&path);
+    }
 }
 
 /// Stop the active recording. When `wait_for_finalize` is set (save/upload
@@ -5911,6 +5938,35 @@ fn verify_screencapture_output(
     path: &Path,
     status: Option<std::process::ExitStatus>,
 ) -> Result<(), String> {
+    if let Some(status) = status.as_ref() {
+        let acceptable = if status.success() {
+            true
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+
+                // The normal stop path sends SIGINT so screencapture can flush
+                // its movie before exiting. macOS reports that intentional stop
+                // as signal 2 on versions that do not translate it to exit 0.
+                status.signal() == Some(2)
+            }
+            #[cfg(not(unix))]
+            {
+                false
+            }
+        };
+        if !acceptable {
+            let message = format!(
+                "macOS screencapture fallback exited unsuccessfully ({status}) at {}. {}",
+                path.display(),
+                screen_capture_permission_message("saving the fallback recording")
+            );
+            eprintln!("[clips-tray] {message}");
+            return Err(message);
+        }
+    }
+
     match std::fs::metadata(path) {
         Ok(metadata) if metadata.len() > 0 => Ok(()),
         Ok(_) => {

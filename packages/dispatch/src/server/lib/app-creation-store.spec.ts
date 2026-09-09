@@ -880,6 +880,90 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["portal"]);
   });
 
+  it("does not reconcile audience-hidden manifest apps as stale", async () => {
+    stubNoPendingContext();
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "internal-app",
+          name: "Internal app",
+          path: "/internal-app",
+          audience: "internal",
+        },
+        {
+          id: "portal",
+          name: "Portal",
+          path: "/portal",
+          audience: "public",
+        },
+      ]),
+    );
+    const records = [
+      {
+        id: "internal-app",
+        owner_email: "creator@example.test",
+        org_id: "org-123",
+        visibility: "org",
+        name: "Internal app",
+        description: null,
+        path: "/internal-app",
+      },
+      {
+        id: "portal",
+        owner_email: "creator@example.test",
+        org_id: "org-123",
+        visibility: "org",
+        name: "Portal",
+        description: null,
+        path: "/portal",
+      },
+    ];
+    const execute = vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      const args =
+        typeof statement === "string"
+          ? []
+          : ((statement as { args?: unknown[] })?.args ?? []);
+      if (sql.startsWith("SELECT id, owner_email, org_id, visibility")) {
+        const ids = new Set(args as string[]);
+        return {
+          rows: records.filter((record) => ids.has(record.id)),
+          rowsAffected: 0,
+        };
+      }
+      if (sql.startsWith("SELECT id FROM workspace_apps WHERE org_id = ?")) {
+        return {
+          rows: records.map(({ id }) => ({ id })),
+          rowsAffected: 0,
+        };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+    mocks.getDbExec.mockReturnValue({ execute });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "viewer@example.test", orgId: "org-123" },
+      () =>
+        listWorkspaceApps({
+          includeAgentCards: false,
+          audience: "public",
+        }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["portal"]);
+    expect(
+      execute.mock.calls.some(([statement]) =>
+        String((statement as { sql?: unknown })?.sql ?? "").includes(
+          "WITH removed AS",
+        ),
+      ),
+    ).toBe(false);
+  });
+
   it("shows current branch and legacy pending Builder app rows", async () => {
     stubManifest();
     vi.stubEnv("BRANCH", "feature-a");

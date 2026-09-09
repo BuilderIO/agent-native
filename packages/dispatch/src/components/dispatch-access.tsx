@@ -6,8 +6,8 @@ export function RequireDispatchAccess({ children }: { children: ReactNode }) {
   const { org, role, isLoading, error } = useOrgRole();
 
   if (isLoading) return <DefaultSpinner />;
-  if (error || !org) return null;
-  if (org.orgId && !canManageOrg(role)) return null;
+  if (error) return null;
+  if (org?.orgId && !canManageOrg(role)) return null;
 
   return <>{children}</>;
 }

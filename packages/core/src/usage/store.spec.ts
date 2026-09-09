@@ -35,6 +35,7 @@ const {
   calculateCost,
   usageBillingForEngine,
   recordUsage,
+  resolveUsageAppKey,
   getUserUsageCents,
   getUsageSummary,
 } = await import("./store.js");
@@ -402,6 +403,51 @@ describe("listAppUsageMetrics app scoping", () => {
       outputTokens: 75,
     });
     expect(metrics.recent).toHaveLength(2);
+  });
+
+  it("includes historical legacy identities beside a stable app id", async () => {
+    process.env.AGENT_NATIVE_APP_ID = "stable-app";
+    process.env.AGENT_APP = "legacy-app";
+    process.env.APP_NAME = "Legacy App";
+    const now = Date.now();
+    for (const [id, app] of [
+      [1, "stable-app"],
+      [2, "legacy-app"],
+      [3, "Legacy App"],
+    ] as const) {
+      await pglite
+        .prepare(
+          `INSERT INTO token_usage
+            (id, owner_email, input_tokens, output_tokens, cost_cents_x100,
+             model, label, app, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          "a@example.com",
+          100,
+          25,
+          500,
+          "claude-sonnet-4-5",
+          "chat",
+          app,
+          now - 1_000,
+        );
+    }
+
+    const appKey = resolveUsageAppKey();
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30 },
+      { ownerEmail: "a@example.com", app: appKey },
+    );
+
+    expect(appKey).toBe("stable-app");
+    expect(metrics.totals).toMatchObject({
+      calls: 3,
+      inputTokens: 300,
+      outputTokens: 75,
+    });
+    expect(metrics.recent).toHaveLength(3);
   });
 });
 

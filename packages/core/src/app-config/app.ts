@@ -18,11 +18,13 @@ function isAuthEntryPath(value: string): boolean {
 /**
  * App identity.
  *
- * Three fields, not one, because the eight environment keys that spell "which
+ * Four fields, not one, because the eight environment keys that spell "which
  * app is this" were never all the same question:
  *
  * - `id` is this deployment's own identity — data programs, onboarding, the
  *   CLI, and agent model defaults scope by it.
+ * - `legacyId` preserves the deprecated `AGENT_APP` identity for compatibility
+ *   reads when a deployment also has a stable `id`.
  * - `workspaceId` is the identity a workspace deploy assigns. `vault_grants`
  *   rows are written with it, so credential scoping must prefer it over `id`
  *   or an app would look up grants under a name nobody granted.
@@ -47,6 +49,14 @@ export const appConfig = z.object({
     .meta({
       env: ["AGENT_NATIVE_APP_ID", "APP_ID", "AGENT_APP"],
       doc: "Stable identity of this app deployment.",
+    }),
+  legacyId: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_APP"],
+      doc: "Deprecated app identity retained for historical data compatibility.",
     }),
   workspaceId: z
     .string()

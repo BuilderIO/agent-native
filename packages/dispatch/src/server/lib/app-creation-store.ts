@@ -1379,7 +1379,7 @@ async function ensureWorkspaceAppRecords(
     }
 
     if (shouldReconcile && orgId) {
-      const currentAppIds = new Set(apps.map((app) => app.id));
+      const currentAppIds = new Set(readyApps.map((app) => app.id));
       const result = await db.execute({
         sql: "SELECT id FROM workspace_apps WHERE org_id = ?",
         args: [orgId],
@@ -1857,7 +1857,6 @@ export function getWorkspaceInfo(): WorkspaceInfo {
 
 async function applyArchivedAndPending(
   apps: WorkspaceAppSummary[],
-  options: ListWorkspaceAppsOptions,
 ): Promise<WorkspaceAppSummary[]> {
   const [withPending, archivedIds, metadataSettings] = await Promise.all([
     appendPendingWorkspaceApps(apps),
@@ -1880,12 +1879,7 @@ async function applyArchivedAndPending(
       ...(archivedSet.has(app.id) ? { archived: true } : {}),
     };
   });
-  return options.includeArchived
-    ? filterAppsByAudience(annotated, options.audience)
-    : filterAppsByAudience(
-        annotated.filter((app) => !app.archived),
-        options.audience,
-      );
+  return annotated;
 }
 
 function filterAppsByAudience(
@@ -1956,9 +1950,16 @@ export async function listWorkspaceApps(
   options: ListWorkspaceAppsOptions = {},
 ): Promise<WorkspaceAppSummary[]> {
   const finalize = async (apps: WorkspaceAppSummary[], reconcile = false) => {
-    const annotated = await applyArchivedAndPending(apps, options);
+    // Reconcile from the complete manifest. Archive and audience filters only
+    // control the response; treating hidden apps as absent deletes their rows.
+    const annotated = await applyArchivedAndPending(apps);
     const recorded = await ensureWorkspaceAppRecords(annotated, { reconcile });
-    const visible = await filterWorkspaceAppsByAccess(recorded);
+    const listed = options.includeArchived
+      ? recorded
+      : recorded.filter((app) => !app.archived);
+    const visible = await filterWorkspaceAppsByAccess(
+      filterAppsByAudience(listed, options.audience),
+    );
     return maybeIncludeAgentCards(visible, options);
   };
   const gatewayApps = await readWorkspaceAppsFromGateway();

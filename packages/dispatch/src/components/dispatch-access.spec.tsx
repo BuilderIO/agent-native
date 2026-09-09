@@ -59,6 +59,25 @@ describe("RequireDispatchAccess", () => {
     },
   );
 
+  it("renders the Dispatch shell without an active organization", () => {
+    mocks.useOrgRole.mockReturnValue({
+      org: undefined,
+      role: null,
+      isLoading: false,
+      error: null,
+    });
+
+    act(() => {
+      root.render(
+        <RequireDispatchAccess>
+          <div data-dispatch-shell>Dispatch shell</div>
+        </RequireDispatchAccess>,
+      );
+    });
+
+    expect(container.querySelector("[data-dispatch-shell]")).not.toBeNull();
+  });
+
   it("does not render the Dispatch shell for an organization member", () => {
     mocks.useOrgRole.mockReturnValue({
       org: { orgId: "org-1" },

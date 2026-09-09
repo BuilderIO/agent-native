@@ -154,7 +154,19 @@ function appKeys(value: string): string[] {
 }
 
 export function usageAppScope(app: string): QueryScope {
-  const keys = appKeys(app);
+  const configured = getAppConfig().app;
+  const configuredKeys = [configured.id, configured.legacyId, configured.name]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => value.trim());
+  const requested = app.trim().toLowerCase();
+  const matchesConfiguredIdentity = configuredKeys.some(
+    (value) => value.toLowerCase() === requested,
+  );
+  const keys = [
+    ...new Set(
+      (matchesConfiguredIdentity ? configuredKeys : [app]).flatMap(appKeys),
+    ),
+  ];
   return {
     where: `LOWER(COALESCE(app, '')) IN (${keys.map(() => "?").join(", ")})`,
     args: keys,
