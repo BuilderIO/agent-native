@@ -1,5 +1,5 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import { defineAppRoles } from "@agent-native/core/org";
+import { defineAppRoles, type AppRoles } from "@agent-native/core/org";
 import {
   currentRequestUserIsOrgAdmin,
   getRequestOrgId,
@@ -9,7 +9,11 @@ import { ForbiddenError } from "@agent-native/core/sharing";
 
 import { dispatchAccessDescriptor } from "../../shared/app-roles.js";
 
-export const dispatchAccess = defineAppRoles(dispatchAccessDescriptor);
+let dispatchAccess: AppRoles<"admin"> | undefined;
+
+function getDispatchAccess(): AppRoles<"admin"> {
+  return (dispatchAccess ??= defineAppRoles(dispatchAccessDescriptor));
+}
 
 /**
  * Keep the Dispatch shell open to every signed-in member while protecting
@@ -29,7 +33,7 @@ export async function authorizeDispatchAdmin(
   }
   if (!orgId?.trim()) return;
   if (await currentRequestUserIsOrgAdmin(orgId)) return;
-  await dispatchAccess.assertAny(["admin"], {
+  await getDispatchAccess().assertAny(["admin"], {
     userEmail: email,
     orgId,
   });
