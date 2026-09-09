@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
+
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   includeUser: vi.fn(),
@@ -25,6 +27,7 @@ import { isWorkspaceAppAccessAllowed } from "./workspace-app-access.js";
 describe("isWorkspaceAppAccessAllowed", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    resetAppConfigForTests();
     vi.unstubAllGlobals();
     mocks.execute.mockReset();
     mocks.includeUser.mockReset();
@@ -91,6 +94,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
 
   it("keeps standalone Dispatch available when its org schema is absent", async () => {
     vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
+    resetAppConfigForTests();
     mocks.execute
       .mockRejectedValueOnce(new Error('relation "org_members" does not exist'))
       .mockRejectedValueOnce(
@@ -108,6 +112,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
   it("fails closed for hosted Dispatch when its org schema is absent", async () => {
     vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    resetAppConfigForTests();
     mocks.execute.mockRejectedValueOnce(
       new Error('relation "org_members" does not exist'),
     );

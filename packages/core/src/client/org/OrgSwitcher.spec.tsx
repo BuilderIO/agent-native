@@ -658,6 +658,56 @@ describe("OrgSwitcher", () => {
     },
   );
 
+  it("does not synthesize Dispatch after an org registry revokes access", () => {
+    mocks.appLinks.mockReturnValue({
+      apps: [
+        {
+          id: "analytics",
+          name: "Analytics",
+          href: "/analytics",
+          isDispatch: false,
+          status: "ready",
+        },
+      ],
+      dispatchAllAppsHref: "/dispatch/apps",
+      dispatchHref: "/dispatch/overview",
+      isLoading: false,
+      isWorkspace: true,
+    });
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "member@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        role: "member",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "member" }],
+        pendingInvitations: [],
+        domainMatches: [],
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+    const appsButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim().startsWith("Apps"));
+    expect(appsButton).not.toBeNull();
+
+    act(() => {
+      appsButton!.click();
+    });
+
+    expect(
+      document.body.querySelector<HTMLAnchorElement>(
+        'a[href="/dispatch/overview"]',
+      ),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("more in Dispatch");
+  });
+
   it("shows Dispatch and its all-apps link to organization members", () => {
     mocks.appLinks.mockReturnValue({
       apps: [
