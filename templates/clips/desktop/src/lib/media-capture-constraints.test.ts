@@ -115,6 +115,33 @@ describe("desktop media capture constraints", () => {
     });
   });
 
+  it("retries another mic when the selected input cannot start", async () => {
+    const fallbackStream = { id: "fallback-audio" } as unknown as MediaStream;
+    const getUserMedia = mockGetUserMedia(
+      vi
+        .fn()
+        .mockRejectedValueOnce(
+          new DOMException("Could not start audio source", "NotReadableError"),
+        )
+        .mockResolvedValueOnce(fallbackStream),
+      vi.fn(async () => [
+        {
+          kind: "audioinput",
+          deviceId: "usb-webcam-mic",
+          label: "USB Webcam Microphone",
+        },
+      ]),
+    );
+
+    await expect(
+      getAudioStreamWithFallback("headset-mic", "Headset Microphone"),
+    ).resolves.toBe(fallbackStream);
+    expect(getUserMedia.mock.calls[1]?.[0]).toMatchObject({
+      audio: { deviceId: { exact: "usb-webcam-mic" } },
+      video: false,
+    });
+  });
+
   it("retries a stale exact camera id with the default camera", async () => {
     const fallbackStream = { id: "fallback-camera" } as unknown as MediaStream;
     const getUserMedia = mockGetUserMedia(

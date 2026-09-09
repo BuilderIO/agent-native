@@ -72,6 +72,8 @@ export function isMediaConstraintFailure(err: unknown): boolean {
     name === "OverconstrainedError" ||
     name === "ConstraintNotSatisfiedError" ||
     name === "NotFoundError" ||
+    name === "NotReadableError" ||
+    name === "TrackStartError" ||
     /invalid constraint|overconstrained|could not satisfy constraint|device not found|requested device not found/i.test(
       message,
     )

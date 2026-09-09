@@ -222,7 +222,13 @@ jobs:
           changed_files="$(git diff --name-only "$base_sha" "$source_sha")"
           # ponytail: path-based schema gate; replace with production migration
           # status when GitHub Actions can access Netlify's masked secrets.
-          schema_files="$(printf '%s\n' "$changed_files" | rg -N '(^|/)(server/db/|packages/core/src/db/|packages/core/src/(resources|extensions|data-programs)/).+\.ts$|(^|/)store\.ts$|(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(?:scripts/)?migrate-production\.ts|drizzle(?:\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$|\.sql$' || true)"
+          schema_files="$(
+            printf '%s\n' "$changed_files" |
+              grep -E '(^|/)(server/db/|packages/core/src/db/|packages/core/src/(resources|extensions|data-programs)/).+\.ts$|(^|/)store\.ts$|(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(scripts/)?migrate-production\.ts|drizzle(\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$|\.sql$' || {
+                status=$?
+                [[ "$status" -eq 1 ]] || exit "$status"
+              }
+          )"
           if [[ -n "$unresolved_pending_sha" ]]; then
             echo "::error::Beta remains withheld for unconfirmed production migration at $unresolved_pending_sha."
             if [[ -n "$schema_files" ]]; then
