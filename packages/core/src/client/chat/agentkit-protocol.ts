@@ -30,10 +30,14 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   AGENTKIT_PROTOCOL_VERSION,
+  AgentProtocolValidationError,
+  approvalResponseFromResume,
   createCapabilityUnavailableError,
   createCapabilityUnsupportedError,
   inferAgentActivityKind,
   negotiateAgentKitProtocolVersion,
+  resumeEntryFromApproval,
+  resumeOptionId,
 } from "@agent-native/agentkit/protocol";
 
 import type {
@@ -121,6 +125,7 @@ interface ProtocolRun {
   activeActivities: Map<string, AgentActivity>;
   pumpPromise: Promise<void> | null;
   continuationPromise: Promise<void> | null;
+  streamClosed: boolean;
   terminal: boolean;
   waitingForContinuation: boolean;
   pendingApprovalId?: string;
@@ -1111,7 +1116,12 @@ export function createAgentKitProtocolAdapter(
     }
 
     const retainedCompleted = [...runs.values()]
-      .filter((run) => run.terminal && run.activeReaders === 0)
+      .filter(
+        (run) =>
+          run.terminal &&
+          !run.waitingForContinuation &&
+          run.activeReaders === 0,
+      )
       .sort((left, right) => left.lastAccessedAtMs - right.lastAccessedAtMs);
     while (retainedCompleted.length > maxRetainedRuns) {
       const run = retainedCompleted.shift();
@@ -1597,6 +1607,10 @@ export function createAgentKitProtocolAdapter(
         }
         run.waitingForContinuation = true;
         run.pendingApprovalId = event.approvalId;
+        // AG-UI models an approval interrupt as RUN_FINISHED. Close the wire
+        // stream while retaining ownership of the paused Core turn so it can
+        // still be resumed, cancelled, or disposed.
+        run.streamClosed = true;
         return [
           {
             type: "run.status",
@@ -2072,7 +2086,8 @@ export function createAgentKitProtocolAdapter(
   }
 
   function ensurePump(run: ProtocolRun): void {
-    if (run.pumpPromise || run.terminal || !run.turn) return;
+    if (run.pumpPromise || run.streamClosed || run.terminal || !run.turn)
+      return;
     run.pumpPromise = (async () => {
       try {
         for await (const event of run.turn.events) {
@@ -2096,7 +2111,8 @@ export function createAgentKitProtocolAdapter(
           });
         }
       } catch (error) {
-        if (run.terminal) return;
+        if (run.streamClosed || run.terminal) return;
+        run.streamClosed = true;
         run.terminal = true;
         append(run, {
           type: "run.failed",
@@ -2105,7 +2121,9 @@ export function createAgentKitProtocolAdapter(
       } finally {
         run.pumpPromise = null;
         for (const listener of run.listeners) listener();
-        if (!run.terminal && !run.waitingForContinuation) ensurePump(run);
+        if (!run.streamClosed && !run.terminal && !run.waitingForContinuation) {
+          ensurePump(run);
+        }
       }
     })();
   }
@@ -2135,7 +2153,7 @@ export function createAgentKitProtocolAdapter(
           }
           yield event;
         }
-        if (run.terminal) return;
+        if (run.streamClosed || run.terminal) return;
         await notifyWhenChanged(run, signal);
       }
     } finally {
@@ -2185,6 +2203,12 @@ export function createAgentKitProtocolAdapter(
     },
     async startRun(input) {
       if (disposed) throw new Error("The AgentKit adapter is disposed.");
+      if (input.resume !== undefined) {
+        throw new AgentProtocolValidationError(
+          "startRun.resume",
+          "Core requires approval continuations to use resumeRun",
+        );
+      }
       const turnMetadata = mergeTrustedProtocolMetadata(
         options.metadata,
         input.metadata,
@@ -2245,6 +2269,7 @@ export function createAgentKitProtocolAdapter(
         activeActivities: new Map(),
         pumpPromise: null,
         continuationPromise: null,
+        streamClosed: false,
         terminal: false,
         waitingForContinuation: false,
         listeners: new Set(),
@@ -2302,23 +2327,39 @@ export function createAgentKitProtocolAdapter(
       }
       touchRun(run);
       if (run.terminal) return;
+      const streamWasClosed = run.streamClosed;
       const cancellation = cancelCoreTurn(run, "protocol-cancel");
+      run.streamClosed = true;
       run.terminal = true;
       let result;
       try {
         result = await cancellation;
       } catch (error) {
+        run.streamClosed = streamWasClosed;
         run.terminal = false;
         ensurePump(run);
         throw error;
       }
       if (result.status === "unsupported") {
+        run.streamClosed = streamWasClosed;
         run.terminal = false;
         ensurePump(run);
         throw new Error("The Core runtime does not support run cancellation.");
       }
-      append(run, { type: "run.status", status: "cancelled" });
-      append(run, { type: "run.cancelled" });
+      run.waitingForContinuation = false;
+      run.pendingApprovalId = undefined;
+      if (streamWasClosed) {
+        const completedAt = now();
+        run.status = "cancelled";
+        run.completedAt = completedAt;
+        run.terminalAtMs = timeMs(completedAt);
+        run.actions.clear();
+        run.activeActivities.clear();
+        pruneRetainedRuns(run.terminalAtMs);
+      } else {
+        append(run, { type: "run.status", status: "cancelled" });
+        append(run, { type: "run.cancelled" });
+      }
     },
     async dispose() {
       if (disposed) return;
@@ -2328,10 +2369,15 @@ export function createAgentKitProtocolAdapter(
       for (const run of runs.values()) {
         if (!run.terminal) {
           cancellations.push(cancelCoreTurn(run, "adapter-dispose"));
-          append(run, { type: "run.status", status: "cancelled" });
-          append(run, { type: "run.cancelled" });
+          if (!run.streamClosed) {
+            append(run, { type: "run.status", status: "cancelled" });
+            append(run, { type: "run.cancelled" });
+          }
         }
+        run.streamClosed = true;
         run.terminal = true;
+        run.waitingForContinuation = false;
+        run.pendingApprovalId = undefined;
         for (const listener of run.listeners) listener();
       }
       await Promise.allSettled(cancellations);
@@ -2483,13 +2529,23 @@ export function createAgentKitProtocolAdapter(
   }
 
   if (runtime.capabilities.tools?.approvals) {
-    transport.resolveApproval = async (input) => {
+    const resumeRun: NonNullable<AgentTransport["resumeRun"]> = async (
+      input,
+    ) => {
       pruneRetainedRuns();
       const run = runs.get(input.runId);
       if (!run || run.threadId !== input.threadId) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
       }
       touchRun(run);
+      const entry = input.resume[0];
+      if (input.resume.length !== 1 || !entry) {
+        throw new Error(
+          "The Core runtime resolves exactly one interrupt per resume.",
+        );
+      }
+      const response = approvalResponseFromResume(entry);
+      const optionId = resumeOptionId(entry);
       if (!run.session.continueTurn) {
         throw new Error(
           "The Core runtime does not support approval continuation.",
@@ -2498,44 +2554,99 @@ export function createAgentKitProtocolAdapter(
       if (run.continuationPromise) {
         throw new Error("An approval continuation is already in progress.");
       }
+      let replacementRunId: string | undefined;
       const continuation = (async () => {
         const activePump = run.pumpPromise;
         if (activePump) await activePump;
-        if (run.terminal) {
+        if (run.terminal && !run.waitingForContinuation) {
           throw new Error("The AgentKit run is already terminal.");
         }
         if (!run.waitingForContinuation) {
           throw new Error("The AgentKit run is not awaiting approval.");
         }
-        if (run.pendingApprovalId !== input.approvalId) {
+        if (run.pendingApprovalId !== entry.interruptId) {
           throw new Error(
-            `Approval response ${input.approvalId} does not match pending approval ${run.pendingApprovalId ?? "<none>"}.`,
+            `Approval response ${entry.interruptId} does not match pending approval ${run.pendingApprovalId ?? "<none>"}.`,
           );
         }
-        const decision = explicitApprovalDecision(input.response);
+        const decision = explicitApprovalDecision(response);
         const approvalInput =
-          input.response.other !== undefined
-            ? { ...input.response.input, other: input.response.other }
-            : input.response.input;
+          response.other !== undefined
+            ? { ...response.input, other: response.other }
+            : response.input;
+        const nextRunId = createId("run");
+        if (nextRunId === run.runId || runs.has(nextRunId)) {
+          throw new Error(
+            `The Core runtime generated duplicate AgentKit run id ${nextRunId}.`,
+          );
+        }
         const nextTurn = await run.session.continueTurn!({
           turnId: run.turn.id,
           approval: {
-            id: input.approvalId,
+            id: entry.interruptId,
             approved: decision === "approve",
             message: serializeValue(approvalInput),
           },
         });
+        const replacementMetadata = mergeTrustedProtocolMetadata(
+          run.metadata,
+          nextTurn.metadata,
+          {
+            [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
+              observability: {
+                protocolRunId: nextRunId,
+                runtimeRunId: nextTurn.runId,
+                runtimeId: runtime.id,
+                sessionId: run.session.id,
+                turnId: nextTurn.id,
+                threadId: input.threadId,
+                interruptedRunId: run.runId,
+              },
+            } satisfies AgentNativeProtocolMetadata,
+          },
+        );
+        const replacementRun: ProtocolRun = {
+          runId: nextRunId,
+          threadId: input.threadId,
+          session: run.session,
+          turn: nextTurn,
+          events: [],
+          firstRetainedSequence: 1,
+          sequence: 0,
+          status: "queued",
+          lastAccessedAtMs: timeMs(),
+          activeReaders: 0,
+          metadata: replacementMetadata,
+          activeMessageId: run.activeMessageId,
+          actions: new Map(run.actions),
+          activeActivities: new Map(run.activeActivities),
+          pumpPromise: null,
+          continuationPromise: null,
+          streamClosed: false,
+          terminal: false,
+          waitingForContinuation: false,
+          listeners: new Set(),
+        };
         run.waitingForContinuation = false;
         run.pendingApprovalId = undefined;
-        run.turn = nextTurn;
-        append(run, {
-          type: "approval.resolved",
-          approvalId: input.approvalId,
-          optionId: input.optionId,
-          response: input.response,
+        run.terminal = true;
+        run.terminalAtMs = timeMs();
+        runs.set(nextRunId, replacementRun);
+        append(replacementRun, {
+          type: "run.started",
+          agentId: runtime.id,
+          metadata: replacementMetadata,
         });
-        append(run, { type: "run.status", status: "running" });
-        ensurePump(run);
+        append(replacementRun, {
+          type: "approval.resolved",
+          approvalId: entry.interruptId,
+          optionId,
+          response,
+        });
+        append(replacementRun, { type: "run.status", status: "running" });
+        ensurePump(replacementRun);
+        replacementRunId = nextRunId;
+        pruneRetainedRuns(run.terminalAtMs);
       })();
       run.continuationPromise = continuation;
       try {
@@ -2545,6 +2656,18 @@ export function createAgentKitProtocolAdapter(
           run.continuationPromise = null;
         }
       }
+      if (!replacementRunId) {
+        throw new Error("The Core runtime did not create a replacement run.");
+      }
+      return { runId: replacementRunId };
+    };
+    transport.resumeRun = resumeRun;
+    transport.resolveApproval = async (input) => {
+      await resumeRun({
+        threadId: input.threadId,
+        runId: input.runId,
+        resume: [resumeEntryFromApproval(input)],
+      });
     };
   }
 

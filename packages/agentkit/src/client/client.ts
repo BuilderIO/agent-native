@@ -37,6 +37,7 @@ import {
   createAgentKitProtocolVersionOffer,
   parseAgentEvent,
   projectAgentCapabilities,
+  resumeEntryFromApproval,
 } from "../protocol/index.js";
 import {
   classifyAgentEvent,
@@ -810,7 +811,7 @@ export class AgentKitClient implements AgentKitController {
       }
       this.markRunStarted(input.threadId, result.runId);
       const completed = this.consume(input.threadId, result.runId);
-      this.consumers.set(this.runKey(input.threadId, result.runId), completed);
+      this.trackConsumer(input.threadId, result.runId, completed);
       return {
         runId: result.runId,
         completed,
@@ -840,7 +841,7 @@ export class AgentKitClient implements AgentKitController {
     const existing = this.consumers.get(key);
     if (existing) return existing;
     const consumer = this.consume(threadId, runId);
-    this.consumers.set(key, consumer);
+    this.trackConsumer(threadId, runId, consumer);
     return consumer;
   }
 
@@ -857,14 +858,43 @@ export class AgentKitClient implements AgentKitController {
     this.assertActive();
     const requestContext = this.createRequestContext(context);
     await this.requireCapability("approvals", requestContext);
+    const resumeRun = this.transport.resumeRun;
     const resolveApproval = this.transport.resolveApproval;
-    if (!resolveApproval) {
+    if (!resumeRun && !resolveApproval) {
       throw new AgentKitCapabilityError("approvals");
     }
-    await this.invokeRequest(requestContext, (context) =>
-      resolveApproval(input, context),
+    if (!resumeRun) {
+      await this.invokeRequest(requestContext, (context) =>
+        resolveApproval!(input, context),
+      );
+      this.assertActive();
+      return;
+    }
+    const result = await this.invokeRequest(requestContext, (context) =>
+      resumeRun(
+        {
+          threadId: input.threadId,
+          runId: input.runId,
+          resume: [resumeEntryFromApproval(input)],
+        },
+        context,
+      ),
     );
     this.assertActive();
+    if (result.runId !== input.runId) {
+      this.retireInterruptedRun(input.threadId, input.runId);
+    }
+    // A runtime that suspends rather than terminates answers with the run that
+    // was already streaming, so adopting it blindly would open a second reader
+    // on one stream.
+    const key = this.runKey(input.threadId, result.runId);
+    if (this.consumers.has(key)) return;
+    this.markRunStarted(input.threadId, result.runId);
+    this.trackConsumer(
+      input.threadId,
+      result.runId,
+      this.consume(input.threadId, result.runId),
+    );
   }
 
   public async resolveConnectionRequest(
@@ -1191,7 +1221,7 @@ export class AgentKitClient implements AgentKitController {
       }
       this.markRunStarted(threadId, result.runId);
       const completed = this.consume(threadId, result.runId);
-      this.consumers.set(this.runKey(threadId, result.runId), completed);
+      this.trackConsumer(threadId, result.runId, completed);
       return {
         runId: result.runId,
         completed,
@@ -1363,11 +1393,26 @@ export class AgentKitClient implements AgentKitController {
     return this.shutdown();
   }
 
+  private trackConsumer(
+    threadId: ThreadId,
+    runId: RunId,
+    completed: Promise<void>,
+  ): void {
+    this.consumers.set(this.runKey(threadId, runId), completed);
+    // `consume` reports failures through snapshot state and `onError` before it
+    // rejects. Observe internally-owned continuations here so a caller that
+    // cannot receive their completion promise never triggers an unhandled
+    // rejection; APIs that return `completed` still expose the original promise.
+    void completed.catch(() => undefined);
+  }
+
   private async consume(threadId: ThreadId, runId: RunId): Promise<void> {
     const key = this.runKey(threadId, runId);
     const abortController = new AbortController();
     this.consumerAbortControllers.set(key, abortController);
     let attempt = 0;
+    let interruptedForApproval =
+      this.getThread(threadId).runs[runId]?.status === "awaiting_approval";
     try {
       while (true) {
         const afterSequence =
@@ -1401,6 +1446,11 @@ export class AgentKitClient implements AgentKitController {
               );
             }
             this.applyEvent(event);
+            if (event.type === "approval.requested") {
+              interruptedForApproval = true;
+            } else if (event.type === "approval.resolved") {
+              interruptedForApproval = false;
+            }
             if (
               event.type === "run.completed" ||
               event.type === "run.failed" ||
@@ -1410,6 +1460,10 @@ export class AgentKitClient implements AgentKitController {
             }
           }
           if (!terminalEvent) {
+            if (interruptedForApproval) {
+              this.setConnection("connected");
+              return;
+            }
             this.reportIntegrity({
               code: "run_missing_terminal",
               threadId,
@@ -2100,6 +2154,14 @@ export class AgentKitClient implements AgentKitController {
         [runId]: { ...run, status: "running" },
       },
       activeRunIds,
+    });
+  }
+
+  private retireInterruptedRun(threadId: ThreadId, runId: RunId): void {
+    const thread = this.getThread(threadId);
+    this.setThread(threadId, {
+      ...thread,
+      activeRunIds: thread.activeRunIds.filter((id) => id !== runId),
     });
   }
 

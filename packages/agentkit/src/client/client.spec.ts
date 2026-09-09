@@ -8,6 +8,7 @@ import type {
 } from "../protocol/index.js";
 import type { AgentStreamIntegrityReport } from "../protocol/index.js";
 import {
+  AgentProtocolValidationError,
   AgentKitProtocolError,
   createAgentKitProtocolVersionOffer,
   createCapabilityUnsupportedError,
@@ -463,6 +464,41 @@ describe("AgentKitClient", () => {
 
     expect(subscriptions).toBe(2);
     expect(client.getThread("thread-1").runs["run-1"]?.lastSequence).toBe(2);
+  });
+
+  it("preserves an approval interrupt across a dropped stream", async () => {
+    let subscriptions = 0;
+    const reports: AgentStreamIntegrityReport[] = [];
+    const transport = createTransport([]);
+    transport.subscribeToRun = async function* (input) {
+      subscriptions += 1;
+      if (subscriptions === 1) {
+        yield protocolEvent(1, { type: "run.started" });
+        yield protocolEvent(2, {
+          type: "approval.requested",
+          request: { id: "approval-1", title: "Continue?" },
+        });
+        throw new Error("connection dropped");
+      }
+      expect(input.afterSequence).toBe(2);
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 1, delayMs: () => 0 },
+      onIntegrityReport: (report) => reports.push(report),
+    });
+
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await run.completed;
+
+    expect(subscriptions).toBe(2);
+    expect(client.getThread("thread-1").runs["run-1"]?.status).toBe(
+      "awaiting_approval",
+    );
+    expect(reports).not.toContainEqual(
+      expect.objectContaining({ code: "run_missing_terminal" }),
+    );
+    expect(client.getSnapshot().connection).toBe("connected");
   });
 
   it("rejects a sequence gap before advancing the durable resume cursor", async () => {
@@ -1372,6 +1408,155 @@ describe("AgentKitClient", () => {
     releaseStream.resolve();
     await run.completed;
     expect(client.getThread("thread-1").activeRunIds).toEqual([]);
+  });
+
+  it("retires an interrupted run when approval resumes on a new run", async () => {
+    const transport: AgentTransport = {
+      capabilities: { approvals: true },
+      async startRun() {
+        return { runId: "run-interrupted" };
+      },
+      async *subscribeToRun({ runId }) {
+        if (runId === "run-interrupted") {
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          yield {
+            ...protocolEvent(2, {
+              type: "approval.requested",
+              request: { id: "approval-1", title: "Continue?" },
+            }),
+            runId,
+          };
+          return;
+        }
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        yield {
+          ...protocolEvent(2, {
+            type: "approval.resolved",
+            approvalId: "approval-1",
+            response: { decision: "approve" },
+          }),
+          runId,
+        };
+        yield { ...protocolEvent(3, { type: "run.completed" }), runId };
+      },
+      async cancelRun() {},
+      async resumeRun() {
+        return { runId: "run-resumed" };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Start",
+    });
+    await run.completed;
+
+    expect(client.getThread("thread-1").activeRunIds).toEqual([
+      "run-interrupted",
+    ]);
+    expect(client.getThread("thread-1").runs["run-interrupted"]?.status).toBe(
+      "awaiting_approval",
+    );
+
+    await client.resolveApproval({
+      threadId: "thread-1",
+      runId: "run-interrupted",
+      approvalId: "approval-1",
+      response: { decision: "approve" },
+    });
+
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").activeRunIds).toEqual([]),
+    );
+    expect(client.getThread("thread-1").runs["run-resumed"]?.status).toBe(
+      "completed",
+    );
+  });
+
+  it("reports replacement-run failures and permits an explicit reattach", async () => {
+    const onError = vi.fn();
+    let replacementSubscriptions = 0;
+    const transport: AgentTransport = {
+      capabilities: { approvals: true },
+      async startRun() {
+        return { runId: "run-interrupted" };
+      },
+      async *subscribeToRun({ runId }) {
+        if (runId === "run-interrupted") {
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          yield {
+            ...protocolEvent(2, {
+              type: "approval.requested",
+              request: { id: "approval-1", title: "Continue?" },
+            }),
+            runId,
+          };
+          return;
+        }
+        replacementSubscriptions += 1;
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        throw new AgentProtocolValidationError("replacement", "stream failed");
+      },
+      async cancelRun() {},
+      async resumeRun() {
+        return { runId: "run-resumed" };
+      },
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 0 },
+      onError,
+    });
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Start",
+    });
+    await run.completed;
+
+    await client.resolveApproval({
+      threadId: "thread-1",
+      runId: "run-interrupted",
+      approvalId: "approval-1",
+      response: { decision: "approve" },
+    });
+
+    await vi.waitFor(() =>
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "run_stream_failed" }),
+      ),
+    );
+    expect(client.getSnapshot().error).toMatchObject({
+      code: "run_stream_failed",
+    });
+    await expect(
+      client.resubscribeRun("thread-1", "run-resumed"),
+    ).rejects.toThrow("replacement: stream failed");
+    expect(replacementSubscriptions).toBe(2);
+  });
+
+  it("keeps the deprecated approval transport bridge operational", async () => {
+    const resolveApproval = vi.fn(async () => undefined);
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: { approvals: true },
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        resolveApproval,
+      },
+    });
+    const input = {
+      threadId: "thread-1",
+      runId: "run-1",
+      approvalId: "approval-1",
+      response: { decision: "approve" as const },
+    };
+
+    await client.resolveApproval(input);
+
+    expect(resolveApproval).toHaveBeenCalledWith(input, expect.any(Object));
   });
 
   it("publishes a promoted queued run before its stream produces an event", async () => {

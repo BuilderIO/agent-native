@@ -3,14 +3,28 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentEvent, AgentTransport } from "../protocol/index.js";
 import {
   AgentKitProtocolError,
+  AGENTKIT_PROFILE_HEADER,
+  AGENTKIT_PROFILE_ID,
   createAgentKitProtocolVersionOffer,
   createAgentProtocolEnvelope,
+  encodeAgentEvent,
 } from "../protocol/index.js";
 import {
   AgentKitHttpError,
   createAgentKitHttpHandler,
   createAgentKitHttpTransport,
 } from "./http.js";
+
+const sseEvent = (sequence: number): AgentEvent => ({
+  id: `event-${sequence}`,
+  threadId: "thread-1",
+  runId: "run-1",
+  sequence,
+  occurredAt: "2026-08-29T00:00:00.000Z",
+  type: "message.delta",
+  messageId: "message-1",
+  text: String(sequence),
+});
 
 describe("AgentKit HTTP adapter", () => {
   it("round-trips commands and resumable SSE through Fetch primitives", async () => {
@@ -123,6 +137,47 @@ describe("AgentKit HTTP adapter", () => {
           status: "connected",
           connectionId: "workspace-slack",
         },
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("keeps the deprecated approval route as a resume bridge", async () => {
+    const resumeRun = vi.fn(async () => ({ runId: "run-1" }));
+    const handler = createAgentKitHttpHandler({
+      transport: {
+        capabilities: { approvals: true },
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        resumeRun,
+      },
+    });
+    const transport = createAgentKitHttpTransport({
+      baseUrl: "https://agentkit.test/agentkit",
+      fetch: (input, init) => handler(new Request(input, init)),
+    });
+
+    await transport.resolveApproval?.({
+      threadId: "thread-1",
+      runId: "run-1",
+      approvalId: "approval-1",
+      response: { decision: "deny" },
+    });
+
+    expect(resumeRun).toHaveBeenCalledWith(
+      {
+        threadId: "thread-1",
+        runId: "run-1",
+        resume: [
+          {
+            interruptId: "approval-1",
+            status: "resolved",
+            payload: { decision: "deny" },
+          },
+        ],
       },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
@@ -356,7 +411,10 @@ describe("AgentKit HTTP adapter", () => {
     const fetcher = vi.fn(
       async () =>
         new Response("not an event stream", {
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            [AGENTKIT_PROFILE_HEADER]: AGENTKIT_PROFILE_ID,
+          },
         }),
     );
     const transport = createAgentKitHttpTransport({
@@ -388,23 +446,45 @@ describe("AgentKit HTTP adapter", () => {
     });
   });
 
-  it("rejects non-event envelopes inside an SSE response", async () => {
+  it("rejects a frame that is not a valid AG-UI event", async () => {
     const transport = createAgentKitHttpTransport({
       baseUrl: "https://agentkit.test/agentkit",
       createCorrelationId: () => "request-42",
       fetch: async () =>
+        new Response(`data: ${JSON.stringify({ runId: "run-1" })}\n\n`, {
+          headers: {
+            "content-type": "text/event-stream; charset=utf-8",
+            "x-agentkit-correlation-id": "request-42",
+            [AGENTKIT_PROFILE_HEADER]: AGENTKIT_PROFILE_ID,
+          },
+        }),
+    });
+
+    await expect(
+      transport
+        .subscribeToRun({ threadId: "thread-1", runId: "run-1" })
+        [Symbol.asyncIterator]()
+        .next(),
+    ).rejects.toThrow("is not a valid AG-UI event");
+  });
+
+  it("skips a frame emitted by a producer outside the profile", async () => {
+    const foreign = JSON.stringify({
+      type: "CUSTOM",
+      name: "someone-else/thing",
+      value: {},
+    });
+    const transport = createAgentKitHttpTransport({
+      baseUrl: "https://agentkit.test/agentkit",
+      fetch: async () =>
         new Response(
-          `data: ${JSON.stringify(
-            createAgentProtocolEnvelope(
-              "response",
-              { runId: "run-1" },
-              "request-42",
-            ),
+          `id: opaque-foreign\ndata: ${foreign}\n\nid: 1\ndata: ${JSON.stringify(
+            encodeAgentEvent(sseEvent(1)),
           )}\n\n`,
           {
             headers: {
-              "content-type": "text/event-stream; charset=utf-8",
-              "x-agentkit-correlation-id": "request-42",
+              "content-type": "text/event-stream",
+              [AGENTKIT_PROFILE_HEADER]: AGENTKIT_PROFILE_ID,
             },
           },
         ),
@@ -415,27 +495,22 @@ describe("AgentKit HTTP adapter", () => {
         .subscribeToRun({ threadId: "thread-1", runId: "run-1" })
         [Symbol.asyncIterator]()
         .next(),
-    ).rejects.toThrow("expected an event envelope");
+    ).resolves.toMatchObject({ value: { sequence: 1 } });
   });
 
   it("rejects an SSE sequence gap before advancing the replay cursor", async () => {
-    const event = (sequence: number) =>
-      createAgentProtocolEnvelope("event", {
-        id: `event-${sequence}`,
-        threadId: "thread-1",
-        runId: "run-1",
-        sequence,
-        occurredAt: "2026-08-29T00:00:00.000Z",
-        type: "message.delta",
-        messageId: "message-1",
-        text: String(sequence),
-      } satisfies AgentEvent);
+    const event = (sequence: number) => encodeAgentEvent(sseEvent(sequence));
     const transport = createAgentKitHttpTransport({
       baseUrl: "https://agentkit.test/agentkit",
       fetch: async () =>
         new Response(
           `id: 1\ndata: ${JSON.stringify(event(1))}\n\nid: 3\ndata: ${JSON.stringify(event(3))}\n\n`,
-          { headers: { "content-type": "text/event-stream" } },
+          {
+            headers: {
+              "content-type": "text/event-stream",
+              [AGENTKIT_PROFILE_HEADER]: AGENTKIT_PROFILE_ID,
+            },
+          },
         ),
     });
 
@@ -448,6 +523,24 @@ describe("AgentKit HTTP adapter", () => {
     await expect(iterator.next()).rejects.toThrow(
       "must be contiguous after sequence 1",
     );
+  });
+
+  it("rejects an event stream that omits the negotiated profile", async () => {
+    const transport = createAgentKitHttpTransport({
+      baseUrl: "https://agentkit.test/agentkit",
+      fetch: async () =>
+        new Response(
+          `id: 1\ndata: ${JSON.stringify(encodeAgentEvent(sseEvent(1)))}\n\n`,
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    });
+
+    await expect(
+      transport
+        .subscribeToRun({ threadId: "thread-1", runId: "run-1" })
+        [Symbol.asyncIterator]()
+        .next(),
+    ).rejects.toMatchObject({ code: "unsupported_profile" });
   });
 
   it("rejects a backend sequence gap before writing an invalid SSE cursor", async () => {
@@ -1155,12 +1248,12 @@ describe("AgentKit HTTP adapter", () => {
     });
 
     const discovery = await transport.discoverCapabilities?.({
-      protocol: { protocol: "agentkit", versions: [1] },
+      protocol: createAgentKitProtocolVersionOffer(),
     });
 
     expect(discovery?.protocol).toMatchObject({
       status: "compatible",
-      selectedVersion: 1,
+      selectedVersion: 2,
     });
     expect(discovery?.capabilities).toEqual(
       expect.arrayContaining([

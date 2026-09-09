@@ -18,7 +18,12 @@ import type {
   AgentRunSnapshot,
   AgentTransport,
 } from "../protocol/index.js";
-import { AGENTKIT_PROTOCOL_VERSION } from "../protocol/index.js";
+import {
+  AGENTKIT_PROTOCOL_VERSION,
+  approvalResponseFromResume,
+  resumeEntryFromApproval,
+  resumeOptionId,
+} from "../protocol/index.js";
 import {
   assertAgentTransportConformance,
   type AgentKitConformanceScenario,
@@ -109,6 +114,7 @@ function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
 function createFixtureTransport(
   preparedScenario: AgentKitConformanceScenario,
   defect?: FixtureDefect,
+  resumeWithNewRun = false,
 ): AgentTransport {
   const capabilities: AgentCapabilities = {
     protocolVersion:
@@ -322,7 +328,11 @@ function createFixtureTransport(
         await run.cancelled.promise;
         yield* run.events.slice(1);
       }
-      if (run.scenario === "approval" && run.events.length === 2) {
+      if (
+        run.scenario === "approval" &&
+        run.events.length === 2 &&
+        !resumeWithNewRun
+      ) {
         await run.approved.promise;
         yield* run.events.slice(2);
       }
@@ -451,20 +461,44 @@ function createFixtureTransport(
   };
 
   if (defect !== "capabilities") {
-    transport.resolveApproval = async (input) => {
+    transport.resumeRun = async (input) => {
       const run = runs.get(input.runId);
       if (!run || run.threadId !== input.threadId)
         throw new Error("Unknown run");
+      const entry = input.resume[0]!;
+      if (resumeWithNewRun) {
+        const resumed: FixtureRun = {
+          id: `approval-resumed-run-${++runNumber}`,
+          threadId: run.threadId,
+          scenario: "approval",
+          events: [],
+          subscriptions: 0,
+          cancelled: deferred(),
+          approved: deferred(),
+        };
+        resumed.events.push(
+          event(resumed, 1, { type: "run.started" }),
+          event(resumed, 2, {
+            type: "approval.resolved",
+            approvalId: entry.interruptId,
+            optionId: resumeOptionId(entry),
+            response: approvalResponseFromResume(entry),
+          }),
+          event(resumed, 3, { type: "run.completed" }),
+        );
+        runs.set(resumed.id, resumed);
+        return { runId: resumed.id };
+      }
       if (defect !== "approval") {
         run.events.push(
           event(run, 3, {
             type: "approval.resolved",
-            approvalId: input.approvalId,
-            optionId: input.optionId,
+            approvalId: entry.interruptId,
+            optionId: resumeOptionId(entry),
             response:
               defect === "approval-decision"
                 ? { decision: "allow" as "approve" }
-                : input.response,
+                : approvalResponseFromResume(entry),
           }),
         );
       }
@@ -472,6 +506,7 @@ function createFixtureTransport(
         event(run, run.events.length + 1, { type: "run.completed" }),
       );
       run.approved.resolve();
+      return { runId: run.id };
     };
   }
 
@@ -656,6 +691,50 @@ describe("assertAgentTransportConformance", () => {
         "rich lifecycle snapshot",
       ]),
     );
+  });
+
+  it("follows approval continuation onto a replacement run", async () => {
+    const report = await assertAgentTransportConformance({
+      createTransport: (scenario) =>
+        createFixtureTransport(scenario, undefined, scenario === "approval"),
+      timeoutMs: 250,
+    });
+
+    expect(report.checks).toContain("approval continuation");
+  });
+
+  it("accepts the legacy approval bridge for compatibility transports", async () => {
+    const report = await assertAgentTransportConformance({
+      createTransport(scenario) {
+        const transport = createFixtureTransport(scenario);
+        const resumeRun = transport.resumeRun!;
+        transport.resolveApproval = async (input) => {
+          await resumeRun({
+            threadId: input.threadId,
+            runId: input.runId,
+            resume: [resumeEntryFromApproval(input)],
+          });
+        };
+        delete transport.resumeRun;
+        const { protocolVersion: _protocolVersion, ...legacyCapabilities } =
+          transport.capabilities!;
+        transport.capabilities = legacyCapabilities;
+        return transport;
+      },
+      timeoutMs: 250,
+    });
+
+    expect(report.checks).toContain("approval continuation");
+  });
+
+  it("requires resumeRun for protocol-v2 approval transports", async () => {
+    const transport = createFixtureTransport("completed");
+    transport.resolveApproval = async () => undefined;
+    delete transport.resumeRun;
+
+    await expect(
+      assertAgentTransportConformance({ transport }),
+    ).rejects.toThrow(/approvals is advertised/iu);
   });
 
   it("keeps a baseline profile for transports without lifecycle fixtures", async () => {

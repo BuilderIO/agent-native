@@ -1198,6 +1198,20 @@ export interface AgentTransport extends AgentTransportThreadOperations {
     input: CancelRunInput,
     context?: AgentRequestContext,
   ): Promise<void>;
+  /**
+   * Answers the interrupts that ended a run and starts the run that carries the
+   * work forward. An interrupt terminates its run under AG-UI semantics, so
+   * resolution produces a new run to subscribe to rather than resuming a
+   * stream that is already closed.
+   */
+  resumeRun?(
+    input: ResumeRunInput,
+    context?: AgentRequestContext,
+  ): Promise<StartRunResult>;
+  /**
+   * @deprecated Implement {@link resumeRun}. Kept as a source-compatible
+   * bridge for protocol-v1 transports while consumers migrate to interrupts.
+   */
   resolveApproval?(
     input: ResolveApprovalInput,
     context?: AgentRequestContext,
@@ -1236,7 +1250,31 @@ export interface StartRunInput {
   threadId: ThreadId;
   messages: AgentMessage[];
   options?: AgentRunOptions;
+  /**
+   * Resolutions for interrupts raised by an earlier run. Mirrors AG-UI's
+   * `RunAgentInput.resume`, so a resumed run is an ordinary run start rather
+   * than a second command channel with its own lifecycle.
+   */
+  resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;
+}
+
+/**
+ * One interrupt resolution, shaped exactly like AG-UI's `ResumeEntry` so it
+ * needs no translation on the wire.
+ */
+export interface AgentResumeEntry {
+  interruptId: ApprovalId;
+  status: "resolved" | "cancelled";
+  payload?: unknown;
+  metadata?: AgentProtocolMetadata;
+}
+
+export interface ResumeRunInput {
+  threadId: ThreadId;
+  /** The interrupted run being answered, used to scope authorization. */
+  runId: RunId;
+  resume: AgentResumeEntry[];
 }
 
 export interface StartRunResult {
@@ -1260,6 +1298,7 @@ export interface CancelRunInput {
   runId: RunId;
 }
 
+/** @deprecated Use {@link ResumeRunInput} with {@link AgentResumeEntry}. */
 export interface ResolveApprovalInput {
   threadId: ThreadId;
   runId: RunId;
@@ -1317,3 +1356,5 @@ export interface AgentProtocolEnvelope<TPayload = unknown> {
 export * from "./validation.js";
 export * from "./compatibility.js";
 export * from "./errors.js";
+export * from "./agui.js";
+export * from "./agui-codec.js";

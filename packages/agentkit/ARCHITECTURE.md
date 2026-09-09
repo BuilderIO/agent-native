@@ -267,6 +267,21 @@ distinguishes available, degraded, unavailable, unsupported, and omitted unknown
 state. During the pre-1.0 period, consumers should review minor-release notes
 before upgrading a custom adapter.
 
+Protocol v2 is one such explicitly breaking pre-1.0 minor. Its AG-UI envelope
+is not wire-compatible with v1, so clients and servers must upgrade together
+and custom adapters must rerun conformance before deployment. V2-only peers
+reject v1 at negotiation instead of guessing a fallback; the deprecated
+`resolveApproval` API is only a source-compatibility bridge after both peers
+have upgraded.
+
+Approvals follow AG-UI's terminal interrupt lifecycle. The request closes the
+interrupted protocol run, and `resumeRun()` returns a distinct replacement run
+that contains the resolution and continued events.
+
+Conformance enforces `resumeRun()` for transports that advertise protocol v2.
+Unversioned compatibility transports may temporarily use the deprecated
+`resolveApproval()` bridge while custom adapters migrate.
+
 Conformance follows negotiated capabilities. A transport that declares
 `resumableRuns` must prove cursor replay. A transport that declares
 `durableThreadSnapshots` must return a value accepted by

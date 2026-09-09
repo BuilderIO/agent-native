@@ -21,6 +21,8 @@ import {
   type QueueMessageInput,
   type ResolveApprovalInput,
   type ResolveConnectionRequestInput,
+  type AgentResumeEntry,
+  type ResumeRunInput,
   type SubscribeToRunInput,
   type SubmitFeedbackInput,
   type ThreadId,
@@ -2481,8 +2483,53 @@ export function parseStartRunInput(
   if (input.options !== undefined) {
     parseAgentRunOptions(input.options, `${path}.options`);
   }
+  if (input.resume !== undefined) {
+    parseAgentResumeEntries(input.resume, `${path}.resume`);
+  }
   optionalMetadata(input.metadata, `${path}.metadata`);
   return value as StartRunInput;
+}
+
+function parseAgentResumeEntries(
+  value: unknown,
+  path: string,
+): AgentResumeEntry[] {
+  array(value, path).forEach((entry, index) => {
+    const resume = record(entry, `${path}[${index}]`);
+    knownKeys(
+      resume,
+      ["interruptId", "status", "payload", "metadata"],
+      `${path}[${index}]`,
+    );
+    string(resume.interruptId, `${path}[${index}].interruptId`);
+    const status = string(resume.status, `${path}[${index}].status`);
+    if (status !== "resolved" && status !== "cancelled") {
+      throw new AgentProtocolValidationError(
+        `${path}[${index}].status`,
+        "expected resolved or cancelled",
+      );
+    }
+    optionalMetadata(resume.metadata, `${path}[${index}].metadata`);
+  });
+  return value as AgentResumeEntry[];
+}
+
+export function parseResumeRunInput(
+  value: unknown,
+  path = "resumeRun",
+): ResumeRunInput {
+  const input = record(value, path);
+  knownKeys(input, ["threadId", "runId", "resume"], path);
+  string(input.threadId, `${path}.threadId`);
+  string(input.runId, `${path}.runId`);
+  const entries = parseAgentResumeEntries(input.resume, `${path}.resume`);
+  if (entries.length === 0) {
+    throw new AgentProtocolValidationError(
+      `${path}.resume`,
+      "expected at least one interrupt resolution",
+    );
+  }
+  return value as ResumeRunInput;
 }
 
 export function parseSubscribeToRunInput(
@@ -2649,6 +2696,7 @@ export function parseCancelRunInput(
   return value as CancelRunInput;
 }
 
+/** @deprecated Validation bridge for the protocol-v1 approval command. */
 export function parseResolveApprovalInput(
   value: unknown,
   path = "resolveApproval",
