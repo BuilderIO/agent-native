@@ -624,7 +624,7 @@ describe("browser analytics pageviews", () => {
     setTrackingIdentity(
       {
         id: "auth-user-qa",
-        email: "signup+qa-test-bot-run-1@example.com",
+        email: "signup+autoz-run-1@example.com",
       },
       "org_qa",
     );

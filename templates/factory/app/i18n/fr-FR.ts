@@ -105,14 +105,10 @@ const messages = {
     empty: "Aucune observation pour le moment.",
     risk: "Risque",
     status: "État",
-    author: "Auteur",
     coverage: "Couverture",
     reason: "Motif",
     evidence: "Preuve",
-    evidenceDescription: "Le fil ou le rapport source de cet élément.",
     actionsTaken: "Journal",
-    actionsTakenDescription:
-      "Décisions fantômes, gouvernance et travail déjà lancé pour cet élément.",
     threadTruncated: "Ce fil Slack est tronqué.",
     threadUnavailable: "Impossible de charger ce fil Slack.",
     noEvidence: "Aucune preuve source n'est enregistrée pour cet élément.",
@@ -135,8 +131,6 @@ const messages = {
     noteLabel: "Note de feedback",
     submitFeedback: "Enregistrer le feedback",
     feedbackTitle: "Enregistrer le feedback",
-    feedbackDescription:
-      "Indiquez si la décision fantôme était correcte. Ceci est enregistré pour relecture ; cela ne démarre pas d’exécution.",
     feedbackError: "Impossible d’enregistrer le feedback.",
     noDecisions: "Aucune décision enregistrée.",
     rulesTitle: "Règles de triage",

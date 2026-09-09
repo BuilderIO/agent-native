@@ -40,8 +40,8 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("setPreviewTitleFocusDocumentId");
-    expect(source).toContain("titleInputRef.current?.focus()");
-    expect(source).toContain("titleInputRef.current?.select()");
+    expect(source).toContain("onTitleFocused={onTitleFocused}");
+    expect(source).toContain("focusTitle={focusTitle}");
     expect(source).toContain("const newDatabaseRowLabel =");
     expect(source).toContain("newRowLabel={newDatabaseRowLabel}");
     expect(source).toContain("label={newRowLabel}");
@@ -117,9 +117,9 @@ describe("document database layout", () => {
   });
 
   it("keeps preview property popovers inside the side preview sheet", () => {
-    const source = readDatabaseSource();
-
-    expect(source).toContain("popoversPortalled={false}");
+    expect(
+      readFileSync(new URL("./DocumentEditor.tsx", import.meta.url), "utf8"),
+    ).toContain("popoversPortalled={false}");
   });
 
   it("uses compact icon-led database toolbar controls", () => {
@@ -276,7 +276,7 @@ describe("document database layout", () => {
     );
   });
 
-  it("uses drag reordering instead of explicit move actions for views and columns", () => {
+  it("keeps drag reordering and keyboard column movement available", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("function reorderDatabaseView(");
@@ -294,8 +294,8 @@ describe("document database layout", () => {
     expect(source).not.toContain("Move right");
     expect(source).not.toContain("Move up");
     expect(source).not.toContain("Move down");
-    expect(source).not.toContain("onMoveLeft");
-    expect(source).not.toContain("onMoveRight");
+    expect(source).toContain("onMoveLeft");
+    expect(source).toContain("onMoveRight");
   });
 
   it("keeps calendar cells calm and unclipped", () => {
@@ -360,9 +360,7 @@ describe("document database layout", () => {
   it("keeps selection controls visible and hides mutations without permission", () => {
     const source = readDatabaseSource();
     const selectionBarIndex = source.indexOf("<DatabaseSelectionBar");
-    const scrollSurfaceIndex = source.indexOf(
-      'data-database-scroll-surface="table"',
-    );
+    const scrollSurfaceIndex = source.indexOf("<DataGrid", selectionBarIndex);
 
     expect(selectionBarIndex).toBeGreaterThan(-1);
     expect(scrollSurfaceIndex).toBeGreaterThan(selectionBarIndex);

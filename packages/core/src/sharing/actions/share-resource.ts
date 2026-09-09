@@ -14,6 +14,7 @@ import {
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { isAutozQaEmail } from "../../shared/qa-test-email.js";
 import { track } from "../../tracking/registry.js";
 import { getUserProfile } from "../../user-profile/store.js";
 import { assertWorkspaceUserGroupIds } from "../../workspace-connections/groups.js";
@@ -27,6 +28,7 @@ import {
 
 export function isSyntheticQaEmail(email: string): boolean {
   const trimmed = email.trim().toLowerCase();
+  if (isAutozQaEmail(trimmed)) return true;
   const at = trimmed.lastIndexOf("@");
   if (at <= 0) return false;
   const local = trimmed.slice(0, at);

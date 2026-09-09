@@ -104,14 +104,10 @@ const messages = {
     empty: "観測はまだありません。",
     risk: "リスク",
     status: "ステータス",
-    author: "作成者",
     coverage: "カバレッジ",
     reason: "理由",
     evidence: "根拠",
-    evidenceDescription: "この項目の元になったスレッドまたは報告です。",
     actionsTaken: "ログ",
-    actionsTakenDescription:
-      "この項目のシャドー判断、ガバナンス、開始済みの作業です。",
     threadTruncated: "この Slack スレッドは途切れています。",
     threadUnavailable: "この Slack スレッドを読み込めませんでした。",
     noEvidence: "この項目のソース根拠は保存されていません。",
@@ -129,8 +125,6 @@ const messages = {
     noteLabel: "フィードバックメモ",
     submitFeedback: "フィードバックを記録",
     feedbackTitle: "フィードバックを記録",
-    feedbackDescription:
-      "シャドー判断が正しかったかを記録します。レビュー用に保存され、実行は開始しません。",
     feedbackError: "フィードバックを記録できませんでした。",
     noDecisions: "記録された判断はまだありません。",
     rulesTitle: "トリアージルール",

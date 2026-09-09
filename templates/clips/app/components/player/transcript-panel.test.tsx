@@ -113,6 +113,34 @@ describe("TranscriptPanel no-audio failures", () => {
       scrollRegion,
     );
   });
+
+  it("hides transcript cues that start inside an edited-out range", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[
+              { startMs: 0, endMs: 1_000, text: "Keep this." },
+              { startMs: 1_000, endMs: 2_000, text: "Cut this." },
+              { startMs: 2_000, endMs: 3_000, text: "Keep that." },
+            ]}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 1_000, endMs: 2_000, excluded: true }],
+              blurs: [],
+            })}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Keep this.");
+    expect(container.textContent).toContain("Keep that.");
+    expect(container.textContent).not.toContain("Cut this.");
+  });
 });
 
 describe("mergeTranscriptSegmentsForDisplay", () => {

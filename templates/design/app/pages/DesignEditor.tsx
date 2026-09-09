@@ -19,7 +19,6 @@ import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useCollaborativeDoc,
   isReconcileLeadClient,
-  dedupeCollabUsersByEmail,
   emailToColor,
   emailToName,
   usePresence,
@@ -30,6 +29,7 @@ import {
   type OtherPresence,
 } from "@agent-native/core/client/collab";
 import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { useExperiment } from "@agent-native/core/client/experiments";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
@@ -67,6 +67,7 @@ import {
 } from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
+  PresenceBar,
   RemoteSelectionRings,
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
@@ -104,6 +105,7 @@ import {
   DESIGN_CAPABILITY_NAMES,
   hasCapability,
 } from "@shared/design-source-capabilities";
+import { DESIGN_TWEAKS } from "@shared/experiments";
 import { FULL_APP_BUILDING, readFusionApp } from "@shared/full-app";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
@@ -225,8 +227,6 @@ import {
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
-import type { DesignCollaborator } from "@/components/design/editor/DesignCollaborators";
-import { DesignCollaboratorsMenu } from "@/components/design/editor/DesignCollaborators";
 import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
@@ -2892,6 +2892,7 @@ function DesignEditor() {
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
   const canEditDesign = canShareDesign || designAccessRole === "editor";
+  const tweaksEnabled = useExperiment(DESIGN_TWEAKS.key);
   const canCommentDesign =
     isSignedIn &&
     (designAccessRole === "owner" ||
@@ -3650,23 +3651,23 @@ function DesignEditor() {
 
   const handleTweakPromptOpenChange = useCallback(
     (open: boolean) => {
-      if (open && !canEditDesign) return;
+      if (open && (!canEditDesign || !tweaksEnabled)) return;
       setShowTweakPrompt(open);
       if (!open) {
         tweakPromptAnchorRef.current = null;
       }
     },
-    [canEditDesign],
+    [canEditDesign, tweaksEnabled],
   );
 
   const handleRequestTweaks = useCallback(
     (anchor: HTMLElement) => {
-      if (!canEditDesign) return;
+      if (!canEditDesign || !tweaksEnabled) return;
       tweakPromptAnchorRef.current = anchor;
       setActiveInspectorTab("tweaks");
       setShowTweakPrompt(true);
     },
-    [canEditDesign],
+    [canEditDesign, tweaksEnabled],
   );
 
   const persistPromptDesignSystem = useCallback(
@@ -5276,7 +5277,7 @@ function DesignEditor() {
   );
 
   // Collaborative editing for the active file
-  const { ydoc, awareness, isSynced, activeUsers, agentActive } =
+  const { ydoc, awareness, isSynced, activeUsers, agentPresent, agentActive } =
     useCollaborativeDoc({
       docId:
         isSignedIn && canEditDesign && viewMode === "single"
@@ -6245,29 +6246,6 @@ function DesignEditor() {
     [followingEmail, stopFollowing],
   );
 
-  const designCollaborators = useMemo<DesignCollaborator[]>(() => {
-    const currentEmail = currentUser?.email.trim().toLowerCase() ?? null;
-    const humans = dedupeCollabUsersByEmail([
-      ...(currentUser ? [currentUser] : []),
-      ...activeUsers,
-    ]).filter((user) => user.email.trim().toLowerCase() !== "agent@system");
-    const otherHumans = humans.filter(
-      (user) => user.email.trim().toLowerCase() !== currentEmail,
-    );
-    const collaborators = otherHumans.map((user) => ({ user }));
-
-    if (!currentUser) return collaborators;
-
-    return [
-      {
-        user: currentUser,
-        image: session?.image,
-        isCurrent: true,
-      },
-      ...collaborators,
-    ];
-  }, [activeUsers, currentUser, session?.image]);
-
   // Resolve the content to render: prefer collab content only after the
   // per-file reconcile state has reset for the current active file. Otherwise a
   // file switch can render one frame with the previous file's Yjs text.
@@ -6976,6 +6954,13 @@ function DesignEditor() {
 
   const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
   const designReviewPanelEnabled = useFeatureFlag(DESIGN_REVIEW_PANEL.key);
+
+  useEffect(() => {
+    if (!tweaksEnabled && activeInspectorTab === "tweaks") {
+      setActiveInspectorTab("design");
+    }
+    if (!tweaksEnabled) setShowTweakPrompt(false);
+  }, [activeInspectorTab, tweaksEnabled]);
 
   // Builder-hosted preview URL for fusion-source designs. Prefers the flat
   // `fusionUrl` written by the "Make it real" migration; falls back to the
@@ -19492,11 +19477,19 @@ function DesignEditor() {
         {minimalUi ? minimalRightSidebarToggle : null}
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
-            <DesignCollaboratorsMenu
-              collaborators={designCollaborators}
+            <PresenceBar
+              activeUsers={[
+                ...(currentUser ? [currentUser] : []),
+                ...(activeUsers ?? []),
+              ]}
+              agentPresent={agentPresent}
+              agentActive={agentActive}
+              currentUserEmail={currentUser?.email}
+              showCurrentUser
               followingEmail={followingEmail}
-              label={t("designEditor.collaborators")}
               onAvatarClick={handleAvatarClick}
+              disableAgentClick
+              className="shrink-0"
             />
           )}
         </div>
@@ -19830,6 +19823,7 @@ function DesignEditor() {
       : undefined,
     activeTab: activeInspectorTab,
     onActiveTabChange: setActiveInspectorTab,
+    tweaksEnabled,
     tweaks,
     tweakValues: tweakSelections,
     activeContent,
@@ -21476,7 +21470,7 @@ function DesignEditor() {
         }}
       />
       <PromptPopover
-        open={showTweakPrompt}
+        open={showTweakPrompt && tweaksEnabled}
         onOpenChange={handleTweakPromptOpenChange}
         title={t("designEditor.tweaksPromptTitle")}
         placeholder={t("designEditor.tweaksPlaceholder")}

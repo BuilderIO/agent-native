@@ -290,6 +290,98 @@ function resolveAppSender(
 interface DeliveryOutcome {
   provider: EmailProvider;
   from: string;
+  /** Exact outbound JSON body sent to the provider, when one was built. */
+  requestPayload?: string;
+  /** Raw HTTP status code from the provider, when a response was received. */
+  responseStatus?: number;
+  /** Raw HTTP response body text from the provider, when a response was received. */
+  responseBody?: string;
+}
+
+/**
+ * Thrown when a provider request completed (we got an HTTP response) but the
+ * status was not 2xx. Carries the raw request/response so the audit log can
+ * distinguish "the provider rejected it" from a thrown error that never
+ * reached the provider (network failure, timeout, credential resolution).
+ */
+class EmailProviderError extends Error {
+  readonly provider: EmailProvider;
+  readonly from: string;
+  readonly requestPayload: string;
+  readonly responseStatus: number;
+  readonly responseBody: string;
+
+  constructor(
+    message: string,
+    details: {
+      provider: EmailProvider;
+      from: string;
+      requestPayload: string;
+      responseStatus: number;
+      responseBody: string;
+    },
+  ) {
+    super(message);
+    this.name = "EmailProviderError";
+    this.provider = details.provider;
+    this.from = details.from;
+    this.requestPayload = details.requestPayload;
+    this.responseStatus = details.responseStatus;
+    this.responseBody = details.responseBody;
+  }
+}
+
+/**
+ * Serialize a provider payload for the audit log, stripping attachment bytes
+ * and message bodies. Attachment `content` is base64 file data with no
+ * diagnostic value for "who did this go to". The HTML/text body is omitted
+ * too: transactional emails routinely embed a one-time magic-link, password-
+ * reset, or verification URL, which is bearer-token-equivalent — logging it
+ * verbatim would let anyone with `email_log` read access sign in as the
+ * recipient. `subject` and `templateId` already identify what was sent.
+ */
+const MAX_LOGGED_TEXT_LENGTH = 8_000;
+
+function truncateForLog(value: string): string {
+  if (value.length <= MAX_LOGGED_TEXT_LENGTH) return value;
+  const omitted = value.length - MAX_LOGGED_TEXT_LENGTH;
+  return `${value.slice(0, MAX_LOGGED_TEXT_LENGTH)}<truncated, ${omitted} more characters>`;
+}
+
+function omittedBodyMarker(value: unknown): unknown {
+  return typeof value === "string" ? `<omitted, ${value.length} chars>` : value;
+}
+
+function redactPayloadForLog(payload: Record<string, unknown>): string {
+  const loggable: Record<string, unknown> = { ...payload };
+  // Resend shape: top-level `html` / `text` fields.
+  if ("html" in loggable) loggable.html = omittedBodyMarker(loggable.html);
+  if ("text" in loggable) loggable.text = omittedBodyMarker(loggable.text);
+  // SendGrid shape: `content: [{ type, value }]`.
+  if (Array.isArray(loggable.content)) {
+    loggable.content = (loggable.content as Record<string, unknown>[]).map(
+      (entry) => ({ ...entry, value: omittedBodyMarker(entry.value) }),
+    );
+  }
+  if (Array.isArray(loggable.attachments) && loggable.attachments.length) {
+    loggable.attachments = (
+      loggable.attachments as Record<string, unknown>[]
+    ).map(({ content: _content, ...rest }) => ({
+      ...rest,
+      contentOmitted: true,
+    }));
+  }
+  return truncateForLog(JSON.stringify(loggable));
+}
+
+/**
+ * A response body that failed to read is not the same as a genuinely empty
+ * one — collapsing both to "" would make a truncated/aborted read look like a
+ * provider that legitimately returned nothing.
+ */
+function unreadableResponseBody(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `<response body unreadable: ${message}>`;
 }
 
 async function deliverEmail(
@@ -333,6 +425,7 @@ async function deliverEmail(
     if (args.references) headers["References"] = args.references;
     if (Object.keys(headers).length) payload.headers = headers;
 
+    const requestPayload = redactPayloadForLog(payload);
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -342,11 +435,28 @@ async function deliverEmail(
       body: JSON.stringify(payload),
       signal,
     });
+    const responseBody = truncateForLog(
+      await res.text().catch(unreadableResponseBody),
+    );
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`Resend error ${res.status}: ${body}`);
+      throw new EmailProviderError(
+        `Resend error ${res.status}: ${responseBody}`,
+        {
+          provider,
+          from,
+          requestPayload,
+          responseStatus: res.status,
+          responseBody,
+        },
+      );
     }
-    return { provider, from };
+    return {
+      provider,
+      from,
+      requestPayload,
+      responseStatus: res.status,
+      responseBody,
+    };
   }
 
   if (provider === "sendgrid") {
@@ -402,6 +512,7 @@ async function deliverEmail(
       }));
     }
 
+    const requestPayload = redactPayloadForLog(sgPayload);
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
@@ -411,11 +522,28 @@ async function deliverEmail(
       body: JSON.stringify(sgPayload),
       signal,
     });
+    const responseBody = truncateForLog(
+      await res.text().catch(unreadableResponseBody),
+    );
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`SendGrid error ${res.status}: ${body}`);
+      throw new EmailProviderError(
+        `SendGrid error ${res.status}: ${responseBody}`,
+        {
+          provider,
+          from,
+          requestPayload,
+          responseStatus: res.status,
+          responseBody,
+        },
+      );
     }
-    return { provider, from };
+    return {
+      provider,
+      from,
+      requestPayload,
+      responseStatus: res.status,
+      responseBody,
+    };
   }
 
   // Dev fallback — no provider configured. Logging the full body exposes
@@ -443,32 +571,43 @@ async function sendEmailWithSignal(
   args: SendEmailArgs,
   signal?: AbortSignal,
 ): Promise<void> {
-  let outcome: DeliveryOutcome | undefined;
-  try {
-    outcome = await deliverEmail(args, signal);
-  } catch (error) {
-    await recordEmailSend({
-      templateId: args.templateId,
-      app: args.app ?? getAppConfig().app.slug ?? "unknown",
-      orgId: args.orgId ?? getRequestOrgId(),
-      recipient: args.to,
-      sender: outcome?.from ?? args.from ?? "unknown",
-      subject: args.subject,
-      status: "failed",
-      error: error instanceof Error ? error.message : String(error),
-      provider: outcome?.provider ?? "unknown",
-    });
-    throw error;
-  }
-  await recordEmailSend({
+  const baseRecord = {
     templateId: args.templateId,
     app: args.app ?? getAppConfig().app.slug ?? "unknown",
     orgId: args.orgId ?? getRequestOrgId(),
     recipient: args.to,
-    sender: outcome.from,
     subject: args.subject,
+  };
+  let outcome: DeliveryOutcome | undefined;
+  try {
+    outcome = await deliverEmail(args, signal);
+  } catch (error) {
+    // A response was received but the provider rejected it: the error carries
+    // the raw request/response so "provider said no" stays distinguishable
+    // from "we never reached the provider" (network failure, timeout,
+    // credential resolution failure), which sets none of these three fields.
+    const providerError =
+      error instanceof EmailProviderError ? error : undefined;
+    await recordEmailSend({
+      ...baseRecord,
+      sender: providerError?.from ?? args.from ?? "unknown",
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+      provider: providerError?.provider ?? "unknown",
+      requestPayload: providerError?.requestPayload,
+      responseStatus: providerError?.responseStatus,
+      responseBody: providerError?.responseBody,
+    });
+    throw error;
+  }
+  await recordEmailSend({
+    ...baseRecord,
+    sender: outcome.from,
     status: "sent",
     provider: outcome.provider,
+    requestPayload: outcome.requestPayload,
+    responseStatus: outcome.responseStatus,
+    responseBody: outcome.responseBody,
   });
 }
 

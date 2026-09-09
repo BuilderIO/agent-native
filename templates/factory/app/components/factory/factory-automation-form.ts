@@ -164,6 +164,16 @@ export function isDestinationFilled(
   return false;
 }
 
+/**
+ * List rows store unused destinations as `null`. The save schema is an optional
+ * string, so `null` fails validation. Empty string stays empty (explicit clear).
+ */
+export function omitNullDestination(
+  value: string | null | undefined,
+): string | undefined {
+  return value ?? undefined;
+}
+
 type FactoryAutomationConfigQuery = {
   error?: unknown;
   data?: {

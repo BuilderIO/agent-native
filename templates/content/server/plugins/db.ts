@@ -1083,6 +1083,12 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 88,
+      name: "content-comment-submission-attribution",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS submission_source TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS submission_run_id TEXT`,
+    },
+    {
+      version: 89,
       name: "share-tables-notified-at",
       sql: `
         ALTER TABLE document_shares ADD COLUMN IF NOT EXISTS notified_at TEXT

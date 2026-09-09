@@ -44,7 +44,7 @@ Read the relevant skill before deeper work:
   configuration and fake placeholders in examples.
 - For external integrations, inspect the workspace/provider connection catalog first.
 - Use actions (table above) for every deck/slide write; never write rows
-  directly. Read the schema if a parameter is unclear.
+  directly. Read the schema when unclear.
 - Use `view-screen` before editing when the active deck, selected slide, or
   current layout is unclear.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
@@ -70,14 +70,14 @@ Read the relevant skill before deeper work:
 - For per-click reveals, follow `slide-editing`'s click-to-reveal rules.
 - For images, use `generate-image-api` with provenance; show results as
   `![alt](url)`.
-- For focused selected-text edits follow the `update-slide` / `get-deck` /
-  `patch-deck` contract in `slide-editing` (one literal replacement,
-  `expectedMatches: 1`, `baseContentHash` from `view-screen`); the same rule
-  reaches external callers through this app's `mcp.instructions`.
+- For focused edits, prefer `view-screen`'s exact `selectedText` with `find`,
+  `expectedMatches: 1`, and `baseContentHash`; without it, use `objectId` with
+  `replace` and the same hash, else exact `find` and `expectedMatches: 1` (see
+  `slide-editing` and `mcp.instructions`).
 - For data requests, follow `analytics-data-for-decks`; delegate via Analytics
   over A2A, never write SQL or call providers directly.
-- When the user names no reference deck or design system, call
-  `get-workspace-defaults` first (see `create-deck`).
+- Without a reference deck or design system, call `get-workspace-defaults`
+  first (see `create-deck`).
 - Before generation, follow `creative-context` for source order, `contextMode`,
   and governed-context submission via `manage-context-membership`.
 ## Persistence Model

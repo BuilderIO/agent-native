@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.19.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 58d9dc3: Allow callers to keep the AI presence avatar display-only.
+
 ## 0.19.4
 
 ### Patch Changes

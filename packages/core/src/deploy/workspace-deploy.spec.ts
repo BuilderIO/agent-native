@@ -861,6 +861,27 @@ describe("workspace deploy", () => {
     });
   });
 
+  it("keeps Vite assets when the app id is assets", async () => {
+    makeWorkspaceApp(tmpDir, "assets");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=vercel", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const assetsDir = path.join(
+      tmpDir,
+      ".vercel",
+      "output",
+      "static",
+      "assets",
+      "assets",
+    );
+    expect(fs.existsSync(path.join(assetsDir, "app.js"))).toBe(true);
+    expect(fs.existsSync(path.join(assetsDir, "app-aB12_cdE.js"))).toBe(true);
+  });
+
   it("allows local build-only deploy checks without A2A_SECRET", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
 

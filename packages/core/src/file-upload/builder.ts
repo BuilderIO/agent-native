@@ -355,20 +355,31 @@ export const builderFileUploadProvider: FileUploadProvider = {
     assetUrl.search = "";
     assetUrl.hash = "";
 
-    const { resolveBuilderCredentials } =
-      await import("../server/credential-provider.js");
-    const credentials = await resolveBuilderCredentials();
-    if (!credentials.privateKey || !credentials.publicKey) return false;
+    const [auth, { BUILDER_ASSETS_WRITE_SCOPE }] = await Promise.all([
+      import("../server/builder-api-auth.js"),
+      import("../server/builder-oauth.js"),
+    ]);
+    const authorization = await auth.resolveBuilderRequestAuthorization({
+      requiredScope: BUILDER_ASSETS_WRITE_SCOPE,
+    });
+    if (
+      !authorization ||
+      (authorization.source === "legacy" && !authorization.legacyPublicKey)
+    ) {
+      return false;
+    }
 
     const deleteUrl = new URL(
       "/api/v1/assets/by-url",
       "https://cdn.builder.io",
     );
     deleteUrl.searchParams.set("url", assetUrl.toString());
-    deleteUrl.searchParams.set("apiKey", credentials.publicKey);
+    if (authorization.legacyPublicKey) {
+      deleteUrl.searchParams.set("apiKey", authorization.legacyPublicKey);
+    }
     const response = await fetchWithTimeout(deleteUrl.toString(), {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${credentials.privateKey}` },
+      headers: { Authorization: authorization.authorization },
     });
     if (response.ok) return true;
     if (response.status === 404) return false;

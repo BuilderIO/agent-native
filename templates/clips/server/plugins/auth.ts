@@ -22,8 +22,8 @@ export default createAuthPlugin({
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [
       "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
-      "Calendar-synced meeting notes (Granola-style) with live transcripts and AI action items",
-      "Push-to-talk voice dictation (Wisprflow-style) — hold Fn anywhere, get clean text back",
+      "Calendar-synced meeting notes with live transcripts and AI action items",
+      "Push-to-talk voice dictation - hold Fn anywhere, get clean text back",
       "One searchable library across recordings, meetings, and dictations",
     ],
   },

@@ -157,6 +157,7 @@ describe("shareable resource access helpers", () => {
   });
 
   it("recognizes reserved synthetic QA emails so share notifications can be suppressed", () => {
+    expect(isSyntheticQaEmail("steve+autoz-run-123@example.com")).toBe(true);
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.test")).toBe(true);
     expect(isSyntheticQaEmail("codex+qa-lane@example.invalid")).toBe(true);
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.com")).toBe(false);

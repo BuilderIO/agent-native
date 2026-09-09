@@ -465,6 +465,7 @@ export default function ShareRoute() {
   // page while everything refetches. Start where the server started and adopt
   // the stored password after mount.
   const [password, setPassword] = useState<string | null>(null);
+  const [hasHydrated, setHasHydrated] = useState(false);
 
   useEffect(() => {
     if (!shareId) return;
@@ -476,6 +477,7 @@ export default function ShareRoute() {
       // coercion-ok: the fallback is visible to the viewer, not swallowed.
     } catch {}
   }, [shareId]);
+  useEffect(() => setHasHydrated(true), []);
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(startMs);
   const [commentOpen, setCommentOpen] = useState(false);
@@ -810,7 +812,7 @@ export default function ShareRoute() {
     ownerEmail.charAt(0).toUpperCase() ||
     loaderData.recording?.ownerInitial ||
     "C";
-  const recordedOn = formatRecordedOn(recording?.createdAt);
+  const recordedOn = formatRecordedOn(recording?.createdAt, !hasHydrated);
   const visibilityLabel = recording
     ? t(`shareUi.visibility.${recording.visibility}.label`)
     : "";
@@ -1720,6 +1722,7 @@ export default function ShareRoute() {
               segments={transcriptSegments}
               fullText={transcriptFullText}
               durationMs={recording.durationMs}
+              editsJson={recording.editsJson}
               currentMs={playbackMs}
               onSeek={(ms) => playerRef.current?.seek(ms)}
               status={transcriptStatus}
@@ -1806,13 +1809,17 @@ function sanitizeFilename(name: string): string {
   );
 }
 
-function formatRecordedOn(value: string | null | undefined): string {
+function formatRecordedOn(
+  value: string | null | undefined,
+  stable = false,
+): string {
   if (!value) return "";
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
-    date,
-  );
+  return new Intl.DateTimeFormat(stable ? "en-US" : undefined, {
+    dateStyle: "medium",
+    ...(stable ? { timeZone: "UTC" } : {}),
+  }).format(date);
 }
 
 function PublicAgentEmptyState({
