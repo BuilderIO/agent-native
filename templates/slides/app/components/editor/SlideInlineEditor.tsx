@@ -58,6 +58,7 @@ function resolveBackground(bg?: string): {
 } {
   if (!bg)
     return {
+      bgClass: "",
       bgStyle: { background: "#F5F2EA" }, // guard:allow-raw-color - default slide canvas fallback
     };
   if (bg.startsWith("bg-")) return { bgClass: bg };
