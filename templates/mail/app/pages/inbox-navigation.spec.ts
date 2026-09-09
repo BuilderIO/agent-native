@@ -57,14 +57,12 @@ describe("Inbox navigation commands", () => {
     );
   });
 
-  it("keeps the first-use Important default on a plain inbox route", () => {
+  it("selects the first label by default on a plain inbox route", () => {
     const source = inboxSource();
 
     expect(source).toContain("settingsLoading");
-    expect(source).toContain("userPinnedLabels !== undefined");
-    expect(source).toContain(
-      'navigate("/inbox?label=important", { replace: true })',
-    );
+    expect(source).toContain("resolveDefaultMailHref({");
+    expect(source).toContain("navigate(defaultHref, { replace: true })");
     expect(source).toContain(
       "const combineInbox = settings?.combineInbox === true;",
     );

@@ -32,6 +32,7 @@ import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
+  resolveDefaultMailHref,
   pinnedTriageLabels,
   augmentSelfSentLabels,
   filterInboxTabEmails,
@@ -411,21 +412,31 @@ export function InboxPage() {
       routeThreadId ||
       activeLabel ||
       activeInboxTab ||
+      activeFilterId ||
       searchQuery ||
       combineInbox ||
-      userPinnedLabels !== undefined ||
       !isGoogleConnected
     )
       return;
-    void navigate("/inbox?label=important", { replace: true });
+    const defaultHref = resolveDefaultMailHref({
+      combineInbox,
+      pinnedLabels: userPinnedLabels,
+      savedFilters: settings?.savedFilters,
+      isGoogleConnected,
+    });
+    if (defaultHref !== "/inbox") {
+      void navigate(defaultHref, { replace: true });
+    }
   }, [
+    activeFilterId,
     activeInboxTab,
-    combineInbox,
     activeLabel,
+    combineInbox,
     isGoogleConnected,
     navigate,
     routeThreadId,
     searchQuery,
+    settings?.savedFilters,
     settingsLoading,
     userPinnedLabels,
     view,

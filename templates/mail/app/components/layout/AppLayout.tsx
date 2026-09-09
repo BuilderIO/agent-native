@@ -96,7 +96,11 @@ import {
   filterInboxTabEmails,
   inboxThreadKey,
   savedFilterThreadIds,
+  labelTabHref,
+  resolveDefaultMailHref,
 } from "@/lib/inbox-tabs";
+
+export { labelTabHref } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { groupIntoThreads } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -212,16 +216,6 @@ function labelDepth(name: string): number {
 
 // Gmail's inbox-only categories (important, social, promotions, ...) only
 // ever exist inside the inbox, so their tab stays scoped there. Regular user
-// labels are filed/archived independently of the inbox — routing them
-// through /inbox forces `in:inbox` server-side and hides every message the
-// user has archived out of the inbox while keeping the label, which reads as
-// "label is empty" even though it has mail. Route those through /all so the
-// label search is unscoped.
-export function labelTabHref(labelId: string): string {
-  const view = isInboxScopedAppLabel(labelId) ? "inbox" : "all";
-  return `/${view}?label=${encodeURIComponent(labelId)}`;
-}
-
 type MailPrefetchTarget = {
   view: string;
   search?: string;
@@ -534,7 +528,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     [rawInboxEmails, isGoogleConnected, connectedEmails, hasNoteToSelf],
   );
   const tabsLoading =
-    labelsLoading || settingsLoading || emailsLoading || allLocalEmailsLoading;
+    (labelsLoading && labels.length === 0) || (settingsLoading && !settings);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarPinned, setSidebarPinned] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -1080,13 +1074,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       ) {
         return;
       }
-      const splitRoute = pinnedLabels.includes("important")
-        ? "/inbox?label=important"
-        : pinnedLabels.some(
-              (id) => !collapsibleViews.some((view) => view.id === id),
-            )
-          ? `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`
-          : "/inbox";
+      const splitRoute = resolveDefaultMailHref({
+        combineInbox: false,
+        pinnedLabels,
+        savedFilters,
+        isGoogleConnected,
+      });
       if (splitRoute !== "/inbox") {
         void navigate(splitRoute, { replace: true });
       }
@@ -1096,9 +1089,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       activeLabel,
       activeFilterId,
       activeSearchQuery,
+      isGoogleConnected,
       location.search,
       navigate,
       pinnedLabels,
+      savedFilters,
       threadId,
       updateSettings,
       view,
@@ -1216,19 +1211,32 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       if (topBarTabs.length < 2) return;
       const activeIdx = topBarTabs.findIndex((tab) => tab.isActive);
       const delta = reverse ? -1 : 1;
-      const nextIdx =
-        (activeIdx === -1 ? 0 : activeIdx + delta + topBarTabs.length) %
-        topBarTabs.length;
+      let nextIdx: number;
+      if (activeIdx === -1) {
+        nextIdx = reverse ? topBarTabs.length - 1 : 0;
+      } else {
+        nextIdx = (activeIdx + delta + topBarTabs.length) % topBarTabs.length;
+      }
       void navigate(topBarTabs[nextIdx].href);
     },
     [topBarTabs, navigate],
   );
 
   const canCycleTab = useCallback(
-    (event: KeyboardEvent) =>
-      topBarTabs.length >= 2 &&
-      event.target instanceof Element &&
-      event.target.closest("[data-mail-tab-list]") !== null,
+    (event: KeyboardEvent) => {
+      if (topBarTabs.length < 2) return false;
+      if (event.target instanceof Element) {
+        // Keep native Tab behavior inside modal/dialog popups where focus trapping is required
+        if (
+          event.target.closest(
+            '[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper]',
+          ) !== null
+        ) {
+          return false;
+        }
+      }
+      return true;
+    },
     [topBarTabs.length],
   );
 
@@ -1758,7 +1766,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {/* Account avatars — overlapping stack */}
           {googleStatus.isLoading && (
             <div className="flex items-center ms-1">
-              <Skeleton className="h-7 w-7 rounded-full ring-2 ring-card" />
+              <Skeleton className="h-7 w-7 rounded-full ring-1 ring-card" />
             </div>
           )}
           {googleStatusReady && hasAccounts && (
@@ -1784,7 +1792,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                             <div
                               key={account.email}
                               className={cn(
-                                "relative rounded-full ring-2 ring-card transition-opacity",
+                                "relative rounded-full ring-1 ring-card transition-opacity",
                                 !isActive && "opacity-30",
                               )}
                               style={{

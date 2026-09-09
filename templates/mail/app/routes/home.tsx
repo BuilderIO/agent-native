@@ -3,6 +3,8 @@ import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
+import { resolveDefaultMailHref } from "@/lib/inbox-tabs";
+
 const SEO_TITLE =
   "Mail - Open Source AI email client and Superhuman alternative";
 const SEO_DESCRIPTION =
@@ -36,6 +38,7 @@ export function meta() {
 type MailPreferences = {
   pinnedLabels?: string[];
   combineInbox?: boolean;
+  savedFilters?: { id: string }[];
 };
 
 async function resolveRootInboxHref(): Promise<string> {
@@ -45,11 +48,12 @@ async function resolveRootInboxHref(): Promise<string> {
     );
     if (!response.ok) return "/inbox";
     const settings = (await response.json()) as MailPreferences;
-    return settings.combineInbox
-      ? "/inbox"
-      : settings.pinnedLabels === undefined
-        ? "/inbox?label=important"
-        : "/inbox";
+    return resolveDefaultMailHref({
+      combineInbox: settings.combineInbox,
+      pinnedLabels: settings.pinnedLabels,
+      savedFilters: settings.savedFilters,
+      isGoogleConnected: true,
+    });
   } catch {
     return "/inbox";
   }

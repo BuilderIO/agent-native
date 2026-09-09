@@ -111,8 +111,7 @@ describe("AppLayout inbox rail count", () => {
       "onCombinedInboxChange={handleCombinedInboxChange}",
     );
     expect(source).toContain("!isInboxScopedAppLabel(activeLabel)");
-    expect(source).toContain('pinnedLabels.includes("important")');
-    expect(source).toContain("`/inbox?tab=${OTHER_INBOX_TAB_PARAM}`");
+    expect(source).toContain("resolveDefaultMailHref({");
     expect(source).toContain("!combineInbox &&");
     expect(source).toContain("if (combineInbox) continue;");
     expect(source).toContain(
@@ -138,7 +137,7 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("activeFilterHasNextPage");
   });
 
-  it("cycles filter tabs without leaving the client and warms visible queries", () => {
+  it("cycles filter tabs globally with Tab key and warms visible queries", () => {
     const source = appLayoutSource();
 
     expect(source).toContain("const cycleTab = useCallback(");
@@ -149,7 +148,10 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("handler: () => cycleTab(false)");
     expect(source).toContain("handler: () => cycleTab(true)");
     expect(source).toContain("void navigate(topBarTabs[nextIdx].href);");
-    expect(source).toContain('event.target.closest("[data-mail-tab-list]")');
+    expect(source).toContain("canCycleTab");
+    expect(source).not.toContain(
+      'event.target.closest("[data-mail-tab-list]")',
+    );
     expect(source).toContain("data-mail-tab-list");
     expect(source).toContain("prefetchEmails(");
     expect(source).toContain(

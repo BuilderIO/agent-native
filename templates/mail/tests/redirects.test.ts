@@ -71,6 +71,14 @@ describe("Mail private home route", () => {
     );
   });
 
+  it("routes to the first top label on client navigation when pins exist", () => {
+    return expectInboxRedirect(
+      clientLoader,
+      { ok: true, pinnedLabels: ["important", "work"] },
+      "/inbox?label=important",
+    );
+  });
+
   it("routes an explicitly saved empty pin list on the client", () => {
     return expectInboxRedirect(
       clientLoader,
