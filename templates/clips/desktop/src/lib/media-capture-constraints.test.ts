@@ -68,6 +68,11 @@ describe("desktop media capture constraints", () => {
     expect(isMediaConstraintFailure(new Error("Permission denied"))).toBe(
       false,
     );
+    expect(
+      isMediaConstraintFailure(
+        new DOMException("Could not start video source", "NotReadableError"),
+      ),
+    ).toBe(false);
   });
 
   it("uses browser voice processing by default and supports an explicit raw path", () => {
