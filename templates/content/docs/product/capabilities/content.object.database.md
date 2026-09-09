@@ -53,6 +53,8 @@ A marketing team creates a Content Calendar Database, adds Page records, defines
 - Source truth policy, provider grants, Property locks, and operation-specific guards may narrow an actor's role but never widen it.
 - A Database View or shared link reveals only rows and fields already authorized for that viewer.
 - Removing a Page from a Database removes that membership and its membership-local values; it does not delete the Page or its other memberships.
+- Moving a Database Page to Trash preserves membership-only Pages, including their other Database memberships. New rows have no hierarchy parent merely because they were created through a Database.
+- Legacy hierarchy edges beneath Database Pages do not record whether they originally meant membership or deliberate parentage. Trash returns `DATABASE_CHILD_OWNERSHIP_AMBIGUOUS` without changing anything when that ambiguity is present. This release does not migrate or infer those edges.
 
 ## Boundaries and non-goals
 

@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 // guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
 
-import { getDbExec } from "@agent-native/core/db";
+import { closeDbExec, getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, ne, or } from "drizzle-orm";
+import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
@@ -743,7 +743,8 @@ afterEach(() => {
   builderReadMock.beforeSingleEntryRead = null;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -2049,13 +2050,21 @@ it("records freshly imported Builder row identities even when title and URL keys
     "entry-dup-2",
   ]);
   const documents = await db
-    .select({ title: schema.documents.title })
+    .select({
+      title: schema.documents.title,
+      parentId: schema.documents.parentId,
+    })
     .from(schema.documents)
-    .where(eq(schema.documents.parentId, databaseDocId));
+    .where(
+      inArray(schema.documents.id, [
+        ...importResult.importedEntriesByDocumentId.keys(),
+      ]),
+    );
   expect(documents.map((row: { title: string }) => row.title).sort()).toEqual([
     "Best AI Coding Tools for Developers in 2024",
     "Best AI Coding Tools for Developers in 2024",
   ]);
+  expect(documents.every((row) => row.parentId === null)).toBe(true);
   const existingSourceRows = Array.from(
     importResult.importedEntriesByDocumentId.entries(),
   ).map(([documentId, entry], index) => ({
@@ -2087,7 +2096,11 @@ it("records freshly imported Builder row identities even when title and URL keys
   const retryDocuments = await db
     .select({ id: schema.documents.id })
     .from(schema.documents)
-    .where(eq(schema.documents.parentId, databaseDocId));
+    .where(
+      inArray(schema.documents.id, [
+        ...importResult.importedEntriesByDocumentId.keys(),
+      ]),
+    );
   const retryItems = await db
     .select({ id: schema.contentDatabaseItems.id })
     .from(schema.contentDatabaseItems)
@@ -2123,7 +2136,11 @@ it("records freshly imported Builder row identities even when title and URL keys
   const concurrentRetryDocuments = await db
     .select({ id: schema.documents.id })
     .from(schema.documents)
-    .where(eq(schema.documents.parentId, databaseDocId));
+    .where(
+      inArray(schema.documents.id, [
+        ...importResult.importedEntriesByDocumentId.keys(),
+      ]),
+    );
   const concurrentRetryItems = await db
     .select({
       id: schema.contentDatabaseItems.id,
@@ -2349,7 +2366,13 @@ it("repairs a legacy organization database into its organization space", async (
     .where(
       or(
         eq(schema.documents.id, databaseDocumentId),
-        eq(schema.documents.parentId, databaseDocumentId),
+        inArray(
+          schema.documents.id,
+          db
+            .select({ documentId: schema.contentDatabaseItems.documentId })
+            .from(schema.contentDatabaseItems)
+            .where(eq(schema.contentDatabaseItems.databaseId, databaseId)),
+        ),
       ),
     );
   expect(repairedDatabase?.spaceId).toBe(expectedSpaceId);

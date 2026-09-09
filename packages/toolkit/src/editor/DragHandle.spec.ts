@@ -186,6 +186,23 @@ afterEach(() => {
 });
 
 describe("DragHandle menu", () => {
+  it("uses the host removal label while deleting only the selected block", () => {
+    const getDeleteLabel = vi.fn(() => "Remove reference");
+    const { editor, handle } = mountEditor(
+      "<p>Reference</p><p>Target remains</p>",
+      { getDeleteLabel },
+    );
+    try {
+      clickHandle(handle);
+      expect(getDeleteLabel).toHaveBeenCalledWith(editor.state.doc.firstChild);
+      clickMenuItem("Remove reference");
+      expect(editor.state.doc.childCount).toBe(1);
+      expect(childText(editor, 0)).toBe("Target remains");
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("opens the block menu on a single click", () => {
     const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");
 

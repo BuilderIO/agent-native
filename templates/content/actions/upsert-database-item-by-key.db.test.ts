@@ -2,11 +2,12 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { closeDbExec } from "@agent-native/core/db";
 import {
   runFrameworkReleaseMigrations,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
@@ -65,7 +66,8 @@ beforeAll(async () => {
   await plugin(undefined as any);
 }, 60_000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -333,6 +335,12 @@ describe("reliable Content database row mutations", () => {
       readback: { verified: true, title: "Strict row" },
     });
     expect(result.receipt.row.rowRevision).toMatch(/^sha256:/);
+    await expect(
+      getDb()
+        .select({ parentId: schema.documents.parentId })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, result.receipt.row.documentId)),
+    ).resolves.toEqual([{ parentId: null }]);
     expect(result.receipt.readback.propertyValues).toMatchObject({
       [propertyIds.number]: 42,
       [propertyIds.select]: "one",
@@ -642,6 +650,21 @@ describe("reliable Content database row mutations", () => {
         })),
       );
 
+    const rootDocuments = await getDb()
+      .select({ position: schema.documents.position })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.ownerEmail, OWNER),
+          isNull(schema.documents.parentId),
+        ),
+      );
+    const nextRootPosition =
+      Math.max(
+        -1,
+        ...rootDocuments.map((row: { position: number }) => row.position),
+      ) + 1;
+
     const discovered = await contract(ids.databaseId);
     const firstInput = {
       ...envelope(discovered, "legacy-position-first"),
@@ -675,12 +698,31 @@ describe("reliable Content database row mutations", () => {
       .from(schema.contentDatabaseItems)
       .where(eq(schema.contentDatabaseItems.databaseId, ids.databaseId));
     const documentRows = await getDb()
-      .select({ id: schema.documents.id, position: schema.documents.position })
+      .select({
+        id: schema.documents.id,
+        position: schema.documents.position,
+        parentId: schema.documents.parentId,
+      })
       .from(schema.documents)
-      .where(eq(schema.documents.parentId, ids.databaseDocumentId));
+      .where(
+        inArray(
+          schema.documents.id,
+          itemRows.map((row: { documentId: string }) => row.documentId),
+        ),
+      );
 
     expect(itemRows).toHaveLength(4);
     expect(documentRows).toHaveLength(4);
+    expect(
+      documentRows
+        .filter((row: { id: string }) =>
+          [
+            first.receipt.row.documentId,
+            second.receipt.row.documentId,
+          ].includes(row.id),
+        )
+        .every((row: { parentId: string | null }) => row.parentId === null),
+    ).toBe(true);
     expect(
       itemRows.find(
         (row: { documentId: string }) =>
@@ -697,12 +739,12 @@ describe("reliable Content database row mutations", () => {
       documentRows.find(
         (row: { id: string }) => row.id === first.receipt.row.documentId,
       )?.position,
-    ).toBe(0);
+    ).toBe(nextRootPosition);
     expect(
       documentRows.find(
         (row: { id: string }) => row.id === second.receipt.row.documentId,
       )?.position,
-    ).toBe(1);
+    ).toBe(nextRootPosition + 1);
   });
 
   it("denies receipt replay after row access is revoked", async () => {
@@ -735,7 +777,7 @@ describe("reliable Content database row mutations", () => {
         title: "Before lock",
       }),
     );
-    const scope = documentsPositionScope(OWNER, ids.databaseDocumentId);
+    const scope = documentsPositionScope(OWNER, null);
     let releaseLock!: () => void;
     let markAcquired!: () => void;
     const acquired = new Promise<void>((resolve) => {
@@ -796,7 +838,7 @@ describe("reliable Content database row mutations", () => {
     expect(created.receipt.readback.propertyValues[keyPropertyId]).toBe(
       "feedback-locked",
     );
-    const scope = documentsPositionScope(OWNER, ids.databaseDocumentId);
+    const scope = documentsPositionScope(OWNER, null);
     let releaseLock!: () => void;
     let markAcquired!: () => void;
     const acquired = new Promise<void>((resolve) => {

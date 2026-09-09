@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { closeDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -18,6 +19,39 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn().mockResolvedValue(undefined),
 }));
+
+const accessRace = vi.hoisted(() => ({
+  afterAccess: null as null | ((id: string) => Promise<void>),
+}));
+vi.mock("@agent-native/core/sharing", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/sharing")>();
+  return {
+    ...actual,
+    assertAccess: async (...args: Parameters<typeof actual.assertAccess>) => {
+      const access = await actual.assertAccess(...args);
+      await accessRace.afterAccess?.(args[1]);
+      return access;
+    },
+  };
+});
+
+const positionRace = vi.hoisted(() => ({
+  beforeLock: null as null | ((db: any) => Promise<void>),
+}));
+vi.mock("./_document-lifecycle.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_document-lifecycle.js")>();
+  return {
+    ...actual,
+    lockLiveDocuments: async (
+      ...args: Parameters<typeof actual.lockLiveDocuments>
+    ) => {
+      await positionRace.beforeLock?.(args[0]);
+      return actual.lockLiveDocuments(...args);
+    },
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -41,7 +75,8 @@ beforeAll(async () => {
   await plugin(undefined as any);
 }, 60000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -92,6 +127,111 @@ async function childPositions(parentId: string) {
 }
 
 describe("move-document position race", () => {
+  it.each(["source", "destination"])(
+    "rejects a move when the %s enters Trash after preflight",
+    async (target) => {
+      const id = await createDocument({ title: "Moving page" });
+      const parentId = await createDocument({ title: "Destination" });
+      const trashedId = target === "source" ? id : parentId;
+      accessRace.afterAccess = async (accessedId) => {
+        if (accessedId !== parentId) return;
+        accessRace.afterAccess = null;
+        await getDb()
+          .update(schema.documents)
+          .set({ trashedAt: new Date().toISOString(), trashRootId: trashedId })
+          .where(eq(schema.documents.id, trashedId));
+      };
+      try {
+        await expect(
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            moveDocumentAction.run({ id, parentId }),
+          ),
+        ).rejects.toMatchObject({ errorCode: "DOCUMENT_TRASHED" });
+        await expect(
+          getDb()
+            .select({ parentId: schema.documents.parentId })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id)),
+        ).resolves.toEqual([{ parentId: null }]);
+      } finally {
+        accessRace.afterAccess = null;
+      }
+    },
+  );
+
+  it("moves into a live parent without reordering its trashed children", async () => {
+    const parentId = await createDocument({ title: "Live destination" });
+    const trashedId = await createDocument({ parentId, position: 7 });
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: new Date().toISOString(), trashRootId: trashedId })
+      .where(eq(schema.documents.id, trashedId));
+    const id = await createDocument({ title: "Moving page" });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        moveDocumentAction.run({ id, parentId, position: 0 }),
+      ),
+    ).resolves.toMatchObject({ id, parentId, position: 0 });
+    await expect(
+      getDb()
+        .select({ position: schema.documents.position })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, trashedId)),
+    ).resolves.toEqual([{ position: 7 }]);
+  });
+
+  it.each(["append", "reorder"])(
+    "refreshes %s positions when a child arrives before the parent lock",
+    async (mode) => {
+      const parentId = await createDocument({ title: "Parent" });
+      const id = await createDocument({ title: "Moving page" });
+      const arrivalId = nextId("arrival");
+      positionRace.beforeLock = async (db) => {
+        positionRace.beforeLock = null;
+        const now = new Date().toISOString();
+        await db.insert(schema.documents).values({
+          id: arrivalId,
+          parentId,
+          ownerEmail: OWNER,
+          title: "New child",
+          content: "",
+          visibility: "private",
+          position: 0,
+          createdAt: now,
+          updatedAt: now,
+        });
+      };
+      try {
+        const result = runWithRequestContext({ userEmail: OWNER }, () =>
+          moveDocumentAction.run({
+            id,
+            parentId,
+            ...(mode === "reorder" ? { position: 0 } : {}),
+          }),
+        );
+        if (mode === "append") {
+          await expect(result).resolves.toMatchObject({
+            id,
+            parentId,
+            position: 1,
+          });
+        } else {
+          await expect(result).rejects.toMatchObject({
+            errorCode: "DOCUMENT_HIERARCHY_CHANGED",
+          });
+          await expect(
+            getDb()
+              .select({ parentId: schema.documents.parentId })
+              .from(schema.documents)
+              .where(eq(schema.documents.id, id)),
+          ).resolves.toEqual([{ parentId: null }]);
+        }
+      } finally {
+        positionRace.beforeLock = null;
+      }
+    },
+  );
+
   it("rejects a parent in another Content space", async () => {
     const id = await createDocument({ spaceId: "space-one" });
     const parentId = await createDocument({ spaceId: "space-two" });

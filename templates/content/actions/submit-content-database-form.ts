@@ -377,7 +377,7 @@ export default defineAction({
         .where(
           and(
             eq(schema.documents.ownerEmail, database.ownerEmail),
-            eq(schema.documents.parentId, database.documentId),
+            isNull(schema.documents.parentId),
           ),
         );
       const [maxItemPosition] = await tx
@@ -398,7 +398,7 @@ export default defineAction({
         spaceId: database.spaceId,
         ownerEmail: database.ownerEmail,
         orgId: database.orgId,
-        parentId: database.documentId,
+        parentId: null,
         title: normalizedTitle,
         content: documentContent,
         icon: null,

@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { closeDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -37,6 +38,7 @@ let deleteDocumentAction: typeof import("./delete-document.js").default;
 let restoreDocumentAction: typeof import("./restore-document.js").default;
 let permanentlyDeleteDocumentAction: typeof import("./permanently-delete-document.js").default;
 let listTrashedDocumentsAction: typeof import("./list-trashed-documents.js").default;
+let trashDocumentsAction: typeof import("./trash-documents.js").default;
 
 const OWNER = "owner@example.com";
 const COLLABORATOR = "collaborator@example.com";
@@ -80,6 +82,7 @@ beforeAll(async () => {
   ).default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
   deleteDocumentAction = (await import("./delete-document.js")).default;
+  trashDocumentsAction = (await import("./trash-documents.js")).default;
   restoreDocumentAction = (await import("./restore-document.js")).default;
   permanentlyDeleteDocumentAction = (
     await import("./permanently-delete-document.js")
@@ -90,7 +93,8 @@ beforeAll(async () => {
   await plugin(undefined as any);
 }, 60000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -956,6 +960,109 @@ describe("database-scoped document properties", () => {
 });
 
 describe("document trash lifecycle", () => {
+  it("DEL-04 rejects ambiguous Database parentage without changing any page", async () => {
+    const { databaseId, databaseDocumentId } = await createDatabase({});
+    const childId = await createDocument({ parentId: databaseDocumentId });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        deleteContentDatabaseAction.run({ databaseId }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "DATABASE_CHILD_OWNERSHIP_AMBIGUOUS",
+    });
+    expect((await documentRow(childId)).trashedAt).toBeNull();
+    expect((await documentRow(databaseDocumentId)).trashedAt).toBeNull();
+    expect((await databaseRow(databaseId)).deletedAt).toBeNull();
+  });
+
+  it("DEL-06 deduplicates selected ancestors and reports denied pages explicitly", async () => {
+    const rootId = await createDocument({ title: "Root" });
+    const childId = await createDocument({ parentId: rootId, title: "Child" });
+    const deniedId = await createDocument({ ownerEmail: COLLABORATOR });
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      trashDocumentsAction.run({ ids: [childId, rootId, rootId, deniedId] }),
+    );
+    expect(result.results.map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: childId, status: "covered" },
+      { id: rootId, status: "trashed" },
+      { id: deniedId, status: "failed" },
+    ]);
+    expect(new Set(result.affectedDocumentIds)).toEqual(
+      new Set([rootId, childId]),
+    );
+    const retry = await runWithRequestContext({ userEmail: OWNER }, () =>
+      trashDocumentsAction.run({ ids: [rootId] }),
+    );
+    expect(retry.results[0].status).toBe("already-trashed");
+    expect(retry.affectedDocumentIds).toEqual([]);
+  });
+
+  it("DEL-13 checks each descendant's authority inside the trash transaction", async () => {
+    const rootId = await createDocument({ title: "Shared root" });
+    const childId = await createDocument({
+      parentId: rootId,
+      title: "Restricted child",
+    });
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: nextId("share"),
+        resourceId: rootId,
+        principalType: "user",
+        principalId: COLLABORATOR,
+        role: "admin",
+        createdBy: OWNER,
+      });
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        deleteDocumentAction.run({ id: rootId }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_MUTATION_ACCESS_CHANGED" });
+    expect((await documentRow(rootId)).trashedAt).toBeNull();
+    expect((await documentRow(childId)).trashedAt).toBeNull();
+  });
+
+  it("DEL-04 preserves a Page in two databases when one database is trashed", async () => {
+    const first = await createDatabase({});
+    const second = await createDatabase({});
+    const documentId = await createDocument({
+      title: "Shared member",
+      content: "Keep this body",
+    });
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values(
+        [first, second].map(({ databaseId }) => ({
+          id: nextId("membership"),
+          databaseId,
+          documentId,
+          ownerEmail: OWNER,
+          position: 0,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteContentDatabaseAction.run({ databaseId: first.databaseId }),
+    );
+    expect(await documentRow(documentId)).toMatchObject({
+      trashedAt: null,
+      parentId: null,
+      content: "Keep this body",
+    });
+    expect((await databaseRow(second.databaseId)).deletedAt).toBeNull();
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreContentDatabaseAction.run({ databaseId: first.databaseId }),
+    );
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.documentId, documentId)),
+    ).toHaveLength(2);
+  });
+
   it("round-trips a page subtree without changing ids, bodies, or hierarchy", async () => {
     const rootId = await createDocument({
       title: "Trash root",

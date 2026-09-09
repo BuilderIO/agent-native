@@ -43,6 +43,8 @@ An editor creates a brief, adds body content and Properties, places it in two Da
 - UI, agents, automations, and APIs use shared Actions and the same authorization boundary.
 - References, comments, Discussion, history, Versions, sources, and exports target the Page identity, not a transient renderer or location.
 - Trash suspends ordinary use without silently reusing the identity; restore returns the Page with its durable context.
+- Explicit Page Trash includes its true child hierarchy and applies everywhere the Page appears. Removing a membership, a Reference occurrence, a View, or a personal pin affects only that relationship or presentation.
+- Bulk Trash reports each requested Page as trashed, already trashed, covered by a selected ancestor, or failed. A failed scope makes no changes; other independently authorized selections may succeed. Undo restores only roots actually trashed by that operation.
 
 ## Boundaries and non-goals
 

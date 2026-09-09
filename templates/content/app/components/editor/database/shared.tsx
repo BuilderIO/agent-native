@@ -36,6 +36,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import {
+  PageTrashDialog,
+  PageTrashMenuItem,
+  usePageTrashControl,
+} from "@/components/documents/PageTrashControl";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -568,6 +573,15 @@ export function RowActionsCell({
         sources: databaseSources,
       });
   const canDuplicateRow = databaseItemCanDuplicate(item, isWorkspaceCatalog);
+  const canTrashPage = !isWorkspaceCatalog && item.document.canManage === true;
+  const trashPage = usePageTrashControl({
+    pages: canTrashPage ? [item.document] : [],
+    onTrashed: (result) => {
+      if (result.affectedDocumentIds.includes(item.document.id)) {
+        onDeletedPreviewItem?.(item);
+      }
+    },
+  });
 
   async function duplicateRow() {
     if (!canDuplicateRow) return;
@@ -686,8 +700,10 @@ export function RowActionsCell({
                   : dbText("removeFromDatabase")}
             </DropdownMenuItem>
           ) : null}
+          {canTrashPage ? <PageTrashMenuItem control={trashPage} /> : null}
         </DropdownMenuContent>
       </DropdownMenu>
+      <PageTrashDialog control={trashPage} />
 
       <AlertDialog
         open={

@@ -21,6 +21,8 @@ import {
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
+import { lockLiveDocuments } from "./_document-lifecycle.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -203,14 +205,6 @@ export default defineAction({
       visibility = parent.visibility ?? "private";
       hideFromSearch = parent.hideFromSearch ?? 0;
       inheritedRole = parentAccess.role;
-      inheritedShares = await db
-        .select({
-          principalType: schema.documentShares.principalType,
-          principalId: schema.documentShares.principalId,
-          role: schema.documentShares.role,
-        })
-        .from(schema.documentShares)
-        .where(eq(schema.documentShares.resourceId, parentId));
     }
 
     let spaceId: string;
@@ -244,25 +238,51 @@ export default defineAction({
     await withPositionLock(
       documentsPositionScope(ownerEmail, parentId),
       async () => {
-        // Get max position among siblings
-        const maxPos = await db
-          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-          .from(schema.documents)
-          .where(
-            parentId
-              ? and(
-                  eq(schema.documents.ownerEmail, ownerEmail),
-                  eq(schema.documents.parentId, parentId),
-                )
-              : and(
-                  eq(schema.documents.ownerEmail, ownerEmail),
-                  sql`parent_id IS NULL`,
-                ),
-          );
-
-        const position = nextAppendPosition(maxPos[0]?.max);
-
         await db.transaction(async (tx) => {
+          if (parentId) {
+            const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+            const [parent] = await lockLiveDocuments(transactionDb, [parentId]);
+            await assertDocumentMutationAccess(
+              transactionDb,
+              [parentId],
+              "editor",
+            );
+            if (
+              parent.spaceId !== spaceId ||
+              parent.ownerEmail !== ownerEmail
+            ) {
+              throw new Error("Parent document changed; retry creation.");
+            }
+            orgId = parent.orgId;
+            visibility = parent.visibility;
+            hideFromSearch = parent.hideFromSearch;
+            inheritedShares = await tx
+              .select({
+                principalType: schema.documentShares.principalType,
+                principalId: schema.documentShares.principalId,
+                role: schema.documentShares.role,
+              })
+              .from(schema.documentShares)
+              .where(eq(schema.documentShares.resourceId, parentId));
+          }
+          // Get max position among siblings
+          const maxPos = await tx
+            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+            .from(schema.documents)
+            .where(
+              parentId
+                ? and(
+                    eq(schema.documents.ownerEmail, ownerEmail),
+                    eq(schema.documents.parentId, parentId),
+                  )
+                : and(
+                    eq(schema.documents.ownerEmail, ownerEmail),
+                    sql`parent_id IS NULL`,
+                  ),
+            );
+
+          const position = nextAppendPosition(maxPos[0]?.max);
+
           await tx.insert(schema.documents).values({
             id,
             spaceId,

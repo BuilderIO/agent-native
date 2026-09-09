@@ -192,7 +192,6 @@ export async function renumberDatabaseRows(
   const rows = await db
     .select({
       id: schema.contentDatabaseItems.id,
-      documentId: schema.contentDatabaseItems.documentId,
     })
     .from(schema.contentDatabaseItems)
     .innerJoin(
@@ -209,7 +208,6 @@ export async function renumberDatabaseRows(
   if (rows.length === 0) return;
 
   const itemIds = rows.map((row) => row.id);
-  const documentIds = rows.map((row) => row.documentId);
   await db
     .update(schema.contentDatabaseItems)
     .set({
@@ -224,24 +222,6 @@ export async function renumberDatabaseRows(
       and(
         eq(schema.contentDatabaseItems.databaseId, database.id),
         inArray(schema.contentDatabaseItems.id, itemIds),
-      ),
-    );
-
-  await db
-    .update(schema.documents)
-    .set({
-      position: positionCaseSql(
-        schema.documents.id,
-        schema.documents.position,
-        documentIds,
-      ),
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(schema.documents.ownerEmail, database.ownerEmail),
-        eq(schema.documents.parentId, database.documentId),
-        inArray(schema.documents.id, documentIds),
       ),
     );
 }

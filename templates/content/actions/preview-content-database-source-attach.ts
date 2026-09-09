@@ -56,7 +56,7 @@ export default defineAction({
         databaseId: database.id,
         document: {
           id: ids.documentId,
-          parentId: database.documentId,
+          parentId: null,
           title: entry.title.trim() || entry.id,
           content: "",
           icon: null,

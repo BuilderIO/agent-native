@@ -219,7 +219,9 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
             { db: tx, spaceId },
           ),
         ),
-      ).rejects.toThrow(`No editor access to document ${documentId}`);
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_MUTATION_ACCESS_CHANGED",
+      });
 
       const databases = await db
         .select({ id: schema.contentDatabases.id })
@@ -228,7 +230,7 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
       expect(databases).toEqual([]);
     });
   });
-  it("round-trips owned descriptions and returns one live root-to-database row context path", async () => {
+  it("round-trips owned descriptions without inheriting membership ancestors", async () => {
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const rootId = `root_${suffix}`;
     const now = new Date().toISOString();
@@ -330,10 +332,6 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
       "Choose while active work is underway",
     );
     expect(result.rowPage.contextPath).toEqual([
-      expect.objectContaining({
-        title: expect.stringMatching(/^Root /),
-        kind: "page",
-      }),
       expect.objectContaining({
         title: expect.stringMatching(/^Tasks /),
         kind: "database",

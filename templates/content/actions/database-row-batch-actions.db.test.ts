@@ -2,6 +2,7 @@ import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { closeDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -87,7 +88,8 @@ beforeAll(async () => {
   });
 }, 60000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -710,6 +712,9 @@ describe("database row batch actions", () => {
       ),
     ).rejects.toThrow("All requested rows must exist in the target database");
     expect(await orderedRows(databaseId)).toHaveLength(2);
+    expect(
+      (await orderedRows(databaseId)).map((row) => row.documentPosition),
+    ).toEqual([0, 3]);
   });
 
   it("rejects removal from system databases whose memberships are canonical", async () => {
@@ -1261,7 +1266,7 @@ describe("database row batch actions", () => {
     const source = readFileSync(
       new URL("./duplicate-document-property.ts", import.meta.url),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
     const transactionStart = source.indexOf(
       "await db.transaction(async (tx) => {",
     );
@@ -1333,7 +1338,7 @@ describe("database row batch actions", () => {
     for (const result of results) {
       expect(result.createdItem).toMatchObject({
         id: result.receipt.row.itemId,
-        document: { id: result.receipt.row.documentId },
+        document: { id: result.receipt.row.documentId, parentId: null },
       });
       const [createdDocument] = await getDb()
         .select({ updatedAt: schema.documents.updatedAt })
@@ -1359,15 +1364,12 @@ describe("database row batch actions", () => {
       Array.from({ length: concurrentAdds }, (_, index) => index),
     );
 
-    const siblingDocPositions = await getDb()
-      .select({ position: schema.documents.position })
-      .from(schema.documents)
-      .where(eq(schema.documents.parentId, databaseDocumentId));
-    expect(
-      siblingDocPositions
-        .map((row: { position: number }) => row.position)
-        .sort((a: number, b: number) => a - b),
-    ).toEqual(Array.from({ length: concurrentAdds }, (_, index) => index));
+    await expect(
+      getDb()
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(eq(schema.documents.parentId, databaseDocumentId)),
+    ).resolves.toEqual([]);
   });
 
   it("normalizes aggregate results before assigning the next position", () => {

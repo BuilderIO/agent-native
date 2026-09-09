@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
+import { closeDbExec, getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -11,6 +11,22 @@ vi.mock("./_local-file-documents.js", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("./_local-file-documents.js")>();
   return { ...original, isContentLocalFileMode: async () => false };
+});
+
+const accessRace = vi.hoisted(() => ({
+  afterAccess: null as null | ((id: string) => Promise<void>),
+}));
+vi.mock("@agent-native/core/sharing", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/sharing")>();
+  return {
+    ...actual,
+    assertAccess: async (...args: Parameters<typeof actual.assertAccess>) => {
+      const access = await actual.assertAccess(...args);
+      await accessRace.afterAccess?.(args[1]);
+      return access;
+    },
+  };
 });
 
 const TEST_DB_PATH = join(
@@ -55,7 +71,8 @@ beforeAll(async () => {
   )`);
 }, 60000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -101,6 +118,71 @@ async function filesMemberships(documentId: string) {
 }
 
 describe("space-aware document writers", () => {
+  it.each(["page", "database"])(
+    "rejects a %s child when its parent enters Trash after preflight",
+    async (kind) => {
+      const parent = await runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run({ title: "Live parent" }),
+      );
+      const childId = "denied-child-" + kind;
+      accessRace.afterAccess = async (id) => {
+        if (id !== parent.id) return;
+        accessRace.afterAccess = null;
+        await getDb()
+          .update(schema.documents)
+          .set({ trashedAt: new Date().toISOString(), trashRootId: parent.id })
+          .where(eq(schema.documents.id, parent.id));
+      };
+      try {
+        await expect(
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            kind === "page"
+              ? createDocument.run({
+                  id: childId,
+                  title: "Denied child",
+                  parentId: parent.id,
+                })
+              : createContentDatabase.run({
+                  newDocumentId: childId,
+                  title: "Denied child",
+                  parentId: parent.id,
+                }),
+          ),
+        ).rejects.toMatchObject({ errorCode: "DOCUMENT_TRASHED" });
+        await expect(
+          getDb()
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, childId)),
+        ).resolves.toEqual([]);
+      } finally {
+        accessRace.afterAccess = null;
+      }
+    },
+  );
+
+  it("creates a page and database beneath a live parent", async () => {
+    const parent = await runWithRequestContext({ userEmail: OWNER }, () =>
+      createDocument.run({ title: "Live child destination" }),
+    );
+    const child = await runWithRequestContext({ userEmail: OWNER }, () =>
+      createDocument.run({ title: "Child", parentId: parent.id }),
+    );
+    const database = await runWithRequestContext({ userEmail: OWNER }, () =>
+      createContentDatabase.run({
+        title: "Child database",
+        parentId: parent.id,
+      }),
+    );
+    expect(child.parentId).toBe(parent.id);
+    await expect(
+      getDb()
+        .select({ parentId: schema.documents.parentId })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, database.database.documentId)),
+    ).resolves.toEqual([{ parentId: parent.id }]);
+  });
+
   it("rejects an empty caller-provided database document ID", async () => {
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
