@@ -2752,6 +2752,50 @@ describe("mountWebMcpActionRoutes", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it("does not re-validate an already-validated call through a real defineAction entry", async () => {
+    // Uses the actual `defineAction` wrapping (not a hand-built ActionEntry
+    // stub) so `entry.run` is the real re-validating closure: a stub `run`
+    // would never exercise the double-parse this test guards against. The
+    // schema's `.preprocess` is deliberately NOT idempotent — each pass
+    // appends another suffix — so a second, unintended validation pass would
+    // be observable in what `run` actually receives.
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const { defineAction } = await import("../action.js");
+    const { z } = await import("zod");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async (args: { tag: string }) => ({ ranWith: args }));
+    const action = defineAction({
+      description: "Tag",
+      schema: z.object({
+        tag: z.preprocess((v) => `${v}!`, z.string()),
+      }),
+      needsApproval: () => false,
+      run,
+    });
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      { tag: action as unknown as ActionEntry },
+      { getOwnerFromEvent: vi.fn(async () => "owner@example.com") },
+    );
+
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/tag",
+    );
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({ tag: "a" }) },
+      }),
+    ).resolves.toEqual({ ranWith: { tag: "a!" } });
+  });
+
   it("filters manifest.keyToolNames to tools this manifest actually lists", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

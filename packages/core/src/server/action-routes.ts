@@ -794,9 +794,11 @@ function mountActionRoutesInternal(
                 // "false" → `false`) only exists after schema validation, so
                 // a predicate reading raw `params` can approve a call it
                 // would have gated had it seen what `run()` sees. When a
-                // schema is declared, validate once here and reuse that same
-                // value for `run()` below instead of re-deriving it — an
-                // invalid call throws `validateActionArgs`'s own "Invalid
+                // schema is declared, validate once here and reuse that exact
+                // value for `run()` below — `wrapWithValidation` recognizes it
+                // and skips re-parsing, so a non-idempotent transform can't
+                // hand `run()` a different value than the one just approved.
+                // An invalid call throws `validateActionArgs`'s own "Invalid
                 // action parameters" error, which the catch block below
                 // already renders as a 400.
                 if (
