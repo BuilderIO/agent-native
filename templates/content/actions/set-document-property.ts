@@ -28,6 +28,39 @@ import {
   normalizedValueJson,
 } from "./_property-utils.js";
 
+async function assertPropertyNotSourceManaged(
+  db: ReturnType<typeof getDb>,
+  databaseId: string,
+  definition: typeof schema.documentPropertyDefinitions.$inferSelect,
+) {
+  const [sourceField] = await db
+    .select({ id: schema.contentDatabaseSourceFields.id })
+    .from(schema.contentDatabaseSourceFields)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceFields.sourceId,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, databaseId),
+        eq(schema.contentDatabaseSourceFields.propertyId, definition.id),
+      ),
+    )
+    .limit(1);
+  if (!sourceField) return;
+  throw new ActionContractError(
+    `Property "${definition.name}" is not writable by database row mutations.`,
+    {
+      errorCode: "PROPERTY_NOT_WRITABLE",
+      details: { propertyId: definition.id, propertyType: definition.type },
+      statusCode: 400,
+    },
+  );
+}
+
 export default defineAction({
   description: "Set a Notion-style property value on a document.",
   publicAgent: {
@@ -107,6 +140,10 @@ export default defineAction({
         parsePropertyOptions(definition.optionsJson),
       );
       await db.transaction(async (tx) => {
+        await lockContentDatabaseMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+        );
         const primaryBlocksFields = await lockPrimaryBlocksFields(
           tx as unknown as ReturnType<typeof getDb>,
           documentId,
@@ -138,6 +175,11 @@ export default defineAction({
             "Property type changed before the operation completed.",
           );
         }
+        await assertPropertyNotSourceManaged(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+          lockedDefinition,
+        );
         target = blocksStorageTarget(
           parsePropertyOptions(lockedDefinition.optionsJson),
         );
@@ -290,6 +332,11 @@ export default defineAction({
       if (isComputedPropertyType(lockedType)) {
         throw new Error("Computed properties cannot be edited.");
       }
+      await assertPropertyNotSourceManaged(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+        lockedDefinition,
+      );
       const isNaturalKey = lockedDatabase.naturalKeyPropertyId === propertyId;
       if (isNaturalKey) {
         let parsed: unknown;

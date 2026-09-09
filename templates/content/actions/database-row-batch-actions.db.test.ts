@@ -1015,6 +1015,153 @@ describe("database row batch actions", () => {
     expect(await orderedRows(databaseId)).toHaveLength(1);
   });
 
+  it("rejects document property writes for a mapped secondary field without a row overlay", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(1);
+    const now = new Date().toISOString();
+    const propertyId = nextId("source_managed_property");
+    const primarySourceId = nextId("primary_source");
+    const secondarySourceId = nextId("secondary_source");
+    const normalizationFormula = "lower(trim({slug}))";
+    const federation = (role: "primary" | "secondary") => ({
+      role,
+      keyField: "slug",
+      normalizationFormula,
+      join: {
+        kind: "identity",
+        collection: null,
+        localExpr: "{slug}",
+        remoteKeyField: "slug",
+        normalizationFormula,
+      },
+    });
+
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Source owner",
+      type: "text",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.documentPropertyValues)
+      .values({
+        id: nextId("property_value"),
+        ownerEmail: OWNER,
+        documentId: rows[0].documentId,
+        propertyId,
+        valueJson: JSON.stringify("Original local value"),
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.contentDatabaseSources)
+      .values([
+        {
+          id: primarySourceId,
+          ownerEmail: OWNER,
+          databaseId,
+          sourceType: "mock-local",
+          sourceName: "Primary",
+          sourceTable: databaseId,
+          metadataJson: JSON.stringify({
+            primaryKey: "id",
+            titleField: "title",
+            federation: federation("primary"),
+          }),
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: secondarySourceId,
+          ownerEmail: OWNER,
+          databaseId,
+          sourceType: "local-table",
+          sourceName: "Secondary",
+          sourceTable: nextId("upstream_database"),
+          metadataJson: JSON.stringify({
+            primaryKey: "id",
+            titleField: "title",
+            federation: federation("secondary"),
+          }),
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    await getDb()
+      .insert(schema.contentDatabaseSourceRows)
+      .values({
+        id: nextId("primary_source_row"),
+        ownerEmail: OWNER,
+        sourceId: primarySourceId,
+        databaseItemId: rows[0].itemId,
+        documentId: rows[0].documentId,
+        sourceRowId: `mock-local-${rows[0].documentId}`,
+        sourceQualifiedId: `mock-local://${databaseId}/${rows[0].documentId}`,
+        sourceDisplayKey: "Row 0",
+        sourceValuesJson: "{}",
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.contentDatabaseSourceFields)
+      .values({
+        id: nextId("secondary_source_field"),
+        ownerEmail: OWNER,
+        sourceId: secondarySourceId,
+        propertyId,
+        localFieldKey: propertyId,
+        sourceFieldKey: "owner",
+        sourceFieldLabel: "Owner",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "source",
+        readOnly: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    const response = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseAction.run({ databaseId }),
+    );
+    if (!("items" in response)) throw new Error("Expected database rows");
+    const item = response.items.find(
+      (candidate) => candidate.document.id === rows[0].documentId,
+    );
+    expect(item?.sourceOverlays).toBeUndefined();
+    expect(
+      item?.properties.find(
+        (property) => property.definition.id === propertyId,
+      ),
+    ).toMatchObject({ value: null, editable: false });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        setDocumentPropertyAction.run({
+          documentId: rows[0].documentId,
+          databaseId,
+          propertyId,
+          value: "Rejected write",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PROPERTY_NOT_WRITABLE" });
+    expect(
+      await getDb()
+        .select({ valueJson: schema.documentPropertyValues.valueJson })
+        .from(schema.documentPropertyValues)
+        .where(
+          and(
+            eq(schema.documentPropertyValues.documentId, rows[0].documentId),
+            eq(schema.documentPropertyValues.propertyId, propertyId),
+          ),
+        ),
+    ).toEqual([{ valueJson: JSON.stringify("Original local value") }]);
+  });
+
   it("serializes a racing source association before membership removal", async () => {
     const { databaseId, rows } = await createDatabaseWithRows(1);
     const now = new Date().toISOString();

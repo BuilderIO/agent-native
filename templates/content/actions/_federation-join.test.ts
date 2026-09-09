@@ -7,7 +7,11 @@ import type {
   ContentDatabaseSourceRole,
   ContentDatabaseSourceRow,
 } from "../shared/api";
-import { computeNormalizedKey, federateSources } from "./_federation-join";
+import {
+  applyFederatedOverlayValues,
+  computeNormalizedKey,
+  federateSources,
+} from "./_federation-join";
 
 function item(documentId: string): ContentDatabaseItem {
   return {
@@ -182,5 +186,82 @@ describe("federateSources", () => {
     const result = federateSources({ items, sources: [primary, secondary] });
     expect(result[0].canonicalKey).toBeNull();
     expect(result[0].sourceOverlays).toBeUndefined();
+  });
+});
+
+describe("applyFederatedOverlayValues", () => {
+  it("keeps mapped properties read-only without blanking a primary value", () => {
+    const secondaryProperty = {
+      definition: { id: "secondary-property" },
+      value: "stale local value",
+      editable: true,
+    } as ContentDatabaseItem["properties"][number];
+    const primaryProperty = {
+      definition: { id: "primary-property" },
+      value: "Primary source value",
+      editable: true,
+    } as ContentDatabaseItem["properties"][number];
+    const unmatchedItem = {
+      ...item("doc-unmatched"),
+      properties: [secondaryProperty, primaryProperty],
+    };
+    const primary = source({
+      id: "primary",
+      federation: federation("primary", "slug", "{slug}"),
+      rows: [row("doc-unmatched", {})],
+    });
+    primary.fields = [
+      {
+        id: "primary-field",
+        propertyId: "primary-property",
+        propertyName: "Primary owner",
+        localFieldKey: "primary-property",
+        sourceFieldKey: "primary-owner",
+        sourceFieldLabel: "Primary owner",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "source",
+        readOnly: true,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
+    ];
+    const secondary = source({
+      id: "secondary",
+      federation: federation("secondary", "slug", "{slug}"),
+      rows: [],
+    });
+    secondary.fields = [
+      {
+        id: "managed-field",
+        propertyId: "secondary-property",
+        propertyName: "Source owner",
+        localFieldKey: "secondary-property",
+        sourceFieldKey: "owner",
+        sourceFieldLabel: "Owner",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "source",
+        readOnly: true,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
+    ];
+
+    const federated = federateSources({
+      items: [unmatchedItem],
+      sources: [primary, secondary],
+    });
+    expect(federated[0].sourceOverlays).toBeUndefined();
+    expect(
+      applyFederatedOverlayValues(federated, [primary, secondary])[0]
+        .properties[0],
+    ).toMatchObject({ value: null, editable: false });
+    expect(
+      applyFederatedOverlayValues(federated, [primary, secondary])[0]
+        .properties[1],
+    ).toMatchObject({ value: "Primary source value", editable: false });
   });
 });

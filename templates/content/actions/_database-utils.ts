@@ -1168,7 +1168,10 @@ export async function getContentDatabasePageResponse(
   });
   // Opt-in federated columns (a secondary field the user added via the picker)
   // get their per-row values from the matched overlay at read time.
-  const itemsWithOverlay = applyFederatedOverlayValues(federatedItems);
+  const itemsWithOverlay = applyFederatedOverlayValues(
+    federatedItems,
+    pagedSources,
+  );
   return {
     databaseRecord: database,
     properties: responseProperties,

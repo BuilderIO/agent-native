@@ -142,11 +142,27 @@ export function federateSources(args: {
  */
 export function applyFederatedOverlayValues(
   items: ContentDatabaseItem[],
+  sources: ContentDatabaseSource[],
 ): ContentDatabaseItem[] {
+  const sourceManagedPropertyIds = new Set(
+    sources.flatMap((source) =>
+      source.fields.flatMap((field) =>
+        field.propertyId ? [field.propertyId] : [],
+      ),
+    ),
+  );
+  const secondaryPropertyIds = new Set(
+    sources
+      .filter((source) => source.metadata.federation?.role === "secondary")
+      .flatMap((source) =>
+        source.fields.flatMap((field) =>
+          field.propertyId ? [field.propertyId] : [],
+        ),
+      ),
+  );
   return items.map((item) => {
-    if (!item.sourceOverlays?.length) return item;
     const valueByPropertyId = new Map<string, DocumentPropertyValue>();
-    for (const overlay of item.sourceOverlays) {
+    for (const overlay of item.sourceOverlays ?? []) {
       for (const field of overlay.fields) {
         if (!field.propertyId) continue;
         valueByPropertyId.set(
@@ -155,18 +171,22 @@ export function applyFederatedOverlayValues(
         );
       }
     }
-    if (valueByPropertyId.size === 0) return item;
     return {
       ...item,
-      properties: item.properties.map((property) =>
-        valueByPropertyId.has(property.definition.id)
-          ? {
-              ...property,
-              value: valueByPropertyId.get(property.definition.id) ?? null,
-              editable: false,
-            }
-          : property,
-      ),
+      properties: item.properties.map((property) => {
+        const propertyId = property.definition.id;
+        if (valueByPropertyId.has(propertyId)) {
+          return {
+            ...property,
+            value: valueByPropertyId.get(propertyId) ?? null,
+            editable: false,
+          };
+        }
+        if (!sourceManagedPropertyIds.has(propertyId)) return property;
+        return secondaryPropertyIds.has(propertyId)
+          ? { ...property, value: null, editable: false }
+          : { ...property, editable: false };
+      }),
     };
   });
 }
