@@ -968,7 +968,14 @@ function contentToStructuredMessages(
       // A pending approval must replay the exact authorized arguments. Normal
       // history may truncate large tool inputs, but doing that here changes the
       // approval key and turns every approval into a fresh approval request.
-      const preserveApprovalInput = Boolean(part.approval?.approvalKey);
+      const approvalResult = part.result?.toLowerCase();
+      const preserveApprovalInput = Boolean(
+        part.approval?.approvalKey &&
+        part.approval.dismissed !== true &&
+        (part.result === undefined ||
+          approvalResult?.includes("awaiting human approval") ||
+          approvalResult?.includes("waiting for your approval")),
+      );
       assistantParts.push({
         type: "tool-call",
         toolCallId,

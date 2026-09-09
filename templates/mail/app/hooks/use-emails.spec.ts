@@ -154,12 +154,11 @@ describe("useMarkRead", () => {
     );
 
     expect(hook).toContain("getCachedThread(resolvedThreadId)");
+    expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
     expect(hook).toContain(
       "message.id === id ? { ...message, isRead } : message",
     );
-    expect(hook).toContain(
-      "setCachedThread(context.threadId, context.previousThread)",
-    );
+    expect(hook).toContain("message.id === id && message.isRead === isRead");
   });
 });
 

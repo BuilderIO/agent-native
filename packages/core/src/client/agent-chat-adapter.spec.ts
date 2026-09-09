@@ -51,6 +51,27 @@ describe("approval history", () => {
       args: { body },
     });
   });
+
+  it("truncates completed approved-call arguments", () => {
+    const body = "x".repeat(9_000);
+    const history = assistantUiMessagesToStructuredHistory([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call-1",
+            toolName: "send-email",
+            args: { body },
+            result: "Email sent.",
+            approval: { approvalKey: "send-email:completed" },
+          },
+        ],
+      },
+    ]);
+
+    expect((history[0]?.content[0] as any).args.body).not.toBe(body);
+  });
 });
 
 function sseResponse(events: unknown[], runId = "run-qa"): Response {

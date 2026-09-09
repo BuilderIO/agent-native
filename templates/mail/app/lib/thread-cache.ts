@@ -197,6 +197,11 @@ export function setCachedThread(threadId: string, messages: EmailMessage[]) {
   scheduleFlush();
 }
 
+export function supersedeCachedThreadFetch(threadId: string) {
+  inflight.delete(threadId);
+  versions.set(threadId, getVersion(threadId) + 1);
+}
+
 export function invalidateCachedThread(threadId: string) {
   cache.delete(threadId);
   inflight.delete(threadId);

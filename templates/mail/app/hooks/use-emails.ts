@@ -30,6 +30,7 @@ import {
   invalidateCachedThread,
   getCachedThread,
   setCachedThread,
+  supersedeCachedThreadFetch,
 } from "@/lib/thread-cache";
 import { bodyToHtml } from "@/lib/utils";
 
@@ -736,6 +737,9 @@ export function useMarkRead() {
       const previousThread = resolvedThreadId
         ? getCachedThread(resolvedThreadId)
         : undefined;
+      const previousReadState = previousThread?.find(
+        (message) => message.id === id,
+      )?.isRead;
       setOptimisticOverride(id, { isRead });
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
@@ -743,6 +747,7 @@ export function useMarkRead() {
         ),
       );
       if (resolvedThreadId && previousThread) {
+        supersedeCachedThreadFetch(resolvedThreadId);
         setCachedThread(
           resolvedThreadId,
           previousThread.map((message) =>
@@ -750,13 +755,24 @@ export function useMarkRead() {
           ),
         );
       }
-      return { previous, previousThread, threadId: resolvedThreadId };
+      return { previous, previousReadState, threadId: resolvedThreadId };
     },
-    onError: (_err, { id }, context) => {
+    onError: (_err, { id, isRead }, context) => {
       clearOptimisticOverride(id);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      if (context?.threadId && context.previousThread) {
-        setCachedThread(context.threadId, context.previousThread);
+      const previousReadState = context?.previousReadState;
+      if (context?.threadId && previousReadState !== undefined) {
+        const currentThread = getCachedThread(context.threadId);
+        if (currentThread) {
+          setCachedThread(
+            context.threadId,
+            currentThread.map((message) =>
+              message.id === id && message.isRead === isRead
+                ? { ...message, isRead: previousReadState }
+                : message,
+            ),
+          );
+        }
       }
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
