@@ -123,4 +123,33 @@ describe("export-png", () => {
       errorCode: "file_storage_not_configured",
     });
   });
+
+  it("preserves configured upload failures", async () => {
+    takeDesignScreenshotRun.mockResolvedValueOnce({
+      ok: true,
+      designId: "design_1",
+      fileId: "file_1",
+      filename: "index.html",
+      capturedAt: "2026-09-09T00:00:00.000Z",
+      screenshots: [
+        {
+          viewport: { label: "desktop-1440", widthPx: 1440, heightPx: 900 },
+          url: "",
+          persisted: false,
+          uploadError: {
+            code: "file_upload_failed",
+            message: "Configured file storage rejected the screenshot upload.",
+          },
+          bytes: 10,
+          diagnostics: {},
+        },
+      ],
+    });
+
+    await expect(
+      action.run({ designId: "design_1", filename: "index.html" }),
+    ).rejects.toMatchObject({
+      errorCode: "file_upload_failed",
+    });
+  });
 });

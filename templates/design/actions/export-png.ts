@@ -76,6 +76,15 @@ export default defineAction({
       });
     }
     if (!screenshot.url) {
+      if (screenshot.uploadError?.code === "file_upload_failed") {
+        fail(
+          "The PNG was rendered but its upload failed. Check the configured file storage provider and retry.",
+          {
+            errorCode: "file_upload_failed",
+            details: { designId: result.designId, fileId: result.fileId },
+          },
+        );
+      }
       fail(
         "The PNG was rendered but could not be returned because file storage is not configured. " +
           "Connect or reconnect Builder.io in Settings → File uploads, or register a custom file provider.",
