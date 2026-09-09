@@ -147,8 +147,6 @@ import {
   IconArchive,
   IconPhoto,
   IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
   IconCheck,
   IconDownload,
   IconClipboard,
