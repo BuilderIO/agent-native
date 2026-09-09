@@ -1012,7 +1012,7 @@ export async function getMcpOAuthBearerSession(
   if (!bearerToken) return null;
 
   try {
-    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveOrgIdFromDomain }] =
+    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveMcpIdentityOrgId }] =
       await Promise.all([
         import("../mcp/oauth-route.js"),
         import("../mcp/build-server.js"),
@@ -1023,8 +1023,7 @@ export async function getMcpOAuthBearerSession(
     });
     const identity = result.authed ? result.identity : undefined;
     if (!identity?.userEmail) return null;
-    const orgId =
-      identity.orgId ?? (await resolveOrgIdFromDomain(identity.orgDomain));
+    const orgId = await resolveMcpIdentityOrgId(identity);
     return {
       email: identity.userEmail,
       token: bearerToken,
