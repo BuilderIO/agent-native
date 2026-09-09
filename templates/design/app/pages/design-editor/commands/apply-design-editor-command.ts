@@ -209,28 +209,30 @@ export function runApplyDesignEditorCommand(
     // ordinary in-canvas interaction — see screen-command-utils.ts) means
     // "land here, focused on this screen", the same reveal a freshly created
     // screen gets from focusCreatedScreen. Skip it when the geometry isn't
-    // known yet rather than fitting to a placeholder rect.
+    // known yet rather than fitting to a placeholder rect. Keep the command
+    // pending so the caller retries after the design data has loaded.
     if (targetFile && requestCameraFit) {
       const geometry = canvasFrameGeometryById[targetFile.id];
       if (
-        geometry &&
-        Number.isFinite(geometry.x) &&
-        Number.isFinite(geometry.y) &&
-        Number.isFinite(geometry.width) &&
-        Number.isFinite(geometry.height)
+        !geometry ||
+        !Number.isFinite(geometry.x) ||
+        !Number.isFinite(geometry.y) ||
+        !Number.isFinite(geometry.width) ||
+        !Number.isFinite(geometry.height)
       ) {
-        requestCameraFit(
-          getCreatedScreenNavigationPlan({
-            screenId: targetFile.id,
-            geometry: {
-              x: geometry.x as number,
-              y: geometry.y as number,
-              width: geometry.width as number,
-              height: geometry.height as number,
-            },
-          }).camera,
-        );
+        return false;
       }
+      requestCameraFit(
+        getCreatedScreenNavigationPlan({
+          screenId: targetFile.id,
+          geometry: {
+            x: geometry.x as number,
+            y: geometry.y as number,
+            width: geometry.width as number,
+            height: geometry.height as number,
+          },
+        }).camera,
+      );
     }
   } else if (editorView === "single") {
     viewModeRef.current = "single";

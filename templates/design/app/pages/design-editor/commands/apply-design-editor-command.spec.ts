@@ -88,13 +88,14 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
       requestCameraFit,
     });
 
-    runApplyDesignEditorCommand(args, {
+    const applied = runApplyDesignEditorCommand(args, {
       designId: "design-1",
       issuedAt: 0,
       editorView: "overview",
       screen: "file-1",
     });
 
+    expect(applied).toBe(false);
     expect(requestCameraFit).not.toHaveBeenCalled();
   });
 

@@ -1454,8 +1454,12 @@ function DesignEditor() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
   // Cmd/Ctrl+\ hides the sidebars while leaving the bottom tools available.
   const [uiHidden, setUiHidden] = useState(false);
-  const [minimalUi, setMinimalUi] = useState(false);
-  const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] = useState(false);
+  // Embedded Design surfaces have less room than a full browser, so keep the
+  // canvas primary while leaving the style panel available for the first edit.
+  const minimalUiByDefault = embedded && !hostOwnsChrome;
+  const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
+  const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] =
+    useState(minimalUiByDefault);
   const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -12155,10 +12159,11 @@ function DesignEditor() {
 
   // ── UI toggles, ungroup, reparent, cut, screen deletion ────────────────────
   const handleToggleMinimalUi = useCallback(() => {
-    setMinimalUi((current) => !current);
+    const enteringMinimalUi = !minimalUi;
+    setMinimalUi(enteringMinimalUi);
     setUiHidden(false);
-    setMinimalRightSidebarOpen(false);
-  }, []);
+    setMinimalRightSidebarOpen(enteringMinimalUi);
+  }, [minimalUi]);
 
   const handleToggleMinimalRightSidebar = useCallback(() => {
     if (uiHidden) {
@@ -19205,11 +19210,7 @@ function DesignEditor() {
           disabled={initialGenerationChromeLimited}
           onClick={handleToggleMinimalRightSidebar}
         >
-          {minimalRightSidebarOpen && !uiHidden ? (
-            <IconChevronRight className="size-4" />
-          ) : (
-            <IconChevronLeft className="size-4" />
-          )}
+          <IconLayoutSidebar className="size-4 -scale-x-100" />
         </Button>
       </TooltipTrigger>
       <TooltipContent>
@@ -20526,24 +20527,37 @@ function DesignEditor() {
                 onRetry={handleRetryGeneration}
               />
             ) : viewMode === "overview" || activeFile ? (
-              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+              <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
                 {/* Interact's device chrome sits inside the canvas column so
                     the workspace rails stay put — Interact is a different view
                     of the same editor, not a chrome-free takeover. */}
                 {responsiveInteractActive ? (
-                  <ResponsiveInteractBar
-                    deviceName={interactDeviceName}
-                    width={interactDeviceSize.width}
-                    height={interactDeviceSize.height}
-                    zoom={interactZoom}
-                    onDeviceChange={handleInteractDeviceChange}
-                    onWidthChange={handleInteractWidthChange}
-                    onHeightChange={handleInteractHeightChange}
-                    onZoomChange={setInteractZoom}
-                    onModeChange={handleModeChange}
-                    canAnnotate={canEditDesign}
-                    onClose={handleExitResponsiveInteract}
-                  />
+                  <div
+                    data-design-minimal-bar={minimalUi ? "interact" : undefined}
+                    className={cn(
+                      minimalUi
+                        ? "pointer-events-none absolute inset-x-0 top-3 z-[95] flex justify-center px-3"
+                        : "shrink-0",
+                    )}
+                  >
+                    <ResponsiveInteractBar
+                      deviceName={interactDeviceName}
+                      width={interactDeviceSize.width}
+                      height={interactDeviceSize.height}
+                      zoom={interactZoom}
+                      onDeviceChange={handleInteractDeviceChange}
+                      onWidthChange={handleInteractWidthChange}
+                      onHeightChange={handleInteractHeightChange}
+                      onZoomChange={setInteractZoom}
+                      onModeChange={handleModeChange}
+                      canAnnotate={canEditDesign}
+                      onClose={handleExitResponsiveInteract}
+                      className={cn(
+                        minimalUi &&
+                          "pointer-events-auto w-full max-w-[680px] rounded-lg border shadow-xl",
+                      )}
+                    />
+                  </div>
                 ) : null}
                 {/* §6.4 / BP-DEEP v2 — breakpoint targeting no longer
                     renders any bar over or above the canvas (the earlier
