@@ -1,5 +1,12 @@
 # @agent-native/creative-context
 
+## 0.7.23
+
+### Patch Changes
+
+- a53a789: Clean up and streamline the Creative Context share tab interface.
+- Release all public npm packages with a patch version bump.
+
 ## 0.7.22
 
 ### Patch Changes

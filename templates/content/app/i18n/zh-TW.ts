@@ -1232,7 +1232,7 @@ const messages = {
     importedLocalFiles: "匯入的本機檔案",
     importedSource: "匯入的來源",
     lastSync: "上次同步",
-    localFolders: "本機資料夾",
+    localFolders: "資料夾",
     mainFolder: "主資料夾",
     metaTitle: "本機檔案 - Content",
     noFoldersLinked: "未連結資料夾",

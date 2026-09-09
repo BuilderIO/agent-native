@@ -74,6 +74,10 @@ import {
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
+import {
+  createSentrySourceMapUploadPlugin,
+  isSentrySourceMapUploadEnabled,
+} from "./sentry-source-maps.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -3591,6 +3595,24 @@ function authClientAssetPlugin(): Plugin {
   };
 }
 
+// `.env`/`.env.production` values aren't in `process.env` unless the shell
+// exported them — Vite loads them separately via `loadEnv`. Env-gated
+// checks that only read `process.env` silently miss file-only config, so
+// this is the one merge both the plugin list and the build config use.
+function resolveAgentNativeRuntimeEnv(
+  cwd: string,
+  mode: string,
+): Record<string, string | undefined> {
+  const workspaceRoot = findWorkspaceRoot(cwd);
+  return {
+    ...(workspaceRoot && workspaceRoot !== cwd
+      ? loadEnv(mode, workspaceRoot, "")
+      : {}),
+    ...loadEnv(mode, cwd, ""),
+    ...process.env,
+  };
+}
+
 function createAgentNativePlugins(
   options: ClientConfigOptions | AgentNativeVitePluginOptions,
   {
@@ -3609,6 +3631,12 @@ function createAgentNativePlugins(
   const nitroPlugin = createNitroDevPlugin(options, appBasePath);
   const includeNitro = !isBuildCommand(command);
   const presetMarkerPlugin = nitroPresetMarkerPlugin(options);
+  // Vite's real `mode` isn't resolved yet at this eager, pre-config-hook
+  // point — same fallback createAgentNativeConfig uses as its own default.
+  const runtimeEnv = resolveAgentNativeRuntimeEnv(
+    process.cwd(),
+    process.env.NODE_ENV === "production" ? "production" : "development",
+  );
 
   return [
     presetMarkerPlugin,
@@ -3645,6 +3673,8 @@ function createAgentNativePlugins(
     includeReactTransform ? createReactTransformPlugin() : null,
     createDesignSystemThemePlugin(options.designSystemTheme),
     createTailwindPlugin(options),
+    // No-ops unless a Sentry auth token/org/project is configured.
+    ...createSentrySourceMapUploadPlugin(runtimeEnv),
   ].filter(Boolean);
 }
 
@@ -3728,13 +3758,7 @@ function createAgentNativeConfig(
   const workspaceRoot = findWorkspaceRoot(cwd);
   const envDir = workspaceRoot && workspaceRoot !== cwd ? workspaceRoot : cwd;
 
-  const runtimeEnv = {
-    ...(workspaceRoot && workspaceRoot !== cwd
-      ? loadEnv(mode, workspaceRoot, "")
-      : {}),
-    ...loadEnv(mode, cwd, ""),
-    ...process.env,
-  };
+  const runtimeEnv = resolveAgentNativeRuntimeEnv(cwd, mode);
   const appConfig = resolveAgentNativeConfig(
     mergeAgentNativeConfigs(
       mergeAgentNativeConfigs(
@@ -3982,6 +4006,11 @@ function createAgentNativeConfig(
       // the standard property survives the production pipeline.
       cssMinify: userConfig.build?.cssMinify ?? "esbuild",
       cssTarget: userConfig.build?.cssTarget ?? ["es2020", "safari18"],
+      // "hidden" writes .map files for upload without a public
+      // sourceMappingURL comment, so production never serves them directly.
+      sourcemap:
+        userConfig.build?.sourcemap ??
+        (isSentrySourceMapUploadEnabled(runtimeEnv) ? "hidden" : false),
     },
     // Bundle all non-Node.js deps into the production SSR server build.
     // Edge runtimes (CF Workers, Deno) don't have node_modules at runtime.
