@@ -278,6 +278,8 @@ export function Layout({ children }: LayoutProps) {
               collapsed={sidebarCollapsed}
               onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
               width={sidebarWidth}
+              minWidth={MIN_SIDEBAR_WIDTH}
+              maxWidth={MAX_SIDEBAR_WIDTH}
               onResize={handleSidebarResize}
             />
           </div>

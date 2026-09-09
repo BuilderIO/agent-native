@@ -1272,6 +1272,7 @@ const messages = {
     addChildTo: "新增子項目至 {{title}}",
     addSubPage: "新增子頁面",
     collapse: "折疊側邊欄",
+    resize: "調整側邊欄寬度",
     completeStepsAboveFirst: "請先完成上面的步驟",
     connectWorkspace: "連線工作區",
     connected: "已連線",
