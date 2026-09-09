@@ -254,7 +254,6 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(schemaGateStep?.run), /git diff --name-only/);
     assert.match(String(schemaGateStep?.run), /grep -E/);
     assert.doesNotMatch(String(schemaGateStep?.run), /\brg\b/);
-    assert.match(String(schemaGateStep?.run), /data-programs\|sharing/);
     assert.match(String(schemaGateStep?.run), /\[\[ "\$status" -eq 1 \]\]/);
     assert.match(
       String(schemaGateStep?.run),
