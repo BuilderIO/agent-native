@@ -1184,7 +1184,9 @@ function collectInteractiveRuntimeIssues(
 
   const hasCloakRule =
     hasUnreadableStylesheet ||
-    INLINE_PRE_HIDE.test((cloaked ? attributeOf(cloaked, "style") : "") ?? "") ||
+    INLINE_PRE_HIDE.test(
+      (cloaked ? attributeOf(cloaked, "style") : "") ?? "",
+    ) ||
     parsed.elements.some((element) => {
       if (element.tagName !== "style") return false;
       const css = childrenOf(element)

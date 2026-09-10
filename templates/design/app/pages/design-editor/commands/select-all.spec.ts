@@ -1,4 +1,7 @@
-import { buildCodeLayerProjection, buildCodeLayerTree } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
 import { runSelectAll } from "./select-all";

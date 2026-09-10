@@ -82,9 +82,7 @@ async function applyRepeatStyleEdit() {
 
     return await page.evaluate(() => {
       const list = document.querySelector("ul")!;
-      const rows = [...list.children].filter(
-        (child) => child.tagName === "LI",
-      );
+      const rows = [...list.children].filter((child) => child.tagName === "LI");
       const template = list.querySelector("template");
       const body = template
         ? (template as HTMLTemplateElement).content.querySelector("li")

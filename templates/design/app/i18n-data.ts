@@ -10417,7 +10417,8 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "Déplacé à proximité de son emplacement d’origine — la cible exacte n’est pas modifiable",
         duplicateElementFailed: "Impossible de dupliquer cet élément",
-        repeatListNotEditable: "Impossible de mettre à jour cette liste répétée",
+        repeatListNotEditable:
+          "Impossible de mettre à jour cette liste répétée",
         eyedropperUnsupported:
           "La pipette n'est pas prise en charge par ce navigateur",
       },
@@ -10527,7 +10528,8 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "In die Nähe der ursprünglichen Stelle verschoben — das genaue Ziel ist nicht bearbeitbar",
         duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
-        repeatListNotEditable: "Diese wiederholte Liste konnte nicht aktualisiert werden",
+        repeatListNotEditable:
+          "Diese wiederholte Liste konnte nicht aktualisiert werden",
         eyedropperUnsupported:
           "Die Pipette wird von diesem Browser nicht unterstützt",
       },

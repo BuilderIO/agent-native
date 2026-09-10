@@ -305,7 +305,9 @@ export function runCommitVisualStyles(
       : buildCodeLayerProjection(baseContent);
   const targetInfo =
     options.elementInfo ??
-    (styleWriteIsRetargeted(selector, selectedElement) ? null : selectedElement);
+    (styleWriteIsRetargeted(selector, selectedElement)
+      ? null
+      : selectedElement);
   const targetResolution = targetInfo
     ? resolveCodeLayerTargetFromElementInfo(projection, targetInfo)
     : resolveCodeLayerTargetFromBridge(projection, selector);

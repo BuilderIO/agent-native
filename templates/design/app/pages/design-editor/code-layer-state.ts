@@ -50,7 +50,10 @@ export function codeLayerNodeLooksLikeComponent(
   if (isComponentInstance(node)) return true;
   const tag = node.tag.toLowerCase();
   return (
-    tag === "button" || tag === "input" || tag === "select" || tag === "textarea"
+    tag === "button" ||
+    tag === "input" ||
+    tag === "select" ||
+    tag === "textarea"
   );
 }
 

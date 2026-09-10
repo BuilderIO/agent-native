@@ -957,9 +957,9 @@ describe("codeLayerNodeLooksLikeComponent", () => {
   it("does not infer a component from any class name", () => {
     expect(codeLayerNodeLooksLikeComponent(node(["pricing-card"]))).toBe(false);
     expect(codeLayerNodeLooksLikeComponent(node(["btn-primary"]))).toBe(false);
-    expect(codeLayerNodeLooksLikeComponent(node(["product-card-wrapper"]))).toBe(
-      false,
-    );
+    expect(
+      codeLayerNodeLooksLikeComponent(node(["product-card-wrapper"])),
+    ).toBe(false);
   });
 
   it("still treats a form control tag as a component", () => {

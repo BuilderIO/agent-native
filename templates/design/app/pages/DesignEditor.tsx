@@ -550,7 +550,6 @@ import { runIframeContextMenu } from "./design-editor/commands/iframe-context-me
 import { runImportFigmaClipboardIntoDesign } from "./design-editor/commands/import-figma-clipboard-into-design";
 import { runLayerMarqueeSelectionChange } from "./design-editor/commands/layer-marquee-selection-change";
 import { runLayerMove } from "./design-editor/commands/layer-move";
-import { runSelectAll } from "./design-editor/commands/select-all";
 import { runLayerMoveToScreen } from "./design-editor/commands/layer-move-to-screen";
 import { runLayerRename } from "./design-editor/commands/layer-rename";
 import { runLayerSelectionChange } from "./design-editor/commands/layer-selection-change";
@@ -576,6 +575,7 @@ import { runScreenTextContentChange } from "./design-editor/commands/screen-text
 import { runScreenVisualDuplicateChange } from "./design-editor/commands/screen-visual-duplicate-change";
 import { runScreenVisualStructureChange } from "./design-editor/commands/screen-visual-structure-change";
 import { runScreenVisualStyleChange } from "./design-editor/commands/screen-visual-style-change";
+import { runSelectAll } from "./design-editor/commands/select-all";
 import { runSendOverviewAnnotations } from "./design-editor/commands/send-overview-annotations";
 import { runSendRuntimeLayerMoveSemanticHandoff } from "./design-editor/commands/send-runtime-layer-move-semantic-handoff";
 import { runSendRuntimeLayerSemanticHandoff } from "./design-editor/commands/send-runtime-layer-semantic-handoff";

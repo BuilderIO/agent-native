@@ -52,7 +52,7 @@ describe("a style commit on one repeated row", () => {
         sourceSelector: TEMPLATE_BODY_SELECTOR,
         instanceCount: 7,
         instanceIndex: 3,
-        xFor: 'todo in todos',
+        xFor: "todo in todos",
         itemIndex: 2,
       }),
     );

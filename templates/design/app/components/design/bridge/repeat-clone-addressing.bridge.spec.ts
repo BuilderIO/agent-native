@@ -218,16 +218,12 @@ it(
   },
 );
 
-it(
-  "leaves an ordinary row unoutlined",
-  { timeout: 60_000 },
-  async () => {
-    await withPage(async (page) => {
-      await clickRow(page, 5);
-      expect(await instanceOutlines(page)).toEqual([]);
-    });
-  },
-);
+it("leaves an ordinary row unoutlined", { timeout: 60_000 }, async () => {
+  await withPage(async (page) => {
+    await clickRow(page, 5);
+    expect(await instanceOutlines(page)).toEqual([]);
+  });
+});
 
 it(
   "previews a style on every row the save will reach, not just the clicked one",

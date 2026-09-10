@@ -60,4 +60,3 @@ describe("deciding whether a style write was retargeted", () => {
     );
   });
 });
-

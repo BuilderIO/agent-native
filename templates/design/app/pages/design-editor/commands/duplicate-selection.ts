@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
-import { runRepeatItemEdit } from "@/pages/design-editor/commands/repeat-item-edit";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -19,6 +18,7 @@ import {
   elementInfoFromCodeLayerNode,
 } from "@/pages/design-editor/code-layer-state";
 import type { SelectedCanvasLayerSnapshot } from "@/pages/design-editor/command-types";
+import { runRepeatItemEdit } from "@/pages/design-editor/commands/repeat-item-edit";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface DuplicateSelectionArgs {

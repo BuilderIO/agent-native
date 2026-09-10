@@ -45,8 +45,8 @@ describe("where a style patch lands", () => {
   });
 
   it("falls back to the selector when nothing is selected", () => {
-    expect(
-      styleWriteTarget({ selector: "body", selectedElement: null }),
-    ).toBe("body");
+    expect(styleWriteTarget({ selector: "body", selectedElement: null })).toBe(
+      "body",
+    );
   });
 });

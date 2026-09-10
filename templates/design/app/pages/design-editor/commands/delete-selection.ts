@@ -5,12 +5,10 @@ import {
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
+import { toast } from "sonner";
 import * as Y from "yjs";
 
-import { toast } from "sonner";
-
 import { trace } from "@/components/design/design-trace";
-import { runRepeatItemEdit } from "@/pages/design-editor/commands/repeat-item-edit";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -29,6 +27,7 @@ import type {
   ResponsiveEditScope,
   SelectedCanvasLayerSnapshot,
 } from "@/pages/design-editor/command-types";
+import { runRepeatItemEdit } from "@/pages/design-editor/commands/repeat-item-edit";
 import { applyScopedVisualStyleEdit } from "@/pages/design-editor/pending-edits";
 import { removeElementFromHtml } from "@/pages/design-editor/text-edit-utils";
 import type { DesignFile } from "@/pages/design-editor/types";

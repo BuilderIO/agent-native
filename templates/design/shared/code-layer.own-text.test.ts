@@ -27,9 +27,9 @@ describe("which elements hold text of their own", () => {
   });
 
   it("a plain list item holds its own", () => {
-    expect(paintsOwnText(`<body><li class="row">Buy milk</li></body>`, "row")).toBe(
-      true,
-    );
+    expect(
+      paintsOwnText(`<body><li class="row">Buy milk</li></body>`, "row"),
+    ).toBe(true);
   });
 
   it("counts text sitting beside a child element", () => {
