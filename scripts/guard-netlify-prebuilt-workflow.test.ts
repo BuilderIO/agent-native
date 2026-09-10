@@ -13,6 +13,7 @@ import {
   PRODUCTION_SITE_GROUP,
   validateGoogleCallbackVerificationWorkflow,
   validateNetlifyApiRateLimitHandling,
+  validateNetlifyPrPreviewWorkflow,
   validateProductionPurgeCondition,
   validateReusableWorkflowConcurrency,
   validateProductionSiteConcurrency,
@@ -51,6 +52,11 @@ const nodeHeredocs = [
   ),
 ].map((match) => match[1]);
 
+const pullRequestPreviewSource = readFileSync(
+  ".github/workflows/deploy-netlify-pr-previews.yml",
+  "utf8",
+);
+
 describe("Google callback deploy verification guard", () => {
   it("requires direct probe execution and rolls back only definitive mismatches", () => {
     assert.deepEqual(
@@ -70,6 +76,30 @@ describe("Google callback deploy verification guard", () => {
           ),
       ).join("\n"),
       /directly with the supported Node loader|only definitive/,
+    );
+  });
+});
+
+describe("Netlify PR preview workflow guard", () => {
+  it("keeps PR builds secret-free and uploads through the trusted prebuilt lane", () => {
+    assert.deepEqual(
+      validateNetlifyPrPreviewWorkflow(
+        readWorkflow(".github/workflows/deploy-netlify-pr-previews.yml"),
+        pullRequestPreviewSource,
+      ),
+      [],
+    );
+    const preview = readWorkflow(
+      ".github/workflows/deploy-netlify-pr-previews.yml",
+    );
+    const previewDeploy = (preview.jobs as Record<string, Workflow>).deploy;
+    assert.equal(
+      (previewDeploy.with as Workflow).checkout_ref,
+      "${{ github.event.pull_request.base.sha }}",
+    );
+    assert.match(
+      reusableSource,
+      /supplies static files; arbitrary PR Functions never reach Netlify\./,
     );
   });
 });
@@ -820,7 +850,7 @@ describe("production Netlify site concurrency guard", () => {
 
     assert.match(
       build,
-      /if \[\[ \"\$TARGET\" == \"production\" && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
+      /if \[\[ \( \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
     );
     assert.match(chatNetlify, /agentNativePrebuiltDatabaseUrl/);
     assert.match(chatNetlify, /agentNativePrebuiltAuthSecret/);
@@ -843,7 +873,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(artifact);
     assert.equal(
       artifact.if,
-      "inputs.migration_only != true && (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')",
+      "inputs.migration_only != true && inputs.artifact_download != true && (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')",
     );
     assert.match(String(artifact.run), /GUARD_SSR_CACHE_ARTIFACT_DIR/);
   });
@@ -860,7 +890,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(index >= 0);
     assert.equal(
       steps[index].if,
-      "inputs.migration_only != true && steps.target.outputs.source_template == '@agent-native/docs'",
+      "inputs.migration_only != true && inputs.artifact_download != true && steps.target.outputs.source_template == '@agent-native/docs'",
     );
     assert.match(
       String(steps[index].run),
@@ -881,17 +911,31 @@ describe("production Netlify site concurrency guard", () => {
     const docsSmoke = steps.find(
       (step) => step.name === "Smoke-test the static docs deploy",
     );
+    const previewSmoke = steps.find(
+      (step) => step.name === "Smoke-test the uploaded PR preview",
+    );
 
     assert(appSmoke);
     assert.equal(
       appSmoke.if,
-      "inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+      "inputs.target != 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
     );
     // The smoke step asserts the health BODY (ready, db, schema,
     // jwks, identity), not just the status code — see scripts/smoke-check-health.ts.
     assert.match(String(appSmoke.run), /scripts\/smoke-check-health\.ts/);
     assert.match(String(appSmoke.run), /--auth-routes/);
     assert.match(String(appSmoke.run), /--canonical-host/);
+
+    assert(previewSmoke);
+    assert.equal(
+      previewSmoke.if,
+      "inputs.target == 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+    );
+    assert.match(String(previewSmoke.run), /scripts\/smoke-check-health\.ts/);
+    assert.match(String(previewSmoke.run), /--canonical-host/);
+    assert.match(String(previewSmoke.run), /--auth-routes/);
+    assert.match(String(previewSmoke.run), /--preview/);
+    assert.match(String(previewSmoke.run), /--allow-missing-health/);
 
     assert(docsSmoke);
     assert.equal(

@@ -1,8 +1,7 @@
-name: Pilot prebuilt Netlify deploy
+name: Deploy Netlify prebuilt artifacts from GitHub Actions
 
-# Additive pilot lane for moving the build off Netlify while keeping Netlify as
-# the deploy/CDN layer. Existing Netlify site builds remain enabled during the
-# pilot; the automatic beta caller and manual production caller prove this path.
+# GitHub Actions owns builds for the canonical beta, production, and PR preview
+# sites. Netlify only receives the resulting prebuilt artifact and serves it.
 #
 # Safe rollout:
 #   1. deploy=false + build_context=deploy-preview validates the GitHub runner.
@@ -60,6 +59,26 @@ on:
         required: true
         type: boolean
         default: true
+      artifact_upload:
+        description: Package the built output for a separate trusted upload job
+        required: true
+        type: boolean
+        default: false
+      artifact_download:
+        description: Deploy a prebuilt artifact without checking out PR code
+        required: true
+        type: boolean
+        default: false
+      artifact_name:
+        description: GitHub Actions artifact name for a prebuilt deploy
+        required: false
+        type: string
+        default: ""
+      checkout_ref:
+        description: Trusted checkout revision used for artifact-only deploys
+        required: false
+        type: string
+        default: ""
   workflow_call:
     inputs:
       target:
@@ -101,9 +120,33 @@ on:
         required: false
         type: boolean
         default: false
+      artifact_upload:
+        required: false
+        type: boolean
+        default: false
+      artifact_download:
+        required: false
+        type: boolean
+        default: false
+      artifact_name:
+        required: false
+        type: string
+        default: ""
+      checkout_ref:
+        required: false
+        type: string
+        default: ""
+      pull_request_number:
+        required: false
+        type: number
+        default: 0
+      preview_alias:
+        required: false
+        type: string
+        default: ""
     secrets:
       NETLIFY_AUTH_TOKEN:
-        required: true
+        required: false
       ANALYTICS_DATABASE_URL:
         required: false
       PLAN_DATABASE_URL:
@@ -113,6 +156,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 concurrency:
   # Direct production dispatches share the per-site queue with the fleet,
@@ -178,6 +223,15 @@ jobs:
               core.setOutput('source_ref', sourceSha);
               return;
             }
+            if (target === 'preview') {
+              const sourceSha = requested || context.sha;
+              if (!/^[0-9a-f]{40}$/i.test(sourceSha)) {
+                core.setFailed('Preview source_ref must be a full 40-character commit SHA.');
+                return;
+              }
+              core.setOutput('source_ref', sourceSha);
+              return;
+            }
             if (target === 'beta') {
               core.setOutput('source_ref', requested || 'beta');
               return;
@@ -186,10 +240,12 @@ jobs:
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          # Beta and production sites both build from the exact source revision
-          # selected by their publisher.
-          ref: ${{ steps.source.outputs.source_ref }}
+          # Artifact-only preview uploads use the trusted base revision for
+          # target resolution and deployment scripts; PR code stays in the
+          # separate build job that has no deployment secrets.
+          ref: ${{ inputs.checkout_ref || steps.source.outputs.source_ref }}
           fetch-depth: 1
+          persist-credentials: false
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -207,6 +263,8 @@ jobs:
           DEPLOY: ${{ inputs.deploy }}
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           MIGRATION_ONLY: ${{ inputs.migration_only }}
+          PREVIEW_ALIAS: ${{ inputs.preview_alias }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
           SITE: ${{ inputs.site }}
           TARGET: ${{ inputs.target }}
         run: |
@@ -232,6 +290,16 @@ jobs:
             exit 1
           fi
 
+          if [[ "$TARGET" == "preview" && "$DEPLOY" == "true" && ( "$BUILD_CONTEXT" != "deploy-preview" || "$DEPLOY_MODE" != "draft" ) ]]; then
+            echo "::error::PR previews must use build_context=deploy-preview and deploy_mode=draft."
+            exit 1
+          fi
+
+          if [[ "$TARGET" == "preview" && "$DEPLOY" == "true" && ( "$PULL_REQUEST_NUMBER" -le 0 || -z "$PREVIEW_ALIAS" ) ]]; then
+            echo "::error::PR previews require a pull request number and alias."
+            exit 1
+          fi
+
           if [[ "$TARGET" == "production" && ( "$SITE" == "chat" || "$SITE" == "www" ) ]]; then
             echo "::error::Production prebuilt dispatches must use canonical site ids (starter or fw), not aliases."
             exit 1
@@ -247,6 +315,34 @@ jobs:
           --target "$TARGET"
           --site "$SITE"
           --github-output "$GITHUB_OUTPUT"
+
+      - name: Download the prebuilt PR artifact
+        if: inputs.artifact_download
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ runner.temp }}/netlify-artifact
+
+      - name: Select the deploy directories
+        id: directories
+        env:
+          ARTIFACT_DOWNLOAD: ${{ inputs.artifact_download }}
+          TARGET: ${{ inputs.target }}
+          TARGET_FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
+          TARGET_PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+        run: |
+          set -euo pipefail
+          if [[ "$ARTIFACT_DOWNLOAD" == "true" ]]; then
+            echo "publish_directory=$RUNNER_TEMP/netlify-artifact/publish" >> "$GITHUB_OUTPUT"
+            if [[ "$TARGET" == "preview" ]]; then
+              echo "functions_directory=$TARGET_FUNCTIONS_DIRECTORY" >> "$GITHUB_OUTPUT"
+            else
+              echo "functions_directory=$RUNNER_TEMP/netlify-artifact/functions" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "functions_directory=$TARGET_FUNCTIONS_DIRECTORY" >> "$GITHUB_OUTPUT"
+            echo "publish_directory=$TARGET_PUBLISH_DIRECTORY" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Run the release migration from the Netlify environment
         if: inputs.migration_only
@@ -285,10 +381,12 @@ jobs:
           exit 1
 
       - name: Build with the Netlify project configuration
-        if: inputs.migration_only != true
+        if: inputs.migration_only != true && inputs.artifact_download != true
         env:
           BUILD_CONTEXT: ${{ inputs.build_context }}
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          ARTIFACT_DOWNLOAD: ${{ inputs.artifact_download }}
+          DEPLOY: ${{ inputs.deploy }}
+          NETLIFY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.NETLIFY_AUTH_TOKEN || '' }}
           MIGRATION_ONLY: ${{ inputs.migration_only }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
@@ -297,7 +395,9 @@ jobs:
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
-          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          if [[ "$TARGET" != "preview" || "$DEPLOY" == "true" ]]; then
+            : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          fi
           # The Netlify CLI uses DEPLOY_ID=0 during local prebuilt builds. Use
           # the checked-out source revision so fixed auth assets get a new URL
           # on every source deploy, including branch and beta deployments.
@@ -341,7 +441,7 @@ jobs:
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
-          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
+          if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             # Starter's runtime database and auth secret are Netlify secrets.
             # The external prebuilt runner receives masked values, so use
             # build-only shapes and let the deployed Functions read the real
@@ -364,11 +464,35 @@ jobs:
           if [[ "$SOURCE_TEMPLATE" == "crm" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
-          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
+          if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
           unset ANALYTICS_DATABASE_URL_SECRET
+
+      - name: Build trusted preview Functions for the PR artifact
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.artifact_download && inputs.migration_only != true
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          # This checkout is the trusted base revision. The PR build job only
+          # supplies static files; arbitrary PR Functions never reach Netlify.
+          if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" || "$SOURCE_TEMPLATE" == "crm" || "$SOURCE_TEMPLATE" == "chat" ]]; then
+            export agentNativePrebuiltBuild=true
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
+          netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
 
       - name: Run Plan release migrations
         if: >-
@@ -396,8 +520,8 @@ jobs:
       - name: Verify deploy directories
         if: inputs.migration_only != true
         env:
-          FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
-          PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
+          PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
         run: |
           set -euo pipefail
           for directory in "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"; do
@@ -411,9 +535,10 @@ jobs:
       - name: Verify static SSR cache artifact
         if: >-
           inputs.migration_only != true &&
+          inputs.artifact_download != true &&
           (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')
         env:
-          PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+          PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
         run: |
           set -euo pipefail
           GUARD_SSR_CACHE_ARTIFACT_DIR="$PUBLISH_DIRECTORY" pnpm guard:ssr-cache-artifact
@@ -423,9 +548,9 @@ jobs:
       # sat above the whole fleet; this measures growth from where each app
       # actually is. An app with no recorded baseline is named, not passed.
       - name: Check serverless function sizes against their baseline
-        if: inputs.migration_only != true
+        if: inputs.migration_only != true && inputs.artifact_download != true
         env:
-          FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
+          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
           # source_template, not inputs.site: the input is a caller-facing alias
           # (docs production dispatches "fw", the starter site dispatches
           # "starter") and would miss the baseline recorded under the app's own
@@ -436,8 +561,35 @@ jobs:
           set -euo pipefail
           node scripts/check-function-size-baseline.mjs --site "$SITE" --dir "$FUNCTIONS_DIRECTORY"
 
+      - name: Package the prebuilt artifact
+        if: inputs.artifact_upload && inputs.migration_only != true
+        env:
+          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
+          PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          artifact_root="$RUNNER_TEMP/netlify-artifact"
+          mkdir -p "$artifact_root/publish"
+          cp -R "$PUBLISH_DIRECTORY"/. "$artifact_root/publish/"
+          if [[ "$TARGET" != "preview" ]]; then
+            mkdir -p "$artifact_root/functions"
+            cp -R "$FUNCTIONS_DIRECTORY"/. "$artifact_root/functions/"
+          fi
+
+      - name: Upload the prebuilt artifact
+        if: inputs.artifact_upload && inputs.migration_only != true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ runner.temp }}/netlify-artifact
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Verify docs cold-start budget
-        if: inputs.migration_only != true && steps.target.outputs.source_template == '@agent-native/docs'
+        if: >-
+          inputs.migration_only != true && inputs.artifact_download != true &&
+          steps.target.outputs.source_template == '@agent-native/docs'
         run: NODE_ENV=production NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs packages/docs
 
       - name: Pause automatic Netlify builds for production cutover
@@ -894,22 +1046,33 @@ jobs:
           (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
-          FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
+          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+          PREVIEW_ALIAS: ${{ inputs.preview_alias }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+          PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
 
+          deploy_message="GitHub Actions prebuilt deploy ${SOURCE_REF:-$GITHUB_SHA}"
+          if [[ "$TARGET" == "preview" ]]; then
+            deploy_message="GitHub Actions PR preview #${PULL_REQUEST_NUMBER} ${SOURCE_TEMPLATE} ${SOURCE_REF}"
+          fi
           deploy_args=(
             --site "$NETLIFY_SITE_ID"
             --dir "$PUBLISH_DIRECTORY"
             --functions "$FUNCTIONS_DIRECTORY"
             --filter "$SOURCE_TEMPLATE"
             --no-build
-            --message "GitHub Actions prebuilt deploy ${GITHUB_SHA}"
+            --message "$deploy_message"
           )
+          if [[ "$TARGET" == "preview" ]]; then
+            deploy_args+=(--alias "$PREVIEW_ALIAS")
+          fi
           if [[ "$DEPLOY_MODE" == "production" ]]; then
             deploy_args+=(--prod)
           fi
@@ -1003,7 +1166,8 @@ jobs:
 
       - name: Smoke-test the uploaded deploy
         if: >-
-          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.target != 'preview' && inputs.deploy &&
+          steps.beta_freshness.outputs.current != 'false' &&
           inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
@@ -1023,6 +1187,79 @@ jobs:
             node --experimental-strip-types scripts/smoke-check-health.ts \
               --url "$url" --auth-routes
           fi
+
+      - name: Smoke-test the uploaded PR preview
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          steps.beta_freshness.outputs.current != 'false' && inputs.smoke &&
+          steps.target.outputs.source_template != '@agent-native/docs'
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          HOST: ${{ steps.target.outputs.host }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+        run: |
+          set -euo pipefail
+          smoke_args=(
+            --url "$DEPLOY_URL"
+            --canonical-host "$HOST"
+            --auth-routes
+            --preview
+          )
+          if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
+            smoke_args+=(--allow-missing-health)
+          fi
+          node --experimental-strip-types scripts/smoke-check-health.ts "${smoke_args[@]}"
+
+      - name: Comment the PR preview URL
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.pull_request_number > 0 && success()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+          SITE_NAME: ${{ steps.target.outputs.site_name }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
+            const marker = `<!-- agent-native-netlify-preview:${process.env.SITE_NAME} -->`;
+            const deployUrl = process.env.DEPLOY_URL;
+            const sourceRef = process.env.SOURCE_REF;
+            if (!deployUrl || !sourceRef || !process.env.DEPLOY_ID) {
+              core.setFailed('PR preview upload did not return a complete deploy record.');
+              return;
+            }
+            const body = [
+              marker,
+              `**${process.env.SITE_NAME} preview:** [Open preview](${deployUrl})`,
+              '',
+              `Built by GitHub Actions from \`${sourceRef}\`; Netlify is serving the uploaded artifact.`,
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pullRequestNumber,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pullRequestNumber,
+                body,
+              });
+            }
 
       # The active managed client and its capability are observable only from
       # the live host, so this is a post-publish verification. If the declared
