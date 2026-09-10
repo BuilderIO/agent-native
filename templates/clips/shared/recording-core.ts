@@ -127,12 +127,12 @@ export function chunkUploadQuery(params: ChunkUploadParams): string {
   return q.toString();
 }
 
-/** Full chunk-upload URL: `<chunkBaseUrl>?<encoded params>`. `chunkBaseUrl` is
- * the per-recording endpoint (e.g. `/api/uploads/<id>/chunk` or its absolute
- * form) with no existing query string. */
+/** Full chunk-upload URL: append the encoded chunk params to the per-recording
+ * endpoint, preserving any capability query already present on the URL. */
 export function chunkUploadUrl(
   chunkBaseUrl: string,
   params: ChunkUploadParams,
 ): string {
-  return `${chunkBaseUrl}?${chunkUploadQuery(params)}`;
+  const separator = chunkBaseUrl.includes("?") ? "&" : "?";
+  return `${chunkBaseUrl}${separator}${chunkUploadQuery(params)}`;
 }

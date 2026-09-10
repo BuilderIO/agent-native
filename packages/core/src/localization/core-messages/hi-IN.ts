@@ -527,6 +527,23 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "पिछला एजेंट स्ट्रीम रन की रिकवरी के दौरान समाप्त हो गया। रन से दोबारा जुड़ने के लिए जारी रखें या फिर प्रयास करें।",
   "recovery.reconnectBuilder": "Builder.io को दोबारा कनेक्ट करें",
+  "secrets.addCustomKeyNamed": '"{{name}}" को कस्टम कुंजी के रूप में जोड़ें',
+  "secrets.customKey": "कस्टम कुंजी",
+  "secrets.customKeyHint": "नाम से कोई भी कुंजी जोड़ें",
+  "secrets.fromEnvironment": "डिप्लॉयमेंट एनवायरनमेंट द्वारा प्रदान किया गया।",
+  "secrets.managedInVault":
+    "वर्कस्पेस के Vault में प्रबंधित किया जाता है। इस वर्कस्पेस का हर ऐप यह वैल्यू उपयोग करता है।",
+  "secrets.openVault": "Vault खोलें",
+  "secrets.overridesVault":
+    "यह पर्सनल कुंजी वर्कस्पेस के Vault वैल्यू को ओवरराइड करती है। Vault कुंजी उपयोग करने के लिए इसे हटाएं।",
+  "secrets.overridesWorkspace":
+    "यह पर्सनल कुंजी वर्कस्पेस वैल्यू को ओवरराइड करती है। शेयर की गई कुंजी उपयोग करने के लिए इसे हटाएं।",
+  "secrets.setForWorkspace": "इस वर्कस्पेस में सभी के लिए सेट है।",
+  "secrets.sourceEnvironment": "एनवायरनमेंट",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "वर्कस्पेस",
+  "secrets.statusUnavailable": "अनुपलब्ध",
+  "secrets.usePersonalKey": "इसके बजाय पर्सनल कुंजी का उपयोग करें",
   "selection.attached": "चयन के {{formattedCount}} अक्षर अटैच हैं",
   "selection.attached_one": "चयन का {{formattedCount}} अक्षर अटैच है",
   "selection.attached_other": "चयन के {{formattedCount}} अक्षर अटैच हैं",
