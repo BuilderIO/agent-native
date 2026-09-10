@@ -175,8 +175,14 @@ describe("useMarkRead", () => {
     const first = beginReadMutation("message-overlap", true);
     const second = beginReadMutation("message-overlap", false);
 
-    expect(rollbackReadMutation("message-overlap", first)).toBeUndefined();
+    expect(rollbackReadMutation("message-overlap", first)).toBeNull();
     expect(rollbackReadMutation("message-overlap", second)).toBe(true);
+  });
+
+  it("distinguishes an unavailable baseline from a stale mutation", () => {
+    const version = beginReadMutation("message-unknown", undefined);
+
+    expect(rollbackReadMutation("message-unknown", version)).toBeUndefined();
   });
 
   it("uses an earlier successful mutation as the later rollback baseline", () => {
@@ -194,9 +200,11 @@ describe("useMarkRead", () => {
       source.indexOf("export function useMarkThreadRead()"),
     );
 
-    expect(hook).toContain(
-      "if (resolvedThreadId) {\n        supersedeCachedThreadFetch(resolvedThreadId);\n        if (previousThread)",
-    );
+    expect(hook).toContain("const restartColdThread = resolvedThreadId");
+    expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
+    expect(hook).toContain("resolvedThreadId && restartColdThread");
+    expect(hook).toContain('clearOptimisticOverrideProperty(id, "isRead")');
+    expect(hook).toContain("void ensureThread(");
   });
 });
 
@@ -205,6 +213,7 @@ describe("thread fetch ownership", () => {
     expect(threadCacheSource()).toContain(
       "if (inflight.get(threadId) === request) inflight.delete(threadId)",
     );
+    expect(threadCacheSource()).toContain("return superseded");
   });
 });
 
@@ -217,6 +226,8 @@ describe("useMarkThreadRead", () => {
     );
 
     expect(hook).toContain("supersedeCachedThreadFetch(threadId)");
+    expect(hook).toContain("beginReadMutation(id, false)");
+    expect(hook).not.toContain("context.previousThread");
   });
 });
 

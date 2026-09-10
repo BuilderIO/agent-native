@@ -415,9 +415,9 @@ export function confirmReadMutation(
 export function rollbackReadMutation(
   emailId: string,
   version: number,
-): boolean | undefined {
+): boolean | undefined | null {
   const current = readMutations.get(emailId);
-  if (!current || version !== current.version) return undefined;
+  if (!current || version !== current.version) return null;
   readMutations.delete(emailId);
   return current.confirmedState;
 }
@@ -437,6 +437,18 @@ export function setOptimisticOverride(
 /** Clear optimistic overrides — used on mutation error rollback. */
 export function clearOptimisticOverride(emailId: string) {
   optimisticOverrides.delete(emailId);
+}
+
+function clearOptimisticOverrideProperty(
+  emailId: string,
+  property: keyof EmailMessage,
+) {
+  const existing = optimisticOverrides.get(emailId);
+  if (!existing) return;
+  const props = { ...existing.props };
+  delete props[property];
+  if (Object.keys(props).length === 0) optimisticOverrides.delete(emailId);
+  else optimisticOverrides.set(emailId, { ...existing, props });
 }
 
 function applyOverrides(emails: EmailMessage[]): EmailMessage[] {
@@ -768,7 +780,7 @@ export function useMarkRead() {
         accountEmail,
         flag: isRead,
       }),
-    onMutate: async ({ id, isRead, threadId }) => {
+    onMutate: async ({ id, isRead, accountEmail, threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
@@ -793,8 +805,10 @@ export function useMarkRead() {
           emails.map((e) => (e.id === id ? { ...e, isRead } : e)),
         ),
       );
+      const restartColdThread = resolvedThreadId
+        ? supersedeCachedThreadFetch(resolvedThreadId) && !previousThread
+        : false;
       if (resolvedThreadId) {
-        supersedeCachedThreadFetch(resolvedThreadId);
         if (previousThread) {
           setCachedThread(
             resolvedThreadId,
@@ -804,7 +818,14 @@ export function useMarkRead() {
           );
         }
       }
-      return { mutationVersion, threadId: resolvedThreadId };
+      return {
+        mutationVersion,
+        threadId: resolvedThreadId,
+        coldThread:
+          resolvedThreadId && restartColdThread
+            ? { threadId: resolvedThreadId, accountEmail }
+            : undefined,
+      };
     },
     onSuccess: (_data, { id, isRead }, context) => {
       if (context) confirmReadMutation(id, context.mutationVersion, isRead);
@@ -812,8 +833,12 @@ export function useMarkRead() {
     onError: (_err, { id, isRead }, context) => {
       const confirmedState = context
         ? rollbackReadMutation(id, context.mutationVersion)
-        : undefined;
-      if (confirmedState === undefined) return;
+        : null;
+      if (confirmedState === null) return;
+      if (confirmedState === undefined) {
+        clearOptimisticOverrideProperty(id, "isRead");
+        return;
+      }
       setOptimisticOverride(id, { isRead: confirmedState });
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
@@ -836,7 +861,15 @@ export function useMarkRead() {
         }
       }
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: (_data, _error, _variables, context) => {
+      if (context?.coldThread) {
+        void ensureThread(
+          context.coldThread.threadId,
+          context.coldThread.accountEmail,
+        ).catch(() => {});
+      }
+      delayedInvalidate(qc, [["emails"], ["labels"]]);
+    },
   });
 }
 
@@ -850,14 +883,23 @@ export function useMarkThreadRead() {
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
-      // Capture unread entries BEFORE optimistic update
       const allEmails =
         previous.flatMap(([, data]) => flattenInfiniteEmails(data)) ?? [];
-      const unreadIds = allEmails
-        .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
-        .map((e) => e.id);
       const previousThread = getCachedThread(threadId);
-      supersedeCachedThreadFetch(threadId);
+      const unreadIds = new Set(
+        [...allEmails, ...(previousThread ?? [])]
+          .filter(
+            (email) =>
+              (email.threadId || email.id) === threadId && !email.isRead,
+          )
+          .map((email) => email.id),
+      );
+      const mutations = [...unreadIds].map((id) => ({
+        id,
+        version: beginReadMutation(id, false),
+      }));
+      const restartColdThread =
+        supersedeCachedThreadFetch(threadId) && !previousThread;
       // Set overrides so refetches don't revert read state
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });
@@ -876,18 +918,69 @@ export function useMarkThreadRead() {
           previousThread.map((message) => ({ ...message, isRead: true })),
         );
       }
-      return { previous, overrideIds: [...unreadIds], previousThread };
+      return {
+        mutations,
+        coldThread: restartColdThread
+          ? {
+              threadId,
+              accountEmail: allEmails.find(
+                (email) => (email.threadId || email.id) === threadId,
+              )?.accountEmail,
+            }
+          : undefined,
+      };
+    },
+    onSuccess: (_data, _threadId, context) => {
+      for (const mutation of context?.mutations ?? []) {
+        confirmReadMutation(mutation.id, mutation.version, true);
+      }
     },
     onError: (_err, threadId, context) => {
-      for (const id of context?.overrideIds ?? []) {
-        clearOptimisticOverride(id);
+      const rollback = new Map<string, boolean>();
+      for (const mutation of context?.mutations ?? []) {
+        const confirmedState = rollbackReadMutation(
+          mutation.id,
+          mutation.version,
+        );
+        if (confirmedState === null) continue;
+        if (confirmedState === undefined) {
+          clearOptimisticOverrideProperty(mutation.id, "isRead");
+          continue;
+        }
+        setOptimisticOverride(mutation.id, { isRead: confirmedState });
+        rollback.set(mutation.id, confirmedState);
       }
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      if (context?.previousThread) {
-        setCachedThread(threadId, context.previousThread);
+      if (rollback.size === 0) return;
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.map((email) =>
+            rollback.has(email.id)
+              ? { ...email, isRead: rollback.get(email.id)! }
+              : email,
+          ),
+        ),
+      );
+      const currentThread = getCachedThread(threadId);
+      if (currentThread) {
+        setCachedThread(
+          threadId,
+          currentThread.map((message) =>
+            rollback.has(message.id)
+              ? { ...message, isRead: rollback.get(message.id)! }
+              : message,
+          ),
+        );
       }
     },
-    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+    onSettled: (_data, _error, _threadId, context) => {
+      if (context?.coldThread) {
+        void ensureThread(
+          context.coldThread.threadId,
+          context.coldThread.accountEmail,
+        ).catch(() => {});
+      }
+      delayedInvalidate(qc, [["emails"], ["labels"]]);
+    },
   });
 }
 

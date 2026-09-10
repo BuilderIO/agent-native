@@ -10,6 +10,7 @@ describe("EmailThread read state action", () => {
     expect(source).toContain("keepUnreadThreadRef.current !== threadId");
     expect(source).toContain("keepUnreadThreadRef.current = undefined");
     expect(source).toContain("clearTimeout(autoReadTimerRef.current)");
+    expect(source).toContain("failedAutoReadThreadRef.current = id");
     expect(source).toContain('? "mail.actions.markUnread"');
     expect(source).toContain(': "mail.actions.markRead"');
     expect(source).toContain('<IconMail className="h-4 w-4" />');

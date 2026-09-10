@@ -384,11 +384,13 @@ export function EmailThread({
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
   const keepUnreadThreadRef = useRef<string | undefined>(undefined);
+  const failedAutoReadThreadRef = useRef<string | undefined>(undefined);
   const autoReadTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
   useEffect(() => {
     keepUnreadThreadRef.current = undefined;
+    failedAutoReadThreadRef.current = undefined;
   }, [threadId]);
   const setCurrentEmailReadState = useCallback(
     (isRead: boolean) => {
@@ -415,11 +417,20 @@ export function EmailThread({
   // doesn't re-render the detail view we just finished mounting.
   const hasUnread = messages.some((m) => !m.isRead);
   useEffect(() => {
-    if (threadId && hasUnread && keepUnreadThreadRef.current !== threadId) {
+    if (
+      threadId &&
+      hasUnread &&
+      keepUnreadThreadRef.current !== threadId &&
+      failedAutoReadThreadRef.current !== threadId
+    ) {
       const id = threadId;
       const handle = setTimeout(() => {
         autoReadTimerRef.current = undefined;
-        markThreadRead.mutate(id);
+        markThreadRead.mutate(id, {
+          onError: () => {
+            failedAutoReadThreadRef.current = id;
+          },
+        });
       }, 0);
       autoReadTimerRef.current = handle;
       return () => {

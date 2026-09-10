@@ -205,8 +205,9 @@ export function setCachedThread(threadId: string, messages: EmailMessage[]) {
 }
 
 export function supersedeCachedThreadFetch(threadId: string) {
-  inflight.delete(threadId);
+  const superseded = inflight.delete(threadId);
   versions.set(threadId, getVersion(threadId) + 1);
+  return superseded;
 }
 
 export function invalidateCachedThread(threadId: string) {
