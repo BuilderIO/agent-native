@@ -25,7 +25,11 @@ import {
 
 describe("MCP integration catalog", () => {
   it("opens OAuth setup without replacing the current app", () => {
-    const popup = {} as Window;
+    const replace = vi.fn();
+    const popup = {
+      opener: {},
+      location: { replace },
+    } as unknown as Window;
     const open = vi.fn(() => popup);
     vi.stubGlobal("window", { open });
 
@@ -33,11 +37,16 @@ describe("MCP integration catalog", () => {
       navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
     ).toBe(true);
 
-    expect(open).toHaveBeenCalledWith(
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+    expect(popup.opener).toBeNull();
+    expect(replace).toHaveBeenCalledWith(
       "/_agent-native/mcp/servers/oauth/start",
-      "_blank",
-      "noopener,noreferrer",
     );
+
+    open.mockReturnValueOnce(null);
+    expect(
+      navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
+    ).toBe(false);
 
     open.mockImplementationOnce(() => {
       throw new Error("blocked");

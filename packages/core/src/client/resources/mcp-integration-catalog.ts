@@ -981,7 +981,11 @@ export function buildMcpOAuthStartUrl({
 export function navigateToMcpOAuthStart(url: string): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return window.open(url, "_blank", "noopener,noreferrer") !== null;
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) return false;
+    popup.opener = null;
+    popup.location.replace(url);
+    return true;
   } catch (error) {
     console.error("Failed to open MCP OAuth popup.", error);
     return false;
