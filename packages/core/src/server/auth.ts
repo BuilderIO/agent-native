@@ -578,16 +578,42 @@ async function enrichLegacySessionIdentity(
   };
 }
 
+/**
+ * Delete one framework auth cookie from every jar this app could have written
+ * it into.
+ *
+ * A cookie's identity is name + domain + path + partition key, and a delete
+ * only removes an exact match, so two axes have to be swept:
+ *
+ * - **Domain**: a host-only cookie and a `Domain=` cookie of the same name are
+ *   separate entries, so a stale shared-domain cookie keeps shadowing the
+ *   isolated app session.
+ * - **Partition**: under CHIPS a `Partitioned` cookie lives in a jar keyed by
+ *   the top-level site, entirely separate from the unpartitioned cookie of the
+ *   same name. Every framework auth cookie is written through
+ *   `crossSiteCookieAttrs`, which sets `Partitioned` on HTTPS, so a delete
+ *   without it empties the wrong jar and the browser keeps sending a revoked
+ *   session token.
+ *
+ * `crossSiteCookieAttrs` is applied here rather than left to callers because a
+ * partition-blind delete fails silently: the logout response still looks
+ * successful, and the surviving cookie only surfaces later as the previous
+ * account coming back for as long as any instance's session-email cache still
+ * resolves the revoked token. h3 also keys its own `set-cookie` dedupe on
+ * name/domain/path alone, so a caller cannot cover both jars by emitting two
+ * deletes — mirroring how the cookie was set is the only thing that works.
+ */
 function deleteCookieFromEveryScope(
   event: H3Event,
   name: string,
   attributes: Parameters<typeof deleteCookie>[2] = {},
 ): void {
+  const scoped = { ...crossSiteCookieAttrs(event), ...attributes, path: "/" };
   // Clear host-only cookies first. Then clear any configured domain scope so
   // stale shared cookies stop shadowing isolated app sessions.
-  deleteCookie(event, name, { ...attributes, path: "/" });
+  deleteCookie(event, name, scoped);
   for (const domain of AUTH_COOKIE_NAMESPACE.frameworkCookieDomainsToClear) {
-    deleteCookie(event, name, { ...attributes, path: "/", domain });
+    deleteCookie(event, name, { ...scoped, domain });
   }
 }
 
