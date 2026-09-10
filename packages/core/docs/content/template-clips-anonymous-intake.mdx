@@ -12,11 +12,13 @@ The intake URL is a narrow upload capability. It is not a share link, a library 
 
 ## Capability boundaries
 
-| Capability | Allows | Does not allow | Lifetime |
-| --- | --- | --- | --- |
-| Intake URL | Create one private recording, upload its chunks, finalize it, or abort it | List recordings, read media, open the library, or use normal agent APIs | One hour by default. Four hours maximum |
-| Agent context link | Read the completed recording through the normal scoped Clips agent surface after an authenticated host-side exchange | Be minted by the anonymous intake bearer, read any other recording, or act as the recording owner | Seven days for bug-report completions |
-| Clips session | Mint intake URLs and use the normal authenticated Clips UI | Nothing is added to the anonymous visitor's browser | Controlled by normal Clips auth |
+<!-- i18n-copy-ignore: oxfmt table column alignment only; wording unchanged. -->
+
+| Capability         | Allows                                                                                                               | Does not allow                                                                                    | Lifetime                                |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Intake URL         | Create one private recording, upload its chunks, finalize it, or abort it                                            | List recordings, read media, open the library, or use normal agent APIs                           | One hour by default. Four hours maximum |
+| Agent context link | Read the completed recording through the normal scoped Clips agent surface after an authenticated host-side exchange | Be minted by the anonymous intake bearer, read any other recording, or act as the recording owner | Seven days for bug-report completions   |
+| Clips session      | Mint intake URLs and use the normal authenticated Clips UI                                                           | Nothing is added to the anonymous visitor's browser                                               | Controlled by normal Clips auth         |
 
 The intake token is signed with the existing scoped-token mechanism. The token is never stored in SQL. The database stores only the intake id, owner and organization binding, recording id, status, and expiry.
 

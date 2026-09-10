@@ -12,8 +12,8 @@ import {
   useOrgRole,
 } from "@agent-native/core/client/org";
 import {
-  AgentNativeIcon,
-  EnvironmentBadge,
+  AppSidebarFooter,
+  AppSidebarHeader,
 } from "@agent-native/core/client/ui";
 import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/experiments";
 import {
@@ -613,34 +613,11 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             : "-translate-x-full rtl:translate-x-full md:translate-x-0",
         )}
       >
-        <div
-          className={cn(
-            "flex h-14 shrink-0 items-center border-b border-border",
-            showCollapsedSidebar
-              ? "flex-col justify-center gap-0.5 px-2"
-              : "gap-2 px-4",
-          )}
-        >
-          <NavLink
-            to="/library"
-            aria-label={t("navigation.brand")}
-            className={cn(
-              "flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              showCollapsedSidebar ? "size-8 justify-center" : "shrink-0",
-            )}
-          >
-            <AgentNativeIcon
-              aria-hidden="true"
-              className="h-3.5 w-6 shrink-0 text-primary"
-            />
-            {!showCollapsedSidebar && (
-              <span className="truncate text-sm font-semibold text-primary">
-                {t("navigation.brand")}
-              </span>
-            )}
-          </NavLink>
-          <EnvironmentBadge placement="inline" />
-        </div>
+        <AppSidebarHeader
+          brandName={t("navigation.brand")}
+          brandHref="/library"
+          collapsed={showCollapsedSidebar}
+        />
         <div className="min-h-0 flex-1 overflow-y-auto">
           {showCollapsedSidebar ? (
             <nav className="flex flex-col items-center gap-1 px-2 py-3">
@@ -821,21 +798,11 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           )}
         </div>
 
-        <div
-          className={cn(
-            "shrink-0 border-t border-border p-2",
-            showCollapsedSidebar ? "space-y-1" : "space-y-1.5",
-          )}
-        >
-          <SidebarFeedbackButton collapsed={showCollapsedSidebar} />
-          <div
-            data-sidebar-footer-utilities
-            className={cn(
-              showCollapsedSidebar
-                ? "flex flex-col items-center gap-1"
-                : "flex items-center gap-0.5",
-            )}
-          >
+        <AppSidebarFooter
+          collapsed={showCollapsedSidebar}
+          collapsible={false}
+          feedback={<SidebarFeedbackButton collapsed={showCollapsedSidebar} />}
+          orgSwitcher={
             <OrgSwitcher
               compact={showCollapsedSidebar}
               className={cn(
@@ -848,9 +815,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               currentAppId="clips"
               utilityLinks={workspaceUtilityLinks}
             />
-            {collapseButton}
-          </div>
-        </div>
+          }
+          footerExtras={collapseButton}
+        />
       </aside>
 
       <div className="agent-layout-main-surface flex min-h-0 min-w-0 flex-1 flex-col">

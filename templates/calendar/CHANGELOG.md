@@ -3,10 +3,17 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-10
+
+### Fixed
+
+- Calendar keeps shared and overlaid events read-only instead of reporting a false deletion
+
 ## 2026-09-09
 
 ### Improved
 
+- Calendar's command menu surfaces the right actions for booking links and settings
 - Calendar can color Google events by meeting type again
 - Connected account avatars use a slimmer border.
 
