@@ -266,6 +266,11 @@ describe("production Netlify site concurrency guard", () => {
       "resolve-source",
       "discover-sites",
     ]);
+    assert.deepEqual((beta.jobs as Workflow).deploy.concurrency, {
+      group:
+        "agent-native-production-site-${{ matrix.site == 'chat' && 'starter' || matrix.site }}",
+      "cancel-in-progress": false,
+    });
     const production = readWorkflow(
       ".github/workflows/deploy-production-sites-prebuilt.yml",
     );
@@ -771,6 +776,33 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("runs the same Chat migration for beta and production", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const migrationStart = workflow.indexOf(
+      "name: Run Chat release migrations",
+    );
+    const planMigrationStart = workflow.indexOf(
+      "name: Run Plan release migrations",
+    );
+    const migration = workflow.slice(migrationStart, planMigrationStart);
+
+    assert.ok(migrationStart > buildStart);
+    assert.match(migration, /inputs\.deploy/);
+    assert.match(migration, /inputs\.deploy_mode == 'production'/);
+    assert.match(migration, /source_template == 'chat'/);
+    assert.doesNotMatch(migration, /inputs\.target/);
+    assert.match(migration, /AGENT_NATIVE_RELEASE_MIGRATIONS: "1"/);
+    assert.match(migration, /netlify api getEnvVars/);
+    assert.match(migration, /netlify-migration-url\.ts/);
+    assert.match(migration, /pnpm --filter chat migrate:production/);
+  });
+
   it("runs Plan migrations after masked prebuilt assembly", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",
@@ -796,8 +828,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(workflow, /SOURCE_TEMPLATE.*clips.*plan/s);
     assert.match(workflow, /SOURCE_TEMPLATE.*crm/s);
     assert.match(workflow, /agentNativePrebuiltDatabaseUrl=/);
+    const migration = workflow.slice(migrationStart, verifyStart);
+    assert.match(migration, /AGENT_NATIVE_RELEASE_MIGRATIONS: "1"/);
     assert.match(
-      workflow,
+      migration,
       /DATABASE_URL: \$\{\{ secrets\.PLAN_DATABASE_URL \}\}/,
     );
     assert.match(planNetlify, /agentNativePrebuiltDatabaseUrl/);
@@ -866,6 +900,7 @@ describe("production Netlify site concurrency guard", () => {
     const migration = workflow.slice(migrationStart, verifyStart);
     assert.match(migration, /inputs\.deploy_mode == 'production'/);
     assert.match(migration, /source_template == 'clips'/);
+    assert.match(migration, /AGENT_NATIVE_RELEASE_MIGRATIONS: "1"/);
     assert.match(migration, /CLIPS_DATABASE_URL/);
     assert.match(migration, /pnpm --filter clips migrate:production/);
   });
@@ -886,13 +921,14 @@ describe("production Netlify site concurrency guard", () => {
     const migration = workflow.slice(migrationStart, unlockStart);
     assert.match(migration, /inputs\.deploy_mode == 'production'/);
     assert.match(migration, /source_template == 'crm'/);
+    assert.match(migration, /AGENT_NATIVE_RELEASE_MIGRATIONS: "1"/);
     assert.match(migration, /getSiteDatabase/);
     assert.match(migration, /role.*netlifydb_owner/);
     assert.match(migration, /netlify-migration-url\.ts/);
     assert.match(migration, /pnpm --filter crm migrate:production/);
   });
 
-  it("keeps production Chat assembly independent of masked runtime secrets", () => {
+  it("keeps beta and production Chat assembly independent of masked runtime secrets", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",
       "utf8",
@@ -909,7 +945,7 @@ describe("production Netlify site concurrency guard", () => {
 
     assert.match(
       build,
-      /if \[\[ \( \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
+      /if \[\[ \( \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"beta\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
     );
     assert.match(chatNetlify, /agentNativePrebuiltDatabaseUrl/);
     assert.match(chatNetlify, /agentNativePrebuiltAuthSecret/);

@@ -17,6 +17,8 @@ const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 // all three production lanes must therefore share one per-site queue.
 export const PRODUCTION_SITE_GROUP =
   "agent-native-production-site-${{ matrix.site }}";
+export const BETA_PRODUCTION_SITE_GROUP =
+  "agent-native-production-site-${{ matrix.site == 'chat' && 'starter' || matrix.site }}";
 export const PRODUCTION_PURGE_CONDITION =
   "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()";
 
@@ -456,16 +458,16 @@ const clipsBuild =
   buildStepStart >= 0 && buildStepEnd > buildStepStart
     ? reusable.slice(buildStepStart, buildStepEnd)
     : "";
-const hasProductionChatBuildOverride =
+const hasChatBuildOverride =
   clipsBuild.includes(
-    'if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]];',
+    'if [[ ( "$TARGET" == "production" || "$TARGET" == "beta" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]];',
   ) &&
   chatNetlify.includes("agentNativePrebuiltBuild") &&
   chatNetlify.includes("agentNativePrebuiltDatabaseUrl") &&
   chatNetlify.includes("agentNativePrebuiltAuthSecret");
-if (!hasProductionChatBuildOverride) {
+if (!hasChatBuildOverride) {
   issues.push(
-    `${reusablePath} and ${chatNetlifyPath} must provide production and PR preview Chat build-only overrides for masked Netlify secrets`,
+    `${reusablePath} and ${chatNetlifyPath} must provide beta, production, and PR preview Chat build-only overrides for masked Netlify secrets`,
   );
 }
 const hasClipsAndPlanBuildOverride = clipsBuild.includes(
@@ -553,12 +555,17 @@ const parsedStepIndex = (name: string) =>
 const parsedPauseIndex = parsedStepIndex(
   "Pause automatic Netlify builds for production cutover",
 );
+const parsedChatMigrationIndex = parsedStepIndex("Run Chat release migrations");
+const parsedPlanMigrationIndex = parsedStepIndex("Run Plan release migrations");
 const parsedClipsMigrationIndex = parsedStepIndex(
   "Run Clips release migrations",
 );
 const parsedCrmMigrationIndex = parsedStepIndex("Run CRM release migrations");
 const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
+);
+const parsedVerifyDirectoriesIndex = parsedStepIndex(
+  "Verify deploy directories",
 );
 const parsedUploadIndex = parsedStepIndex("Upload the prebuilt deploy");
 const parsedPublishWaitIndex = parsedStepIndex(
@@ -574,7 +581,29 @@ const parsedCleanupIndex = parsedStepIndex(
 );
 issues.push(...validateGoogleCallbackVerificationWorkflow(reusable));
 issues.push(...validateNetlifyApiRateLimitHandling(reusable));
-const parsedClipsMigrationIf = reusableSteps[parsedClipsMigrationIndex]?.if;
+const parsedChatMigration = reusableSteps[parsedChatMigrationIndex];
+const parsedPlanMigration = reusableSteps[parsedPlanMigrationIndex];
+const parsedClipsMigration = reusableSteps[parsedClipsMigrationIndex];
+const parsedCrmMigration = reusableSteps[parsedCrmMigrationIndex];
+const hasReleaseMigrationFlag = (
+  step: Record<string, unknown> | null | undefined,
+) => asRecord(step?.env)?.AGENT_NATIVE_RELEASE_MIGRATIONS === "1";
+const parsedChatMigrationIf = String(parsedChatMigration?.if ?? "");
+if (
+  parsedChatMigrationIndex < 0 ||
+  parsedChatMigrationIndex >= parsedVerifyDirectoriesIndex ||
+  !parsedChatMigrationIf.includes("inputs.deploy") ||
+  !parsedChatMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !parsedChatMigrationIf.includes("source_template == 'chat'") ||
+  !hasReleaseMigrationFlag(parsedChatMigration) ||
+  !String(parsedChatMigration?.run).includes("netlify api getEnvVars") ||
+  !String(parsedChatMigration?.run).includes("netlify-migration-url.ts")
+) {
+  issues.push(
+    `${reusablePath} must run the same Chat release migration for beta and production with unmasked Netlify credentials`,
+  );
+}
+const parsedClipsMigrationIf = parsedClipsMigration?.if;
 if (
   parsedClipsMigrationIndex < 0 ||
   typeof parsedClipsMigrationIf !== "string" ||
@@ -585,6 +614,16 @@ if (
 ) {
   issues.push(
     `${reusablePath} must run Clips release migrations against CLIPS_DATABASE_URL on every prebuilt deploy that publishes live`,
+  );
+}
+if (
+  !hasReleaseMigrationFlag(parsedChatMigration) ||
+  !hasReleaseMigrationFlag(parsedPlanMigration) ||
+  !hasReleaseMigrationFlag(parsedClipsMigration) ||
+  !hasReleaseMigrationFlag(parsedCrmMigration)
+) {
+  issues.push(
+    `${reusablePath} dedicated Chat, Plan, Clips, and CRM migrations must enable release-target validation`,
   );
 }
 if (
@@ -887,6 +926,15 @@ const betaDeployJob = asRecord(
 const betaDeployNeeds = Array.isArray(betaDeployJob?.needs)
   ? betaDeployJob.needs
   : [];
+const betaDeployConcurrency = asRecord(betaDeployJob?.concurrency);
+if (
+  betaDeployConcurrency?.group !== BETA_PRODUCTION_SITE_GROUP ||
+  betaDeployConcurrency?.["cancel-in-progress"] !== false
+) {
+  issues.push(
+    `${betaPath} beta and production migrations must share the per-site production queue`,
+  );
+}
 if (betaMigrateJob || betaDeployNeeds.includes("migrate")) {
   issues.push(
     `${betaPath} must not run release migrations against masked beta site secrets`,

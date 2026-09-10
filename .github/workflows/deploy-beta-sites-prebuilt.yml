@@ -116,6 +116,9 @@ jobs:
   deploy:
     name: ${{ matrix.site }} beta prebuilt deploy
     needs: [resolve-source, discover-sites]
+    concurrency:
+      group: agent-native-production-site-${{ matrix.site == 'chat' && 'starter' || matrix.site }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       max-parallel: 8

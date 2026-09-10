@@ -433,8 +433,8 @@ jobs:
             # so production-scoped Netlify variables are not applied. Export
             # the release owner explicitly for this lane instead of widening
             # the flag to every ordinary preview build. Beta and production
-            # share one database, so beta actually runs the release migration
-            # here rather than just trusting production ran it.
+            # share one database, so both run the same release migration during
+            # the Netlify build unless the template uses a dedicated step below.
             export AGENT_NATIVE_RELEASE_MIGRATIONS=1
             export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1
             if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
@@ -463,7 +463,7 @@ jobs:
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
-          if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
+          if [[ ( "$TARGET" == "production" || "$TARGET" == "beta" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             # Starter's runtime database and auth secret are Netlify secrets.
             # The external prebuilt runner receives masked values, so use
             # build-only shapes and let the deployed Functions read the real
@@ -486,7 +486,7 @@ jobs:
           if [[ "$SOURCE_TEMPLATE" == "crm" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
-          if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
+          if [[ ( "$TARGET" == "production" || "$TARGET" == "beta" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
@@ -516,11 +516,49 @@ jobs:
           fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
 
+      - name: Run Chat release migrations
+        if: >-
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'chat'
+        env:
+          AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+
+          migration_database_url="$(
+            netlify api getEnvVars \
+              --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\"}" |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+          )"
+          if [[ -z "$migration_database_url" ]]; then
+            echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
+            exit 1
+          fi
+          export DATABASE_URL="$migration_database_url"
+
+          for attempt in 1 2 3; do
+            if pnpm --filter chat migrate:production; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "Chat migration attempt $attempt failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::Chat release migration failed after 3 attempts."
+          exit 1
+
       - name: Run Plan release migrations
         if: >-
           inputs.deploy && inputs.deploy_mode == 'production' &&
           steps.target.outputs.source_template == 'plan'
         env:
+          AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
           DATABASE_URL: ${{ secrets.PLAN_DATABASE_URL }}
         run: |
           set -euo pipefail
@@ -532,6 +570,7 @@ jobs:
           inputs.deploy && inputs.deploy_mode == 'production' &&
           steps.target.outputs.source_template == 'clips'
         env:
+          AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
           DATABASE_URL: ${{ secrets.CLIPS_DATABASE_URL }}
         run: |
           set -euo pipefail
@@ -716,6 +755,7 @@ jobs:
           inputs.deploy && inputs.deploy_mode == 'production' &&
           steps.target.outputs.source_template == 'crm'
         env:
+          AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
           BUILD_CONTEXT: ${{ inputs.build_context }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
