@@ -168,6 +168,11 @@ const messages: AgentChatTranslation = {
   "history.searching": "Recherche...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Hier",
+  "integrations.goToApiKeys": "Aller aux clés API",
+  "integrations.goToIntegrations": "Aller aux intégrations",
+  "integrations.lookingForApiKeys": "Vous cherchez plutôt une clé API ?",
+  "integrations.lookingForProviders":
+    "Vous cherchez des fournisseurs OAuth ou MCP ?",
   "limit.account": "votre compte",
   "limit.descriptionAll":
     "L’agent a utilisé toutes les étapes disponibles. Continuez dans une nouvelle interaction ou augmentez d’abord la limite de {{scope}}.",
@@ -239,6 +244,9 @@ const messages: AgentChatTranslation = {
   "secrets.addCustomKeyNamed": 'Ajouter "{{name}}" comme clé personnalisée',
   "secrets.customKey": "Clé personnalisée",
   "secrets.customKeyHint": "Ajoutez n'importe quelle clé par son nom",
+  "secrets.emptyHint": "Ajoutez une clé pour utiliser vos propres comptes.",
+  "secrets.emptyMore": "et {{count}} de plus sous Nouveau",
+  "secrets.emptyTitle": "Aucune clé pour le moment.",
   "secrets.fromEnvironment": "Fourni par l'environnement de déploiement.",
   "secrets.managedInVault":
     "Géré dans le Vault de l'espace de travail. Chaque application de cet espace de travail utilise cette valeur.",

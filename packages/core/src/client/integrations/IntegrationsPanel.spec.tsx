@@ -22,6 +22,7 @@ vi.mock("../resources/McpIntegrationDialog.js", () => ({
 }));
 
 vi.mock("../resources/mcp-integration-catalog.js", () => ({
+  isMcpIntegrationCatalogAvailable: () => false,
   getDefaultMcpIntegrations: () => [
     {
       id: "context7",
@@ -169,7 +170,11 @@ describe("IntegrationsPanel MCP connection errors", () => {
 
     expect(container.textContent).toContain("Available integrations");
     expect(container.textContent).toContain("Context7");
-    expect(container.textContent).not.toContain("Builder.io");
+    // The featured Builder.io row is expected; the builder-cms catalog entry
+    // stays filtered out of the merged list (its description never renders).
+    expect(container.textContent).not.toContain(
+      "Search Builder Publish and Hybrid Space content.",
+    );
     expect(container.textContent).not.toContain("settings.mcpClientSetup");
     expect(container.querySelector(".animate-pulse")).toBeNull();
   });

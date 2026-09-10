@@ -400,6 +400,10 @@ const messages: AgentChatTranslation = {
   "history.searching": "खोजा जा रहा है...",
   "history.untitledChat": "चैट",
   "history.yesterday": "कल",
+  "integrations.goToApiKeys": "API कुंजियों पर जाएं",
+  "integrations.goToIntegrations": "इंटीग्रेशन पर जाएं",
+  "integrations.lookingForApiKeys": "इसके बजाय API कुंजी ढूंढ रहे हैं?",
+  "integrations.lookingForProviders": "OAuth या MCP प्रदाता ढूंढ रहे हैं?",
   "limit.account": "आपके खाते",
   "limit.descriptionAll":
     "एजेंट ने सभी उपलब्ध चरणों का उपयोग कर लिया। नए टर्न में जारी रखें या पहले {{scope}} की सीमा बढ़ाएँ।",
@@ -530,6 +534,9 @@ const messages: AgentChatTranslation = {
   "secrets.addCustomKeyNamed": '"{{name}}" को कस्टम कुंजी के रूप में जोड़ें',
   "secrets.customKey": "कस्टम कुंजी",
   "secrets.customKeyHint": "नाम से कोई भी कुंजी जोड़ें",
+  "secrets.emptyHint": "अपने खुद के खातों का उपयोग करने के लिए एक कुंजी जोड़ें।",
+  "secrets.emptyMore": "और {{count}} अधिक 'नया' के अंतर्गत",
+  "secrets.emptyTitle": "अभी तक कोई कुंजी नहीं।",
   "secrets.fromEnvironment": "डिप्लॉयमेंट एनवायरनमेंट द्वारा प्रदान किया गया।",
   "secrets.managedInVault":
     "वर्कस्पेस के Vault में प्रबंधित किया जाता है। इस वर्कस्पेस का हर ऐप यह वैल्यू उपयोग करता है।",

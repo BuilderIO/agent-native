@@ -9,6 +9,7 @@ import { SecretsSection } from "./SecretsSection.js";
 
 vi.mock("../api-path.js", () => ({
   agentNativePath: (path: string) => path,
+  appMountedPath: (path: string) => path,
 }));
 
 vi.mock("../org/workspace-app-links.js", () => ({
@@ -299,6 +300,78 @@ describe("SecretsSection", () => {
       '[aria-label="Key name"]',
     );
     expect(nameInput?.value).toBe("HUBSPOT");
+  });
+
+  it("shows provider tiles when no key is set yet, and opens the picked row", async () => {
+    mockFetchWithSecrets([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI API key",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "unset",
+      },
+      {
+        key: "ANTHROPIC_API_KEY",
+        label: "Anthropic API key",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "unset",
+      },
+    ]);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    expect(container.textContent).toContain("No keys yet.");
+    expect(container.textContent).toContain(
+      "Add a key to use your own accounts.",
+    );
+
+    const tile = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "OpenAI",
+    );
+    await click(tile);
+
+    expect(container.textContent).toContain("OpenAI API key");
+    expect(container.querySelector('input[placeholder="Paste key"]')).toBe(
+      document.activeElement,
+    );
+  });
+
+  it("hides the provider tiles once a key is set", async () => {
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    expect(container.textContent).not.toContain("No keys yet.");
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent?.trim() === "Brave",
+      ),
+    ).toBe(false);
+  });
+
+  it("shows how many more keys are under New past the first 8 tiles", async () => {
+    mockFetchWithSecrets(
+      Array.from({ length: 9 }, (_, i) => ({
+        key: `PROVIDER_${i}_API_KEY`,
+        label: `Provider ${i} API key`,
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "unset",
+      })),
+    );
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    expect(container.textContent).toContain("and 1 more under New");
   });
 
   it("shows the overrides note for a personal key shadowing the Vault", async () => {

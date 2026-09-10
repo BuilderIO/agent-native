@@ -14,15 +14,27 @@ import {
   IconSearch,
   IconLoader2,
   IconRefresh,
+  IconMail,
+  IconPlugConnected,
 } from "@tabler/icons-react";
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  lazy,
+  Suspense,
+} from "react";
 
-import { buildSettingsRoute } from "../../navigation/index.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
 import {
   matchesMcpConnectHost,
   resolveMcpConnectGuideId,
 } from "../../shared/mcp-connect-content.js";
-import { agentNativePath, appPath } from "../api-path.js";
+import { agentNativePath, appMountedPath, appPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
@@ -43,8 +55,18 @@ import {
   useReconnectMcpServer,
   type McpServer,
 } from "../resources/use-mcp-servers.js";
+import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { SettingsCrossLinkHint } from "../settings/SettingsCrossLinkHint.js";
+import { SettingsSurfaceProvider } from "../settings/SettingsSection.js";
+import {
+  BuilderConnectCard,
+  BuilderConnectionMenu,
+} from "../setup-connections/BuilderConnectCard.js";
 import { cn } from "../utils.js";
-import { IntegrationGrid } from "./IntegrationGrid.js";
+import {
+  IntegrationGrid,
+  type IntegrationGridItem,
+} from "./IntegrationGrid.js";
 import {
   useIntegrationStatus,
   type IntegrationStatus,
@@ -451,191 +473,7 @@ function IntegrationDetail({
   );
 }
 
-// ─── Add integration picker ──────────────────────────────────────────────────
-
-function AddIntegrationPicker({
-  connectedIds,
-  onSelect,
-}: {
-  connectedIds: Set<string>;
-  onSelect: (platform: PlatformInfo) => void;
-}) {
-  return (
-    <div className="space-y-1">
-      {PLATFORMS.filter((platform) => !connectedIds.has(platform.id)).map(
-        (platform) => (
-          <button
-            key={platform.id}
-            type="button"
-            onClick={() => onSelect(platform)}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
-          >
-            <platform.icon
-              size={14}
-              className="shrink-0 text-muted-foreground"
-            />
-            <span className="flex-1 min-w-0">
-              <span className="block text-[11px] font-medium text-foreground">
-                {platform.label}
-              </span>
-              <span className="block truncate text-[10px] text-muted-foreground">
-                {platform.description}
-              </span>
-            </span>
-          </button>
-        ),
-      )}
-    </div>
-  );
-}
-
 // ─── Main panel ──────────────────────────────────────────────────────────────
-
-export function LegacyIntegrationsPanel() {
-  const t = useT();
-  const { statuses, loading, refetch } = useIntegrationStatus();
-  const [selectedPlatform, setSelectedPlatform] = useState<PlatformInfo | null>(
-    null,
-  );
-  const [showPicker, setShowPicker] = useState(false);
-
-  const statusMap = new Map(statuses.map((s) => [s.platform, s]));
-
-  // Show connected (enabled or configured) integrations
-  const connectedPlatforms = PLATFORMS.filter((p) => {
-    const s = statusMap.get(p.id);
-    return s?.configured || s?.enabled;
-  });
-
-  const connectedIds = new Set(connectedPlatforms.map((p) => p.id));
-
-  if (selectedPlatform) {
-    return (
-      <IntegrationDetail
-        platform={selectedPlatform}
-        serverStatus={statusMap.get(selectedPlatform.id)}
-        onBack={() => setSelectedPlatform(null)}
-        onRefresh={refetch}
-      />
-    );
-  }
-
-  if (showPicker) {
-    return (
-      <div>
-        <button
-          onClick={() => setShowPicker(false)}
-          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground mb-2"
-        >
-          <IconChevronLeft size={12} className="rtl:-scale-x-100" />
-          {t("integrations.back")}
-        </button>
-        <div className="text-[10px] font-medium text-muted-foreground mb-1.5">
-          {t("integrations.addChatIntegration")}
-        </div>
-        <AddIntegrationPicker
-          connectedIds={connectedIds}
-          onSelect={(p) => {
-            setSelectedPlatform(p);
-            setShowPicker(false);
-          }}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1.5">
-        <div>
-          <div className="text-xs font-medium text-foreground">
-            {t("integrations.chatIntegrations")}
-          </div>
-          <div className="text-[10px] text-muted-foreground">
-            {t("integrations.chatIntegrationsDescription")}
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => setShowPicker(true)}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              >
-                <IconPlus size={12} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("integrations.addIntegration")}</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="space-y-1.5">
-          <div className="h-6 w-full rounded bg-muted/50 animate-pulse" />
-          <div className="h-6 w-3/4 rounded bg-muted/50 animate-pulse" />
-        </div>
-      ) : connectedPlatforms.length === 0 ? (
-        <div className="space-y-2">
-          <button
-            onClick={() => setShowPicker(true)}
-            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/30"
-          >
-            <IconPlus size={12} className="shrink-0" />
-            {t("integrations.addIntegration")}
-          </button>
-          <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground">
-            {t("integrations.dispatchEntrypoint")}{" "}
-            <a
-              href="https://dispatch.agent-native.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="no-underline font-medium text-foreground hover:text-foreground/80"
-            >
-              dispatch template
-            </a>
-            .
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {connectedPlatforms.map((platform) => {
-            const s = statusMap.get(platform.id);
-            return (
-              <button
-                key={platform.id}
-                onClick={() => setSelectedPlatform(platform)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
-              >
-                <platform.icon
-                  size={14}
-                  className="shrink-0 text-muted-foreground"
-                />
-                <span className="flex-1 text-[11px] font-medium text-foreground truncate">
-                  {platform.label}
-                </span>
-                {s && (
-                  <span
-                    className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${
-                      s.enabled && s.configured
-                        ? "bg-green-500"
-                        : s.configured
-                          ? "bg-yellow-500"
-                          : "bg-muted-foreground/55"
-                    }`}
-                  />
-                )}
-              </button>
-            );
-          })}
-          <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground">
-            {t("integrations.sharedMessaging")}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function startMcpOAuthReconnect(server: McpServer): void {
   const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -720,41 +558,15 @@ function McpServerStatus({
   );
 }
 
-export interface McpIntegrationsSectionProps {
-  query?: string;
-  title?: string;
-  description?: string;
-  showTitle?: boolean;
-  showDescription?: boolean;
-  showHeader?: boolean;
-  className?: string;
-  integrations?: DefaultMcpIntegration[];
-  onOAuthStart?: (url: string) => void | Promise<void>;
-  oauthReady?: boolean;
-  oauthReturnPath?: string;
-  showEmptyState?: boolean;
-}
-
-export function McpIntegrationsSection({
-  query,
-  title,
-  description,
-  showTitle = true,
-  showDescription = true,
-  showHeader = true,
-  className,
+function useMcpIntegrationsController({
   integrations: integrationOptions,
-  onOAuthStart,
-  oauthReady,
-  oauthReturnPath,
-  showEmptyState = true,
-}: McpIntegrationsSectionProps) {
-  const t = useT();
+}: {
+  integrations?: DefaultMcpIntegration[];
+} = {}) {
   const serversQuery = useMcpServers();
   const createServer = useCreateMcpServer();
   const deleteServer = useDeleteMcpServer();
   const reconnectServer = useReconnectMcpServer();
-  const [localQuery, setLocalQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [initialIntegrationId, setInitialIntegrationId] = useState<
     string | null
@@ -773,16 +585,6 @@ export function McpIntegrationsSection({
     () => integrationOptions ?? getDefaultMcpIntegrations(),
     [integrationOptions],
   );
-  const activeQuery = query ?? localQuery;
-  const normalizedQuery = activeQuery.trim().toLowerCase();
-  const filteredCatalog = useMemo(() => {
-    if (!normalizedQuery) return catalog;
-    return catalog.filter((integration) =>
-      `${integration.name} ${integration.provider} ${integration.description} ${integration.useCase}`
-        .toLowerCase()
-        .includes(normalizedQuery),
-    );
-  }, [catalog, normalizedQuery]);
   const servers = [
     ...(serversQuery.data?.user ?? []),
     ...(serversQuery.data?.org ?? []),
@@ -877,6 +679,99 @@ export function McpIntegrationsSection({
     },
     [reconnectServer],
   );
+
+  return {
+    serversQuery,
+    createServer,
+    deleteServer,
+    dialogOpen,
+    setDialogOpen,
+    initialIntegrationId,
+    setInitialIntegrationId,
+    connectIntegrationId,
+    setConnectIntegrationId,
+    deleteTarget,
+    deleteError,
+    reconnectingKey,
+    reconnectError,
+    catalog,
+    servers,
+    connectedServers,
+    hasOrg,
+    canCreateOrgMcp,
+    openCatalog,
+    openQuickConnect,
+    openConnection,
+    removeServer,
+    reconnect,
+  };
+}
+
+export interface McpIntegrationsSectionProps {
+  query?: string;
+  title?: string;
+  description?: string;
+  showTitle?: boolean;
+  showDescription?: boolean;
+  showHeader?: boolean;
+  className?: string;
+  integrations?: DefaultMcpIntegration[];
+  onOAuthStart?: (url: string) => void | Promise<void>;
+  oauthReady?: boolean;
+  oauthReturnPath?: string;
+  showEmptyState?: boolean;
+}
+
+export function McpIntegrationsSection({
+  query,
+  title,
+  description,
+  showTitle = true,
+  showDescription = true,
+  showHeader = true,
+  className,
+  integrations: integrationOptions,
+  onOAuthStart,
+  oauthReady,
+  oauthReturnPath,
+  showEmptyState = true,
+}: McpIntegrationsSectionProps) {
+  const t = useT();
+  const [localQuery, setLocalQuery] = useState("");
+  const {
+    serversQuery,
+    createServer,
+    dialogOpen,
+    setDialogOpen,
+    initialIntegrationId,
+    setInitialIntegrationId,
+    connectIntegrationId,
+    setConnectIntegrationId,
+    deleteTarget,
+    deleteError,
+    deleteServer,
+    reconnectingKey,
+    reconnectError,
+    catalog,
+    servers,
+    connectedServers,
+    hasOrg,
+    canCreateOrgMcp,
+    openCatalog,
+    openConnection,
+    removeServer,
+    reconnect,
+  } = useMcpIntegrationsController({ integrations: integrationOptions });
+  const activeQuery = query ?? localQuery;
+  const normalizedQuery = activeQuery.trim().toLowerCase();
+  const filteredCatalog = useMemo(() => {
+    if (!normalizedQuery) return catalog;
+    return catalog.filter((integration) =>
+      `${integration.name} ${integration.provider} ${integration.description} ${integration.useCase}`
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [catalog, normalizedQuery]);
 
   return (
     <section
@@ -1097,18 +992,147 @@ export function McpIntegrationsLanding({
   );
 }
 
+const PLATFORM_CATEGORY_META: Record<PlatformInfo["category"], string> = {
+  Messaging: "Messaging",
+  "Workspace tools": "Workspace tools",
+  "Agent clients": "Agent client",
+};
+
+function platformDisplayName(platform: PlatformInfo): string {
+  return platform.id === "slack"
+    ? `${platform.label} (agent in channels)`
+    : platform.label;
+}
+
+function mcpDisplayName(integration: DefaultMcpIntegration): string {
+  return integration.id === "slack"
+    ? `${integration.name} (MCP tools)`
+    : integration.name;
+}
+
+// ponytail: polls /env-status directly rather than a shared status endpoint —
+// a network hiccup just leaves Email showing "not configured" until the next mount.
+function useEmailProviderConfigured(): boolean {
+  const [configured, setConfigured] = useState(false);
+  useEffect(() => {
+    fetch(agentNativePath("/_agent-native/env-status"))
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: Array<{ key: string; configured: boolean }>) => {
+        const keys = Array.isArray(data) ? data : [];
+        const resend = keys.find((k) => k.key === "RESEND_API_KEY")?.configured;
+        const sendgrid = keys.find(
+          (k) => k.key === "SENDGRID_API_KEY",
+        )?.configured;
+        setConfigured(Boolean(resend || sendgrid));
+      })
+      .catch(() => {});
+  }, []);
+  return configured;
+}
+
+const EMAIL_ROW_DESCRIPTION = "Send from the agent with Resend or SendGrid.";
+
+function BuilderIntegrationRow() {
+  return (
+    <BuilderConnectCard
+      trackingSource="settings_connections"
+      description="Managed model access, browser automation, file storage, and workspace identity. Free tier available."
+      render={({ viewModel }) => (
+        <div className="agent-native-integration-grid min-w-0">
+          <div className="grid grid-cols-1 gap-2 overflow-hidden rounded-xl border border-primary/30 bg-primary/5 p-2">
+            <article className="flex min-w-0 items-center gap-3 rounded-lg bg-background/40 px-3 py-3.5">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background/80 text-foreground">
+                <IconPlugConnected size={18} strokeWidth={1.8} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <h3 className="truncate text-sm font-medium text-foreground">
+                    Builder.io
+                  </h3>
+                  <span
+                    className={cn(
+                      "shrink-0 text-[11px] font-medium",
+                      viewModel.status.kind === "connected"
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {viewModel.status.label}
+                  </span>
+                </div>
+                <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                  {viewModel.description}
+                </p>
+              </div>
+              {viewModel.configured && viewModel.connectFlow ? (
+                <BuilderConnectionMenu
+                  flow={viewModel.connectFlow}
+                  trackingSource="settings_connections"
+                  variant="text"
+                />
+              ) : viewModel.connectFlow && viewModel.action ? (
+                <BuilderConnectPopover
+                  flow={viewModel.connectFlow}
+                  onConnect={viewModel.action.onPress}
+                >
+                  <button
+                    type="button"
+                    disabled={viewModel.action.disabled}
+                    className="inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {viewModel.action.label}
+                  </button>
+                </BuilderConnectPopover>
+              ) : null}
+            </article>
+            {viewModel.error && (
+              <p className="px-1 text-xs text-destructive">{viewModel.error}</p>
+            )}
+          </div>
+        </div>
+      )}
+    />
+  );
+}
+
+// Lazy: SettingsPanel.js is a large module (it also lazy-loads this panel),
+// so the reverse reference stays dynamic to avoid a circular static import.
+const LazyEmailSectionInner = lazy(() =>
+  import("../settings/SettingsPanel.js").then((m) => ({
+    default: m.EmailSectionInner,
+  })),
+);
+
+function EmailIntegrationDetail({ onBack }: { onBack: () => void }) {
+  const t = useT();
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground mb-2"
+      >
+        <IconChevronLeft size={12} className="rtl:-scale-x-100" />
+        {t("integrations.back")}
+      </button>
+      <Suspense fallback={null}>
+        <SettingsSurfaceProvider surface="page">
+          <LazyEmailSectionInner open onToggle={() => {}} />
+        </SettingsSurfaceProvider>
+      </Suspense>
+    </div>
+  );
+}
+
 export function IntegrationsPanel() {
   const t = useT();
-  const { statuses, loading, refetch } = useIntegrationStatus();
+  const { statuses, refetch } = useIntegrationStatus();
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformInfo | null>(
     null,
   );
+  const [showEmailDetail, setShowEmailDetail] = useState(false);
   const [query, setQuery] = useState("");
+  const emailConfigured = useEmailProviderConfigured();
   const statusMap = new Map(statuses.map((s) => [s.platform, s]));
-  const connectedPlatforms = PLATFORMS.filter((platform) => {
-    const status = statusMap.get(platform.id);
-    return status?.configured || status?.enabled;
-  });
   const normalizedQuery = query.trim().toLowerCase();
   const externalHostMatches =
     normalizedQuery.length > 0 && matchesMcpConnectHost(normalizedQuery);
@@ -1120,19 +1144,123 @@ export function IntegrationsPanel() {
       ),
     [],
   );
+  const mcp = useMcpIntegrationsController({ integrations: mcpIntegrations });
+
+  const filteredMcpCatalog = useMemo(
+    () =>
+      mcp.catalog.filter(
+        (integration) =>
+          !normalizedQuery ||
+          `${integration.name} ${integration.provider} ${integration.description} ${integration.useCase}`
+            .toLowerCase()
+            .includes(normalizedQuery),
+      ),
+    [mcp.catalog, normalizedQuery],
+  );
   const filteredPlatforms = PLATFORMS.filter((platform) => {
     if (!normalizedQuery) return true;
     return `${platform.label} ${platform.description} ${platform.category}`
       .toLowerCase()
       .includes(normalizedQuery);
   });
-  const mcpCatalogMatches = mcpIntegrations.some((integration) =>
-    normalizedQuery
-      ? `${integration.name} ${integration.provider} ${integration.description} ${integration.useCase}`
-          .toLowerCase()
-          .includes(normalizedQuery)
-      : true,
-  );
+  const emailMatchesQuery =
+    !normalizedQuery ||
+    "email send transactional resend sendgrid".includes(normalizedQuery);
+
+  const availableItems: IntegrationGridItem[] = [
+    ...filteredMcpCatalog
+      .filter(
+        (integration) =>
+          !mcp.connectedServers.some((server) =>
+            isMcpIntegrationUrl(integration, server.url),
+          ),
+      )
+      .map((integration) => ({
+        id: `mcp:${integration.id}`,
+        name: mcpDisplayName(integration),
+        description: integration.description || integration.useCase,
+        logo: (
+          <McpIntegrationLogo
+            name={integration.name}
+            logoUrl={integration.logoUrl}
+            integrationId={integration.id}
+            className="size-7 rounded-md"
+            imageClassName="size-full p-1"
+          />
+        ),
+        actionLabel: t("mcpIntegrations.connect"),
+        onAction: () => mcp.openConnection(integration.id, false),
+      })),
+    ...filteredPlatforms
+      .filter((platform) => {
+        const status = statusMap.get(platform.id);
+        return !(status?.configured || status?.enabled);
+      })
+      .map((platform) => ({
+        id: `platform:${platform.id}`,
+        name: platformDisplayName(platform),
+        description: platform.description,
+        logo: <platform.icon size={18} strokeWidth={1.8} />,
+        status: PLATFORM_CATEGORY_META[platform.category],
+        actionLabel: "Connect",
+        onAction: () => setSelectedPlatform(platform),
+      })),
+    ...(!emailConfigured && emailMatchesQuery
+      ? [
+          {
+            id: "email",
+            name: "Email",
+            description: EMAIL_ROW_DESCRIPTION,
+            logo: <IconMail size={18} strokeWidth={1.8} />,
+            actionLabel: "Connect",
+            onAction: () => setShowEmailDetail(true),
+          },
+        ]
+      : []),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+
+  const connectedPlatformAndEmailItems: IntegrationGridItem[] = [
+    ...PLATFORMS.filter((platform) => {
+      const status = statusMap.get(platform.id);
+      return status?.configured || status?.enabled;
+    }).map((platform) => {
+      const status = statusMap.get(platform.id);
+      return {
+        id: `platform:${platform.id}`,
+        name: platformDisplayName(platform),
+        description: platform.description,
+        logo: <platform.icon size={18} strokeWidth={1.8} />,
+        status: platform.isClient
+          ? "Available"
+          : status?.enabled && status.configured
+            ? "Connected"
+            : "Ready to enable",
+        statusClassName:
+          status?.enabled && status.configured
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-amber-600 dark:text-amber-400",
+        actionLabel: "Manage",
+        onAction: () => setSelectedPlatform(platform),
+      };
+    }),
+    ...(emailConfigured
+      ? [
+          {
+            id: "email",
+            name: "Email",
+            description: EMAIL_ROW_DESCRIPTION,
+            logo: <IconMail size={18} strokeWidth={1.8} />,
+            status: "Configured",
+            statusClassName: "text-emerald-600 dark:text-emerald-400",
+            actionLabel: "Manage",
+            onAction: () => setShowEmailDetail(true),
+          },
+        ]
+      : []),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+
+  const hasConnected =
+    mcp.servers.length > 0 || connectedPlatformAndEmailItems.length > 0;
 
   if (selectedPlatform) {
     return (
@@ -1143,6 +1271,10 @@ export function IntegrationsPanel() {
         onRefresh={refetch}
       />
     );
+  }
+
+  if (showEmailDetail) {
+    return <EmailIntegrationDetail onBack={() => setShowEmailDetail(false)} />;
   }
 
   return (
@@ -1156,6 +1288,14 @@ export function IntegrationsPanel() {
             Connect the tools your agent can use to gather context, take action,
             and meet your team where work already happens.
           </p>
+          <SettingsCrossLinkHint
+            text={t("integrations.lookingForApiKeys")}
+            linkText={t("integrations.goToApiKeys")}
+            href={appMountedPath(
+              buildSettingsRoute("keys"),
+              STANDARD_APP_ROUTES.settings,
+            )}
+          />
         </div>
         <label className="relative block w-full lg:max-w-xs">
           <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -1170,12 +1310,85 @@ export function IntegrationsPanel() {
         </label>
       </div>
 
-      <McpIntegrationsSection
-        query={normalizedQuery}
-        integrations={mcpIntegrations}
-        showHeader={false}
-        showEmptyState={false}
-      />
+      <BuilderIntegrationRow />
+
+      {mcp.deleteError && (
+        <p className="border-y border-destructive/20 bg-destructive/5 py-3 text-xs text-destructive">
+          {mcp.deleteError}
+        </p>
+      )}
+
+      {!normalizedQuery && hasConnected && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-foreground">Connected</h2>
+          {mcp.servers.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {mcp.servers.map((server) => {
+                const key = `${server.scope}:${server.id}`;
+                const canRemove =
+                  server.scope === "user" ||
+                  mcp.serversQuery.data?.role === "owner" ||
+                  mcp.serversQuery.data?.role === "admin";
+                return (
+                  <div
+                    key={key}
+                    className="flex min-w-0 items-start gap-3 rounded-2xl bg-card px-4 py-4"
+                  >
+                    <McpIntegrationLogo
+                      name={server.name}
+                      logoUrl=""
+                      integrationId={server.name.toLowerCase()}
+                      className="mt-0.5 size-9"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {server.name}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {server.scope === "user"
+                            ? t("mcpIntegrations.personal")
+                            : t("mcpIntegrations.sharedWithWorkspace")}
+                        </span>
+                      </div>
+                      <McpServerStatus
+                        server={server}
+                        onReconnect={
+                          server.status.state === "error"
+                            ? () =>
+                                server.authMode === "oauth"
+                                  ? startMcpOAuthReconnect(server)
+                                  : void mcp.reconnect(server)
+                            : undefined
+                        }
+                        reconnecting={mcp.reconnectingKey === key}
+                        reconnectError={
+                          mcp.reconnectError?.key === key
+                            ? mcp.reconnectError.message
+                            : undefined
+                        }
+                      />
+                    </div>
+                    {canRemove && (
+                      <button
+                        type="button"
+                        onClick={() => void mcp.removeServer(server)}
+                        disabled={mcp.deleteServer.isPending}
+                        className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                      >
+                        {mcp.deleteTarget === key ? "Confirm" : "Remove"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {connectedPlatformAndEmailItems.length > 0 && (
+            <IntegrationGrid items={connectedPlatformAndEmailItems} />
+          )}
+        </section>
+      )}
 
       {externalHostMatches && (
         <section>
@@ -1200,111 +1413,48 @@ export function IntegrationsPanel() {
         </section>
       )}
 
-      {loading ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {[0, 1, 2, 3].map((item) => (
-            <div
-              key={item}
-              className="h-28 animate-pulse rounded-xl border border-border bg-muted/30"
-            />
-          ))}
+      {availableItems.length > 0 ? (
+        <div>
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-foreground">
+              Available integrations
+            </h3>
+            <span className="text-xs text-muted-foreground">
+              {availableItems.length} integrations
+            </span>
+          </div>
+          <IntegrationGrid items={availableItems} />
         </div>
       ) : (
-        <>
-          {!normalizedQuery && connectedPlatforms.length > 0 && (
-            <section className="space-y-3">
-              <div className="flex items-baseline justify-between gap-3">
-                <h2 className="text-sm font-semibold text-foreground">
-                  Connected
-                </h2>
-                <span className="text-xs text-muted-foreground">
-                  {connectedPlatforms.length} connected
-                </span>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <IntegrationGrid
-                  items={connectedPlatforms.map((platform) => {
-                    const status = statusMap.get(platform.id);
-                    return {
-                      id: platform.id,
-                      name: platform.label,
-                      description: platform.description,
-                      logo: <platform.icon size={18} strokeWidth={1.8} />,
-                      status: platform.isClient
-                        ? "Available"
-                        : status?.enabled && status.configured
-                          ? "Connected"
-                          : "Ready to enable",
-                      statusClassName:
-                        status?.enabled && status.configured
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-amber-600 dark:text-amber-400",
-                      actionLabel: "Manage",
-                      onAction: () => setSelectedPlatform(platform),
-                    };
-                  })}
-                />
-              </div>
-            </section>
-          )}
-
-          {(["Messaging", "Workspace tools", "Agent clients"] as const).map(
-            (category) => {
-              const platforms = filteredPlatforms.filter(
-                (platform) =>
-                  platform.category === category &&
-                  (!connectedPlatforms.includes(platform) || normalizedQuery),
-              );
-              if (platforms.length === 0) return null;
-              return (
-                <section key={category} className="mt-8 space-y-3 first:mt-0">
-                  <h2 className="text-sm font-semibold text-foreground">
-                    {category}
-                  </h2>
-                  <IntegrationGrid
-                    items={platforms.map((platform) => {
-                      const status = statusMap.get(platform.id);
-                      const connected = Boolean(
-                        status?.configured || status?.enabled,
-                      );
-                      return {
-                        id: platform.id,
-                        name: platform.label,
-                        description: platform.description,
-                        logo: <platform.icon size={18} strokeWidth={1.8} />,
-                        status: connected
-                          ? status?.enabled && status.configured
-                            ? "Connected"
-                            : "Ready to enable"
-                          : undefined,
-                        statusClassName:
-                          status?.enabled && status.configured
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : "text-amber-600 dark:text-amber-400",
-                        actionLabel: connected ? "Manage" : "Connect",
-                        onAction: () => setSelectedPlatform(platform),
-                      };
-                    })}
-                  />
-                </section>
-              );
-            },
-          )}
-
-          {filteredPlatforms.length === 0 &&
-            !mcpCatalogMatches &&
-            !externalHostMatches && (
-              <div className="rounded-xl border border-dashed border-border p-8 text-center">
-                <p className="text-sm font-medium text-foreground">
-                  No integrations found
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Try a different tool or category.
-                </p>
-              </div>
-            )}
-        </>
+        normalizedQuery &&
+        !externalHostMatches && (
+          <div className="rounded-xl border border-dashed border-border p-8 text-center">
+            <p className="text-sm font-medium text-foreground">
+              No integrations found
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Try a different tool or category.
+            </p>
+          </div>
+        )
       )}
+
+      <McpIntegrationDialog
+        open={mcp.dialogOpen}
+        onOpenChange={(open) => {
+          mcp.setDialogOpen(open);
+          if (!open) {
+            mcp.setInitialIntegrationId(null);
+            mcp.setConnectIntegrationId(null);
+          }
+        }}
+        initialIntegrationId={mcp.initialIntegrationId}
+        connectIntegrationId={mcp.connectIntegrationId}
+        defaultScope="user"
+        canCreateOrgMcp={mcp.canCreateOrgMcp}
+        hasOrg={mcp.hasOrg}
+        onCreateMcpServer={(args) => mcp.createServer.mutateAsync(args)}
+      />
     </div>
   );
 }

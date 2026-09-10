@@ -763,6 +763,31 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("General content");
   });
 
+  it("resolves a legacy secrets deep link (with a focused key) to the keys tab", () => {
+    window.history.replaceState(null, "", "/settings#secrets:OPENAI_API_KEY");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "keys",
+              label: "API keys",
+              content: <div>API keys content</div>,
+              searchEntries: [
+                { id: "section:secrets", label: "API keys", hash: "secrets" },
+              ],
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("API keys content");
+    expect(container.textContent).not.toContain("General content");
+  });
+
   it("opens the inner section after BrowserRouter canonicalizes a hash", async () => {
     window.history.replaceState(null, "", "/settings#uploads");
 

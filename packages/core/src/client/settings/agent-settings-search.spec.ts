@@ -7,6 +7,7 @@ describe("getAgentSettingsSearchTabs", () => {
     const tabs = getAgentSettingsSearchTabs();
     const agent = tabs.find((tab) => tab.id === "agent");
     const integrations = tabs.find((tab) => tab.id === "integrations");
+    const keys = tabs.find((tab) => tab.id === "keys");
     const mcp = tabs.find((tab) => tab.id === "mcp");
 
     expect(agent?.searchEntries).toEqual(
@@ -17,13 +18,19 @@ describe("getAgentSettingsSearchTabs", () => {
         }),
       ]),
     );
-    expect(integrations?.searchEntries).toEqual(
+    expect(keys).toEqual(
+      expect.objectContaining({ id: "keys", label: "API keys" }),
+    );
+    expect(keys?.searchEntries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           label: "API keys",
           hash: "secrets",
         }),
       ]),
+    );
+    expect(integrations?.searchEntries).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: "API keys" })]),
     );
     expect(integrations?.searchEntries).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ label: "Usage" })]),

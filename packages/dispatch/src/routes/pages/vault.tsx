@@ -1,8 +1,13 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useOrgRole } from "@agent-native/core/client/org";
+import {
+  NewKeyMenu,
+  type NewKeyOption,
+} from "@agent-native/core/client/settings";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -13,7 +18,7 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ActionQueryError } from "../../components/action-query-error";
@@ -79,8 +84,15 @@ export function meta() {
   return [{ title: "Vault — Dispatch" }];
 }
 
-function AddSecretDialog() {
-  const [open, setOpen] = useState(false);
+function AddSecretDialog({
+  open,
+  onOpenChange,
+  initial,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initial?: { credentialKey: string; name?: string };
+}) {
   const [credentialKey, setCredentialKey] = useState("");
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
@@ -88,28 +100,26 @@ function AddSecretDialog() {
   const [description, setDescription] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
 
+  useEffect(() => {
+    if (!open) return;
+    setCredentialKey(initial?.credentialKey ?? "");
+    setName(initial?.name ?? "");
+    setValue("");
+    setProvider("");
+    setDescription("");
+    setMoreOpen(false);
+  }, [open, initial]);
+
   const create = useActionMutation("create-vault-secret", {
     onSuccess: () => {
       toast.success("Key added");
-      setOpen(false);
-      setCredentialKey("");
-      setName("");
-      setValue("");
-      setProvider("");
-      setDescription("");
-      setMoreOpen(false);
+      onOpenChange(false);
     },
     onError: (err) => toast.error(String(err)),
   });
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <IconPlus size={16} className="mr-1.5" />
-          Add key
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add key</DialogTitle>
@@ -479,8 +489,8 @@ function VaultAccessSettingsCard({ mode }: { mode: VaultAccessMode }) {
               : "Only apps with explicit grants can receive saved keys."}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Apps list Vault keys under Settings → Integrations → Keys. A
-            personal key saved there overrides the Vault for that person only.
+            Apps list Vault keys under Settings → API keys. A personal key saved
+            there overrides the Vault for that person only.
           </p>
         </div>
         <Switch
@@ -807,13 +817,71 @@ export default function VaultRoute() {
     {},
     { enabled: accessReady },
   );
+  const catalogQuery = useActionQuery(
+    "list-integrations-catalog",
+    {},
+    { enabled: canManageVault },
+  );
   const { data: secrets, isLoading: secretsLoading } = secretsQuery;
   const { data: grants } = grantsQuery;
   const { data: requests } = requestsQuery;
   const { data: audit } = auditQuery;
   const { data: accessSettings } = accessQuery;
+  const { data: catalog } = catalogQuery;
   const accessMode: VaultAccessMode =
     (accessSettings as any)?.mode === "manual" ? "manual" : "all-apps";
+
+  // Dispatch's own registered API-key secrets, offered in the "+ New" menu
+  // alongside keys the workspace apps declare.
+  const [registeredSecrets, setRegisteredSecrets] = useState<
+    Array<{ key: string; label: string; kind: string; required?: boolean }>
+  >([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(agentNativePath("/_agent-native/secrets"))
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (!cancelled) setRegisteredSecrets(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const [addDialogState, setAddDialogState] = useState<{
+    open: boolean;
+    initial?: { credentialKey: string; name?: string };
+  }>({ open: false });
+
+  const vaultKeys = useMemo(
+    () => new Set((secrets || []).map((s: any) => s.credentialKey)),
+    [secrets],
+  );
+
+  const newKeyOptions = useMemo(() => {
+    const byKey = new Map<string, NewKeyOption>();
+    for (const s of registeredSecrets) {
+      if (s.kind !== "api-key" || vaultKeys.has(s.key)) continue;
+      byKey.set(s.key, { key: s.key, label: s.label, required: s.required });
+    }
+    for (const app of (catalog as any[]) || []) {
+      for (const integration of app.integrations || []) {
+        if (vaultKeys.has(integration.key) || byKey.has(integration.key)) {
+          continue;
+        }
+        byKey.set(integration.key, {
+          key: integration.key,
+          label: integration.label,
+          required: integration.required,
+          hint: app.appName,
+        });
+      }
+    }
+    return Array.from(byKey.values()).sort((a, b) =>
+      a.label.localeCompare(b.label),
+    );
+  }, [registeredSecrets, catalog, vaultKeys]);
 
   const grantsBySecret = (grants || []).reduce(
     (acc: Record<string, any[]>, g: any) => {
@@ -905,7 +973,33 @@ export default function VaultRoute() {
                     </span>
                   )}
                 </div>
-                <AddSecretDialog />
+                <NewKeyMenu
+                  label="New"
+                  options={newKeyOptions}
+                  onPick={(option) =>
+                    setAddDialogState({
+                      open: true,
+                      initial: {
+                        credentialKey: option.key,
+                        name: option.label,
+                      },
+                    })
+                  }
+                  onCustom={(name) =>
+                    setAddDialogState({
+                      open: true,
+                      initial: { credentialKey: name ?? "" },
+                    })
+                  }
+                  triggerClassName="h-9 px-3 text-sm"
+                />
+                <AddSecretDialog
+                  open={addDialogState.open}
+                  onOpenChange={(open) =>
+                    setAddDialogState((s) => ({ ...s, open }))
+                  }
+                  initial={addDialogState.initial}
+                />
               </div>
 
               {!secretsQuery.isError &&
@@ -941,8 +1035,8 @@ export default function VaultRoute() {
                       No keys yet
                     </h3>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Add your first key to start sharing credentials across
-                      workspace apps.
+                      Use New to add your first key and start sharing
+                      credentials across workspace apps.
                     </p>
                   </div>
                 )}

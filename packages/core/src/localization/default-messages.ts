@@ -160,6 +160,9 @@ const messages = {
     customKey: "Custom key",
     customKeyHint: "Add any key by name",
     addCustomKeyNamed: "Add “{{name}}” as a custom key",
+    emptyTitle: "No keys yet.",
+    emptyHint: "Add a key to use your own accounts.",
+    emptyMore: "and {{count}} more under New",
   },
   agentResources: {
     openDocs: "Open {{section}} documentation",
@@ -1237,6 +1240,10 @@ const messages = {
       "For a central Slack or Telegram entrypoint that can route work across multiple apps, use the",
     sharedMessaging:
       "Need one shared messaging surface for your workspace? Connect Slack or Telegram to a dispatch app and let it delegate to other agents over A2A.",
+    lookingForApiKeys: "Looking for an API key instead?",
+    goToApiKeys: "Go to API keys",
+    lookingForProviders: "Looking for OAuth or MCP providers?",
+    goToIntegrations: "Go to Integrations",
   },
   mcpIntegrations: {
     menuLabel: "Integrations",

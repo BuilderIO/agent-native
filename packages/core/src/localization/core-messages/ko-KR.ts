@@ -401,6 +401,11 @@ const messages: AgentChatTranslation = {
   "history.searching": "검색 중...",
   "history.untitledChat": "채팅",
   "history.yesterday": "어제",
+  "integrations.goToApiKeys": "API 키로 이동",
+  "integrations.goToIntegrations": "연동으로 이동",
+  "integrations.lookingForApiKeys": "대신 API 키를 찾고 계신가요?",
+  "integrations.lookingForProviders":
+    "OAuth 또는 MCP 제공업체를 찾고 계신가요?",
   "limit.account": "계정",
   "limit.descriptionAll":
     "에이전트가 사용 가능한 모든 단계를 소진했습니다. 새 차례에서 계속하거나 먼저 {{scope}} 한도를 높이세요.",
@@ -530,6 +535,9 @@ const messages: AgentChatTranslation = {
   "secrets.addCustomKeyNamed": '사용자 지정 키로 "{{name}}" 추가',
   "secrets.customKey": "사용자 지정 키",
   "secrets.customKeyHint": "이름으로 아무 키나 추가",
+  "secrets.emptyHint": "본인 계정을 사용하려면 키를 추가하세요.",
+  "secrets.emptyMore": "그 외 {{count}}개는 '새로 만들기' 아래에 있습니다",
+  "secrets.emptyTitle": "아직 키가 없습니다.",
   "secrets.fromEnvironment": "배포 환경에서 제공됩니다.",
   "secrets.managedInVault":
     "워크스페이스 Vault에서 관리됩니다. 이 워크스페이스의 모든 앱이 이 값을 사용합니다.",

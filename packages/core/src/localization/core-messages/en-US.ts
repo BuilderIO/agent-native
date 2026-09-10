@@ -404,6 +404,10 @@ const messages = {
   "history.searching": "Searching...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Yesterday",
+  "integrations.goToApiKeys": "Go to API keys",
+  "integrations.goToIntegrations": "Go to Integrations",
+  "integrations.lookingForApiKeys": "Looking for an API key instead?",
+  "integrations.lookingForProviders": "Looking for OAuth or MCP providers?",
   "limit.account": "your account",
   "limit.descriptionAll":
     "The agent used all available steps. Keep going in a fresh turn, or raise the {{scope}} limit first.",
@@ -536,6 +540,9 @@ const messages = {
   "secrets.addCustomKeyNamed": "Add “{{name}}” as a custom key",
   "secrets.customKey": "Custom key",
   "secrets.customKeyHint": "Add any key by name",
+  "secrets.emptyHint": "Add a key to use your own accounts.",
+  "secrets.emptyMore": "and {{count}} more under New",
+  "secrets.emptyTitle": "No keys yet.",
   "secrets.fromEnvironment": "Provided by the deployment environment.",
   "secrets.managedInVault":
     "Managed in the workspace Vault. Every app in this workspace uses this value.",
