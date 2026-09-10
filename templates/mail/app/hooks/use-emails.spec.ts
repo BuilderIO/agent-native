@@ -168,29 +168,38 @@ describe("useMarkRead", () => {
     expect(hook).toContain(
       "message.id === id ? { ...message, isRead } : message",
     );
-    expect(hook).toContain("message.id === id && message.isRead === isRead");
+    expect(hook).toContain("applyReadMutationStates(");
   });
 
   it("rolls overlapping failures back to the confirmed server state", () => {
-    const first = beginReadMutation("message-overlap", true);
-    const second = beginReadMutation("message-overlap", false);
+    const first = beginReadMutation("message-overlap", true, false);
+    const second = beginReadMutation("message-overlap", false, true);
 
     expect(rollbackReadMutation("message-overlap", first)).toBeNull();
     expect(rollbackReadMutation("message-overlap", second)).toBe(true);
   });
 
   it("distinguishes an unavailable baseline from a stale mutation", () => {
-    const version = beginReadMutation("message-unknown", undefined);
+    const version = beginReadMutation("message-unknown", undefined, true);
 
     expect(rollbackReadMutation("message-unknown", version)).toBeUndefined();
   });
 
   it("uses an earlier successful mutation as the later rollback baseline", () => {
-    const first = beginReadMutation("message-confirmed", true);
-    const second = beginReadMutation("message-confirmed", false);
+    const first = beginReadMutation("message-confirmed", true, false);
+    const second = beginReadMutation("message-confirmed", false, true);
 
     confirmReadMutation("message-confirmed", first, false);
     expect(rollbackReadMutation("message-confirmed", second)).toBe(false);
+  });
+
+  it("retains an earlier in-flight mutation when the latest fails", () => {
+    const first = beginReadMutation("message-pending", false, true);
+    const second = beginReadMutation("message-pending", true, false);
+
+    expect(rollbackReadMutation("message-pending", second)).toBe(true);
+    expect(confirmReadMutation("message-pending", first, true)).toBe(true);
+    expect(rollbackReadMutation("message-pending", first)).toBeNull();
   });
 
   it("supersedes cold fetches before checking for cached messages", () => {
@@ -200,11 +209,13 @@ describe("useMarkRead", () => {
       source.indexOf("export function useMarkThreadRead()"),
     );
 
-    expect(hook).toContain("const restartColdThread = resolvedThreadId");
+    expect(hook).toContain("const restartThread = resolvedThreadId");
     expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
-    expect(hook).toContain("resolvedThreadId && restartColdThread");
-    expect(hook).toContain('clearOptimisticOverrideProperty(id, "isRead")');
-    expect(hook).toContain("void ensureThread(");
+    expect(hook).toContain("resolvedThreadId && restartThread");
+    expect(source).toContain(
+      'clearOptimisticOverrideProperty(emailId, "isRead")',
+    );
+    expect(hook).toContain("refreshThreadAfterMutations(");
   });
 });
 
@@ -226,7 +237,7 @@ describe("useMarkThreadRead", () => {
     );
 
     expect(hook).toContain("supersedeCachedThreadFetch(threadId)");
-    expect(hook).toContain("beginReadMutation(id, false)");
+    expect(hook).toContain("beginReadMutation(id, false, true)");
     expect(hook).not.toContain("context.previousThread");
   });
 });

@@ -293,6 +293,10 @@ function backgroundRefresh(threadId: string, accountEmail?: string) {
   return p;
 }
 
+export function refreshCachedThread(threadId: string, accountEmail?: string) {
+  return backgroundRefresh(threadId, accountEmail);
+}
+
 // Bulk warm a tiny window of likely-next threads. Direct clicks still fetch
 // immediately; this background path backs off completely after a quota error.
 export function warmThreads(targets: WarmTarget[], concurrency = 2) {
