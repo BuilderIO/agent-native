@@ -32,6 +32,15 @@ describe("getAgentSettingsSearchTabs", () => {
     expect(integrations?.searchEntries).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ label: "API keys" })]),
     );
+    expect(integrations?.searchEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "section:browser",
+          label: "Browser Automation",
+          hash: "browser",
+        }),
+      ]),
+    );
     expect(integrations?.searchEntries).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ label: "Usage" })]),
     );

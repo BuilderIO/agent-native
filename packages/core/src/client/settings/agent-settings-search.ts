@@ -76,7 +76,6 @@ export const AGENT_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
 export const INTEGRATION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
   "integrations",
   "email",
-  "browser",
 ];
 
 export const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
@@ -206,7 +205,16 @@ export function getAgentSettingsSearchTabs(
       label: "Integrations",
       keywords:
         "integrations agent integrations connections secrets email browser tools",
-      searchEntries: buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
+      searchEntries: [
+        ...buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
+        {
+          id: "section:browser",
+          label: "Browser Automation",
+          keywords: "browser automation playwright chrome headless builder",
+          hash: "browser",
+          description: "Comes with Builder.io",
+        },
+      ],
     },
     {
       id: "keys",

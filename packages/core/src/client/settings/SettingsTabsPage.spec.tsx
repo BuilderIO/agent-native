@@ -788,6 +788,28 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("General content");
   });
 
+  it("resolves a legacy #browser deep link to the integrations tab", () => {
+    window.history.replaceState(null, "", "/settings#browser");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "integrations",
+              label: "Integrations",
+              content: <div>Integrations content</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Integrations content");
+    expect(container.textContent).not.toContain("General content");
+  });
+
   it("opens the inner section after BrowserRouter canonicalizes a hash", async () => {
     window.history.replaceState(null, "", "/settings#uploads");
 

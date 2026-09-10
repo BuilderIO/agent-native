@@ -63,6 +63,11 @@ vi.mock("../i18n.js", () => ({
       "mcpIntegrations.reconnect": "Reconnect",
       "mcpIntegrations.reconnecting": "Reconnecting…",
       "mcpIntegrations.reconnectFailed": "Reconnect failed: {{error}}",
+      "mcpIntegrations.connect": "Connect",
+      "mcpIntegrations.searchPlaceholder": "Search integrations",
+      "integrations.manage": "Manage",
+      "integrations.connectedSection": "Connected",
+      "integrations.availableSection": "Available integrations",
     };
     return (messages[key] ?? key).replace(
       /\{\{(\w+)\}\}/g,

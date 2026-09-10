@@ -167,6 +167,14 @@ function resolveTabId(
   const normalized = normalizeTabId(value);
   if (!normalized) return null;
   if (tabs.some((tab) => tab.id === normalized)) return normalized;
+  // Legacy `#browser` deep links: the Browser Automation section now lives
+  // inside the merged Integrations tab (id varies by consumer).
+  if (normalized === "browser") {
+    const browserOwner = tabs.find(
+      (tab) => tab.id === "integrations" || tab.id === "connections",
+    );
+    if (browserOwner) return browserOwner.id;
+  }
   const alternateTabId =
     normalized === "connections"
       ? "integrations"

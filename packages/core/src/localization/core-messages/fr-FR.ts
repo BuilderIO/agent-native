@@ -168,11 +168,14 @@ const messages: AgentChatTranslation = {
   "history.searching": "Recherche...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Hier",
+  "integrations.availableSection": "Intégrations disponibles",
+  "integrations.connectedSection": "Connecté",
   "integrations.goToApiKeys": "Aller aux clés API",
   "integrations.goToIntegrations": "Aller aux intégrations",
   "integrations.lookingForApiKeys": "Vous cherchez plutôt une clé API ?",
   "integrations.lookingForProviders":
     "Vous cherchez des fournisseurs OAuth ou MCP ?",
+  "integrations.manage": "Gérer",
   "integrations.recommended": "Recommandé",
   "integrations.subtitle":
     "Connectez les outils que votre agent peut utiliser.",

@@ -1210,6 +1210,9 @@ const messages = {
   integrations: {
     subtitle: "Connect the tools your agent can use.",
     recommended: "Recommended",
+    manage: "Manage",
+    connectedSection: "Connected",
+    availableSection: "Available integrations",
     webhookUrl: "Webhook URL",
     copyWebhookUrl: "Copy webhook URL",
     webhookUrlLocalOnly:

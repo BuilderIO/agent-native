@@ -787,6 +787,64 @@ function RequestRow({
   );
 }
 
+interface RegisteredSecretOption {
+  key: string;
+  label: string;
+  kind: string;
+  required?: boolean;
+}
+
+interface CatalogIntegration {
+  key: string;
+  label: string;
+  required: boolean;
+  secret?: boolean;
+}
+
+interface CatalogApp {
+  appName: string;
+  integrations?: CatalogIntegration[];
+}
+
+/**
+ * Options offered in the Vault "+ New" picker: Dispatch's own registered
+ * API-key secrets plus each workspace app's declared credentials — minus
+ * anything already in the vault and minus catalog entries explicitly marked
+ * non-credential (`secret === false`), e.g. feature flags or a sender
+ * address, which must not be offered as a shared secret to store.
+ */
+export function buildNewKeyOptions(
+  registeredSecrets: RegisteredSecretOption[],
+  catalog: CatalogApp[] | undefined,
+  vaultKeys: Set<string>,
+): NewKeyOption[] {
+  const byKey = new Map<string, NewKeyOption>();
+  for (const s of registeredSecrets) {
+    if (s.kind !== "api-key" || vaultKeys.has(s.key)) continue;
+    byKey.set(s.key, { key: s.key, label: s.label, required: s.required });
+  }
+  for (const app of catalog || []) {
+    for (const integration of app.integrations || []) {
+      if (
+        integration.secret === false ||
+        vaultKeys.has(integration.key) ||
+        byKey.has(integration.key)
+      ) {
+        continue;
+      }
+      byKey.set(integration.key, {
+        key: integration.key,
+        label: integration.label,
+        required: integration.required,
+        hint: app.appName,
+      });
+    }
+  }
+  return Array.from(byKey.values()).sort((a, b) =>
+    a.label.localeCompare(b.label),
+  );
+}
+
 export default function VaultRoute() {
   const { org, role, isLoading: orgLoading, error: orgError } = useOrgRole();
   const accessReady = !orgLoading && !orgError && !!org;
@@ -855,33 +913,14 @@ export default function VaultRoute() {
   }>({ open: false });
 
   const vaultKeys = useMemo(
-    () => new Set((secrets || []).map((s: any) => s.credentialKey)),
+    () => new Set<string>((secrets || []).map((s: any) => s.credentialKey)),
     [secrets],
   );
 
-  const newKeyOptions = useMemo(() => {
-    const byKey = new Map<string, NewKeyOption>();
-    for (const s of registeredSecrets) {
-      if (s.kind !== "api-key" || vaultKeys.has(s.key)) continue;
-      byKey.set(s.key, { key: s.key, label: s.label, required: s.required });
-    }
-    for (const app of (catalog as any[]) || []) {
-      for (const integration of app.integrations || []) {
-        if (vaultKeys.has(integration.key) || byKey.has(integration.key)) {
-          continue;
-        }
-        byKey.set(integration.key, {
-          key: integration.key,
-          label: integration.label,
-          required: integration.required,
-          hint: app.appName,
-        });
-      }
-    }
-    return Array.from(byKey.values()).sort((a, b) =>
-      a.label.localeCompare(b.label),
-    );
-  }, [registeredSecrets, catalog, vaultKeys]);
+  const newKeyOptions = useMemo(
+    () => buildNewKeyOptions(registeredSecrets, catalog as any[], vaultKeys),
+    [registeredSecrets, catalog, vaultKeys],
+  );
 
   const grantsBySecret = (grants || []).reduce(
     (acc: Record<string, any[]>, g: any) => {

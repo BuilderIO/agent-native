@@ -15,7 +15,6 @@ import {
   IconLoader2,
   IconRefresh,
   IconMail,
-  IconBrowser,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -58,11 +57,7 @@ import {
 } from "../resources/use-mcp-servers.js";
 import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { SettingsCrossLinkHint } from "../settings/SettingsCrossLinkHint.js";
-import {
-  SettingsSection,
-  SettingsSurfaceProvider,
-} from "../settings/SettingsSection.js";
-import type { BuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import { SettingsSurfaceProvider } from "../settings/SettingsSection.js";
 import {
   BuilderConnectCard,
   BuilderConnectionMenu,
@@ -684,80 +679,6 @@ function McpServerRows({
   );
 }
 
-function BrowserAutomationSection({
-  builderFlow,
-}: {
-  builderFlow: BuilderConnectFlow;
-}) {
-  const connected = builderFlow.configured;
-  return (
-    <SettingsSurfaceProvider surface="page">
-      <SettingsSection
-        id="browser"
-        icon={<IconBrowser size={14} />}
-        title="Browser Automation"
-        subtitle="Let agents control a real browser for web tasks."
-        flat
-        connected={connected}
-      >
-        {connected ? (
-          <div className="rounded-md border border-border bg-accent/30 px-3.5 py-3">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-foreground">
-                Builder.io
-              </div>
-              <span className="flex items-center gap-1 text-xs text-green-500">
-                <IconCircleCheck size={14} />
-                Connected
-              </span>
-            </div>
-            {builderFlow.orgName && (
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {builderFlow.orgName}
-              </p>
-            )}
-            {builderFlow.credentialSource !== "env" && (
-              <div className="mt-2.5 flex items-center justify-end">
-                <BuilderConnectionMenu
-                  flow={builderFlow}
-                  credentialSource={builderFlow.credentialSource}
-                  trackingSource="browser_settings"
-                  trackingFlow="browser_automation"
-                />
-              </div>
-            )}
-          </div>
-        ) : (
-          <BuilderConnectPopover
-            flow={builderFlow}
-            onConnect={(provisionAccount) =>
-              builderFlow.start({
-                trackingSource: "browser_settings",
-                trackingFlow: "browser_automation",
-                provisionAccount,
-              })
-            }
-          >
-            <button
-              type="button"
-              disabled={builderFlow.connecting}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
-            >
-              {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
-              {builderFlow.connecting && (
-                <IconLoader2 size={14} className="animate-spin" />
-              )}
-            </button>
-          </BuilderConnectPopover>
-        )}
-        {builderFlow.error && (
-          <p className="mt-2 text-xs text-destructive">{builderFlow.error}</p>
-        )}
-      </SettingsSection>
-    </SettingsSurfaceProvider>
-  );
-}
-
 function useMcpIntegrationsController({
   integrations: integrationOptions,
 }: {
@@ -1159,10 +1080,14 @@ function mcpDisplayName(integration: DefaultMcpIntegration): string {
 }
 
 // ponytail: polls /env-status directly rather than a shared status endpoint —
-// a network hiccup just leaves Email showing "not configured" until the next mount.
-function useEmailProviderConfigured(): boolean {
+// callers refresh() after anything that could change it (e.g. leaving the
+// Email detail view) instead of subscribing to a shared invalidation bus.
+function useEmailProviderConfigured(): {
+  configured: boolean;
+  refresh: () => void;
+} {
   const [configured, setConfigured] = useState(false);
-  useEffect(() => {
+  const refresh = useCallback(() => {
     fetch(agentNativePath("/_agent-native/env-status"))
       .then((r) => (r.ok ? r.json() : []))
       .then((data: Array<{ key: string; configured: boolean }>) => {
@@ -1175,7 +1100,10 @@ function useEmailProviderConfigured(): boolean {
       })
       .catch(() => {});
   }, []);
-  return configured;
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+  return { configured, refresh };
 }
 
 const EMAIL_ROW_DESCRIPTION = "Send from the agent with Resend or SendGrid.";
@@ -1233,7 +1161,8 @@ export function IntegrationsPanel() {
   );
   const [showEmailDetail, setShowEmailDetail] = useState(false);
   const [query, setQuery] = useState("");
-  const emailConfigured = useEmailProviderConfigured();
+  const { configured: emailConfigured, refresh: refreshEmailConfigured } =
+    useEmailProviderConfigured();
   const statusMap = new Map(statuses.map((s) => [s.platform, s]));
   const normalizedQuery = query.trim().toLowerCase();
   const externalHostMatches =
@@ -1304,7 +1233,7 @@ export function IntegrationsPanel() {
         logo: <PlainIntegrationIcon icon={platform.icon} />,
         status: PLATFORM_CATEGORY_META[platform.category],
         actionKind: "connect" as const,
-        actionLabel: "Connect",
+        actionLabel: t("mcpIntegrations.connect"),
         onAction: () => setSelectedPlatform(platform),
       })),
     ...(!emailConfigured && emailMatchesQuery
@@ -1315,7 +1244,7 @@ export function IntegrationsPanel() {
             description: EMAIL_ROW_DESCRIPTION,
             logo: <PlainIntegrationIcon icon={IconMail} />,
             actionKind: "connect" as const,
-            actionLabel: "Connect",
+            actionLabel: t("mcpIntegrations.connect"),
             onAction: () => setShowEmailDetail(true),
           },
         ]
@@ -1343,7 +1272,7 @@ export function IntegrationsPanel() {
             ? "text-emerald-600 dark:text-emerald-400"
             : "text-amber-600 dark:text-amber-400",
         actionKind: "manage" as const,
-        actionLabel: "Manage",
+        actionLabel: t("integrations.manage"),
         onAction: () => setSelectedPlatform(platform),
       };
     }),
@@ -1357,7 +1286,7 @@ export function IntegrationsPanel() {
             status: "Configured",
             statusClassName: "text-emerald-600 dark:text-emerald-400",
             actionKind: "manage" as const,
-            actionLabel: "Manage",
+            actionLabel: t("integrations.manage"),
             onAction: () => setShowEmailDetail(true),
           },
         ]
@@ -1376,7 +1305,14 @@ export function IntegrationsPanel() {
   }
 
   if (showEmailDetail) {
-    return <EmailIntegrationDetail onBack={() => setShowEmailDetail(false)} />;
+    return (
+      <EmailIntegrationDetail
+        onBack={() => {
+          setShowEmailDetail(false);
+          refreshEmailConfigured();
+        }}
+      />
+    );
   }
 
   return (
@@ -1396,8 +1332,8 @@ export function IntegrationsPanel() {
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search integrations"
-            aria-label="Search integrations"
+            placeholder={t("mcpIntegrations.searchPlaceholder")}
+            aria-label={t("mcpIntegrations.searchPlaceholder")}
             className="h-9 w-full rounded-lg border border-border bg-background ps-9 pe-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
           />
         </label>
@@ -1426,7 +1362,9 @@ export function IntegrationsPanel() {
               ? "text-emerald-600 dark:text-emerald-400"
               : undefined,
             actionKind: builderConnected ? "manage" : "connect",
-            actionLabel: builderConnected ? "Manage" : "Connect",
+            actionLabel: builderConnected
+              ? t("integrations.manage")
+              : t("mcpIntegrations.connect"),
             action:
               viewModel.configured && viewModel.connectFlow ? (
                 <BuilderConnectionMenu
@@ -1478,10 +1416,6 @@ export function IntegrationsPanel() {
                 <p className="text-xs text-destructive">{viewModel.error}</p>
               )}
 
-              {viewModel.connectFlow && (
-                <BrowserAutomationSection builderFlow={viewModel.connectFlow} />
-              )}
-
               {mcp.deleteError && (
                 <p className="border-y border-destructive/20 bg-destructive/5 py-3 text-xs text-destructive">
                   {mcp.deleteError}
@@ -1491,7 +1425,7 @@ export function IntegrationsPanel() {
               {hasConnectedMatches && (
                 <section className="space-y-3">
                   <h2 className="border-b border-border/60 pb-2 text-sm font-semibold text-foreground">
-                    Connected
+                    {t("integrations.connectedSection")}
                   </h2>
                   {matchingMcpServers.length > 0 && (
                     <McpServerRows
@@ -1547,7 +1481,7 @@ export function IntegrationsPanel() {
                 <div>
                   <div className="mb-1 flex items-center justify-between gap-3 border-b border-border/60 pb-2">
                     <h3 className="text-sm font-semibold text-foreground">
-                      Available integrations
+                      {t("integrations.availableSection")}
                     </h3>
                     <div className="flex items-center gap-3">
                       <span className="text-xs text-muted-foreground">
