@@ -69,6 +69,15 @@ export function SequenceBlock({ data, ctx }: BlockReadProps<SequenceData>) {
               {row.map((item, i) => {
                 counter += 1;
                 const number = counter;
+                // An under-filled trailing row (fewer cards than seqCols)
+                // otherwise leaves its last card in a single fixed-width
+                // track with the rest of the row blank — span it through the
+                // row's remaining, otherwise-empty tracks instead.
+                const isLastInRow = i === row.length - 1;
+                const cardStyle: React.CSSProperties | undefined =
+                  isLastInRow && row.length < seqCols
+                    ? { gridColumn: "auto / -1" }
+                    : undefined;
                 return (
                   <Fragment key={i}>
                     {i > 0 && (
@@ -80,6 +89,7 @@ export function SequenceBlock({ data, ctx }: BlockReadProps<SequenceData>) {
                       className="docs-sequence-card"
                       role="listitem"
                       data-accent={resolveAccent(item.accent)}
+                      style={cardStyle}
                     >
                       <span className="docs-sequence-number">{number}.</span>{" "}
                       <div className="docs-sequence-text">
