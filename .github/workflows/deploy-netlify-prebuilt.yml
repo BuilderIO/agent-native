@@ -464,11 +464,11 @@ jobs:
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
-          if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
+          if [[ ( "$TARGET" == "beta" || "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             # Starter's runtime database and auth secret are Netlify secrets.
-            # The external prebuilt runner receives masked values, so use
-            # build-only shapes and let the deployed Functions read the real
-            # site-scoped values at runtime.
+            # The external prebuilt runner receives masked values, including
+            # beta's branch-deploy context, so use build-only shapes and let
+            # the deployed Functions read the real site-scoped values at runtime.
             export agentNativePrebuiltBuild=true
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
@@ -487,7 +487,7 @@ jobs:
           if [[ "$SOURCE_TEMPLATE" == "crm" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
-          if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
+          if [[ ( "$TARGET" == "beta" || "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
           build_args=(build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE")

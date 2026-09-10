@@ -585,16 +585,16 @@ if (!hasOfflineSecretFreePreviewBuild) {
     `${reusablePath} must use Netlify offline mode for the secret-free PR build`,
   );
 }
-const hasProductionChatBuildOverride =
+const hasChatBuildOverride =
   clipsBuild.includes(
-    'if [[ ( "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]];',
+    'if [[ ( "$TARGET" == "beta" || "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]];',
   ) &&
   chatNetlify.includes("agentNativePrebuiltBuild") &&
   chatNetlify.includes("agentNativePrebuiltDatabaseUrl") &&
   chatNetlify.includes("agentNativePrebuiltAuthSecret");
-if (!hasProductionChatBuildOverride) {
+if (!hasChatBuildOverride) {
   issues.push(
-    `${reusablePath} and ${chatNetlifyPath} must provide production and PR preview Chat build-only overrides for masked Netlify secrets`,
+    `${reusablePath} and ${chatNetlifyPath} must provide beta, production, and PR preview Chat build-only overrides for masked Netlify secrets`,
   );
 }
 const hasClipsAndPlanBuildOverride = clipsBuild.includes(
