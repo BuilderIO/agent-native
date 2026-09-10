@@ -17,6 +17,15 @@ describe("renderNetlifyStaticHeaders", () => {
     expect(rendered).not.toContain("/_agent-native/*");
   });
 
+  it("also covers the mounted namespace under APP_BASE_PATH", () => {
+    const rendered = renderNetlifyStaticHeaders({
+      AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_platform",
+      APP_BASE_PATH: "/docs",
+    });
+    expect(rendered).toContain("/_platform/*");
+    expect(rendered).toContain("/docs/_platform/*");
+  });
+
   it("refuses a malformed deployment prefix", () => {
     expect(() =>
       renderNetlifyStaticHeaders({
