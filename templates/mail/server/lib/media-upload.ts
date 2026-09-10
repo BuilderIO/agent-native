@@ -60,6 +60,7 @@ export function uploadsDirectory(): string {
 
 export async function storeMediaUpload(input: {
   ownerEmail: string;
+  orgId?: string;
   data: Uint8Array;
   filename: string;
   originalName: string;
@@ -79,7 +80,11 @@ export async function storeMediaUpload(input: {
 
   try {
     const uploaded = await runWithRequestContext(
-      { ...getRequestContext(), userEmail: input.ownerEmail },
+      {
+        ...getRequestContext(),
+        userEmail: input.ownerEmail,
+        orgId: input.orgId ?? getRequestContext()?.orgId,
+      },
       () =>
         uploadFile({
           data: input.data,
