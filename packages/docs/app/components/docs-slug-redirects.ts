@@ -9,6 +9,9 @@
  */
 export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "core-philosophy": "key-concepts",
+  // The Frames page was retired. Agent Surfaces is the current chooser for
+  // app and agent hosting patterns.
+  frames: "agent-surfaces",
   "database-adapters": "deployment",
   // database.mdx was a near-duplicate of the Server section's own database
   // page; the Server version is the complete one (adds scoping + sync).
