@@ -70,6 +70,7 @@ import {
   IconSubtitles,
   IconVolume,
 } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   CLIPS_APP_PALETTE,
@@ -156,6 +157,18 @@ const CLIPS_PAGE_MOCK_CSS = [
   // pale, so it is cut down to a faint contact shadow instead.
   ".clips-page-mock-menu-shadow { box-shadow: 1px 1px 70px 0 rgba(0, 0, 0, 1); }",
   "html.light .clips-page-mock-menu-shadow { box-shadow: 1px 1px 70px 0 rgba(0, 0, 0, 0.1); }",
+
+  // Mirrors the real popover's own open animation (Radix's zoom-in-95 +
+  // fade-in from `data-[state=open]`), replayed on scroll instead of on
+  // click since nothing here is actually clickable. `top right` is the
+  // trigger's corner under `align="end"`, so the menu grows out from the
+  // button rather than from its own centre. Toggling the reveal class off
+  // when the illustration scrolls out (see the component) lets it replay
+  // rather than only ever opening once.
+  ".clips-page-mock-menu-anim { opacity: 0; transform: scale(0.95) translateY(-4px); transform-origin: top right; transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }",
+  ".clips-page-mock-menu-anim.clips-menu-reveal-in { opacity: 1; transform: scale(1) translateY(0); }",
+  "@media (scripting: none) { .clips-page-mock-menu-anim { opacity: 1; transform: none; } }",
+  "@media (prefers-reduced-motion: reduce) { .clips-page-mock-menu-anim { opacity: 1; transform: none; transition: none; } }",
 ].join("\n");
 
 function IconBtn({ children }: { children: React.ReactNode }) {
@@ -193,8 +206,23 @@ export function ClipsActOnFeedbackMock({
   className?: string;
   label?: string;
 }) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const node = wrapperRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setMenuOpen(entry?.isIntersecting ?? false),
+      { threshold: 0.3 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div
+      ref={wrapperRef}
       className={`clips-page-mock ${className}`}
       role="img"
       aria-label={label}
@@ -393,8 +421,13 @@ export function ClipsActOnFeedbackMock({
               than product truth: the real popover is `w-[360px]`, which at this
               magnification crowded the crop, so it is pulled in. The shadow
               itself is themed above, since dark and light need different
-              weights to read as elevation rather than a smudge. */}
-          <ClipsShareMenu className="clips-page-mock-menu-shadow absolute end-4 top-[46px] z-20" />
+              weights to read as elevation rather than a smudge. It plays its
+              own open animation each time the illustration scrolls into view
+              (see clips-page-mock-menu-anim above), since it's always
+              rendered "already open" otherwise. */}
+          <ClipsShareMenu
+            className={`clips-page-mock-menu-shadow clips-page-mock-menu-anim absolute end-4 top-[46px] z-20 ${menuOpen ? "clips-menu-reveal-in" : ""}`}
+          />
 
           {/* The share control triggers that menu, so it stays clear of the
               shadow the menu casts and out of the receded layer. It has to be
