@@ -280,7 +280,12 @@ instructions, and application state.
 ## Data And Security
 
 - Schema changes must be additive. Never drop, rename, truncate, or destructively
-  alter tables or columns in migrations or startup code.
+  alter tables or columns in migrations or startup code. A new column must be
+  nullable or carry a `DEFAULT` (or a self-filling type like `SERIAL`/
+  `GENERATED ... AS IDENTITY`) — a `NOT NULL` column with nothing to fill it
+  breaks on the first existing row, and breaks any already-deployed code that
+  inserts without knowing the column exists yet. Backfill separately if the
+  column needs a real value. Enforced by `guard:additive-migrations`.
 - SQL stores structured app state, metadata, references, and searchable text. Do
   not store large raw payloads — files, images, videos, audio, PDFs, ZIPs,
   screenshots, session replay chunks, thumbnails, `data:` URLs, or base64 file
