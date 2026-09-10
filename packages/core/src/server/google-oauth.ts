@@ -38,6 +38,11 @@ import {
 } from "./better-auth-instance.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
+import {
+  canonicalFrameworkPathname,
+  isRetiredInternalFrameworkPath,
+  publicFrameworkPath,
+} from "./framework-route-prefix.js";
 import { setIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
 import {
@@ -220,7 +225,7 @@ export function getAppBasePath(): string {
 /** Build an absolute same-origin URL that preserves APP_BASE_PATH. */
 export function getAppUrl(event: H3Event, path = "/"): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  return `${getOrigin(event)}${getAppBasePath()}${cleanPath}`;
+  return `${getOrigin(event)}${getAppBasePath()}${publicFrameworkPath(cleanPath)}`;
 }
 
 function isFrameworkOAuthCallbackPath(pathname: string): boolean {
@@ -279,10 +284,10 @@ function getDefaultOAuthRedirectUrl(
     (isWorkspaceOAuthCallbackRelayEnabled() || options.allowRootCallback) &&
     isFrameworkOAuthCallbackPath(cleanPath)
   ) {
-    return `${getOrigin(event)}${cleanPath}`;
+    return `${getOrigin(event)}${publicFrameworkPath(cleanPath)}`;
   }
   const basePath = isRequestUnderAppBasePath(event) ? getAppBasePath() : "";
-  return `${getOrigin(event)}${basePath}${cleanPath}`;
+  return `${getOrigin(event)}${basePath}${publicFrameworkPath(cleanPath)}`;
 }
 
 // ─── redirect_uri Allowlist ──────────────────────────────────────────────────
@@ -334,6 +339,10 @@ export function isAllowedOAuthRedirectUri(
   }
   if (url.protocol !== expectedUrl.protocol) return false;
   if (url.host !== expectedUrl.host) return false;
+  // The candidate arrives in the deployment's PUBLIC namespace; a custom
+  // prefix retires the internal name, so a redirect there is not ours.
+  if (isRetiredInternalFrameworkPath(url.pathname)) return false;
+  const pathname = canonicalFrameworkPathname(url.pathname);
   // Must live under the framework's namespace. Workspace deploys can route
   // root /_agent-native/* to Dispatch even when Dispatch itself is mounted at
   // /dispatch, but app-prefixed requests should not be able to swap their
@@ -350,7 +359,7 @@ export function isAllowedOAuthRedirectUri(
             : []),
         ]
       : ["/_agent-native/"];
-  if (!allowedPrefixes.some((prefix) => url.pathname.startsWith(prefix))) {
+  if (!allowedPrefixes.some((prefix) => pathname.startsWith(prefix))) {
     return false;
   }
   return true;

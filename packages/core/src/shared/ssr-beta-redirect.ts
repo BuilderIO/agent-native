@@ -18,6 +18,7 @@ export const SSR_BETA_REDIRECT_MARKER = 'data-agent-native-beta-redirect="1"';
  */
 export function getSsrBetaRedirectScriptBody(
   sessionPath = "/_agent-native/auth/session",
+  frameworkRoutePrefix = "/_agent-native",
 ): string {
   return `(function __anEarlyBetaRedirect() {
   if (window.__agentNativeBetaRedirectStarted) return;
@@ -132,7 +133,8 @@ export function getSsrBetaRedirectScriptBody(
   var sessionProbePath = ${safeJsonForHtml(sessionPath)};
   var appConfig = window.__AGENT_NATIVE_CONFIG__;
   if (appConfig && appConfig.workspaceRuntime === true) {
-    var frameworkSessionPath = '/_agent-native/auth/session';
+    var frameworkSessionPath = ${safeJsonForHtml(`${frameworkRoutePrefix}/auth/session`)};
+    var frameworkSegment = ${safeJsonForHtml(frameworkRoutePrefix.slice(1))};
     var knownWorkspaceMounts = Array.isArray(appConfig.workspaceAppMountPaths)
       ? appConfig.workspaceAppMountPaths
       : null;
@@ -143,6 +145,7 @@ export function getSsrBetaRedirectScriptBody(
       });
       var candidateWorkspaceMount = mountSegment &&
         mountSegment !== '_agent-native' &&
+        mountSegment !== frameworkSegment &&
         mountSegment !== 'api' &&
         mountSegment !== 'sign-in' &&
         mountSegment !== 'login' &&
@@ -246,6 +249,7 @@ export function getSsrBetaRedirectScriptBody(
 
 export function getSsrBetaRedirectScript(
   sessionPath = "/_agent-native/auth/session",
+  frameworkRoutePrefix = "/_agent-native",
 ): string {
-  return `<script ${SSR_BETA_REDIRECT_MARKER}>${getSsrBetaRedirectScriptBody(sessionPath)}</script>`;
+  return `<script ${SSR_BETA_REDIRECT_MARKER}>${getSsrBetaRedirectScriptBody(sessionPath, frameworkRoutePrefix)}</script>`;
 }

@@ -26,7 +26,11 @@ import {
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
-import { agentChatStreamingUrl, agentNativePath } from "./api-path.js";
+import {
+  agentChatStreamingUrl,
+  agentNativePath,
+  frameworkRoutePrefix,
+} from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
@@ -2017,7 +2021,7 @@ function runtimeDebugUrlForApiUrl(apiUrl: string): string | null {
   if (typeof window === "undefined") return null;
   try {
     const url = new URL(apiUrl, window.location.href);
-    const marker = "/_agent-native/";
+    const marker = `${frameworkRoutePrefix()}/`;
     const markerIndex = url.pathname.indexOf(marker);
     if (markerIndex < 0) return null;
     url.pathname = `${url.pathname.slice(0, markerIndex)}${marker}debug/runtime`;

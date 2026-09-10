@@ -1,7 +1,54 @@
+import {
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX,
+  matchesPathPrefix,
+  normalizeFrameworkRoutePrefix,
+  toPublicFrameworkPath,
+} from "../shared/framework-route-prefix.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
+import { injectedAgentNativeConfig } from "./app-config.js";
 import { initializeAgentNativeClient } from "./client-bootstrap.js";
 
-const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
+/**
+ * The PUBLIC framework route prefix this bundle was built for.
+ *
+ * Framework code keeps naming routes by their internal `/_agent-native` form;
+ * `agentNativePath()` swaps in this value at the one place browser URLs are
+ * built. It comes from the resolved `agent-native.config.ts` Vite serialized
+ * into the bundle, with the SSR shell's projected config as the fallback for
+ * a script that runs before the bundle (or a bundle built without the
+ * define). A malformed injected value throws rather than silently building
+ * URLs under the wrong namespace.
+ */
+export function frameworkRoutePrefix(): string {
+  const configured = injectedAgentNativeConfig().runtime?.frameworkRoutePrefix;
+  if (configured !== undefined) {
+    return normalizeFrameworkRoutePrefix(configured);
+  }
+  const projected =
+    typeof window === "undefined"
+      ? undefined
+      : (
+          window as Window & {
+            __AGENT_NATIVE_CONFIG__?: { frameworkRoutePrefix?: unknown };
+          }
+        ).__AGENT_NATIVE_CONFIG__?.frameworkRoutePrefix;
+  return normalizeFrameworkRoutePrefix(
+    projected,
+    "window.__AGENT_NATIVE_CONFIG__.frameworkRoutePrefix",
+  );
+}
+
+/**
+ * True when `pathname` is under the framework namespace as the browser sees
+ * it: the public prefix, or — because internal names are what framework code
+ * writes before `agentNativePath()` runs — the internal one.
+ */
+export function isFrameworkRoutePath(pathname: string): boolean {
+  return (
+    matchesPathPrefix(pathname, FRAMEWORK_INTERNAL_ROUTE_PREFIX) ||
+    matchesPathPrefix(pathname, frameworkRoutePrefix())
+  );
+}
 
 function normalizeBasePath(value: string | undefined): string {
   if (!value || value === "/") return "";
@@ -32,10 +79,30 @@ function clientEnv(): Record<string, string | boolean | undefined> | undefined {
   return importMetaEnv ?? processEnv;
 }
 
+function frameworkMarkerIndex(pathname: string): number {
+  // The live URL carries the public prefix; the internal name is still
+  // accepted because a default deployment's public prefix IS the internal one.
+  for (const marker of [
+    frameworkRoutePrefix(),
+    FRAMEWORK_INTERNAL_ROUTE_PREFIX,
+  ]) {
+    const index = pathname.indexOf(marker);
+    if (index > 0) return index;
+  }
+  return -1;
+}
+
+function isFrameworkSegment(segment: string): boolean {
+  return (
+    `/${segment}` === FRAMEWORK_INTERNAL_ROUTE_PREFIX ||
+    `/${segment}` === frameworkRoutePrefix()
+  );
+}
+
 function pathDerivedBasePath(): string {
   if (typeof window === "undefined") return "";
   const pathname = window.location.pathname;
-  const markerIndex = pathname.indexOf(FRAMEWORK_ROUTE_PREFIX);
+  const markerIndex = frameworkMarkerIndex(pathname);
   if (markerIndex <= 0) return "";
   return normalizeBasePath(pathname.slice(0, markerIndex));
 }
@@ -64,7 +131,7 @@ function isWorkspaceRuntime(): boolean {
 function workspacePathBasePath(): string {
   if (typeof window === "undefined" || !isWorkspaceRuntime()) return "";
   const segment = window.location.pathname.split("/").find(Boolean);
-  if (!segment || segment === "_agent-native" || segment === "api") return "";
+  if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
   const basePath = normalizeBasePath(segment);
   // Guard against treating an app-local route (e.g. a client-rendered
   // "/settings" page reached via stale client-side navigation) as if it
@@ -90,13 +157,13 @@ function externalEmbedTargetBasePath(): string {
   if (typeof target !== "string" || !target.startsWith("/")) return "";
   try {
     const url = new URL(target, "http://agent-native.invalid");
-    const markerIndex = url.pathname.indexOf(FRAMEWORK_ROUTE_PREFIX);
+    const markerIndex = frameworkMarkerIndex(url.pathname);
     if (markerIndex > 0) {
       return normalizeBasePath(url.pathname.slice(0, markerIndex));
     }
     if (isWorkspaceRuntime()) {
       const segment = url.pathname.split("/").find(Boolean);
-      if (segment && segment !== "_agent-native" && segment !== "api") {
+      if (segment && !isFrameworkSegment(segment) && segment !== "api") {
         return normalizeBasePath(segment);
       }
     }
@@ -244,9 +311,18 @@ export function appApiPath(path: string): string {
   return appPath(normalized);
 }
 
+/**
+ * The browser URL for a framework route named by its internal path.
+ *
+ * `/_agent-native/actions/x` becomes `/{base}/{public prefix}/actions/x`. A
+ * path that does not start with the internal prefix is returned as it is,
+ * which is also what keeps an already-mounted URL from being prefixed twice.
+ */
 export function agentNativePath(path: string): string {
-  if (!path.startsWith(FRAMEWORK_ROUTE_PREFIX)) return path;
-  return appPath(path);
+  if (!path.startsWith(FRAMEWORK_INTERNAL_ROUTE_PREFIX)) return path;
+  return appPath(
+    toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() }),
+  );
 }
 
 /**

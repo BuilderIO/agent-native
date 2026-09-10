@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
+import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
 export const GENERATED_NETLIFY_HEADERS_MARKER =
@@ -44,7 +45,10 @@ export function renderNetlifyStaticHeaders(
       GENERATED_NETLIFY_HEADERS_MARKER,
       renderHeaderBlock("/*", ssrHeaderEntries),
       renderHeaderBlock("/assets/*", immutableAssetHeaders),
-      renderHeaderBlock("/_agent-native/*", internalHeaders),
+      renderHeaderBlock(
+        `${normalizeFrameworkRoutePrefix(env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || undefined, "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX")}/*`,
+        internalHeaders,
+      ),
     ].join("\n\n") + "\n"
   );
 }

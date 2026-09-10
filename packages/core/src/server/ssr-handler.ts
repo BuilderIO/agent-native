@@ -45,6 +45,7 @@ import {
   frameworkSessionHintCookieName,
   resolveAuthCookieNamespace,
 } from "./cookie-namespace.js";
+import { getFrameworkRoutePrefix } from "./framework-route-prefix.js";
 import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
@@ -438,6 +439,7 @@ async function rewriteMountedResponse(
               resolveAuthCookieNamespace().frameworkCookieName,
             ),
             resolveAppHomePath(getAppConfig().app),
+            getFrameworkRoutePrefix(),
           )
         : null,
     ]

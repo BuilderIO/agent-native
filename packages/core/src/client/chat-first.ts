@@ -6,6 +6,9 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { toPublicFrameworkPath } from "../shared/framework-route-prefix.js";
+import { frameworkRoutePrefix } from "./api-path.js";
+
 export const CHAT_FIRST_MODE_STORAGE_KEY = "agent-native:chat-first-mode:v1";
 export const CHAT_FIRST_APP_LAYOUT_STORAGE_KEY =
   "agent-native:chat-first-app-layout:v1";
@@ -1123,7 +1126,9 @@ function appRelativeUrlPath(targetUrl: URL, registeredUrl: URL): string {
 
 function viewPath(appId: string, view: string): string {
   const params = new URLSearchParams({ app: appId, view });
-  return `/_agent-native/open?${params.toString()}`;
+  return toPublicFrameworkPath(`/_agent-native/open?${params.toString()}`, {
+    publicPrefix: frameworkRoutePrefix(),
+  });
 }
 
 export function resolveChatFirstAppTarget(

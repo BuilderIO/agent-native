@@ -1,4 +1,5 @@
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
+import { isFrameworkRoutePath } from "./api-path.js";
 import { agentNativePath } from "./api-path.js";
 
 /**
@@ -255,7 +256,7 @@ function shouldUseWorkspaceCallbackRelay(path: string): boolean {
     window.__AGENT_NATIVE_CONFIG__?.workspaceRuntime === true;
   return (
     (projectedWorkspaceRuntime || envFlag("VITE_AGENT_NATIVE_WORKSPACE")) &&
-    path.startsWith("/_agent-native/") &&
+    isFrameworkRoutePath(path) &&
     (path.endsWith("/callback") || path.includes("/callback/"))
   );
 }

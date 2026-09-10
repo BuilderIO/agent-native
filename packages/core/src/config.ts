@@ -3,8 +3,11 @@
  *
  * This module is intentionally free of Node and framework imports so it can be
  * used from a typed `agent-native.config.ts` file and from browser code after Vite
- * serializes the resolved config into the client bundle.
+ * serializes the resolved config into the client bundle. The one shared module
+ * it pulls in is pure for the same reason.
  */
+
+import { normalizeFrameworkRoutePrefix } from "./shared/framework-route-prefix.js";
 
 export const AGENT_NATIVE_CONFIG_VERSION = 1 as const;
 
@@ -50,6 +53,14 @@ export interface AgentNativeRuntimeConfig {
   auth?: AgentNativeRuntimeAuthConfig;
   database?: AgentNativeRuntimeDatabaseConfig;
   environment?: AgentNativeRuntimeEnvironmentConfig;
+  /**
+   * The public URL namespace this deployment serves framework routes under.
+   * Defaults to `/_agent-native`. One absolute segment of letters, digits,
+   * `_` or `-`; reserved namespaces such as `/api` and `/mcp` are refused.
+   * Route registration stays on the internal name; the value is translated
+   * at the request boundary and applied to every URL the framework builds.
+   */
+  frameworkRoutePrefix?: string;
 }
 
 export type AgentNativeDeploymentEnvironment =
@@ -189,6 +200,7 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
     path: ["runtime", "environment", "required"],
     kind: "array",
   },
+  { path: ["runtime", "frameworkRoutePrefix"], kind: "string" },
   { path: ["deployment"], kind: "object" },
   {
     path: ["deployment", "environment"],
@@ -732,6 +744,12 @@ function normalizeRuntimeConfig(
   }
 
   const result: AgentNativeRuntimeConfig = {};
+  if (value.frameworkRoutePrefix !== undefined) {
+    result.frameworkRoutePrefix = normalizeFrameworkRoutePrefix(
+      value.frameworkRoutePrefix,
+      `${source}.frameworkRoutePrefix`,
+    );
+  }
   for (const section of ["auth", "database", "environment"] as const) {
     const sectionValue = value[section];
     if (sectionValue === undefined) continue;

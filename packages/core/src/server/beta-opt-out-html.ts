@@ -13,6 +13,10 @@ import {
 } from "../shared/ssr-beta-redirect.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import { resolvePublicAppOriginConfig } from "./app-origin-config.js";
+import {
+  getFrameworkRoutePrefix,
+  publicFrameworkPath,
+} from "./framework-route-prefix.js";
 import { workspaceBasePathFromRequest } from "./onboarding-html.js";
 
 export const BETA_OPT_OUT_PERSISTENCE_MARKER =
@@ -261,7 +265,10 @@ export function injectBetaOptOutPersistence(
     const appBasePath = betaRedirectBasePath(requestPath);
     html = insertBeforeClosingTag(
       html,
-      getSsrBetaRedirectScript(`${appBasePath}/_agent-native/auth/session`),
+      getSsrBetaRedirectScript(
+        `${appBasePath}${publicFrameworkPath("/_agent-native/auth/session")}`,
+        getFrameworkRoutePrefix(),
+      ),
       "</head>",
     );
   }

@@ -4,12 +4,14 @@ import { MarketingHome } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
+import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
   signInJourney,
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
+import { frameworkRoutePrefix } from "../api-path.js";
 import { OceanBackground } from "../ocean/OceanBackground.js";
 
 export type AuthView =
@@ -744,7 +746,8 @@ export function AuthPage(props: AuthPageProps) {
     [defaultLocale, locale, locales],
   );
   const apiPath = React.useCallback(
-    (path: string) => `${runtimeAppBasePath}${path}`,
+    (path: string) =>
+      `${runtimeAppBasePath}${toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() })}`,
     [runtimeAppBasePath],
   );
   const identityHref = React.useMemo(

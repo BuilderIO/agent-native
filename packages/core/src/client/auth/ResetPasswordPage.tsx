@@ -2,6 +2,9 @@
 
 import * as React from "react";
 
+import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
+import { frameworkRoutePrefix } from "../api-path.js";
+
 export interface ResetPasswordPageProps {
   pageType: "reset-password";
   appBasePath: string;
@@ -97,7 +100,7 @@ export function ResetPasswordPage({
       setMessage(null);
       try {
         const response = await fetch(
-          `${runtimeAppBasePath}/_agent-native/auth/ba/reset-password`,
+          `${runtimeAppBasePath}${toPublicFrameworkPath("/_agent-native/auth/ba/reset-password", { publicPrefix: frameworkRoutePrefix() })}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
