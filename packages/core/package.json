@@ -456,6 +456,7 @@
     "vgpu": "0.3.1",
     "y-protocols": "catalog:",
     "yjs": "catalog:",
+    "yaml": "^2.9.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

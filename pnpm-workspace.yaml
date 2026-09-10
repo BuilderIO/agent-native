@@ -103,7 +103,7 @@ onlyBuiltDependencies:
 
 packageExtensions:
   # node-pty has no Linux prebuild and its install script invokes node-gyp.
-  "node-pty@1.1.0":
+  "node-pty@*":
     dependencies:
       node-gyp: "^12.4.0"
 

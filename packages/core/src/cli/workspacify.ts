@@ -23,6 +23,8 @@
 import fs from "fs";
 import path from "path";
 
+import { isMap, parseDocument } from "yaml";
+
 import {
   DEFAULT_WORKSPACE_SKILLS,
   FRAMEWORK_TEMPLATE_SHARED_SKILLS,
@@ -30,6 +32,7 @@ import {
 
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const NODE_PTY_BUILD_DEPENDENCY = "^12.4.0";
+const NODE_PTY_PACKAGE_SELECTOR = "node-pty@*";
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
   "@react-router/fs-routes",
@@ -63,22 +66,52 @@ export interface WorkspacifyOptions {
  */
 export function ensureNodePtyBuildDependency(workspaceRoot: string): void {
   const workspacePath = path.join(workspaceRoot, "pnpm-workspace.yaml");
-  if (!fs.existsSync(workspacePath)) return;
+  if (!fs.existsSync(workspacePath)) {
+    throw new Error(
+      `Cannot add the node-pty build dependency: ${workspacePath} does not exist`,
+    );
+  }
 
   const current = fs.readFileSync(workspacePath, "utf-8");
-  if (current.includes('"node-pty@1.1.0":')) return;
+  const document = parseDocument(current);
+  if (document.errors.length > 0) {
+    throw new Error(
+      `Cannot update ${workspacePath}: ${document.errors
+        .map((error) => error.message)
+        .join("; ")}`,
+    );
+  }
 
-  const extension = [
-    '  "node-pty@1.1.0":',
-    "    dependencies:",
-    `      node-gyp: "${NODE_PTY_BUILD_DEPENDENCY}"`,
-  ].join("\n");
-  const header = /^packageExtensions:\s*$/m.exec(current);
-  const updated = header
-    ? current.slice(0, header.index + header[0].length) +
-      `\n${extension}` +
-      current.slice(header.index + header[0].length)
-    : `${current.trimEnd()}${current.trim() ? "\n\n" : ""}packageExtensions:\n${extension}\n`;
+  const packageExtensions = document.getIn(["packageExtensions"]);
+  if (document.has("packageExtensions") && packageExtensions === null) {
+    document.set("packageExtensions", {});
+  } else if (packageExtensions !== undefined && !isMap(packageExtensions)) {
+    throw new Error(
+      `Cannot update ${workspacePath}: packageExtensions must be a mapping`,
+    );
+  }
+
+  if (
+    document.getIn([
+      "packageExtensions",
+      NODE_PTY_PACKAGE_SELECTOR,
+      "dependencies",
+      "node-gyp",
+    ]) === NODE_PTY_BUILD_DEPENDENCY
+  ) {
+    return;
+  }
+
+  document.setIn(
+    [
+      "packageExtensions",
+      NODE_PTY_PACKAGE_SELECTOR,
+      "dependencies",
+      "node-gyp",
+    ],
+    NODE_PTY_BUILD_DEPENDENCY,
+  );
+  const updated = document.toString();
 
   if (updated !== current) fs.writeFileSync(workspacePath, updated);
 }
@@ -106,6 +139,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   //    they resolve within the
   //    workspace because the required package is scaffolded alongside the app.
   const pkgPath = path.join(appDir, "package.json");
+  let hasNodePty = false;
   if (fs.existsSync(pkgPath)) {
     try {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
@@ -138,7 +172,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       // not fail only after a hosted Postgres database is configured.
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
-      const hasNodePty = [
+      hasNodePty = [
         pkg.dependencies,
         pkg.devDependencies,
         pkg.peerDependencies,
@@ -159,11 +193,11 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       pkg.devDependencies["@assistant-ui/store"] ??= ">=0.2.9 <0.2.14";
       pkg.devDependencies["@assistant-ui/tap"] ??= "^0.5.14";
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-      if (hasNodePty) ensureNodePtyBuildDependency(opts.workspaceRoot);
     } catch {
       // Non-fatal: leave package.json unchanged.
     }
   }
+  if (hasNodePty) ensureNodePtyBuildDependency(opts.workspaceRoot);
 
   // 2) Remove standalone-only files that would confuse the workspace layout.
   for (const f of [

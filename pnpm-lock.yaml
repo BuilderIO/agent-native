@@ -191,7 +191,7 @@ overrides:
   '@expo/dom-webview': 57.0.1
   shell-quote: 1.9.0
 
-packageExtensionsChecksum: sha256-oiNHCRyAlwYDwoJLdx7OrSZeC3w1rL7wwIltZ1hPvLE=
+packageExtensionsChecksum: sha256-YybZdidAA15/x6R19t0W3iqnnd2bDOSW/FrgFtnFwiM=
 
 importers:
 
@@ -602,6 +602,9 @@ importers:
       y-protocols:
         specifier: 'catalog:'
         version: 1.0.7(yjs@13.6.32)
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
       yjs:
         specifier: 'catalog:'
         version: 13.6.32

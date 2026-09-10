@@ -3,8 +3,9 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import { parseDocument } from "yaml";
 
-import { workspacifyApp } from "./workspacify.js";
+import { ensureNodePtyBuildDependency, workspacifyApp } from "./workspacify.js";
 
 const tmpRoots: string[] = [];
 
@@ -112,8 +113,53 @@ describe("workspacifyApp core pinning", () => {
       path.join(root, "pnpm-workspace.yaml"),
       "utf8",
     );
-    expect(workspaceYaml).toContain('"node-pty@1.1.0":');
-    expect(workspaceYaml).toContain('node-gyp: "^12.4.0"');
+    expect(workspaceYaml).toContain("node-pty@*:");
+    expect(workspaceYaml).toContain("node-gyp: ^12.4.0");
+  });
+
+  it("merges existing packageExtensions YAML without duplicate keys", () => {
+    const sources = [
+      "packageExtensions:\n  'node-pty@*':\n    dependencies:\n      node-gyp: '^12.4.0'\n",
+      "packageExtensions: {}\n",
+      'packageExtensions: {"other@1": {dependencies: {dep: "^1"}}}\n',
+    ];
+
+    for (const source of sources) {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspacify-"));
+      tmpRoots.push(root);
+      const workspacePath = path.join(root, "pnpm-workspace.yaml");
+      fs.writeFileSync(workspacePath, source);
+
+      ensureNodePtyBuildDependency(root);
+      ensureNodePtyBuildDependency(root);
+
+      const updated = fs.readFileSync(workspacePath, "utf8");
+      expect(updated.match(/node-pty@\*/g)).toHaveLength(1);
+      const document = parseDocument(updated);
+      expect(document.errors).toHaveLength(0);
+      expect(
+        document.getIn([
+          "packageExtensions",
+          "node-pty@*",
+          "dependencies",
+          "node-gyp",
+        ]),
+      ).toBe("^12.4.0");
+    }
+  });
+
+  it("surfaces malformed or missing workspace YAML", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspacify-"));
+    tmpRoots.push(root);
+
+    expect(() => ensureNodePtyBuildDependency(root)).toThrow(
+      "pnpm-workspace.yaml",
+    );
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "packageExtensions: [\n",
+    );
+    expect(() => ensureNodePtyBuildDependency(root)).toThrow("Cannot update");
   });
 
   it("links inherited skills and removes template copies while preserving app skills", () => {

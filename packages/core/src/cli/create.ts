@@ -2079,8 +2079,8 @@ function postProcessStandalone(
     if (updated !== existing) {
       fs.writeFileSync(wsPath, updated);
     }
-    if (hasNodePty) ensureNodePtyBuildDependency(targetDir);
   } catch {}
+  if (hasNodePty) ensureNodePtyBuildDependency(targetDir);
 
   fixStandaloneTsconfig(targetDir, templateName);
 
