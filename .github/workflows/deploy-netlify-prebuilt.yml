@@ -1436,10 +1436,17 @@ jobs:
           const deployId = process.env.DEPLOY_ID;
           const previousId = process.env.PREVIOUS_DEPLOY_ID;
           if (!siteId || !deployId) throw new Error("Beta freshness cleanup is missing the site or deploy id.");
-          const deadline = Date.now() + 5 * 60 * 1000;
+          // Keep this job in the per-site concurrency group until Netlify
+          // proves the stale deploy cannot publish. The job timeout is the
+          // final bound; a local cleanup deadline would release the queue
+          // while an external deploy could still win it later.
+          const cleanupStartedAt = Date.now();
           let cancellationRequested = false;
+          let cancellationRejected = false;
+          let deletionRequested = false;
+          let lastDeletionAttempt = 0;
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-          while (Date.now() < deadline) {
+          while (true) {
             const site = await readJson(
               await request(`${api}/sites/${siteId}`),
               "Netlify beta freshness site lookup",
@@ -1469,7 +1476,8 @@ jobs:
                   `Netlify beta freshness revert to ${previousId} did not return a new deploy id.`,
                 );
               }
-              while (Date.now() < deadline) {
+              const restoreDeadline = Date.now() + 5 * 60 * 1000;
+              while (Date.now() < restoreDeadline) {
                 const current = await readJson(
                   await request(`${api}/sites/${siteId}`),
                   "Netlify beta freshness revert verification",
@@ -1492,8 +1500,14 @@ jobs:
               return;
             }
 
+            const deployResponse = await request(`${api}/deploys/${deployId}`);
+            if (deployResponse.status === 404) {
+              throw new Error(
+                `Stale beta deploy ${deployId} was removed and cannot publish; the queued successor may proceed.`,
+              );
+            }
             const deploy = await readJson(
-              await request(`${api}/deploys/${deployId}`),
+              deployResponse,
               `Netlify beta freshness deploy ${deployId} lookup`,
             );
             if (['error', 'canceled', 'rejected'].includes(deploy.state)) {
@@ -1509,12 +1523,38 @@ jobs:
               } catch (error) {
                 console.log(`Netlify stale beta deploy ${deployId} did not accept cancellation; continuing to observe it.`);
                 console.log(error instanceof Error ? error.message : error);
+                cancellationRejected = true;
               }
               cancellationRequested = true;
             }
+            if (
+              !deletionRequested &&
+              (cancellationRejected || Date.now() - cleanupStartedAt >= 5 * 60 * 1000) &&
+              Date.now() - lastDeletionAttempt >= 60_000
+            ) {
+              lastDeletionAttempt = Date.now();
+              try {
+                const deletion = await request(`${api}/deploys/${deployId}`, {
+                  method: "DELETE",
+                });
+                if (deletion.status === 404) {
+                  deletionRequested = true;
+                  console.log(`Stale beta deploy ${deployId} was already removed.`);
+                } else {
+                  await readJson(
+                    deletion,
+                    `Netlify stale beta deploy ${deployId} deletion`,
+                  );
+                  deletionRequested = true;
+                  console.log(`Requested deletion for stale beta deploy ${deployId}; observing until it is non-publishable.`);
+                }
+              } catch (error) {
+                console.log(`Netlify stale beta deploy ${deployId} deletion was not accepted; keeping the beta queue occupied.`);
+                console.log(error instanceof Error ? error.message : error);
+              }
+            }
             await sleep(10_000);
           }
-          throw new Error(`Stale beta deploy ${deployId} did not settle before the five-minute cleanup deadline.`);
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;

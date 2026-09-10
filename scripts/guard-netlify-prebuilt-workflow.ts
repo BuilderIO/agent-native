@@ -1066,6 +1066,15 @@ if (
     "current.published_deploy?.id === restoredDeployId",
   ) ||
   !reusableBetaFreshness.includes(
+    "Keep this job in the per-site concurrency group until Netlify",
+  ) ||
+  !reusableBetaFreshness.includes("cancellationRejected") ||
+  !reusableBetaFreshness.includes("deletionRequested") ||
+  !reusableBetaFreshness.includes('method: "DELETE"') ||
+  !reusableBetaFreshness.includes(
+    "Netlify stale beta deploy ${deployId} deletion",
+  ) ||
+  reusableBetaFreshness.includes(
     "did not settle before the five-minute cleanup deadline",
   ) ||
   !reusableBetaFreshness.includes("PREVIOUS_DEPLOY_ID") ||

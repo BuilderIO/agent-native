@@ -483,6 +483,17 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       reusableSource,
+      /Keep this job in the per-site concurrency group until Netlify/,
+    );
+    assert.match(reusableSource, /cancellationRejected/);
+    assert.match(reusableSource, /deletionRequested/);
+    assert.match(reusableSource, /method: "DELETE"/);
+    assert.match(
+      reusableSource,
+      /Netlify stale beta deploy \$\{deployId\} deletion/,
+    );
+    assert.doesNotMatch(
+      reusableSource,
       /did not settle before the five-minute cleanup deadline/,
     );
     assert.match(
