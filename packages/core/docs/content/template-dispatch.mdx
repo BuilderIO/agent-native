@@ -13,76 +13,91 @@ Dispatch is the app you run alongside your other Agent-Native apps to keep a mul
 
 </Callout>
 
-<WireframeBlock id="doc-block-iw1glr">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>What should we do next?</strong><div class='wf-box'>Ask Analytics for this week's signups and draft a Slack update.</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>Create app</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>Slack DM needs reply</div><div class='wf-box'>A2A task completed</div><div class='wf-box'>Approval required</div></div></div>"
-    }
-  />
-</WireframeBlock>
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65b2b76a0dec44dbbbaec738e5512228?alt=media&token=f5ad219e-c566-43b2-90ca-a51c72d9a607&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="A short screen recording touring the Dispatch overview, inbox, and app launcher."
+  caption="A brief tour of Dispatch."
+  autoplay={true}
+  loop={true}
+/>
 
 If you're running a [multi-app workspace](/docs/multi-app-workspace) with many apps, Dispatch is the glue.
 
-<Diagram id="doc-block-12njifj" title={"Orchestrate, don't specialize"} summary={"Messages from every channel land in one inbox; the orchestrator triages and delegates domain work to the right specialist app over A2A — secrets, resources, and approvals stay central."}>
+## Dispatch in practice {#in-practice}
 
-```html
-<div class="diagram-dispatch">
-  <div class="diagram-col">
-    <div class="diagram-node">Slack · Telegram</div>
-    <div class="diagram-node">Email</div>
-    <div class="diagram-node">A2A requests</div>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    <span class="diagram-pill accent">Orchestrator</span
-    ><small class="diagram-muted">central inbox · triage · route</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-col">
-    <div class="diagram-node">Mail agent</div>
-    <div class="diagram-node">Analytics agent</div>
-    <div class="diagram-node">Brain · Slides &hellip;</div>
-  </div>
-</div>
-<div class="diagram-shared">
-  <span class="diagram-pill">Secrets vault</span
-  ><span class="diagram-pill">Workspace resources</span
-  ><span class="diagram-pill warn">Approvals</span
-  ><span class="diagram-pill">Scheduled jobs</span>
-</div>
-```
+### A question in Slack becomes an analytics note
 
-```css
-.diagram-dispatch {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-dispatch .diagram-col {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.diagram-dispatch .diagram-box {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.diagram-dispatch .diagram-arrow {
-  font-size: 20px;
-  line-height: 1;
-}
-.diagram-shared {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 12px;
-}
-```
+A message in one channel can end up as a change in a completely different app, without anyone copying information by hand.
 
-</Diagram>
+<Sequence>
+
+### The **#marketing** channel gets an update on a key client
+
+### :blue: **Dispatch** sees the message and recognizes it as an analytics note
+
+### A note is added to **Analytics** about that client
+
+</Sequence>
+
+### A Monday report pulls data from another app
+
+A recurring job doesn't need its own copy of another app's data. It just asks for it, every time it runs.
+
+<Sequence>
+
+### A recurring job **wakes up** every Monday at 7am
+
+### :blue: **Dispatch** asks the analytics agent for last week's signups
+
+### A summary is **emailed** to the team
+
+</Sequence>
+
+### A discounted deal gets sign-off from two other teams
+
+A single approval can touch several apps and teams before it's done, with Dispatch relaying each request and answer so no one leaves their own app to move it forward.
+
+<Sequence>
+
+### A **sales rep** requests discount approval in the CRM
+
+### :blue: **Dispatch** asks Finance's agent if it's within policy
+
+### **Finance** approves it in their own app
+
+### :blue: **Dispatch** asks Legal's agent to check the contract terms
+
+### **Legal** flags one clause and requests a change
+
+### :blue: **Dispatch** relays the change back to the sales rep
+
+</Sequence>
+
+## What it replaces {#what-it-replaces}
+
+<Comparison>
+
+### Before
+
+- A Slack bot, an email inbox, and a support alias, each wired to a different app by hand
+- A `.env` file, and a copy of every key in it, duplicated per app
+- A cron job or admin script per app for anything recurring
+- No single place to see what changed, who approved it, or what an app is spending on LLM calls
+
+### After
+
+- One inbox: Slack, Teams, Discord, Telegram, WhatsApp, and email all reach the same agent
+- One vault: every credential saved once, granted or synced to whichever apps need it
+- One place for recurring jobs, Dreams' memory review loop, and admin approvals
+- One operator console for audit history, usage, and thread debugging across every app
+
+</Comparison>
+
+<Callout tone="success">
+
+**Dispatch can build the next app for you.** Describe what you need in chat — "build me an app for tracking customer onboarding" — and Dispatch starts a brand-new sibling app under `apps/` rather than bolting more screens onto an existing one. See [Dispatch developer guide](/docs/template-dispatch-developers) for how the hand-off works.
+
+</Callout>
 
 ## What it does {#what-it-does}
 
@@ -93,6 +108,7 @@ If you're running a [multi-app workspace](/docs/multi-app-workspace) with many a
 - **Workspace resources.** Global skills, guardrail instructions, custom agent profiles, reference resources, and HTTP MCP servers can be created once in Dispatch. All-app resources are inherited at runtime by every app with no copy step; selected grants cover app-specific exceptions.
 - **Scheduled jobs and Dreams.** Cross-app recurring jobs live here, alongside a review loop that inspects recent runs and proposes memory, skill, and instruction improvements. See [Operating the workspace](/docs/template-dispatch-operations).
 - **Approval flow.** Durable changes — saved delivery destinations, All-app workspace resources, and shared or team-wide Dream memory proposals — can require a second admin's OK before they take effect.
+- **Build new apps from chat.** Describe a need in plain English and Dispatch scaffolds a real, independent sibling app instead of adding one more screen to an existing one.
 
 ## When to use it {#when-to-use}
 
@@ -116,6 +132,7 @@ Live demo: [dispatch.agent-native.com](https://dispatch.agent-native.com).
 - **Review Dream proposals.** Dispatch's memory review loop inspects prior runs and proposes source-backed changes to what the workspace remembers.
 - **Gate durable changes.** Saved destinations, All-app workspace resources, and shared Dream proposals can require a second admin's OK before they apply — see the approval flow on [Messaging, routing, and approvals](/docs/template-dispatch-messaging-routing).
 - **Watch the operator console.** Monitoring, database admin, thread debugging, audit history, and usage metrics all live under one roof — see [Operating the workspace](/docs/template-dispatch-operations).
+- **Spin up a new app from chat.** Ask for what you need and Dispatch scaffolds a new sibling app rather than growing an existing one.
 
 ## Get started {#get-started}
 
@@ -128,8 +145,9 @@ Dispatch is almost always scaffolded into a workspace alongside the apps it coor
 
 ## What's next
 
-- [**Secrets, integrations, and workspace connections**](/docs/template-dispatch-vault-integrations) — the vault, reusable provider integrations, and ad hoc/staged provider data access
-- [**Messaging, routing, and approvals**](/docs/template-dispatch-messaging-routing) — connecting channels, the orchestrator, and the approval queue
-- [**Operating the workspace: jobs, Dreams, and the operator console**](/docs/template-dispatch-operations) — recurring jobs, Dreams, monitoring, and the admin surfaces
-- [**Dispatch — architecture for developers**](/docs/template-dispatch-developers) — the package/app split, scaffolding, and customizing it
+- [**Features**](/docs/template-dispatch-features) — every feature area, with setup steps for each
+- [**Talk to the Agent**](/docs/template-dispatch-agent) — prompts by task and how the agent sees your screen
+- [**Dispatch in a Multi-App Workspace**](/docs/template-dispatch-integrations) — how other apps connect to Dispatch, and how Dispatch discovers them
+- [**Dispatch developer guide**](/docs/template-dispatch-developers) — the package/app split, scaffolding, and customizing it
+- [**Dispatch action and data reference**](/docs/template-dispatch-reference) — the full action inventory, database schema, and route list
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — running Dispatch alongside multiple apps

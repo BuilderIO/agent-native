@@ -1,0 +1,312 @@
+---
+title: "Dispatch: Features"
+description: "Every core Dispatch feature, including the inbox, routing, credentials, agent resources, jobs, Dreams, approvals, and the app launcher, with setup steps for each."
+---
+
+# Features
+
+Every core Dispatch feature: how it works, and how to set it up. See
+[Dispatch](/docs/template-dispatch) for the overview and
+[Talk to the Agent](/docs/template-dispatch-agent) for the full list of
+prompts.
+
+## Central inbox and routing
+
+Every channel Dispatch supports, plus inbound A2A requests from other agents, land in one place. From there, one agent decides what happens next: answer directly, delegate to a domain app, or ask a human to approve it first.
+
+### Connecting a channel
+
+Slack, Microsoft Teams, Discord interactions, Telegram, WhatsApp Cloud API, and provider-webhook email all reach the same inbox once connected.
+
+<Steps>
+
+### Open Messaging
+
+From Dispatch, go to **Admin → Messaging**.
+
+### Connect a platform
+
+Click connect for Slack, Teams, Discord, Telegram, WhatsApp, or email. Each platform's form fields match its own credentials and webhook URL. See [Messaging](/docs/messaging) for what each one needs.
+
+### Test it
+
+For a chat platform like Slack, DM the connected app directly, or `@mention` it in a channel, then confirm it replies right there in the same DM or channel. For email, send a message to the agent's address and check for a reply in the same thread. See [Messaging](/docs/messaging) for the exact steps per platform.
+
+</Steps>
+
+### Routing and delegation
+
+Dispatch does _not_ try to be the email app or the analytics app. When someone asks "summarize last week's signups," Dispatch calls the analytics agent over [A2A](/docs/a2a-protocol) and returns the answer. When someone asks "draft a reply to Alice," Dispatch calls the mail agent instead. The chat is set up as a router: it reads `AGENTS.md` and routes to specialist sub-agents or remote A2A agents rather than answering domain questions itself.
+
+<Diagram id="doc-block-dispfeat1" title={"Routing and approval"} summary={"Every channel lands in the same inbox. The orchestrator either handles a request directly, delegates it to a domain agent over A2A, or sends a gated action to the approval queue first."}>
+
+```html
+<div class="dsp-route-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">Slack · Teams · Discord</div>
+    <div class="diagram-node">Telegram · WhatsApp</div>
+    <div class="diagram-node">Email webhook · A2A request</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Dispatch inbox &amp; orchestrator</span
+    ><small class="diagram-muted">triage</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">Handled directly</div>
+    <div class="diagram-node">
+      Delegated to a domain agent<br /><small class="diagram-muted"
+        >over A2A</small
+      >
+    </div>
+    <div class="diagram-node">
+      <span class="diagram-pill warn">Gated action</span><br /><small
+        class="diagram-muted"
+        >&rarr; Approvals queue</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.dsp-route-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dsp-route-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dsp-route-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.dsp-route-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+Nothing to set up here: as soon as a domain app is scaffolded alongside Dispatch, it's a routing target. See [Dispatch in practice](/docs/template-dispatch#in-practice) on the overview page for a few worked examples.
+
+<Callout tone="info">
+
+**Connecting a channel isn't the same as configuring behavior.** Wiring up Slack just gets messages to the agent. What Dispatch actually does with one, and how it responds, comes from its instructions. For a durable rule like "always check the CRM before answering a pricing question," add one under [Agent and workspace resources](#agent-and-workspace-resources). For something that should happen on its own schedule or trigger, whether or not a message ever arrives, set up an [automation](#automations-and-scheduled-jobs) instead.
+
+</Callout>
+
+## Automations and scheduled jobs
+
+Cross-app scheduled work lives here: "every weekday at 7, pull yesterday's key metrics from analytics and draft a morning summary email." **Admin → Automations** shows enabled state, last run, next run, and last error for each one, and lets you enable or disable scheduled work without editing files by hand. A failed row links straight to **Troubleshoot in Thread Debug**.
+
+<Steps>
+
+### Describe what you want
+
+Tell the agent what to do and how often: "every Monday at 7am, ask analytics for last week's signups and email me a summary."
+
+### Review it on Admin → Automations
+
+The new automation shows up there with its schedule, last run, and next run.
+
+### Enable or disable anytime
+
+Toggle it off without deleting it if you need to pause it.
+
+</Steps>
+
+## Credentials and integrations
+
+Dispatch is where your workspace's credentials, provider accounts, and delivery targets live: saved once here, then granted to whichever apps need them, instead of every app holding its own copy.
+
+### Secrets vault
+
+A central store for API keys, OAuth tokens, and shared credentials. Apps in the workspace resolve secrets from Dispatch instead of duplicating them in every `.env`.
+
+- A secret is saved once, under a name other apps reference, never a copy held by the app itself.
+- A **grant** gives one named app access to a secret. Requesting access without a grant creates a **request** that an admin reviews and approves or denies.
+- Every use is written to an **audit log**: who used which secret, from which app, and when.
+
+<Steps>
+
+### Save a secret
+
+From Dispatch, go to **Admin → Vault** and add a new secret with a name and its value.
+
+### Choose an access mode
+
+By default every workspace app can use every saved secret. Switch to manual mode under **Vault → Access settings** if you need per-app isolation instead.
+
+### Grant or approve
+
+In manual mode, grant a secret to a specific app, or approve a pending request from one that asked for it.
+
+</Steps>
+
+### Reusable integrations
+
+One place to connect provider accounts and grant apps access, instead of every domain app doing its own OAuth or holding its own key. Dispatch owns provider identity and app grants. Domain apps still own app-specific source choices, such as Brain's Slack channel allow-list or Analytics' metric/dashboard configuration.
+
+<Steps>
+
+### Connect a provider
+
+From Dispatch, go to **Admin → Integrations** and connect a provider account once.
+
+### Grant it to an app
+
+Choose which apps can use that connection: Brain, Analytics, Mail, or Dispatch itself.
+
+</Steps>
+
+<Callout tone="info">
+
+**Workspace Connections** are a newer, related idea: a saved, shared provider account any granted app can use directly, including letting the agent query that provider's raw API on demand when a canned action doesn't cover what you need. See [Dispatch developer guide](/docs/template-dispatch-developers) for the mechanics.
+
+</Callout>
+
+### Delivery destinations
+
+Save a reusable delivery target from **Admin → Destinations**: a Slack channel, a Telegram chat, or an email address. Automations and the agent can then send there by name instead of you re-entering it each time. See [Dispatch developer guide](/docs/template-dispatch-developers) for how delivery is tracked and tested.
+
+## Agent resources and profiles
+
+There are two ways to give an agent more than its default knowledge: workspace resources for shared context every app inherits, and dedicated profiles for a focused persona of its own.
+
+### Agent and workspace resources
+
+Skills, guardrail instructions, custom agent profiles, and reference resources can be authored once in Dispatch and inherited by the rest of the workspace. Resources scoped to **All apps** are stored once and read by every app agent at runtime, with no copy step. App and personal resources can override or narrow those defaults locally.
+
+<Steps>
+
+### Open Resources
+
+From Dispatch, go to **Admin → Resources**.
+
+### Pick a kind and scope
+
+Choose a skill, instruction, agent profile, or knowledge file, then scope it to **All apps** or specific selected apps.
+
+### Preview the effective stack
+
+Expand any resource to see exactly what a given app or user receives once workspace defaults, app overrides, and personal notes are all layered together.
+
+</Steps>
+
+See [Agent Resources](/docs/agent-resources#global-resources) for the canonical path table, starter pack, and override model.
+
+### Agent profiles
+
+Beyond app-wide resources, Dispatch's **Agents** page manages reusable agent profiles: focused personas with their own instructions, context, and skills, separate from the technical A2A connections under **Admin → Agents**.
+
+- **Create one from scratch** with a name and instructions.
+
+A profile can also be imported from an existing Claude agent definition or project folder instead of starting blank. See [Dispatch developer guide](/docs/template-dispatch-developers) for how that import works.
+
+Each profile gets its own chat, and can hand off into [creating a new app](#app-launcher) once it's proven useful enough to deserve a real UI.
+
+## Dreams and approvals
+
+Dreams proposes durable changes based on evidence from real runs. Approval flow is how the ones that matter get a second admin's sign-off before they take effect.
+
+### Dreams
+
+Dreams is Dispatch's review loop for agent memory. A pass looks over existing agent runs, feedback, evals, and repeated tool failures, then writes a report with proposed changes. A proposal can target personal memory, shared `LEARNINGS.md`, or workspace instructions, skills, knowledge, and agents, but shared and workspace-level changes stay reviewable rather than being applied silently.
+
+<Steps>
+
+### Run a manual pass
+
+Open **Admin → Dreams** and start a pass. Review the candidate threads it found.
+
+### Open a proposal
+
+Compare the current target content with what's proposed, and the source evidence that justifies the change.
+
+### Apply or reject
+
+Apply only the changes you want to keep. Once reports are consistently useful, ask the agent to set up a recurring dream job so passes happen automatically.
+
+</Steps>
+
+Use Dreams when you want to answer questions like "what did agents keep getting wrong this week?" or "which repeated lesson deserves a skill?"
+
+### Approval flow
+
+Dispatch can gate its own durable, workspace-wide changes behind a second admin's review. It does not gate arbitrary business actions inside domain apps: a Mail send or a Forms webhook has its own risk controls, not this queue.
+
+<Steps>
+
+### Turn on the policy
+
+From Dispatch, go to **Admin → Approvals** and toggle **Require approval for durable changes** on. This requires a team workspace, not a solo one.
+
+### Set approvers
+
+Add the approver emails who can review requests.
+
+### Review pending requests
+
+Each pending request shows a summary, status, and who requested it, with **Approve** and **Reject** buttons.
+
+</Steps>
+
+Today this covers saved destinations, shared or team-wide Dream proposals, All-app agent resources, and Dispatch's approval policy itself. When it's on, the agent surfaces an inline approval preview directly in chat, so admins can approve or reject without leaving the conversation.
+
+## App launcher and creating new apps {#app-launcher}
+
+The **Apps** page is the launcher for every app in the workspace, and the starting point for adding a new one without leaving chat.
+
+<Steps>
+
+### Describe what you need
+
+In chat, ask for a new app: "build me an app for tracking customer onboarding."
+
+### Let Dispatch scaffold it
+
+Dispatch starts a real, independent app under `apps/`, not another screen bolted onto an existing one.
+
+### Find it in the launcher
+
+The new app appears in **Apps** alongside every other app in the workspace, ready to open.
+
+</Steps>
+
+Prefer to start from something proven instead of a blank app? **Apps → New app → Browse templates** lists a curated, reviewed catalog you can remix into an independent app with synthetic data, not a copy of your real one.
+
+<Callout tone="info">
+
+**Chat-first workbench.** An opt-in, more compact shell puts a capped shelf of your apps beside chat instead of a full sidebar, and opens an app in a chrome-less pane next to the conversation. Turn it on from **Settings** if you want a sparser, chat-centered layout.
+
+</Callout>
+
+## Operator console, at a glance
+
+Once a workspace is running, this is where you keep it healthy: change history, usage, and monitoring, all under one roof instead of one-off dashboards.
+
+- **Admin → Audit** is a flat, chronological change history for routes, settings, and approvals: summary, actor, action, and timestamp.
+- **Admin → Metrics** is the workspace-level LLM usage dashboard: spend, calls, active users, and threads, broken down by app, model, and work type over a 7/30/90-day window.
+
+**Admin → Operations** also has Monitoring and Database tabs, and **Admin → Thread Debug** searches and replays individual agent runs. Those are developer-facing surfaces for tracing a specific run or browsing raw data. See [Dispatch developer guide](/docs/template-dispatch-developers) for what each one shows.
+
+**Admin → Identities** links an external sender (a Slack or Telegram account) to a workspace user with a one-time `/link TOKEN` code.
+
+## What's next
+
+- [**Dispatch**](/docs/template-dispatch) — the overview and getting-started steps
+- [**Talk to the Agent**](/docs/template-dispatch-agent) — every prompt by task and how the agent sees your screen
+- [**Dispatch in a Multi-App Workspace**](/docs/template-dispatch-integrations) — how other apps connect to Dispatch, and how Dispatch discovers them
+- [**Dispatch developer guide**](/docs/template-dispatch-developers) — the internals behind these features
+- [**Dispatch action and data reference**](/docs/template-dispatch-reference) — the full action inventory and database schema
+- [**Messaging**](/docs/messaging) — full per-platform channel setup
+- [**Agent Resources**](/docs/agent-resources#global-resources) — the canonical resource model

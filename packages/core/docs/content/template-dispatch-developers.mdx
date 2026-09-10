@@ -1,21 +1,134 @@
 ---
-title: "Dispatch — architecture for developers"
+title: "Dispatch developer guide"
 description: "How Dispatch's package and generated-app source are split, the orchestrator's remote agent registry, scaffolding a workspace with Dispatch, and customizing a curated workspace template."
 ---
 
-# Dispatch — architecture for developers
+# Dispatch developer guide
 
-This page is for engineers extending Dispatch or customizing the template: how the orchestrator finds other agents, how the published package and your generated app source are split, and how to add your own management screens or create a private app from another template.
+This page is for engineers extending Dispatch or customizing the template: how the orchestrator finds other agents, how the published package and your generated app source are split, and how to add your own management screens or create a private app from another template. See [Dispatch action and data reference](/docs/template-dispatch-reference) for the full action inventory, database schema, and route list.
+
+## An action walked through {#action-walkthrough}
+
+`approve-vault-request` looks trivial from the outside: mark a request approved, create the secret, grant it. The store function behind it, `approveRequest` in `packages/dispatch/src/server/lib/vault-store.ts`, handles a real problem that trivial version ignores: two admins approving the same request at the same moment.
+
+<AnnotatedCode
+  id="doc-block-dispatch13"
+  title="approveRequest (vault-store.ts)"
+  filename="packages/dispatch/src/server/lib/vault-store.ts"
+  language="ts"
+  code={
+    'export async function approveRequest(\n  requestId: string,\n  secretValue: string,\n  secretName?: string,\n  ctx: VaultCtx = requireVaultCtx(),\n) {\n  await assertCanManageVault();\n  const db = getDb();\n  const request = await getRequestForTenant(requestId, ctx);\n  if (!request) throw new Error("Request not found");\n\n  const timestamp = now();\n  const reviewer = ctx.ownerEmail;\n  const staleApplyingBefore = timestamp - 5 * 60 * 1000;\n\n  // Fence the transition on the current status — scoped to caller\'s tenant —\n  // so a concurrent approve can\'t both win: only the caller that flips\n  // pending -> applying proceeds to create the secret/grant. A crashed worker\n  // leaves an applying row behind, so a later reviewer may reclaim a lease\n  // that has been idle for five minutes. See\n  // claimAgentTeamRun in packages/core/src/server/agent-teams-run-queue.ts\n  // for the same pattern.\n  const claimed = await db\n    .update(schema.vaultRequests)\n    .set({\n      status: "applying",\n      updatedAt: timestamp,\n    })\n    .where(\n      and(\n        eq(schema.vaultRequests.id, requestId),\n        tenantScope(schema.vaultRequests, ctx),\n        or(\n          eq(schema.vaultRequests.status, "pending"),\n          and(\n            eq(schema.vaultRequests.status, "applying"),\n            sql`${schema.vaultRequests.updatedAt} < ${staleApplyingBefore}`,\n          ),\n        ),\n      ),\n    )\n    .returning();\n\n  if (claimed.length === 0) {\n    const current = await getRequestForTenant(requestId, ctx);\n    if (current?.status === "applying") {\n      throw new Error("Vault request is already being applied");\n    }\n    return current;\n  }\n\n  const claimedRequest = claimed[0];\n\n  // Secret + grant must land in the REQUEST\'s tenant, not the approver\'s\n  // (the approver may be acting on behalf of another user in the same org).\n  const requestCtx = ctxForRow(claimedRequest);\n\n  try {\n    // Check if secret already exists in the request\'s tenant for this key.\n    const existingSecrets = await db\n      .select()\n      .from(schema.vaultSecrets)\n      .where(\n        and(\n          eq(schema.vaultSecrets.credentialKey, claimedRequest.credentialKey),\n          ctxScope(schema.vaultSecrets, requestCtx),\n        ),\n      );\n    let secret = existingSecrets[0] ?? null;\n\n    if (!secret) {\n      secret = await createSecret(\n        {\n          credentialKey: claimedRequest.credentialKey,\n          value: secretValue,\n          name: secretName || claimedRequest.credentialKey,\n        },\n        requestCtx,\n      );\n    }\n\n    if (secret) {\n      // Create the grant in the request\'s tenant as well.\n      await createGrant(secret.id, claimedRequest.appId, requestCtx);\n    }\n  } catch (error) {\n    await db\n      .update(schema.vaultRequests)\n      .set({ status: "pending", updatedAt: now() })\n      .where(\n        and(\n          eq(schema.vaultRequests.id, requestId),\n          tenantScope(schema.vaultRequests, ctx),\n          eq(schema.vaultRequests.status, "applying"),\n        ),\n      );\n    throw error;\n  }\n\n  await db\n    .update(schema.vaultRequests)\n    .set({\n      status: "approved",\n      reviewedBy: reviewer,\n      reviewedAt: timestamp,\n      updatedAt: now(),\n    })\n    .where(\n      and(\n        eq(schema.vaultRequests.id, requestId),\n        tenantScope(schema.vaultRequests, ctx),\n        eq(schema.vaultRequests.status, "applying"),\n      ),\n    );\n\n  await recordVaultAudit({\n    action: "request.approved",\n    appId: claimedRequest.appId,\n    summary: `Approved ${claimedRequest.credentialKey} for ${claimedRequest.appId} (requested by ${claimedRequest.requestedBy})`,\n    metadata: { requestId, reviewer },\n  });\n\n  return getRequestForTenant(requestId, ctx);\n}'
+  }
+  annotations={[
+    {
+      lines: "16-42",
+      label: "Concurrency lock via conditional update",
+      note: "The claim only succeeds if the row is still pending, or stuck applying for over five minutes. Two simultaneous approvals can't both win: only one caller's update actually matches a row and returns it.",
+    },
+    {
+      lines: "44-50",
+      label: "Losing the race isn't an error",
+      note: "If the claim matched nothing, the request is either already mid-flight elsewhere (throw) or was already resolved by the time this call ran (just return its current state).",
+    },
+    {
+      lines: "59-69",
+      label: "Reuse an existing secret instead of duplicating one",
+      note: "A second request for the same credential key finds the secret already created by an earlier approval and grants access to it, rather than creating a duplicate.",
+    },
+    {
+      lines: "86-98",
+      label: "Roll back the lock on failure",
+      note: "If creating the secret or grant throws, the request goes back to pending instead of staying stuck in applying, which is what makes the five-minute stale-lease reclaim above necessary in the first place.",
+    },
+    {
+      lines: "100-114",
+      label: "Finalize only from the lock this call holds",
+      note: "The final flip to approved is still scoped to status = applying, so it can only apply the transition this specific call claimed.",
+    },
+  ]}
+/>
 
 ## Orchestrator agent and remote agent registry {#orchestrator}
 
-The chat is set up as a router: it reads `AGENTS.md` and `LEARNINGS.md` and routes to specialist sub-agents or remote A2A agents. A2A agent manifests are workspace-runtime entries, not a checked-in template source folder: in a multi-app workspace, sibling apps under `apps/` are auto-discovered as A2A peers, with no manual registration needed. Dispatch calls them using the `call-agent` action.
+### Routing to specialist agents
 
-Server plugins register each connected channel's webhook (Slack, Microsoft Teams, Discord, Telegram, WhatsApp) and forward incoming messages to the orchestrator agent. Vault tables (secrets, grants, requests, approvals, audit logs) are Drizzle tables defined in the `@agent-native/dispatch` package (`packages/dispatch/src/db/schema.ts`); the template's own `templates/dispatch/server/db/index.ts` re-exports that same schema via `createGetDb` rather than declaring a template-local `server/db/schema.ts`.
+The chat is set up as a router: it reads `AGENTS.md` and `LEARNINGS.md` and routes to specialist sub-agents or remote A2A agents. A2A agent manifests are workspace-runtime entries, not a checked-in template source folder. In a multi-app workspace, sibling apps under `apps/` are auto-discovered as A2A peers, with no manual registration needed. Dispatch calls them using the `call-agent` action.
+
+### Webhooks and vault tables
+
+Server plugins register each connected channel's webhook (Slack, Microsoft Teams, Discord, Telegram, WhatsApp) and forward incoming messages to the orchestrator agent. Vault tables (secrets, grants, requests, approvals, audit logs) are Drizzle tables defined in the `@agent-native/dispatch` package (`packages/dispatch/src/db/schema.ts`). The template's own `templates/dispatch/server/db/index.ts` re-exports that same schema via `createGetDb` rather than declaring a template-local `server/db/schema.ts`.
+
+## Delivery destinations and queue internals {#delivery}
+
+That inbound flow has an outbound counterpart. **Destinations** (`/admin/destinations`) is where reusable delivery targets are saved: a Slack channel, a Telegram chat, or an email address, each with a name, platform, destination id, and an optional thread/topic reference and notes.
+
+Dispatch delivers messages through a queue-and-processor pattern rather than a fire-and-forget call, so a slow or failed delivery can't block whatever triggered it:
+
+<Steps>
+
+### Save a destination
+
+From **Admin → Destinations**, save a target with a name, platform, and destination id.
+
+### Send through it
+
+A job or the agent calls `send-platform-message` with that destination. The message is queued, not sent inline.
+
+### A processor delivers it
+
+A separate processor drains the queue and does the actual delivery.
+
+### Check the result
+
+The same **Destinations** page shows a queue-health panel, and each saved destination can send its own quick test message.
+
+</Steps>
+
+Agents manage destinations directly with `list-destinations`, `upsert-destination`, and `delete-destination`.
+
+## Agent profile imports {#agent-profile-imports}
+
+Two import paths land in the same place: a runnable profile at `agents/<slug>.md`.
+
+### Importing a single profile
+
+`import-agent` normalizes a Claude Markdown or JSON agent definition into `agents/<slug>.md`, skipping credentials, hooks, shell access, and local env it might reference.
+
+### Importing an agent pack
+
+`import-agent-pack` handles a Claude Project- or Cowork-style folder: a full bundle instead of a single file.
+
+<Steps>
+
+### Hand it the folder
+
+Point `import-agent-pack` at a Claude Project or Cowork-style export.
+
+### The profile lands at the usual path
+
+The runnable profile still ends up at `agents/<slug>.md`, the same place a single-file import would put it.
+
+### Everything else lands beside it
+
+Sibling context, references, and skills land under `agents/<slug>/context/`, `agents/<slug>/references/`, and `agents/<slug>/skills/<name>/SKILL.md`. Use `list-agent-pack` to inspect the files, and the shared agent pack UI to edit them.
+
+</Steps>
 
 ## Package vs app-owned surface split {#package-split}
 
-`@agent-native/dispatch` owns the shell, sidebar, vault schema, and every built-in page — vault, integrations, messaging, operations, destinations, metrics, thread debug, audit, identities, dreams, approvals, automations, and the extensions catalog. Most files under `templates/dispatch/app/routes/` are thin re-exports of those packaged pages (for example `export { default, meta } from "@agent-native/dispatch/routes/pages/operations";`); `integrations.tsx` is the one route that's a full custom page in the template, reusing shared package components directly. The app-owned action surface in `templates/dispatch/actions/` covers Workspace Connections, staged datasets, and the `provider-api-*` escape hatch — everything else (vault, dreams, resources, destinations, approvals, thread debug, audit, identities, metrics) is a packaged action from `@agent-native/dispatch/actions`.
+### What the package owns
+
+`@agent-native/dispatch` owns the shell, sidebar, vault schema, and every built-in page: vault, integrations, messaging, operations, destinations, metrics, thread debug, audit, identities, dreams, approvals, automations, and the extensions catalog. Most files under `templates/dispatch/app/routes/` are thin re-exports of those packaged pages, for example:
+
+```ts
+export { default, meta } from "@agent-native/dispatch/routes/pages/operations";
+```
+
+`integrations.tsx` is the one route that's a full custom page in the template, reusing shared package components directly.
+
+### What the app owns
+
+The app-owned action surface in `templates/dispatch/actions/` covers Workspace Connections, staged datasets, and the `provider-api-*` escape hatch. Everything else, like vault, dreams, resources, destinations, approvals, thread debug, audit, identities, and metrics, is a packaged action from `@agent-native/dispatch/actions`.
 
 <FileTree
   id="doc-block-dispatch7"
@@ -52,29 +165,59 @@ Server plugins register each connected channel's webhook (Slack, Microsoft Teams
   ]}
 />
 
+## Operator console internals {#operator-console}
+
+`/admin/operations` is the focused operator console. It has two tabs, and both reuse existing framework surfaces rather than building new ones.
+
+### Monitoring
+
+Reuses the shared observability dashboard: traces, conversations, evaluations, experiments, and feedback.
+
+### Database
+
+Reuses Code-mode database admin, for browsing and editing the workspace's SQL tables directly.
+
+Use `navigate --view operations|monitoring|observability|database` or `view-screen` to align the agent with whichever tab is open.
+
+### Thread Debug
+
+`/admin/thread-debug` searches across the current or a configured thread-debug source by title, preview, message text, tool name, or owner email, or you can paste a thread id directly. A selected thread opens with **Transcript**, **Runs**, **Internals** (debug runs, trace summaries and spans, feedback and evals), and **Raw** tabs. Agents use `list-agent-thread-sources`, `search-agent-threads`, and `get-agent-thread-debug`.
+
 ## Scaffolding a workspace with Dispatch {#scaffolding}
+
+<Steps>
+
+### Scaffold a workspace
 
 ```bash
 npx @agent-native/core@latest create my-platform
 # Dispatch is included automatically. Deselect Chat for Dispatch only, or select domain apps to scaffold alongside it
 ```
 
-If you prefer to name the template directly instead of using the picker:
+Or name the template directly instead of using the picker:
 
 ```bash
 npx @agent-native/core@latest create my-platform --template dispatch
 # add more apps in the same workspace as you go
 ```
 
-Dispatch is usually scaffolded into a workspace alongside the apps it coordinates. For a workspace, Dispatch's shared auth, database, and brand are inherited from the workspace core — see [Multi-App Workspace](/docs/multi-app-workspace).
+### Add at least one domain app
 
-There is no meaningful `--standalone` Dispatch: a control plane with nothing to coordinate is just an empty inbox. Scaffold it into a workspace with at least one domain app so it has agents to route to over A2A. (The flag still works and produces a runnable app, but the orchestrator has no specialists to delegate to until you add sibling apps.)
+There is no meaningful `--standalone` Dispatch: a control plane with nothing to coordinate is just an empty inbox. Scaffold it into a workspace with at least one domain app so it has agents to route to over A2A. The flag still works and produces a runnable app, but the orchestrator has no specialists to delegate to until you add sibling apps.
 
-From the workspace root, `pnpm install` and `pnpm dev` bring up the dev server — see [Getting started](/docs/getting-started) for the rest of local setup, including account creation and connecting an LLM provider.
+### Install and run
+
+From the workspace root, `pnpm install` and `pnpm dev` bring up the dev server. Dispatch's shared auth, database, and brand are inherited from the workspace core. See [Multi-App Workspace](/docs/multi-app-workspace) and [Getting started](/docs/getting-started) for the rest of local setup, including account creation and connecting an LLM provider.
+
+</Steps>
 
 ## Customizing it {#customize}
 
-Dispatch is a full template like any other — see [Templates](/docs/cloneable-saas). Ask the agent to "add a new integration for Datadog" or "route Slack DMs from channel X to the analytics agent" and it'll edit the routing config, add the webhook handler, and wire it up.
+### Ask the agent
+
+Dispatch is a full template like any other. See [Templates](/docs/cloneable-saas). Ask the agent to "add a new integration for Datadog" or "route Slack DMs from channel X to the analytics agent" and it'll edit the routing config, add the webhook handler, and wire it up.
+
+### Add a management screen by hand
 
 For workspace-specific management screens, add local React Router pages and register them in `app/dispatch-extensions.tsx`. The generated workspace owns only the extra tab and route; `@agent-native/dispatch` keeps owning the shell, sidebar, built-in pages, and future package updates.
 
@@ -106,16 +249,26 @@ For workspace-specific management screens, add local React Router pages and regi
 
 ## Create an app from a curated workspace template {#remix}
 
-Curated workspace templates are reviewed sources for creating an independent private app — mail, calendar, analytics, slides, content, clips, brain, assets, forms, or design.
+Curated workspace templates are reviewed sources for creating an independent private app: mail, calendar, analytics, slides, content, clips, brain, assets, forms, or design.
 
-- **`list-curated-workspace-templates`** returns the reviewed catalog: stable metadata, the live product URL, setup guidance, and whether each source template is already installed in the current workspace.
-- **`remix-workspace-template`** creates a private, independent app. In a local runtime it scaffolds the template directly; in a hosted workspace it starts a Builder app-creation branch instead. The existing action and `<template>-remix` app id remain stable for compatibility, while the request is required to use empty or synthetic seed data only — it must never copy the source app's records, credentials, secrets, or private configuration.
+<Steps>
+
+### Browse the catalog
+
+`list-curated-workspace-templates` returns the reviewed catalog: stable metadata, the live product URL, setup guidance, and whether each source template is already installed in the current workspace.
+
+### Remix one into a new app
+
+`remix-workspace-template` creates a private, independent app. In a local runtime it scaffolds the template directly. In a hosted workspace it starts a Builder app-creation branch instead. The existing action and `<template>-remix` app id remain stable for compatibility. The request must use empty or synthetic seed data only, and never copies the source app's records, credentials, secrets, or private configuration.
+
+</Steps>
 
 ## What's next
 
-- [**Dispatch**](/docs/template-dispatch) — the workspace control plane overview
-- [**Secrets, integrations, and workspace connections**](/docs/template-dispatch-vault-integrations) — the vault, integrations, and Workspace Connections
-- [**Messaging, routing, and approvals**](/docs/template-dispatch-messaging-routing) — channels, routing, and approvals
-- [**Operating the workspace**](/docs/template-dispatch-operations) — jobs, Dreams, and the operator console
+- [**Dispatch**](/docs/template-dispatch) — the overview and getting-started steps
+- [**Dispatch action and data reference**](/docs/template-dispatch-reference) — the full action inventory, database schema, and route list
+- [**Features**](/docs/template-dispatch-features) — every feature area, with setup steps for each
+- [**Talk to the Agent**](/docs/template-dispatch-agent) — prompts by task and how the agent sees your screen
+- [**Dispatch in a Multi-App Workspace**](/docs/template-dispatch-integrations) — how other apps connect to Dispatch, and how Dispatch discovers them
 - [**Creating Templates**](/docs/creating-templates) — the current build pattern for a full template
 - [**A2A Protocol**](/docs/a2a-protocol) — how Dispatch delegates to specialist agents

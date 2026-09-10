@@ -484,6 +484,21 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-dispatch",
           },
           {
+            id: "template-dispatch-features",
+            labelKey: "dispatchFeatures",
+            slug: "template-dispatch-features",
+          },
+          {
+            id: "template-dispatch-agent",
+            labelKey: "dispatchAgent",
+            slug: "template-dispatch-agent",
+          },
+          {
+            id: "template-dispatch-integrations",
+            labelKey: "dispatchIntegrations",
+            slug: "template-dispatch-integrations",
+          },
+          {
             id: "template-dispatch-messaging-routing",
             labelKey: "dispatchMessagingRouting",
             slug: "template-dispatch-messaging-routing",
@@ -502,6 +517,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "template-dispatch-developers",
             labelKey: "dispatchDevelopers",
             slug: "template-dispatch-developers",
+          },
+          {
+            id: "template-dispatch-reference",
+            labelKey: "dispatchReference",
+            slug: "template-dispatch-reference",
           },
         ],
       },

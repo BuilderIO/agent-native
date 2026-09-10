@@ -1,0 +1,59 @@
+---
+title: "Dispatch in a Multi-App Workspace"
+description: "How other apps connect to Dispatch, how Dispatch discovers and delegates to them, and the unified MCP gateway for external agents."
+---
+
+# Dispatch in a Multi-App Workspace
+
+Dispatch is the hub other apps connect through, not a domain app connecting through a hub. This page covers how that connection actually works: how another app and Dispatch come to trust each other, how Dispatch keeps track of which apps it can reach, and how a plain-English request moves between them. See [Dispatch](/docs/template-dispatch) for the overview.
+
+## How other apps connect to Dispatch
+
+Before Dispatch can hand a request to another app, or another app can ask Dispatch for something, the two need to already trust each other. How much work that takes depends on how they were set up.
+
+### Same workspace: automatic
+
+If Dispatch and a domain app were generated or added together into one Agent-Native workspace and deployed as one unit, they already share one `.env`, one signing secret, and one workspace registry. Discovery and authenticated delegation both just work, with nothing to set up, whether the workspace is running on your machine or in production. This is the expected setup for a real multi-app workspace built around Dispatch.
+
+### Separate deployments: one manual step
+
+If Dispatch and a domain app are two independently created Agent-Native projects, they don't share a secret yet and can't call each other. Connecting them takes one manual step on each side: add a connection with a shared secret, from Dispatch's **Admin → Agents** page's **Add external agent** button, or from the equivalent Connections setting on the other app.
+
+To check which situation you're in, ask Dispatch's agent "what apps can you see?" If an app is missing from the answer, you're in the second case.
+
+## How Dispatch discovers and calls sibling apps
+
+Dispatch actually keeps two separate lists, and deliberately doesn't merge them.
+
+- One list is every app mounted in this deployment: its path, its URL, and whether it's meant for internal use or the public. This is what powers the **Apps** page.
+- The other list is specifically the apps Dispatch can hand real work to: the built-in first-party apps, plus any custom connection added for a separately deployed app.
+
+An app can be mounted and visible in the workspace without yet being on the second list, which is exactly the "one manual step" case above. Keeping the two lists separate is what makes that distinction possible, instead of assuming every visible app is automatically reachable.
+
+<Image
+  src="/diagrams/dispatch_two_app_lists.svg"
+  alt="Diagram showing Dispatch's two separate app lists: one listing every mounted app (path, URL, internal or public — powers the Apps page) and another listing apps Dispatch can call (first-party apps plus custom connections). A branch shows the edge case where an app is mounted and visible but not yet on the callable list."
+  caption="Why an app can show up on the Apps page before Dispatch can actually hand it work—two lists, kept deliberately apart."
+/>
+
+## Natural-language delegation, either direction
+
+A sibling app doesn't need a special integration to work with Dispatch, and Dispatch doesn't need one to work with a sibling app. Either side can hand the other's agent a plain-English request, the same way you'd ask a question in chat, and it answers or acts on it directly.
+
+This is the real mechanism behind something like a scheduling request that arrives in Slack turning into a booked event on Calendar's own calendar. Dispatch hands the request to Calendar's agent, and Calendar handles it like any other prompt, with no code written specifically to connect the two. It works the other way too: a domain app can ask Dispatch to do something, like checking whether a credential is granted, without needing to know anything about Dispatch beyond its agent's address.
+
+## One connector for external agents
+
+Instead of connecting a tool like Claude, ChatGPT, Codex, or Cursor to every workspace app one at a time, add Dispatch's own connector once, from **Admin → Agents**, and choose which workspace apps it's allowed to reach. One authorization then covers every app you granted, instead of a separate one per tool per app. Use a direct app connection instead only when that specific tool should be limited to one app rather than the whole workspace.
+
+See [External Agents](/docs/external-agents) for the full connect flow.
+
+## What's next
+
+- [**Dispatch**](/docs/template-dispatch) — the overview and getting-started steps
+- [**Features**](/docs/template-dispatch-features) — every feature area, with setup steps for each
+- [**Talk to the Agent**](/docs/template-dispatch-agent) — prompts by task and how the agent sees your screen
+- [**Dispatch developer guide**](/docs/template-dispatch-developers) — how to extend the app
+- [**Dispatch action and data reference**](/docs/template-dispatch-reference) — every action and the data model
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — the deployment shape Dispatch is built for
+- [**A2A Protocol**](/docs/a2a-protocol) — how cross-app delegation works under the hood

@@ -1,0 +1,306 @@
+---
+title: "Dispatch action and data reference"
+description: "Every Dispatch action grouped by area, the vault and workspace-resources schemas, and the full route list."
+---
+
+# Dispatch action and data reference
+
+Lookup material for Dispatch: every action grouped by area, the database schema behind the vault and workspace resources, and the full route list. See [Dispatch developer guide](/docs/template-dispatch-developers) for the narrative version of how these pieces fit together.
+
+## Action inventory {#actions}
+
+Dispatch ships close to a hundred actions. Most of the UI-facing ones are already covered by task on [Features](/docs/template-dispatch-features). This is the full reference, grouped by area.
+
+### App discovery, launch, and delegation
+
+| Action                                                                                                                 | What it does                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list-workspace-apps`                                                                                                  | Lists apps mounted in this deployment: paths, URLs, audience, and live agent-card metadata.                                                                                                                                     |
+| `list-connected-agents`                                                                                                | Lists agents available for A2A delegation: built-in apps plus custom connections. This is a separate list from `list-workspace-apps` on purpose, see [Dispatch in a Multi-App Workspace](/docs/template-dispatch-integrations). |
+| `list_apps`                                                                                                            | Lists apps reachable through the MCP gateway, filtered by the current access policy.                                                                                                                                            |
+| `open_app`                                                                                                             | Builds a deep link or embeddable route for a granted app.                                                                                                                                                                       |
+| `ask_app` / `ask_app_status`                                                                                           | Sends a plain-English request to another app's agent over A2A, and polls a durable task by id.                                                                                                                                  |
+| `list-mcp-app-access` / `set-mcp-app-access`                                                                           | Reads or writes which apps are exposed through the MCP gateway.                                                                                                                                                                 |
+| `connect-external-agent`                                                                                               | Registers public HTTP/A2A metadata for an external agent.                                                                                                                                                                       |
+| `create_embed_session` / `create-workspace-app-embed-session`                                                          | Mints the short-lived ticket used to embed another app's screen.                                                                                                                                                                |
+| `create-browser-chat-session`                                                                                          | Creates a session for the browser-extension chat bridge.                                                                                                                                                                        |
+| `send-code-agent-remote-command`                                                                                       | Sends a remote command to a connected code-agent session.                                                                                                                                                                       |
+| `remove-pending-workspace-app` / `archive-workspace-app` / `unarchive-workspace-app` / `update-workspace-app-metadata` | Manage a mounted app's lifecycle and metadata.                                                                                                                                                                                  |
+
+### Creating new apps
+
+| Action                                                          | What it does                                                         |
+| --------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `start-workspace-app-creation`                                  | Turns a chat request into a new, independent app under `apps/`.      |
+| `get-app-creation-settings` / `set-app-creation-settings`       | Read or update app-creation defaults.                                |
+| `list-available-workspace-templates`                            | Lists the built-in template catalog.                                 |
+| `list-curated-workspace-templates` / `remix-workspace-template` | List reviewed private sources and clone one into an independent app. |
+| `scaffold-workspace-app`                                        | Runs the actual scaffold step.                                       |
+
+### Secrets vault
+
+| Action                                                                                          | What it does                                             |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `create-vault-secret` / `update-vault-secret` / `delete-vault-secret`                           | Manage a stored credential.                              |
+| `create-vault-grant` / `revoke-vault-grant` / `list-vault-grants`                               | Grant, revoke, or list per-app secret access.            |
+| `request-vault-secret` / `approve-vault-request` / `deny-vault-request` / `list-vault-requests` | The request-and-review workflow for a new secret.        |
+| `grant-vault-secrets-to-app` / `sync-vault-to-app`                                              | Push access, or push the full vault, to one app.         |
+| `list-vault-secrets` / `list-vault-secret-options` / `list-vault-audit`                         | Read secret metadata (never values) and the audit trail. |
+| `get-vault-access-settings` / `set-vault-access-settings`                                       | Read or change the all-apps vs. manual access mode.      |
+
+### Agent and workspace resources
+
+| Action                                                                                                                                 | What it does                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `create-workspace-resource` / `update-workspace-resource` / `delete-workspace-resource`                                                | Manage a skill, instruction, agent profile, knowledge, or MCP-server resource. |
+| `create-workspace-resource-grant` / `revoke-workspace-resource-grant` / `grant-workspace-resources-to-app`                             | Manage per-app access to a `selected`-scope resource.                          |
+| `list-workspace-resources` / `list-workspace-resource-options` / `list-workspace-resource-grants` / `list-workspace-resources-for-app` | List resources and their grants.                                               |
+| `get-workspace-resource-effective-context`                                                                                             | Previews workspace to org/app to personal precedence for a resource.           |
+| `preview-workspace-resource-change`                                                                                                    | Previews reach, overrides, and approval behavior before a write.               |
+| `restore-starter-workspace-resources`                                                                                                  | Restores missing starter-pack files without overwriting existing ones.         |
+
+### Agent profiles and packs
+
+| Action                                  | What it does                                                                        |
+| --------------------------------------- | ----------------------------------------------------------------------------------- |
+| `import-agent`                          | Normalizes a Claude Markdown or JSON definition into `agents/<slug>.md`.            |
+| `import-agent-pack` / `list-agent-pack` | Imports a Claude Project- or Cowork-style folder, or inspects one already imported. |
+
+### Integrations, messaging, and destinations
+
+| Action                                                             | What it does                                                               |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `list-integrations-catalog` / `resolve-integration-source-context` | List available provider integrations and resolve one app's source context. |
+| `upsert-destination` / `delete-destination` / `list-destinations`  | Manage saved delivery targets.                                             |
+| `send-platform-message`                                            | Sends a message through a saved destination.                               |
+| `read-slack-thread-context`                                        | Reads a Slack thread's content from a permalink.                           |
+| `create-pylon-ticket`                                              | Creates a support ticket in Pylon.                                         |
+| `create-link-token` / `list-linked-identities`                     | Link an external sender's account to a workspace user.                     |
+
+### Provider APIs (ad hoc access)
+
+| Action                                                                    | What it does                                                           |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-register`    | List configured providers, fetch their docs, or register a custom one. |
+| `provider-api-request`                                                    | Makes an authenticated request directly against a provider's HTTP API. |
+| `list-staged-datasets` / `query-staged-dataset` / `delete-staged-dataset` | Manage scratch datasets staged from a broad API scan.                  |
+
+### Approvals and audit
+
+| Action                                                   | What it does                                      |
+| -------------------------------------------------------- | -------------------------------------------------- |
+| `approve-dispatch-change` / `reject-dispatch-change`     | Resolve a pending approval request.               |
+| `set-dispatch-approval-policy` / `get-dispatch-settings` | Configure or read the approval policy.            |
+| `list-dispatch-approvals` / `list-dispatch-audit`        | List pending approvals or the change-history log. |
+
+### Overview, usage, and reliability
+
+| Action                                                                                                      | What it does                                      |
+| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `list-dispatch-overview`                                                                                    | Counts and recent activity for the Overview page. |
+| `list-dispatch-usage-metrics`                                                                               | Workspace or personal LLM usage and spend.        |
+| `get-workspace-info`                                                                                        | Workspace identity: name and app count.           |
+| `list-agent-run-failures` / `get-agent-thread-debug` / `list-agent-thread-sources` / `search-agent-threads` | Cross-app thread and run diagnostics.             |
+
+### Dreams
+
+| Action                                                                      | What it does                                                      |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `list-dream-candidates` / `create-dream-report`                             | Find threads with grounded signals, and write a report from them. |
+| `get-dream` / `list-dreams`                                                 | Read one report or list recent ones.                              |
+| `preview-dream-proposal` / `apply-dream-proposal` / `reject-dream-proposal` | Review one proposal.                                              |
+| `get-dream-settings` / `set-dream-settings` / `ensure-dream-job`            | Configure the recurring schedule and materialize the job.         |
+
+### Navigation and context
+
+| Action        | What it does                                                                 |
+| ------------- | ------------------------------------------------------------------------------ |
+| `navigate`    | Moves the UI to a view, path, or chat thread.                                |
+| `view-screen` | Reads back the current navigation state and a view-specific context payload. |
+
+## Data model {#data-model}
+
+<DataModel
+  id="doc-block-dispatch11"
+  title="Secrets vault schema"
+  summary={
+    "A secret is stored once. A grant gives a named app access. A request plus review gates sensitive access before a grant exists. The audit log records who used which secret, when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
+  }
+  entities={[
+    {
+      id: "secrets",
+      name: "vault_secrets",
+      note: "Stored credential values",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "owner_email", type: "text" },
+        { name: "org_id", type: "text", nullable: true },
+        { name: "name", type: "text" },
+        { name: "credential_key", type: "text" },
+        { name: "value", type: "text", note: "secret value" },
+        { name: "provider", type: "text", nullable: true },
+      ],
+    },
+    {
+      id: "grants",
+      name: "vault_grants",
+      note: "Per-app access grant",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "secret_id", type: "text", fk: "vault_secrets.id" },
+        { name: "app_id", type: "text" },
+        { name: "granted_by", type: "text" },
+        { name: "status", type: "text" },
+      ],
+    },
+    {
+      id: "requests",
+      name: "vault_requests",
+      note: "Access request + review",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "credential_key", type: "text" },
+        { name: "app_id", type: "text" },
+        { name: "reason", type: "text", nullable: true },
+        { name: "status", type: "text" },
+        { name: "reviewed_by", type: "text", nullable: true },
+      ],
+    },
+    {
+      id: "audit",
+      name: "vault_audit_log",
+      note: "Who used which secret when",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        {
+          name: "secret_id",
+          type: "text",
+          fk: "vault_secrets.id",
+          nullable: true,
+        },
+        { name: "app_id", type: "text", nullable: true },
+        { name: "action", type: "text" },
+        { name: "actor", type: "text" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "secrets", to: "grants", kind: "1-n", label: "granted via" },
+    { from: "secrets", to: "audit", kind: "1-n", label: "use recorded by" },
+  ]}
+/>
+
+<DataModel
+  id="doc-block-dispatch12"
+  title="Workspace resources schema"
+  summary={
+    "A resource is stored once, at a scope of all (every app inherits it at runtime) or selected (per-app grants required). A grant gives one named app access to a selected-scope resource. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
+  }
+  entities={[
+    {
+      id: "resources",
+      name: "workspace_resources",
+      note: "Skill, instruction, agent, agent-file, knowledge, or mcp-server content",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "owner_email", type: "text" },
+        { name: "org_id", type: "text", nullable: true },
+        {
+          name: "kind",
+          type: "text",
+          note: "skill | instruction | agent | agent-file | knowledge | mcp-server",
+        },
+        { name: "name", type: "text" },
+        { name: "description", type: "text", nullable: true },
+        { name: "path", type: "text", note: "e.g. skills/designer.md" },
+        { name: "content", type: "text" },
+        { name: "scope", type: "text", note: "all | selected" },
+        { name: "created_by", type: "text" },
+      ],
+    },
+    {
+      id: "grants",
+      name: "workspace_resource_grants",
+      note: "Per-app access to a selected-scope resource",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "resource_id", type: "text", fk: "workspace_resources.id" },
+        { name: "app_id", type: "text" },
+        { name: "status", type: "text", note: "active | revoked" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "resources", to: "grants", kind: "1-n", label: "granted via" },
+  ]}
+/>
+
+## Routes reference {#routes}
+
+`packages/dispatch/src/routes/index.ts` exports the full `RouteConfig[]` a generated workspace splits into its own `app/routes.ts`. Every admin page nests under `/admin`, which is what the `Admin →` prefix throughout this doc set refers to.
+
+<FileTree
+  id="doc-block-dispatch14"
+  title="Dispatch routes (packages/dispatch/src/routes/index.ts)"
+  entries={[
+    { path: "/chat, /chat/:threadId", note: "Full-page agent chat" },
+    { path: "/overview", note: "Counts and recent activity" },
+    {
+      path: "/apps, /apps/:appId/*",
+      note: "App launcher and embedded app panes",
+    },
+    { path: "/agents", note: "Agent profiles: create, import, per-agent chat" },
+    {
+      path: "/admin",
+      note: "Operator console shell, nests every admin page below",
+    },
+    {
+      path: "/admin/operations, /admin/metrics",
+      note: "Monitoring/Database tabs, usage dashboard",
+    },
+    {
+      path: "/admin/automations, /admin/approvals",
+      note: "Scheduled work, approval queue",
+    },
+    {
+      path: "/admin/destinations, /admin/transactional-email",
+      note: "Delivery targets",
+    },
+    {
+      path: "/admin/integrations, /admin/vault",
+      note: "Provider integrations, secrets vault",
+    },
+    {
+      path: "/admin/messaging, /admin/identities",
+      note: "Channel setup, external-sender linking",
+    },
+    {
+      path: "/admin/agents",
+      note: "Technical A2A/MCP connections, distinct from /agents",
+    },
+    { path: "/admin/workspace", note: "Agent and workspace resources" },
+    {
+      path: "/admin/audit, /admin/dreams, /admin/thread-debug",
+      note: "Change history, memory review, run diagnostics",
+    },
+    {
+      path: "/settings, /team",
+      note: "Account settings, org and team management",
+    },
+    {
+      path: "/extensions, /extensions/:id[/:slug]",
+      note: "Extensions catalog",
+    },
+    {
+      path: "/:appId",
+      note: "Catch-all: bounces a Builder-style path to a mounted sibling app",
+    },
+  ]}
+/>
+
+## What's next
+
+- [**Dispatch**](/docs/template-dispatch) — the overview and getting-started steps
+- [**Dispatch developer guide**](/docs/template-dispatch-developers) — the narrative version: how these pieces fit together, and how to extend the app
+- [**Features**](/docs/template-dispatch-features) — every feature area, with setup steps for each
+- [**Dispatch in a Multi-App Workspace**](/docs/template-dispatch-integrations) — how other apps connect to Dispatch, and how Dispatch discovers them
