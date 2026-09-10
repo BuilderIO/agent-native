@@ -1,0 +1,269 @@
+export const REASONING_EFFORTS = [
+  "auto",
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+/**
+ * Shared chat always chooses an explicit effort tier. Keep `auto` in the
+ * accepted type only so older persisted selections and external callers can
+ * migrate cleanly; new UI and engine defaults resolve it to High.
+ */
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
+
+export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
+  auto: "Auto",
+  none: "None",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra High",
+  max: "Max",
+};
+
+const VISIBLE_STANDARD_EFFORTS: ReasoningEffort[] = ["low", "medium", "high"];
+
+const VISIBLE_GPT_EFFORTS: ReasoningEffort[] = [
+  ...VISIBLE_STANDARD_EFFORTS,
+  "xhigh",
+];
+
+const VISIBLE_CLAUDE_BUILT_IN_EFFORTS: ReasoningEffort[] = [
+  ...VISIBLE_STANDARD_EFFORTS,
+  "xhigh",
+  "max",
+];
+
+const VISIBLE_CLAUDE_EFFORTS: ReasoningEffort[] = [
+  ...VISIBLE_STANDARD_EFFORTS,
+  "max",
+];
+
+const effortSet = new Set<string>(REASONING_EFFORTS);
+
+export function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return typeof value === "string" && effortSet.has(value);
+}
+
+export function getReasoningEffortOptionsForModel(
+  model: string | undefined,
+): ReasoningEffort[] {
+  if (!model) return [];
+  if (isGPTReasoningModel(model)) {
+    return VISIBLE_GPT_EFFORTS;
+  }
+  if (isClaudeReasoningModel(model)) {
+    return supportsClaudeXHigh(model)
+      ? VISIBLE_CLAUDE_BUILT_IN_EFFORTS
+      : VISIBLE_CLAUDE_EFFORTS;
+  }
+  if (isGeminiReasoningModel(model)) {
+    return VISIBLE_STANDARD_EFFORTS;
+  }
+  return [];
+}
+
+export function normalizeReasoningEffortForModel(
+  model: string | undefined,
+  effort: ReasoningEffort | undefined,
+): ReasoningEffort | undefined {
+  if (!model) return undefined;
+  let normalized =
+    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort;
+  if (
+    normalized === "xhigh" &&
+    isClaudeReasoningModel(model) &&
+    !supportsClaudeXHigh(model)
+  ) {
+    normalized = "high";
+  }
+  if (normalized === "max" && isGPTReasoningModel(model)) {
+    normalized = "xhigh";
+  }
+  const options = getReasoningEffortOptionsForModel(model);
+  if (!options.length || !options.includes(normalized)) {
+    return undefined;
+  }
+  return normalized;
+}
+
+/**
+ * Normalize a chat request before it reaches an engine. Explicit off/minimal
+ * sentinels must survive this layer so the engine can distinguish them from a
+ * missing selection, which now means the Medium default.
+ */
+export function normalizeReasoningEffortForRequest(
+  model: string | undefined,
+  effort: ReasoningEffort | undefined,
+): ReasoningEffort | undefined {
+  if (effort === "none" || effort === "minimal") return effort;
+  return normalizeReasoningEffortForModel(model, effort);
+}
+
+export function reasoningEffortLabel(effort: ReasoningEffort | undefined) {
+  return REASONING_EFFORT_LABELS[
+    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort
+  ];
+}
+
+/**
+ * Resolve a user-facing selection for a model. Legacy `auto`, missing values,
+ * and tiers unsupported by the newly selected model all become High.
+ * Models without effort controls still retain High in persisted chat state so
+ * moving back to an effort-capable model has a predictable default; their
+ * engines omit the effort through `normalizeReasoningEffortForModel`.
+ */
+export function resolveReasoningEffortSelection(
+  model: string | undefined,
+  effort: ReasoningEffort | undefined,
+): ReasoningEffort {
+  const requested =
+    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort;
+  const options = getReasoningEffortOptionsForModel(model);
+  return options.length === 0 || options.includes(requested)
+    ? requested
+    : DEFAULT_REASONING_EFFORT;
+}
+
+/**
+ * One tier down from each effort, stopping at "minimal" — legacy `auto`,
+ * "none", and "minimal" itself are left unchanged. Used by the
+ * empty-final-response retry so a retried turn asks for meaningfully less
+ * effort instead of repeating the exact request that came back empty.
+ */
+const REASONING_EFFORT_STEP_DOWN: Partial<
+  Record<ReasoningEffort, ReasoningEffort>
+> = {
+  max: "xhigh",
+  xhigh: "high",
+  high: "medium",
+  medium: "low",
+  low: "minimal",
+};
+
+export function stepDownReasoningEffort(
+  effort: ReasoningEffort | undefined,
+): ReasoningEffort | undefined {
+  if (!effort) return effort;
+  return REASONING_EFFORT_STEP_DOWN[effort] ?? effort;
+}
+
+export function isGPTReasoningModel(model: string) {
+  const id = model.toLowerCase().replace(/^openai\//, "");
+  return /^gpt-5/.test(id) || /^o\d/.test(id);
+}
+
+function isClaudeReasoningModel(model: string) {
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  if (id.includes("fable-5") || id.includes("mythos-5")) return true;
+  if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
+  if (id.includes("haiku-4-5")) return true;
+  const opusMatch = id.match(/opus-4[-.](\d+)/);
+  return opusMatch ? parseInt(opusMatch[1], 10) >= 6 : false;
+}
+
+/**
+ * Anthropic's adaptive-thinking API is only available on the newer Claude
+ * model families. Claude Haiku 4.5 supports effort, but it still
+ * requires the legacy manual `budget_tokens` configuration.
+ */
+export function supportsClaudeAdaptiveThinking(model: string | undefined) {
+  if (!model) return false;
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  if (id.includes("fable-5") || id.includes("mythos-5")) return true;
+  if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
+  const opusMatch = id.match(/opus-4[-.](\d+)/);
+  return opusMatch ? parseInt(opusMatch[1], 10) >= 6 : false;
+}
+
+/**
+ * Map the shared effort ladder to Anthropic's manual thinking budgets for
+ * models that do not support adaptive thinking (currently Claude Haiku 4.5).
+ */
+export function anthropicManualThinkingBudget(effort: ReasoningEffort) {
+  switch (effort) {
+    case "low":
+      return 1_024;
+    case "medium":
+      return 4_096;
+    case "high":
+      return 8_000;
+    case "xhigh":
+      return 16_000;
+    case "max":
+      return 32_000;
+    default:
+      return 4_096;
+  }
+}
+
+function supportsClaudeXHigh(model: string) {
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  // Models that support the xhigh effort tier (built-in extended thinking via
+  // output_config.effort). Keep this version-aware so any future Claude model
+  // with a higher patch/minor number is automatically included rather than
+  // silently falling back to the lower "high" tier.
+  // claude-fable-5 is a Mythos-class model and also supports xhigh.
+  if (id.includes("fable-5")) return true;
+  // Sonnet 5 supports the expanded effort ladder through Builder/Anthropic.
+  if (id.includes("sonnet-5")) return true;
+  // opus-4-7 introduced xhigh; all opus-4.x successors (4-8, 4-9…) should too.
+  const opusMatch = id.match(/opus-4[-.](\d+)/);
+  if (opusMatch) {
+    return parseInt(opusMatch[1], 10) >= 7;
+  }
+  return false;
+}
+
+function isGeminiReasoningModel(model: string) {
+  return /^gemini-/.test(model.toLowerCase().replace(/^google\//, ""));
+}
+
+/**
+ * Claude dropped the sampling parameters (`temperature`, `top_p`, `top_k`)
+ * starting with Opus 4.7 / Opus 5 / Sonnet 5 / Fable 5; sending one there is a
+ * 400. Older Claude models still accept them, but only the value 1 once
+ * thinking is on.
+ */
+function claudeAcceptsSamplingParams(model: string) {
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  if (id.includes("fable-5") || id.includes("mythos-5")) return false;
+  if (id.includes("sonnet-5")) return false;
+  const opusMatch = id.match(/opus-(\d+)(?:[-.](\d+))?/);
+  if (opusMatch) {
+    const major = parseInt(opusMatch[1], 10);
+    if (major >= 5) return false;
+    const minor = opusMatch[2] ? parseInt(opusMatch[2], 10) : 0;
+    return !(major === 4 && minor >= 7);
+  }
+  return true;
+}
+
+/**
+ * Whether a request may carry the sampling parameters (`temperature`,
+ * `top_p`, `top_k`) at all. Effort resolves to High for every
+ * reasoning-capable Claude model, so a caller that asked only for
+ * `temperature: 0` — an eval judge, a classifier, the memory compactor — was
+ * building a request Anthropic answers with "`temperature` may only be set to
+ * 1 when thinking is enabled or in adaptive mode". Thinking is the capability
+ * worth keeping; the sampling knobs are what the provider withdrew, so they
+ * are dropped once at the engine boundary instead of at every caller. Pass
+ * `thinkingEnabled` only for requests that actually carry Anthropic thinking,
+ * so other providers keep their sampling controls.
+ */
+export function allowsSamplingParams(args: {
+  model: string | undefined;
+  thinkingEnabled: boolean;
+}): boolean {
+  if (!args.model) return true;
+  if (args.thinkingEnabled) return false;
+  return claudeAcceptsSamplingParams(args.model);
+}

@@ -1,0 +1,121 @@
+---
+title: "Roteamento"
+description: "Roteamento baseado em arquivo para aplicativos nativos do agente com React Router v8: páginas, parâmetros dinâmicos e navegação."
+---
+
+# Roteamento
+
+Aplicativos nativos do agente usam **React Router v8** com roteamento baseado em arquivo via `flatRoutes()` de `@react-router/fs-routes`. Todo arquivo em `app/routes/` se torna uma URL. Templates usam a convenção de notação por ponto. Pontos separam segmentos de URL dentro de um único nome de arquivo.
+
+Esta página cobre as rotas de cliente, as páginas renderizadas no navegador a partir de `app/routes/`. Rotas de servidor são um sistema separado: rotas de arquivo Nitro sob `server/routes/`, além dos próprios endpoints `/_agent-native/*` da estrutura. Elas vivem na página [Rotas](/docs/server-routes). Os dois não compartilham um diretório, uma convenção de nomenclatura, ou um roteador, então um arquivo em `server/routes/` nunca se torna uma página aqui e um arquivo em `app/routes/` nunca se torna um endpoint de servidor.
+
+<Diagram id="doc-block-client-routing-1" title="Nome de arquivo → URL" summary="Cada arquivo em app/routes/ se torna uma URL. Pontos se tornam barras, e um segmento $ se torna um parâmetro dinâmico.">
+
+```html
+<div class="diagram-filemap">
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">_index.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard_.$ticketId.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard/:ticketId</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-filemap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-filemap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-filemap-row .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Roteamento baseado em arquivo {#file-based-routing}
+
+### Mapeamento de arquivo → URL
+
+| Arquivo                    | URL                    | Notas                                                                                  |
+| -------------------------- | ---------------------- | -------------------------------------------------------------------------------------- |
+| `_index.tsx`               | `/`                    | Rota de índice                                                                         |
+| `dashboard.tsx`            | `/dashboard`           | Página simples                                                                         |
+| `extensions.$id.tsx`       | `/extensions/:id`      | Aninha dentro do `<Outlet/>` de `extensions.tsx`. `$` é um parâmetro dinâmico          |
+| `dashboard_.$ticketId.tsx` | `/dashboard/:ticketId` | O `_` no final pula o aninhamento sob `dashboard.tsx`, então esta é sua própria página |
+| `_app.tsx`                 | (sem segmento de URL)  | Layout sem caminho. Prefixe com `_`                                                    |
+| `inbox/route.tsx`          | `/inbox`               | Formato de pasta. `route.tsx` é o índice                                               |
+
+Prefixe um segmento com `$` para um parâmetro dinâmico. Prefixe com `_` para torná-lo uma rota de layout sem caminho (sem segmento de URL), ou adicione um `_` no final antes de um ponto para tirar um caminho que parece aninhado do aninhamento sob o layout do seu pai. Templates usam `flatRoutes()`. O arquivo em notação por ponto acima é o principal. O formato de pasta aninhada `inbox/route.tsx` também funciona.
+
+## Adicionando uma nova página {#adding-a-page}
+
+Crie o arquivo e exporte um componente padrão:
+
+```tsx filename="app/routes/settings.tsx"
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+É isso. O servidor de desenvolvimento lê os arquivos de rota ao iniciar. Se `pnpm dev` já estiver em execução, reinicie-o depois de adicionar o arquivo. Não é necessário registrar a rota.
+
+## Parâmetros dinâmicos {#dynamic-params}
+
+```tsx filename="app/routes/dashboard_.$ticketId.tsx"
+import { useParams } from "react-router";
+
+export default function TicketDetailPage() {
+  const { ticketId } = useParams();
+  return <div>Ticket: {ticketId}</div>;
+}
+```
+
+O `_` no final antes do ponto impede que esta página aninhe dentro do `<Outlet/>` de `dashboard.tsx`, então ela renderiza como sua própria página completa em `/dashboard/:ticketId` em vez de aparecer dentro do layout da fila de tickets.
+
+## Navegação {#navigation}
+
+Use `<Link>` para navegação do lado do cliente e `useNavigate()` para navegação programática:
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/dashboard">Dashboard</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/dashboard/${ticketId}`);
+```
+
+Nenhum dos dois informa ao agente o que o usuário está vendo por conta própria. Essa é uma preocupação separada, tratada por `useAgentRouteState()` gravando a rota atual no estado do aplicativo. Veja [Consciência do Contexto](/docs/context-awareness).
+
+## O que vem a seguir
+
+- [**Visão geral**](/docs/client-overview) — onde `app/routes/` se encaixa entre o resto de `app/` e `public/`
+- [**Dados e sincronização**](/docs/client-data) — lendo e gravando dados dentro de uma rota
+- [**Chat do Agent**](/docs/client-agent-chat) — enviando prompts e preparando contexto a partir de uma rota
+- [**Rotas**](/docs/server-routes) — o sistema separado de roteamento de servidor: rotas de arquivo sob `server/routes/` e o namespace `/_agent-native/` da estrutura
+- [**Consciência do Contexto**](/docs/context-awareness) — como o agente aprende a rota e a seleção atuais

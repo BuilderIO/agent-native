@@ -1,0 +1,27 @@
+{
+  // Standalone on purpose: `e2e/` is not a pnpm workspace package, so the
+  // per-package `pnpm typecheck` sweep never reaches it. Without this file and
+  // the `typecheck:e2e` script that uses it, a type error here would only
+  // surface mid-run, after the suite had already spent model tokens.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // @types/node is not a root dependency; resolve it from the workspace
+    // package that does depend on it rather than adding a root dep just for
+    // this config.
+    "typeRoots": ["../../packages/core/node_modules/@types"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "test-results", "playwright-report", ".auth"]
+}

@@ -1,0 +1,14 @@
+---
+title: Doctor
+description: セキュリティと移行のチェック。
+---
+
+# Doctor
+
+生成されたアプリと workspace のソースコードは、リポジトリの開発ワークフローで変更できます。意図的に workspace と書き込みツールを与えられたエージェント frame も変更できます。`agent-native doctor` はソースのセキュリティ上重要なコード不変条件を検査します。読み取り専用であり、コードを編集せず結果だけを報告します。
+
+`agent-native doctor` は 8 つのセキュリティ guard と `migration-manifest` の計 9 guard を実行します。後者はインストール済み `migration-manifest.json` の import を検出し、opt-out はできません。`agent-native doctor --only migration-manifest`、`npx @agent-native/core@latest upgrade --codemods`、確認後の `--yes` を使います。JSON の `guardsRun` には 9 件が出ます。
+
+CLI は新しいすべての app と workspace に `pnpm doctor` と `pnpm agent-native:doctor` を追加します。workspace root から実行すると `apps/<name>` の各 app を検査します。finding がある場合、build はデフォルトで失敗します。`failOnBuild: false` はレビュー済みの例外に限り使用してください。
+
+`planned` と記されたエントリは警告としてのみ表示され、書き換えられません。active なエントリは finding となり、codemod は移行先の export がインストール済みの場合にだけ書き換えます。

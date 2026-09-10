@@ -1,0 +1,137 @@
+---
+title: "Formulários"
+description: "Um construtor de formulários desenvolvido por agente que substitui o Typeform e o Google Forms por um único aplicativo que você possui. Descreva o formulário desejado no chat, publique um link protegido e veja as respostas serem encaminhadas, exportadas e resumidas automaticamente."
+---
+
+# Formulários
+
+Forms é um construtor de formulários para qualquer pessoa que precise coletar informações sem escrever código. Use-o para inscrições, feedback, cadastros ou pesquisas. Descreva o formulário desejado para o agente, ajuste-o visualmente quando quiser mais controle direto, e publique um link que qualquer pessoa possa preencher.
+
+<Cards columns={1}>
+
+### [Experimente agora →](https://forms.agent-native.com)
+
+Veja o Forms em funcionamento e publique um formulário real.
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70338a3cf0cc402580858a409dd5bd6a?alt=media&token=f2c7c8e9-6cf3-4e03-865d-abc499d87ff6&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Um breve tour pelo aplicativo de formulários."
+  caption="Um breve tour pelo aplicativo de formulários."
+  autoplay={true}
+  loop={true}
+/>
+
+Toda nova sessão abre no **Ask Forms**, um chat onde você descreve o que quer. O agente cria o formulário para você. Você pode então ir para o editor visual a qualquer momento que quiser ajustar campos, validações ou configurações de publicação manualmente. As duas formas de edição atualizam o mesmo formulário, então nada fica dessincronizado.
+
+<Diagram id="doc-block-forms2" title="Construa, publique, colete" summary={"O agente e o editor visual editam o mesmo formulário. Qualquer pessoa pode abrir a página pública de preenchimento sem fazer login, e novos envios são enviados automaticamente para seus destinos."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Chat do Ask Forms<br /><small class="diagram-muted"
+        >"adicionar uma pergunta de NPS"</small
+      >
+    </div>
+    <div class="diagram-node">
+      Editor visual<br /><small class="diagram-muted"
+        >rótulos, validação, ordem</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · patch-form-fields</span
+    ><small class="diagram-muted">JSON de campos, JSON de configurações</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">SQL via Drizzle</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Página pública de preenchimento<br /><small class="diagram-muted"
+        >não autenticada</small
+      >
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / webhook / Planilhas Google</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## O que ele substitui
+
+<Comparison>
+
+### Antes
+
+- Typeform, Google Forms, ou um formulário feito à mão para coletar respostas
+- Copiar novos envios para o Slack ou uma planilha manualmente
+- Uma ferramenta separada só para resumir o que chegou
+- Configurar uma automação no Zapier para levar respostas até as Planilhas Google ou até um webhook
+
+### Depois
+
+- Um formulário que o agente e o editor visual atualizam juntos
+- Novas respostas são enviadas para Slack, Discord, Planilhas Google ou um webhook assim que chegam
+- Peça um resumo e receba um gráfico, uma tabela, ou os dois, sem precisar de uma ferramenta separada
+- Campos condicionais, proteção contra spam e modo anônimo já vêm integrados ao mesmo construtor
+
+</Comparison>
+
+## Forms em um workspace com múltiplos apps
+
+Se você executar o Forms junto com outros aplicativos no [Dispatch](/docs/template-dispatch), um formulário deixa de ser apenas uma página que você abre manualmente. O agente do Forms pode repassar perguntas que pertencem a outro aplicativo, e outros aplicativos podem enviar respostas diretamente para o seu formulário, da mesma forma que o botão de feedback do próprio framework faz. Veja [Forms em um workspace com múltiplos apps](/docs/template-forms-integrations) para saber como isso funciona.
+
+## O que você pode fazer com isso
+
+- **Crie formulários de forma conversacional.** Experimente prompts como "Crie um formulário de contato," "adicione uma pergunta de pontuação NPS," ou "torne o campo de e-mail obrigatório." Veja [os tipos de campo disponíveis](/docs/template-forms-features#field-types).
+- **Ajuste visualmente.** Edite rótulos, textos de espaço reservado, campos obrigatórios, opções e ordem dos campos diretamente no construtor de formulários quando quiser mais controle direto.
+- **Publique e proteja um formulário público.** Compartilhe um link público, e ative a proteção contra spam ou respostas totalmente anônimas quando precisar. Veja [Funcionalidades](/docs/template-forms-features).
+- **Revise respostas e peça insights.** Experimente prompts como "Resuma os envios desta semana" ou "Crie um gráfico de envios por dia." Veja [Funcionalidades](/docs/template-forms-features#response-insights).
+- **Encaminhe envios automaticamente.** Cole uma URL do Slack, Discord, Planilhas Google ou de um webhook genérico, e as novas respostas são enviadas para lá assim que chegam.
+
+## Próximos passos
+
+- [**Funcionalidades**](/docs/template-forms-features) — tipos de campo, lógica condicional, publicação, proteções, respostas, insights e encaminhamento, com passos de configuração para cada uma
+- [**Conversar com o Agent**](/docs/template-forms-agent) — prompts por tarefa e como o agente vê sua tela
+- [**Forms em um workspace com múltiplos apps**](/docs/template-forms-integrations) — delegação e o endpoint público de envio que outros aplicativos usam
+- [**Guia do desenvolvedor**](/docs/template-forms-developers) — o esquema SQL, a referência de actions e as rotas, para desenvolvedores
+- [**Templates**](/docs/cloneable-saas) — o modelo Cloneable SaaS
+- [**Primeiros passos**](/docs/getting-started) — os fundamentos do framework: actions, estado da aplicação e sincronização em tempo real
+- [**Actions**](/docs/actions-overview) — o sistema de actions que alimenta o construtor
+- [**Messaging**](/docs/messaging) — Slack e outros destinos de envio
+- [**Compartilhamento**](/docs/sharing) — o modelo de concessão de compartilhamento sobre o qual o compartilhamento de formulários é construído

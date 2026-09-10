@@ -1,0 +1,135 @@
+---
+title: "النماذج"
+description: "أداة إنشاء نماذج مدعومة بالوكيل تحل محل Typeform وGoogle Forms بتطبيق واحد تملكه. صف النموذج الذي تريده في المحادثة، وانشر رابطًا محميًا، وشاهد الردود تُوجَّه وتُصدَّر وتُلخَّص تلقائيًا."
+---
+
+# النماذج
+
+النماذج أداة لإنشاء النماذج لأي شخص يحتاج إلى جمع المعلومات دون كتابة كود. استخدمها للتسجيلات، أو التعليقات، أو تسجيلات الفعاليات، أو الاستبيانات. صف للوكيل النموذج الذي تريده، واضبطه بصريًا عندما تريد تحكمًا مباشرًا أكثر، وانشر رابطًا يمكن لأي شخص تعبئته.
+
+<Cards columns={1}>
+
+### [جرّبه الآن →](https://forms.agent-native.com)
+
+شاهد النماذج مباشرة وانشر نموذجًا حقيقيًا.
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70338a3cf0cc402580858a409dd5bd6a?alt=media&token=f2c7c8e9-6cf3-4e03-865d-abc499d87ff6&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="جولة سريعة في تطبيق النماذج."
+  caption="جولة سريعة في تطبيق النماذج."
+  autoplay={true}
+  loop={true}
+/>
+
+تُفتَح كل جلسة جديدة على **اسأل النماذج**، وهي محادثة تصف فيها ما تريده. يُنشئ الوكيل النموذج نيابةً عنك. يمكنك بعد ذلك الانتقال إلى المحرر المرئي في أي وقت لضبط الحقول أو التحقق من الصحة أو إعدادات النشر يدويًا. تُحدِّث كلتا طريقتي التحرير النموذج نفسه، لذا لا يخرج شيء عن التزامن.
+
+<Diagram id="doc-block-forms2" title="البناء والنشر والجمع" summary={"يقوم الوكيل والمحرر المرئي بتحرير النموذج نفسه. يمكن لأي شخص فتح صفحة التعبئة العامة دون تسجيل الدخول، وتُرسَل الإرسالات الجديدة إلى وجهاتك تلقائيًا."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      محادثة اسأل النماذج<br /><small class="diagram-muted"
+        >"أضف سؤال NPS"</small
+      >
+    </div>
+    <div class="diagram-node">
+      المحرر المرئي<br /><small class="diagram-muted"
+        >التسميات، والتحقق من الصحة، والترتيب</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · patch-form-fields</span
+    ><small class="diagram-muted">JSON للحقول، JSON للإعدادات</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">SQL عبر Drizzle</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      صفحة تعبئة عامة<br /><small class="diagram-muted">غير مصادَق عليها</small>
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / webhook / Sheets</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## ما الذي يحل محله
+
+<Comparison>
+
+### قبل
+
+- Typeform، أو Google Forms، أو نموذج مبني يدويًا لجمع الردود
+- نسخ الإرسالات الجديدة يدويًا إلى Slack أو جدول بيانات
+- أداة منفصلة فقط لتلخيص ما ورد
+- إعداد أتمتة Zapier لنقل الردود إلى Sheets أو webhook
+
+### بعد
+
+- نموذج واحد يُحدِّثه كل من الوكيل والمحرر المرئي
+- تُرسَل الردود الجديدة إلى Slack، أو Discord، أو Sheets، أو webhook لحظة وصولها
+- اطلب تلخيصًا واحصل على مخطط، أو جدول، أو كليهما، دون أداة منفصلة
+- الحقول الشرطية، والحماية من الرسائل غير المرغوب فيها، والوضع المجهول، كلها مدمجة في المنشئ نفسه
+
+</Comparison>
+
+## النماذج في مساحة عمل متعددة التطبيقات
+
+إذا كنت تُشغّل النماذج جنبًا إلى جنب مع تطبيقات أخرى ضمن [Dispatch](/docs/template-dispatch)، فلم يعد النموذج مجرد صفحة تفتحها يدويًا. يمكن لوكيل النماذج تمرير الأسئلة التي تخص تطبيقًا آخر، ويمكن للتطبيقات الأخرى إرسال ردود إلى نموذجك مباشرة، بالطريقة نفسها التي يعمل بها زر التعليقات الخاص بإطار العمل نفسه. راجع [النماذج في مساحة عمل متعددة التطبيقات](/docs/template-forms-integrations) لمعرفة كيفية عمل هذا.
+
+## ما يمكنك فعله به
+
+- **أنشئ النماذج بشكل تحادثي.** جرّب مطالبات مثل "أنشئ نموذج اتصال"، أو "أضف سؤال نتيجة NPS"، أو "اجعل حقل البريد الإلكتروني مطلوبًا." راجع [أنواع الحقول المتاحة](/docs/template-forms-features#field-types).
+- **اضبطه بصريًا.** حرّر التسميات، والعناصر النائبة، والحقول المطلوبة، والخيارات، وترتيب الحقول مباشرة في منشئ النماذج عندما تريد تحكمًا مباشرًا أكثر.
+- **انشر نموذجًا عامًا واحمِه.** شارك رابطًا عامًا، وفعّل الحماية من الرسائل غير المرغوب فيها أو الردود المجهولة بالكامل عند الحاجة. راجع [الميزات](/docs/template-forms-features).
+- **راجع الردود واطلب رؤى تحليلية.** جرّب مطالبات مثل "لخّص إرسالات هذا الأسبوع" أو "ارسم مخططًا للإرسالات حسب اليوم." راجع [الميزات](/docs/template-forms-features#response-insights).
+- **وجّه الإرسالات تلقائيًا.** الصق عنوان URL لـ Slack، أو Discord، أو Google Sheets، أو webhook عام، وتُرسَل الردود الجديدة إلى هناك لحظة وصولها.
+
+## ما التالي
+
+- [**الميزات**](/docs/template-forms-features) — أنواع الحقول، والمنطق الشرطي، والنشر، والحمايات، والردود، والرؤى التحليلية، والتوجيه، مع خطوات إعداد لكل منها
+- [**التحدث مع الوكيل**](/docs/template-forms-agent) — المطالبات بحسب المهمة وكيف يرى الوكيل شاشتك
+- [**النماذج في مساحة عمل متعددة التطبيقات**](/docs/template-forms-integrations) — التفويض ونقطة نهاية الإرسال العامة التي تستخدمها التطبيقات الأخرى
+- [**دليل المطور**](/docs/template-forms-developers) — مخطط SQL، ومرجع الإجراءات، والمسارات، للمطورين
+- [**القوالب**](/docs/cloneable-saas) — نموذج Cloneable SaaS
+- [**بدء الاستخدام**](/docs/getting-started) — أساسيات إطار العمل: الإجراءات، وحالة التطبيق، والمزامنة المباشرة
+- [**الإجراءات**](/docs/actions-overview) — نظام الإجراءات الذي يدعم المنشئ
+- [**Messaging**](/docs/messaging) — Slack ووجهات الإرسال الأخرى
+- [**المشاركة**](/docs/sharing) — نموذج منح المشاركة الذي تُبنى عليه مشاركات النماذج

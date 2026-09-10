@@ -1,0 +1,250 @@
+@import "tailwindcss";
+
+/* Scan core package client components for Tailwind classes */
+@source "../../core/src/client/**/*.tsx";
+@source "../../core/src/client/**/*.ts";
+
+/* Theme tokens — shadcn/ui compatible HSL variable color system */
+@theme {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+:root {
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 0 91% 71%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 60%;
+  --radius: 0.5rem;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+}
+
+body {
+  margin: 0;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.agent-frame-shell {
+  --agent-native-lower-surface: hsl(
+    var(--sidebar-background, var(--background))
+  );
+  --agent-native-raised-surface: hsl(var(--background));
+  --agent-native-card-surface: hsl(var(--card));
+  --agent-native-raised-radius: 8px;
+  background: var(--agent-native-lower-surface);
+}
+
+@supports (background: color-mix(in srgb, white, black)) {
+  .agent-frame-shell {
+    --agent-native-lower-surface: color-mix(
+      in srgb,
+      hsl(var(--sidebar-background, var(--background))) 98%,
+      black
+    );
+  }
+
+  .dark .agent-frame-shell,
+  .dark.agent-frame-shell {
+    --agent-native-lower-surface: color-mix(
+      in srgb,
+      hsl(var(--sidebar-background, var(--background))) 94%,
+      black
+    );
+    --agent-native-raised-surface: color-mix(
+      in srgb,
+      hsl(var(--background)) 78%,
+      hsl(var(--muted)) 22%
+    );
+    --agent-native-card-surface: color-mix(
+      in srgb,
+      var(--agent-native-raised-surface) 88%,
+      hsl(var(--muted)) 12%
+    );
+  }
+}
+
+.agent-frame-main-surface {
+  z-index: 1;
+  background: var(--agent-native-raised-surface);
+  transition:
+    border-radius 260ms cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-frame-main-surface > :where(header, div).border-b,
+.agent-frame-main-surface > :first-child > :where(header, div).border-b {
+  border-bottom-color: transparent !important;
+  background-color: var(--agent-native-raised-surface) !important;
+}
+
+.agent-frame-main-surface > :where(header, div).border-b.h-12,
+.agent-frame-main-surface > :first-child > :where(header, div).border-b.h-12 {
+  min-height: 4rem;
+  height: 4rem;
+}
+
+.dark .agent-frame-main-surface :where(.bg-card) {
+  background-color: var(--agent-native-card-surface) !important;
+}
+
+.agent-frame-sidebar {
+  background: var(--agent-native-lower-surface);
+}
+
+.agent-frame-sidebar > .agent-frame-sidebar-inner {
+  background: inherit;
+}
+
+.agent-frame-sidebar-placeholder {
+  height: 100%;
+  min-width: 0;
+  pointer-events: none;
+}
+
+@media (min-width: 768px) {
+  .agent-frame-main-surface[data-agent-frame-main-state="open"] {
+    border-start-end-radius: var(--agent-native-raised-radius);
+    border-end-end-radius: var(--agent-native-raised-radius);
+    box-shadow: none;
+  }
+}
+
+/* No `will-change` on this sidebar or its inner column. Both stay mounted for
+   the life of the workspace, so the hint is never retired and pins a composited
+   layer around the whole agent panel. The browser promotes these transitions on
+   its own for the 260ms they run. */
+.agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"] {
+  width: 0;
+  overflow: clip;
+  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"][data-agent-frame-sidebar-state="open"] {
+  width: var(--agent-frame-sidebar-width);
+}
+
+.agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"]
+  > .agent-frame-sidebar-inner {
+  width: var(--agent-frame-sidebar-width);
+  min-width: var(--agent-frame-sidebar-width);
+  max-width: var(--agent-frame-sidebar-width);
+  height: 100%;
+  transform: translateX(100%);
+  transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-frame-sidebar[data-agent-frame-sidebar-layout="drawer"] {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: var(--agent-frame-sidebar-width);
+  max-width: 100vw;
+  z-index: 80;
+  transform: translateX(0);
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
+  box-shadow: -12px 0 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
+  transition: transform 260ms var(--ease-drawer);
+}
+
+.agent-frame-sidebar[data-agent-frame-sidebar-layout="drawer"]
+  > .agent-frame-sidebar-inner {
+  width: var(--agent-frame-sidebar-width);
+  min-width: var(--agent-frame-sidebar-width);
+  max-width: var(--agent-frame-sidebar-width);
+  height: 100%;
+  transform: none;
+}
+
+.agent-frame-sidebar[data-agent-frame-sidebar-layout="drawer"][data-agent-frame-sidebar-state="closed"] {
+  transform: translateX(100%);
+}
+
+.dark .agent-frame-sidebar[data-agent-frame-sidebar-layout="drawer"] {
+  --agent-shadow-o: 0.08;
+}
+
+.agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"][data-agent-frame-sidebar-state="open"]
+  > .agent-frame-sidebar-inner {
+  transform: translateX(0);
+}
+
+@starting-style {
+  .agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"][data-agent-frame-sidebar-state="open"] {
+    width: 0;
+  }
+
+  .agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"][data-agent-frame-sidebar-state="open"]
+    > .agent-frame-sidebar-inner {
+    transform: translateX(100%);
+  }
+}
+
+@supports (view-transition-name: agent-native-frame-sidebar) {
+  ::view-transition-old(agent-native-frame-sidebar),
+  ::view-transition-new(agent-native-frame-sidebar) {
+    height: 100%;
+    animation-duration: 340ms;
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-frame-sidebar[data-agent-frame-sidebar-animation],
+  .agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"]
+    > .agent-frame-sidebar-inner {
+    transition: none;
+  }
+  .agent-frame-sidebar[data-agent-frame-sidebar-layout="drawer"] {
+    transition: none;
+  }
+}

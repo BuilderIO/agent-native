@@ -1,0 +1,12 @@
+export { cn } from "@agent-native/toolkit/utils";
+
+export function isMacPlatform(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent)
+  );
+}
+
+export function shortcutModifierLabel(): string {
+  return isMacPlatform() ? "Cmd" : "Ctrl";
+}

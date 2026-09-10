@@ -1,0 +1,47 @@
+---
+id: F4
+title: Evidence and chat
+status: done
+order: 4
+---
+
+# F4 — Evidence and chat
+
+## What it is
+
+CRM can connect a bounded piece of call evidence to a record and turn it into a
+reviewable signal. The agent is the conversational interface to the same CRM
+actions the UI uses, so work stays visible, permission-scoped, and reversible
+where possible.
+
+## Call evidence and signals
+
+<!-- status: done -->
+
+- Attach a source URL or id, a bounded quote, speaker, timestamp, and summary
+  to a CRM record.
+- Run deterministic keyword trackers over the stored excerpt.
+- Delegate smart moments and summaries through agent chat.
+- Review each signal and confirm or dismiss it before it becomes part of the
+  record's working context.
+
+CRM stores references and bounded excerpts, not recordings, transcripts, or
+other raw media. The source app keeps ownership of the original call artifact.
+
+## Chat parity
+
+The agent can use the same actions as the UI: list records, create a list, save
+a view, add a task, inspect a record, prepare a provider proposal, and navigate
+to the relevant screen. It reads the current CRM screen when that context
+matters and keeps the UI synchronized after a change.
+
+Useful prompts include:
+
+- “Show me open opportunities in the Proposal stage.”
+- “Create a board view for this list grouped by stage.”
+- “Add a follow-up task for this account next Tuesday.”
+- “Find likely duplicates for this company and explain each match.”
+- “Prepare the provider change, but do not apply it.”
+
+Provider changes remain proposal-first: CRM shows the exact diff and hands the
+final upstream action back to HubSpot or Salesforce.
