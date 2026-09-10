@@ -228,7 +228,7 @@ export const clipIntakeSessions = table(
     organizationId: text("organization_id").notNull(),
     recordingId: text("recording_id"),
     status: text("status", {
-      enum: ["open", "creating", "recording", "completed"],
+      enum: ["open", "creating", "recording", "completed", "aborted"],
     })
       .notNull()
       .default("open"),

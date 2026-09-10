@@ -3,6 +3,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { z } from "zod";
 
 import {
+  abandonClipIntake,
   attachClipIntakeRecording,
   claimClipIntakeRecording,
   releaseClipIntakeCreation,
@@ -12,6 +13,7 @@ import { buildClipIntakeUrl } from "../shared/clip-intake.js";
 import createRecording from "./create-recording.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import saveBugReportContext from "./save-bug-report-context.js";
+import trashRecording from "./trash-recording.js";
 
 const bugReportSchema = z.object({
   projectId: z.string().max(120).nullish(),
@@ -83,7 +85,31 @@ export default defineAction({
       throw error;
     }
 
-    await attachClipIntakeRecording(intakeId, created.id);
+    try {
+      await attachClipIntakeRecording(intakeId, created.id);
+    } catch (error) {
+      await abandonClipIntake(intakeId, created.id).catch(() => {});
+      await Promise.resolve(
+        runWithRequestContext(
+          {
+            userEmail: claimed.ownerEmail,
+            orgId: claimed.organizationId,
+          },
+          () =>
+            trashRecording.run(
+              { id: created.id, skipIfReady: true },
+              {
+                caller: "http",
+                userEmail: claimed.ownerEmail,
+                orgId: claimed.organizationId,
+              },
+            ),
+        ),
+      ).catch((cleanupError: unknown) => {
+        console.warn("[clip-intake] attach cleanup failed:", cleanupError);
+      });
+      throw error;
+    }
 
     if (bugReport) {
       await runWithRequestContext(
@@ -106,9 +132,28 @@ export default defineAction({
               },
             );
           } catch (error) {
-            console.warn(
-              "[clip-intake] bug report context save failed:",
-              error,
+            await abandonClipIntake(intakeId, created.id).catch(() => {});
+            await Promise.resolve(
+              trashRecording.run(
+                { id: created.id, skipIfReady: true },
+                {
+                  caller: "http",
+                  userEmail: claimed.ownerEmail,
+                  orgId: claimed.organizationId,
+                },
+              ),
+            ).catch((cleanupError: unknown) => {
+              console.warn(
+                "[clip-intake] bug report cleanup failed:",
+                cleanupError,
+              );
+            });
+            fail(
+              "Could not save the bug report context. This intake was not completed. Try again.",
+              {
+                errorCode: "intake_context_unavailable",
+                statusCode: 503,
+              },
             );
           }
         },

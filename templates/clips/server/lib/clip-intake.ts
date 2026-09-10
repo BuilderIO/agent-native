@@ -79,7 +79,7 @@ export async function resolveClipIntakeRequest(
   if (
     !session.recordingId ||
     session.recordingId !== recordingId ||
-    !["recording", "completed"].includes(session.status)
+    session.status !== "recording"
   ) {
     throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
   }
@@ -88,6 +88,25 @@ export async function resolveClipIntakeRequest(
     ownerEmail: session.ownerEmail,
     orgId: session.organizationId,
   };
+}
+
+export async function resolveClipIntakeStatusRequest(
+  event: H3Event,
+  recordingId: string,
+): Promise<ClipIntakeSession> {
+  const params = parseClipIntakeParams(queryParams(event));
+  if (!params) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
+  }
+  const session = await requireClipIntakeSession(params.intakeId, params.token);
+  if (
+    !session.recordingId ||
+    session.recordingId !== recordingId ||
+    !["recording", "completed"].includes(session.status)
+  ) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
+  }
+  return session;
 }
 
 export async function claimClipIntakeRecording(
@@ -158,6 +177,24 @@ export async function completeClipIntake(
         eq(schema.clipIntakeSessions.id, intakeId),
         eq(schema.clipIntakeSessions.recordingId, recordingId),
         inArray(schema.clipIntakeSessions.status, ["recording", "completed"]),
+      ),
+    );
+}
+
+export async function abandonClipIntake(
+  intakeId: string,
+  recordingId?: string,
+): Promise<void> {
+  await getDb()
+    .update(schema.clipIntakeSessions)
+    .set({ status: "aborted", updatedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(schema.clipIntakeSessions.id, intakeId),
+        inArray(schema.clipIntakeSessions.status, ["creating", "recording"]),
+        ...(recordingId
+          ? [eq(schema.clipIntakeSessions.recordingId, recordingId)]
+          : []),
       ),
     );
 }
