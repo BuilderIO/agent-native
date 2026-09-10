@@ -140,6 +140,8 @@ export interface RecorderEngineOptions {
   uploadUrl?: string;
   /** Abort URL. Default `/api/uploads/:id/abort`. */
   abortUrl?: string;
+  /** Reset-chunks URL. Defaults to the authenticated recording route. */
+  resetUrl?: string;
   /**
    * Upload strategy returned by create-recording.
    * `"streaming"` — server has a resumable session; engine flushes aligned
@@ -505,7 +507,10 @@ function fetchAbortError(signal: AbortSignal, err: unknown): Error {
 
 export class RecorderEngine {
   readonly opts: Required<
-    Pick<RecorderEngineOptions, "chunkIntervalMs" | "uploadUrl" | "abortUrl">
+    Pick<
+      RecorderEngineOptions,
+      "chunkIntervalMs" | "uploadUrl" | "abortUrl" | "resetUrl"
+    >
   > &
     RecorderEngineOptions;
 
@@ -617,6 +622,9 @@ export class RecorderEngine {
       abortUrl:
         options.abortUrl ??
         `${appBasePath()}/api/uploads/${options.recordingId}/abort`,
+      resetUrl:
+        options.resetUrl ??
+        `${appBasePath()}/api/uploads/${options.recordingId}/reset-chunks`,
       ...options,
     };
   }
@@ -1149,11 +1157,15 @@ export class RecorderEngine {
     recordingId: string;
     uploadUrl: string;
     abortUrl: string;
+    resetUrl?: string;
     uploadMode?: UploadMode;
   }): void {
     this.opts.recordingId = target.recordingId;
     this.opts.uploadUrl = target.uploadUrl;
     this.opts.abortUrl = target.abortUrl;
+    this.opts.resetUrl =
+      target.resetUrl ??
+      `${appBasePath()}/api/uploads/${target.recordingId}/reset-chunks`;
     this.opts.uploadMode = target.uploadMode ?? "buffered";
     this.uploadGenerationId = null;
   }
@@ -1614,9 +1626,7 @@ export class RecorderEngine {
     compression: CompressionUploadMeta | null,
     signal?: AbortSignal,
   ): Promise<UploadMode> {
-    const resetUrl = `${appBasePath()}/api/uploads/${
-      this.opts.recordingId
-    }/reset-chunks`;
+    const resetUrl = this.opts.resetUrl;
     const uploadMimeType = compression?.outputMimeType || this.mimeType;
     let resetRes: Response;
     try {

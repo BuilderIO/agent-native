@@ -53,4 +53,21 @@ describe("clip intake URL helpers", () => {
     );
     expect(url.searchParams.get("clip_intake")).toBe("signed token");
   });
+
+  it("builds a signed reset URL", () => {
+    const url = new URL(
+      buildClipIntakeUrl("/api/clip-intake", {
+        recordingId: "recording-1",
+        operation: "reset",
+        intakeId: "intake_1234567890123456",
+        token: "signed-token",
+      }),
+      "https://clips.example.com",
+    );
+
+    expect(url.searchParams.get("operation")).toBe("reset");
+    expect(url.searchParams.get("clip_intake_id")).toBe(
+      "intake_1234567890123456",
+    );
+  });
 });

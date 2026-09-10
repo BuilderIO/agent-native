@@ -29,7 +29,7 @@ export function buildClipIntakeUrl(
   path: string,
   params: ClipIntakeParams & {
     recordingId: string;
-    operation: "chunk" | "abort";
+    operation: "chunk" | "abort" | "reset";
   },
 ): string {
   const url = new URL(path, "https://clips-intake.invalid");

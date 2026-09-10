@@ -88,7 +88,7 @@ export default defineAction({
     try {
       await attachClipIntakeRecording(intakeId, created.id);
     } catch (error) {
-      await abandonClipIntake(intakeId, created.id).catch(() => {});
+      await abandonClipIntake(intakeId).catch(() => {});
       await Promise.resolve(
         runWithRequestContext(
           {
@@ -165,6 +165,12 @@ export default defineAction({
       uploadChunkUrl: buildClipIntakeUrl("/api/clip-intake", {
         recordingId: created.id,
         operation: "chunk",
+        intakeId,
+        token: intakeToken,
+      }),
+      resetChunksUrl: buildClipIntakeUrl("/api/clip-intake", {
+        recordingId: created.id,
+        operation: "reset",
         intakeId,
         token: intakeToken,
       }),

@@ -9,6 +9,7 @@ import {
 } from "../../lib/clip-intake.js";
 import { handleAbortRecordingUpload } from "./uploads/[recordingId]/abort.post.js";
 import { handleRecordingChunk } from "./uploads/[recordingId]/chunk.post.js";
+import { handleResetRecordingChunks } from "./uploads/[recordingId]/reset-chunks.post.js";
 
 function queryString(event: H3Event, key: string): string | null {
   const value = getQuery(event)[key];
@@ -26,7 +27,7 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const operation = queryString(event, "operation");
-  if (operation !== "chunk" && operation !== "abort") {
+  if (operation !== "chunk" && operation !== "abort" && operation !== "reset") {
     throw createError({
       statusCode: 405,
       statusMessage: "Unsupported operation",
@@ -40,6 +41,10 @@ export default defineEventHandler(async (event: H3Event) => {
     ownerEmail: access.ownerEmail,
     orgId: access.orgId,
   };
+
+  if (operation === "reset") {
+    return handleResetRecordingChunks(event, override);
+  }
 
   if (operation === "abort") {
     const result = await handleAbortRecordingUpload(event, override);

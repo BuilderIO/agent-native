@@ -561,6 +561,7 @@ interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
   abortUrl: string;
+  resetChunksUrl?: string;
   uploadMode?: UploadMode;
 }
 
@@ -1344,11 +1345,13 @@ export default function RecordRoute() {
             id: string;
             uploadChunkUrl: string;
             abortUrl: string;
+            resetChunksUrl?: string;
             uploadMode?: UploadMode;
           };
           id?: string;
           uploadChunkUrl?: string;
           abortUrl?: string;
+          resetChunksUrl?: string;
           uploadMode?: UploadMode;
         };
         const info = created.result ?? (created as PendingRecording);
@@ -1384,6 +1387,9 @@ export default function RecordRoute() {
           recordingId: info.id,
           uploadUrl: uploadChunkUrl,
           abortUrl,
+          resetUrl: info.resetChunksUrl
+            ? `${appBasePath()}${info.resetChunksUrl}`
+            : undefined,
           uploadMode: info.uploadMode,
         });
         if (!intake) await saveBugReportContextRef.current(info.id);
@@ -1701,11 +1707,13 @@ export default function RecordRoute() {
             id: string;
             uploadChunkUrl: string;
             abortUrl?: string;
+            resetChunksUrl?: string;
             uploadMode?: UploadMode;
           };
           id?: string;
           uploadChunkUrl?: string;
           abortUrl?: string;
+          resetChunksUrl?: string;
           uploadMode?: UploadMode;
         };
         const info =

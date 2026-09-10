@@ -57,23 +57,33 @@ export default function BugReportDoneRoute() {
     let cancelled = false;
     void (async () => {
       let agentLink: BugReportAgentLink | null = null;
-      try {
-        agentLink = (await callAction(
-          intake ? "create-intake-agent-link" : "create-recording-agent-link",
-          intake
-            ? {
-                intakeId: intake.intakeId,
-                intakeToken: intake.token,
-                recordingId,
-                ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
-              }
-            : {
-                recordingId,
-                ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
-              },
-        )) as BugReportAgentLink;
-      } catch {
-        agentLink = null;
+      const maxAttempts = intake ? 5 : 1;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (cancelled) return;
+        try {
+          agentLink = (await callAction(
+            intake ? "create-intake-agent-link" : "create-recording-agent-link",
+            intake
+              ? {
+                  intakeId: intake.intakeId,
+                  intakeToken: intake.token,
+                  recordingId,
+                  ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
+                }
+              : {
+                  recordingId,
+                  ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
+                },
+          )) as BugReportAgentLink;
+          break;
+        } catch (error) {
+          const retryable =
+            intake && (error as { status?: unknown } | null)?.status === 409;
+          if (!retryable || attempt === maxAttempts - 1) break;
+          await new Promise((resolve) =>
+            window.setTimeout(resolve, Math.min(1_000 * 2 ** attempt, 4_000)),
+          );
+        }
       }
       if (cancelled) return;
 
