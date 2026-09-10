@@ -479,7 +479,7 @@ export function buildGuardrailsText(
   }
   if (config.source === "slack") {
     lines.push(
-      "Never post Slack messages, reactions, or plaintext @handles. If the prompt names a reaction, pass it as reaction on dispatch-factory-item; that action adds it on the source when possible.",
+      "Never post Slack messages, reactions, or plaintext @handles. Pass reaction on dispatch-factory-item only when the prompt says to mark that item; omit it on skips. That action adds it on the source when possible.",
     );
   }
   const extraText = extra?.trim();

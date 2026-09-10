@@ -36,6 +36,8 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
+      "actions/database-setup.db.test.ts",
+      "actions/database-setup-mcp.db.test.ts",
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
@@ -454,6 +456,7 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: [
+      "actions/database-setup-mcp.db.test.ts",
       "actions/bind-content-database-source-field.db.test.ts",
       "actions/content-database-source-actions.test.ts",
       "actions/resync-content-database-source.db.test.ts",

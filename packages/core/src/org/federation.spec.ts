@@ -45,6 +45,7 @@ const {
   syncOrganizationToIdentityHub,
   updateFederatedOrganizationMemberRole,
   validateFederatedOrganizationMembership,
+  validateFederatedOrganizationMembershipForCurrentRequest,
 } = await import("./federation.js");
 
 const identity = {
@@ -514,6 +515,35 @@ describe("cross-app organization federation", () => {
         sql: expect.stringContaining("DELETE FROM org_members"),
       }),
     );
+  });
+
+  it("validates a local organization for CLI callers without a request origin", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT name, identity_authority/i.test(sql)) {
+        return {
+          rows: [
+            {
+              name: "Example Org",
+              identity_authority: null,
+              identity_id: null,
+            },
+          ],
+        };
+      }
+      if (/SELECT role, federation_removal_pending_at/i.test(sql)) {
+        return { rows: [{ role: "admin" }] };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+
+    await expect(
+      validateFederatedOrganizationMembershipForCurrentRequest({
+        orgId: "local-org-1",
+        email: "admin@example.test",
+      }),
+    ).resolves.toEqual({ active: true, role: "admin" });
+    expect(getOriginMock).not.toHaveBeenCalled();
   });
 
   it("refreshes a satellite membership role from the authority", async () => {

@@ -430,15 +430,6 @@ O diagrama percorre essa mesma sequência do início ao fim:
 
 Isso funciona em todos os ambientes de implantação, incluindo serverless e edge, porque usa o banco de dados em vez de estado em memória ou observadores do sistema de arquivos.
 
-## Quadros {#frames}
-
-Um _frame_ é o ambiente que hospeda o agente ao lado do seu aplicativo. Localmente, isso é o painel incorporado; na nuvem, é a superfície gerenciada do Builder.io. Consulte [Frames](/docs/frames).
-
-Aplicativos agent-native incluem um painel de agente incorporado que disponibiliza o agente de IA ao lado da UI do aplicativo. É isso que faz a arquitetura funcionar: o agente precisa de um computador (banco de dados, navegador, execução de código), e o aplicativo precisa do agente para o trabalho de IA.
-
-- **Painel de agente incorporado:** chat e terminal CLI opcional integrados a cada aplicativo. Compatível com Claude Code, Codex, Gemini, OpenCode e Builder.io. Roda localmente, gratuito e de código aberto.
-- **Nuvem:** implante em qualquer nuvem com colaboração em tempo real, edição visual, funções e permissões. Ideal para equipes.
-
 ## Reconhecimento de contexto {#context-awareness}
 
 O agente sempre sabe o que o usuário está vendo. A UI grava uma chave `navigation` no application-state a cada mudança de rota. O agente a lê via a ação `view-screen` antes de agir.

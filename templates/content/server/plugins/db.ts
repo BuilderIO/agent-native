@@ -1119,6 +1119,23 @@ export const runContentMigrations = runMigrations(
       name: "content-databases-document-idx",
       sql: `CREATE INDEX IF NOT EXISTS content_databases_document_idx ON content_databases (document_id)`,
     },
+    {
+      version: 91,
+      name: "content-database-setup-receipts",
+      sql: `CREATE TABLE IF NOT EXISTS content_database_setup_receipts (
+        id TEXT PRIMARY KEY,
+        actor_email TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        scope_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        payload_digest TEXT NOT NULL,
+        database_id TEXT,
+        result_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_database_setup_receipts_actor_operation_key
+        ON content_database_setup_receipts (actor_email, operation, scope_id, idempotency_key)`,
+    },
   ],
   { table: "content_migrations" },
 );

@@ -18,7 +18,7 @@ export function isMissingOrganizationTableError(error: unknown): boolean {
     };
     const message = String(candidate.message ?? "");
     if (
-      /no such table:\s*["'`]?organizations["'`]?|relation\s+["'`]?organizations["'`]?\s+does not exist/i.test(
+      /no such table:\s*["'`]?(?:organizations|org_members)["'`]?|relation\s+["'`]?(?:organizations|org_members)["'`]?\s+does not exist/i.test(
         message,
       )
     ) {

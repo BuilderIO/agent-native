@@ -29,6 +29,15 @@ test("maps the production chat alias to the starter site", () => {
   assert.match(target.host, /^starter\./);
 });
 
+test("maps PR previews to canonical production sites with a preview ref", () => {
+  const target = resolveNetlifyPrebuiltTarget("preview", "slides");
+
+  assert.equal(target.siteName, "slides");
+  assert.equal(target.sourceTemplate, "slides");
+  assert.equal(target.sourceRef, "preview");
+  assert.equal(target.host, "slides.agent-native.com");
+});
+
 test("maps the framework production site to the docs project", () => {
   const target = resolveNetlifyPrebuiltTarget("production", "fw");
 

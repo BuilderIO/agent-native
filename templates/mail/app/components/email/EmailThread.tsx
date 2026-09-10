@@ -12,6 +12,8 @@ import {
   IconChevronUp,
   IconChevronDown,
   IconExternalLink,
+  IconMail,
+  IconMailOpened,
   IconMailOff,
   IconX,
   IconArrowBackUp,
@@ -381,16 +383,62 @@ export function EmailThread({
   const toggleStar = useToggleStar();
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
+  const keepUnreadThreadRef = useRef<string | undefined>(undefined);
+  const failedAutoReadThreadRef = useRef<string | undefined>(undefined);
+  const autoReadTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    keepUnreadThreadRef.current = undefined;
+    failedAutoReadThreadRef.current = undefined;
+  }, [threadId]);
+  const setCurrentEmailReadState = useCallback(
+    (isRead: boolean) => {
+      if (!email) return;
+      if (!isRead) {
+        keepUnreadThreadRef.current = threadId;
+        if (autoReadTimerRef.current !== undefined) {
+          clearTimeout(autoReadTimerRef.current);
+          autoReadTimerRef.current = undefined;
+        }
+      }
+      markRead.mutate({
+        id: email.id,
+        isRead,
+        accountEmail: email.accountEmail,
+        threadId,
+      });
+    },
+    [email, markRead, threadId],
+  );
 
   // Auto-mark all unread messages in this thread as read when viewed.
   // Defer the mutation past the commit so its optimistic emails-cache update
   // doesn't re-render the detail view we just finished mounting.
   const hasUnread = messages.some((m) => !m.isRead);
   useEffect(() => {
-    if (threadId && hasUnread) {
+    if (
+      threadId &&
+      hasUnread &&
+      keepUnreadThreadRef.current !== threadId &&
+      failedAutoReadThreadRef.current !== threadId
+    ) {
       const id = threadId;
-      const handle = setTimeout(() => markThreadRead.mutate(id), 0);
-      return () => clearTimeout(handle);
+      const handle = setTimeout(() => {
+        autoReadTimerRef.current = undefined;
+        markThreadRead.mutate(id, {
+          onError: () => {
+            failedAutoReadThreadRef.current = id;
+          },
+        });
+      }, 0);
+      autoReadTimerRef.current = handle;
+      return () => {
+        clearTimeout(handle);
+        if (autoReadTimerRef.current === handle) {
+          autoReadTimerRef.current = undefined;
+        }
+      };
     }
     // Only trigger when threadId changes or messages load with unread
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -953,38 +1001,17 @@ export function EmailThread({
       },
       {
         key: "u",
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: !email.isRead,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => email && setCurrentEmailReadState(!email.isRead),
       },
       {
         key: "I",
         shift: true,
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: true,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => setCurrentEmailReadState(true),
       },
       {
         key: "U",
         shift: true,
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: false,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => setCurrentEmailReadState(false),
       },
     ],
     !!threadId,
@@ -1022,12 +1049,7 @@ export function EmailThread({
           handleForward();
           break;
         case "markUnread":
-          if (email)
-            markRead.mutate({
-              id: email.id,
-              isRead: false,
-              accountEmail: email.accountEmail,
-            });
+          setCurrentEmailReadState(false);
           break;
         case "prev":
           goToSibling(-1);
@@ -1046,7 +1068,7 @@ export function EmailThread({
       handleReplyAll,
       handleForward,
       email,
-      markRead,
+      setCurrentEmailReadState,
       goToSibling,
     ],
   );
@@ -1242,6 +1264,35 @@ export function EmailThread({
                       : t("mail.aiFilter.filterButton")}
                   </TooltipContent>
                 </Tooltip>
+                {email && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentEmailReadState(!email.isRead)}
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        aria-label={t(
+                          email.isRead
+                            ? "mail.actions.markUnread"
+                            : "mail.actions.markRead",
+                        )}
+                      >
+                        {email.isRead ? (
+                          <IconMail className="h-4 w-4" />
+                        ) : (
+                          <IconMailOpened className="h-4 w-4" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t(
+                        email.isRead
+                          ? "mail.actions.markUnread"
+                          : "mail.actions.markRead",
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button

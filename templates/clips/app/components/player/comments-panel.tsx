@@ -506,7 +506,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       )}
     >
       {isInlinePresentation && enableComments ? (
-        <div className="mb-5 shrink-0">{composer}</div>
+        <div className="mb-3 shrink-0">{composer}</div>
       ) : null}
       <div
         className={cn(
@@ -524,7 +524,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
             isInlinePresentation={isInlinePresentation}
           />
         ) : (
-          <ul className="space-y-5">
+          <ul className="space-y-3">
             {sortedThreads.map((thread) => {
               const root = thread[0];
               const replies = thread.slice(1);

@@ -1161,6 +1161,11 @@ function AllAssetsBrowser({
     () => new URLSearchParams(searchParamsKey).get("q") ?? "",
     [searchParamsKey],
   );
+  const routeRequestsSearchFocus = useMemo(
+    () => new URLSearchParams(searchParamsKey).get("focus") === "search",
+    [searchParamsKey],
+  );
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState(urlQuery);
   const [debouncedQuery, setDebouncedQuery] = useState(urlQuery);
   const [assetTab, setAssetTab] = useState<AssetTab>(urlAssetTab);
@@ -1361,6 +1366,21 @@ function AllAssetsBrowser({
     setQuery(urlQuery);
   }, [urlQuery]);
   useEffect(() => {
+    if (!routeRequestsSearchFocus || isDraftsTab) return;
+    const frame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("focus");
+          return next;
+        },
+        { replace: true },
+      );
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isDraftsTab, routeRequestsSearchFocus, setSearchParams]);
+  useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setDebouncedQuery(query);
       if (query === urlQuery) return;
@@ -1458,6 +1478,7 @@ function AllAssetsBrowser({
             <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-background px-3 focus-within:ring-1 focus-within:ring-ring sm:max-w-sm">
               <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
               <input
+                ref={searchInputRef}
                 type="search"
                 value={query}
                 onChange={(event) => handleQueryChange(event.target.value)}

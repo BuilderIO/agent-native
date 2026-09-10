@@ -30,7 +30,12 @@ describe("Clips shared navigation", () => {
         panel: "agent",
         atMs: 12_345.6,
       }),
-    ).toBe("/r/recording-1?panel=agent&at=12.346");
+    ).toBe("/r/recording-1?agentSidebar=open&at=12.346");
+    expect(stateFromLocation("/r/recording-1", "?agentSidebar=open")).toEqual({
+      view: "recording",
+      recordingId: "recording-1",
+      panel: "agent",
+    });
   });
 
   it("round-trips encoded resource IDs", () => {
@@ -92,6 +97,18 @@ describe("Clips shared navigation", () => {
     expect(stateFromLocation("/r/recording-1/insights", "")).toEqual({
       view: "library",
     });
+  });
+
+  it("keeps a query-selected dictation in shared navigation state", () => {
+    expect(stateFromLocation("/dictate", "?dictationId=dictation%2F1")).toEqual(
+      {
+        view: "dictate",
+        dictationId: "dictation/1",
+      },
+    );
+    expect(
+      pathFromCommand({ view: "dictate", dictationId: "dictation/1" }),
+    ).toBe("/dictate?dictationId=dictation%2F1");
   });
 
   it("describes and maps the browser diagnostics panel", () => {

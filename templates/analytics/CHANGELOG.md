@@ -3,6 +3,22 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-09
+
+### Improved
+
+- Collaborator avatars use a slimmer border.
+
+## 2026-09-08
+
+### Improved
+
+- Login pages use the same mouse-reactive wave background as the docs and booking experiences.
+
+### Fixed
+
+- Analytics dashboards and daily emails include current zero-activity dates.
+
 ## 2026-09-04
 
 ### Improved

@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => {
       settings.set(key, value);
     }),
     getOrgSetting: vi.fn(async () => null),
+    isWorkspaceAppAccessAllowed: vi.fn(async () => true),
     resolveAccess: vi.fn(async () => ({
       role: "viewer",
       resource: {},
@@ -106,12 +107,8 @@ vi.mock("@agent-native/core/org", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/org")>();
   return {
     ...actual,
-    isWorkspaceAppAccessAllowed: vi.fn(
-      async (_appId: string, context: { orgId?: string | null } = {}) =>
-        !context.orgId ||
-        mocks.state.orgRole === "owner" ||
-        mocks.state.orgRole === "admin",
-    ),
+    isWorkspaceAppAccessAllowed: (...args: any[]) =>
+      mocks.isWorkspaceAppAccessAllowed(...args),
   };
 });
 
@@ -158,6 +155,8 @@ afterEach(() => {
   mocks.settings.clear();
   mocks.getOrgSetting.mockReset();
   mocks.getOrgSetting.mockResolvedValue(null);
+  mocks.isWorkspaceAppAccessAllowed.mockReset();
+  mocks.isWorkspaceAppAccessAllowed.mockResolvedValue(true);
   mocks.mutateSetting.mockReset();
   mocks.mutateSetting.mockImplementation(
     async (key: string, updater: (current: any) => any) => {
@@ -295,22 +294,6 @@ describe("listWorkspaceApps", () => {
       ...overrides,
     };
   }
-
-  it.each(["owner", "admin", "member"] as const)(
-    "applies the organization role gate to Dispatch registry links for %s",
-    async (role) => {
-      stubNoPendingContext();
-      stubManifest();
-      mocks.state.orgRole = role;
-
-      const apps = await runWithRequestContext(
-        { userEmail: `${role}@example.test`, orgId: "org-123" },
-        () => listWorkspaceApps({ includeAgentCards: false }),
-      );
-
-      expect(apps.some((app) => app.id === "dispatch")).toBe(role !== "member");
-    },
-  );
 
   it("prefers the live workspace gateway manifest when available", async () => {
     const fetchMock = vi.fn(async () => {
@@ -596,6 +579,22 @@ describe("listWorkspaceApps", () => {
     );
 
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("does not expose Dispatch after federated membership is revoked", async () => {
+    stubManifest();
+    mocks.isWorkspaceAppAccessAllowed.mockResolvedValueOnce(false);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "member@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
+    expect(mocks.isWorkspaceAppAccessAllowed).toHaveBeenCalledWith("dispatch", {
+      email: "member@example.test",
+      orgId: "org-123",
+    });
   });
 
   it("does not expose the workspace app registry without an authenticated user", async () => {

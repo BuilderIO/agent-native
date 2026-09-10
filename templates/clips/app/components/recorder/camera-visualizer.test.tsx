@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string, values?: { size?: string }) =>
+  useT: () => (key: string) =>
     ({
       "cameraVisualizer.bubble": "translated:camera-bubble",
       "cameraVisualizer.live": "translated:camera-live",
@@ -15,7 +15,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "cameraVisualizer.test": "translated:camera-test",
       "cameraVisualizer.selectedPreview": "translated:selected-preview",
       "cameraVisualizer.preview": "translated:camera-preview",
-      "cameraVisualizer.setBubbleSize": `translated:camera-size-${values?.size ?? ""}`,
       "cameraVisualizer.needsAttention": "translated:check-camera",
       "cameraVisualizer.permissionBlocked":
         "translated:camera-permission-blocked",
@@ -139,6 +138,11 @@ describe("CameraVisualizer", () => {
       )?.disabled,
     ).toBe(true);
     expect(getUserMedia).not.toHaveBeenCalled();
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        ["S", "M", "L"].includes(button.textContent ?? ""),
+      ),
+    ).toBe(false);
   });
 
   it("shows stable loading and live-preview states", async () => {
@@ -291,7 +295,9 @@ describe("CameraVisualizer", () => {
     );
     expect(container.querySelectorAll("video")).toHaveLength(1);
     expect(
-      container.querySelectorAll('[aria-label="translated:camera-bubble"]'),
+      container.querySelectorAll(
+        '[data-testid="camera-preview-container"] video',
+      ),
     ).toHaveLength(1);
     expect(
       Array.from(container.querySelectorAll("button")).some(

@@ -13,7 +13,19 @@ export default defineConfig({
 });
 ```
 
+Fresh scaffolds may name the imported function `agentNativePlugins` and spread
+its result to keep Vite package types aligned. It is the same `agentNative`
+plugin and accepts the same options.
+
 …or set `NITRO_PRESET=netlify` at build time.
+
+For a standalone app, build the Netlify output and deploy its static assets and
+functions:
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
 
 For a workspace, deploy every app from one Netlify site by running:
 

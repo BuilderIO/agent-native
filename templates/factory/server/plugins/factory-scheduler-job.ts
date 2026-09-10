@@ -56,7 +56,10 @@ import {
   BABYSIT_SCOPE_INSTRUCTION,
   repairPrBabysitPrompt,
 } from "../lib/pr-babysit-prompt.js";
-import { repairSlackFeedbackPrompt } from "../lib/slack-feedback-prompt.js";
+import {
+  repairSlackFeedbackPrompt,
+  SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS,
+} from "../lib/slack-feedback-prompt.js";
 import {
   syncManagedReviewSkillAlignment,
   type FactoryAutomationName,
@@ -225,9 +228,7 @@ enough evidence to investigate — including visual/UI defects such as a
 duplicate control or broken layout. Feature requests, vague questions, and
 incomplete threads are not.
 
-For each item, call dispatch-factory-item with clearBug true or false,
-productUxImplications false unless it is a pure product or design decision
-with no single correct fix, a short reason, and reaction robot_face 🤖.
+${SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS}
 Cluster only items listed in this run: one dispatch with relatedItemIds. Do
 not dispatch needs_manual items or items that already started.
 

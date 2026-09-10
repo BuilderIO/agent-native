@@ -875,6 +875,53 @@ const zhCN = {
     },
     clips: {
       s001: "Clips 模板屏幕截图",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "让 AI 智能体能看懂、听懂的屏幕录制",
+      heroDescription:
+        "Clips 是一款免费开源的屏幕录制工具,方便你与 AI 智能体分享错误报告、反馈和操作演示。",
+      heroCta: "录制一段 Clip",
+      useCasesHeading: "用 Clips 能做什么?",
+      useCasesBody:
+        "从一段你自己录制的 Clip,或别人分享给你的 Clip 开始。把上下文交给你的 AI 智能体,告诉它你需要什么。",
+      useCase1Title: "根据录制的反馈采取行动",
+      useCase1Body:
+        "把录制的反馈交给你的 AI 智能体,让它整理成计划或帮你实现所需的改动。",
+      useCase2Title: "调查一个被报告的 bug",
+      useCase2Body:
+        "把 bug 录制内容分享给你的 AI 智能体,让它调查出问题所在并梳理下一步该怎么做。",
+      useCase3Title: "根据录制的需求说明进行创作",
+      useCase3Body:
+        "用录制的需求说明来指导你的 AI 智能体创作演示文稿、设计稿、内容或应用改动。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "录制、转录、分享,一应俱全",
+      feature1Title: "AI 智能体可读的录制内容",
+      feature1Body:
+        "通过一个智能体可读的链接,把 Clip 的文字记录和带时间戳的图片分享给你的 AI 智能体。",
+      feature2Title: "自动转录",
+      feature2Body:
+        "获取录制、会议和口述内容的文字记录。点击文字记录的任意一行即可跳转回放到对应时刻。",
+      feature3Title: "浏览器调试日志",
+      feature3Body:
+        "使用 Clips 的 Chrome 扩展,在录制的同时捕获控制台错误和失败的请求。",
+      feature4Title: "内置 AI 智能体",
+      feature4Body:
+        "向内置 AI 智能体询问某段 Clip 或整个资料库的问题,并让它在聊天中编辑文字记录。",
+      feature5Title: "可搜索的录制资料库",
+      feature5Body:
+        "通过搜索文字记录来查找 Clip。用文件夹、标签和团队空间整理你的录制内容。",
+      feature6Title: "按键说话式口述输入",
+      feature6Body:
+        "在桌面应用中按住 Fn 键,即可向其他应用口述输入。在历史记录中可以回看文字记录和整理后的文本。",
+      teammatesLine: "你的团队成员可以在播放器中观看同一段录制内容。",
+      teammatesLinkLabel: "阅读智能体分享指南",
+      seeInActionHeading: "看看 Clips 的实际效果",
+      seeInActionBody:
+        "看看 Clips 的实际使用场景,从录制浏览器操作流程到向 AI 智能体演示如何完成一项任务。",
+      watchClipLabel: "观看这段 Clip",
+      finalCtaHeading: "让你的下一段 Clip 发挥作用",
+      finalCtaBody: "录制一段说明,或把一段分享的 Clip 交给你的 AI 智能体。",
+      finalCtaButton: "打开 Clips",
       s002: "屏幕录制",
       s003: "浏览器调试日志",
       s004: "口授",
@@ -939,23 +986,21 @@ const zhCN = {
       s060: "选择要捕获的内容，然后在 Clips 中开始录制。",
       s062: "查看所有模板",
       faq: {
-        question1: "Clips 免费吗？",
-        answer1: "是的。Clips 免费且开源。",
-        question2: "AI 能读取屏幕录制吗？",
+        question1: "Clips 是免费开源的吗?",
+        answer1:
+          "是的。Clips 是免费的开源软件。你可以直接使用这个应用,也可以自行定制并自托管你自己的版本。",
+        question2: "我可以把录制内容分享给 Claude、ChatGPT 或 Cursor 吗?",
         answer2:
-          "可以。每个剪辑都包含转录文本、摘要和带时间戳的画面，代理可以直接读取这些内容。",
-        question3: "Clips 与 Loom 有什么不同？",
+          "Clips 会提供一个 AI 智能体可读的链接,其中包含文字记录和带时间戳的图片。你的智能体需要能够打开链接内容并读取图片才能同时用到两者。部分聊天模式可以读取文字记录,但需要你单独上传图片。",
+        question3: "录制屏幕需要用到 Chrome 扩展吗?",
         answer3:
-          "Clips 开源，数据归你所有；每个共享链接不仅人能读取，AI 代理也能读取。",
-        question4: "屏幕录制能捕获控制台错误吗？",
+          "不需要。你可以直接在 Clips 网页应用中录制。如果还想获取所演示标签页的控制台消息和网络诊断信息,再使用 Chrome 扩展即可。",
+        question4: "AI 智能体可以观看我的屏幕录制内容吗?",
         answer4:
-          "可以。Clips 会在录制过程中同时捕获浏览器控制台错误和失败的网络请求。它们会与转录文本和画面一起附加到同一个共享链接中。代理可以根据剪辑进行调试，而不只是观看。",
-        question5: "Clips 支持 Claude、ChatGPT 或 Cursor 吗？",
+          "在 Clips 中,兼容的 AI 智能体可以通过文字记录和带时间戳的图片来理解你的录制内容。它们使用的是文本和图片,而不是播放视频,因此你可以就发生的事情提问,或让 AI 智能体基于录制内容执行任务。",
+        question5: "谁可以访问一段分享的录制内容?",
         answer5:
-          "支持！无需插件或 API 密钥。将 Clips 共享链接粘贴到任意代理中，它就能直接读取转录文本、摘要和画面。",
-        question6: "我的录制内容存储在哪里？",
-        answer6:
-          "存储在你的部署位置。自托管 Clips 会将视频、转录文本和分析数据保存在你自己的基础设施中。",
+          "除非你的组织更改了设置,否则录制内容默认使用公开链接,任何拿到链接的人都可以访问。系统也提供私密和组织内访问选项,私密的 Clip 可以通过临时链接分享给智能体,而无需将录制内容公开。",
       },
       quickStart: {
         recordingMode: "录制模式",
@@ -2018,7 +2063,6 @@ const zhCN = {
     usingYourAgent: "使用你的 Agent",
     agentResources: "代理资源",
     integrations: "集成",
-    buildApps: "构建应用",
     advancedRuntime: "高级：扩展运行时",
     templatesSection: "应用",
     gettingStarted: "入门",
@@ -2159,7 +2203,6 @@ const zhCN = {
     syncingTemplateChanges: "同步模板变更",
     writingAgentInstructions: "编写 Agent 指令",
     embeddingSdk: "嵌入 SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native 代码 UI",
     harnessAgents: "Harness 代理",
     adapters: "适配器",

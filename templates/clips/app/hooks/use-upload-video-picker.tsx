@@ -37,6 +37,7 @@ export function useUploadVideoPicker(): {
         type="file"
         accept={VIDEO_ACCEPT}
         className="hidden"
+        data-button-group-ignore="true"
         onChange={handleChange}
       />
     ),

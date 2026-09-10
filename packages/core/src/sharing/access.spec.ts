@@ -231,6 +231,39 @@ describe("shareable resource access helpers", () => {
     ]);
   });
 
+  it("lists shares while an additive share-column migration is pending", async () => {
+    await insertDoc({ id: "doc-pending-migration" });
+    await db.insert(docShares).values({
+      id: "share-pending-migration",
+      resourceId: "doc-pending-migration",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: "2026-09-09T00:00:00.000Z",
+    });
+    await pglite.exec("ALTER TABLE qa_doc_shares DROP COLUMN notified_at");
+
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        listResourceShares.run({
+          resourceType,
+          resourceId: "doc-pending-migration",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      shares: [
+        {
+          id: "share-pending-migration",
+          principalType: "user",
+          principalId: viewerEmail,
+          role: "viewer",
+          createdAt: "2026-09-09T00:00:00.000Z",
+        },
+      ],
+    });
+  });
+
   it("filters list access across owner, private, org, public, user share, org share, and anonymous contexts", async () => {
     await insertDoc({ id: "owned" });
     await insertDoc({ id: "owned-other-org", orgId: otherOrgId });

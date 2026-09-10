@@ -912,6 +912,7 @@ describe("browser analytics pageviews", () => {
       expect.objectContaining({
         dsn: "https://public@example/4511270423822336",
         environment: "beta",
+        release: "agent-native-client@development",
       }),
     );
     expect(sentryMock.setTag).toHaveBeenCalledWith("runtime", "browser");

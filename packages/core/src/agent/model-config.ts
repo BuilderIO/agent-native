@@ -300,11 +300,20 @@ export const AGENT_MODEL_CONFIG = {
         "openai/gpt-5.6-luna",
         "openai/gpt-5.6-terra",
         "openai/gpt-5.6-sol",
+        // Keep this shortlist to popular tool-capable text models; OpenRouter
+        // users can still enter any model ID.
+        "openai/gpt-6-astra",
+        "openai/gpt-6-astra-pro",
         OPENROUTER_CLAUDE_SONNET_MODEL_ID,
         "anthropic/claude-opus-4.8",
         "anthropic/claude-fable-5",
+        "anthropic/claude-fable-5.1",
         // Current stable Gemini on OpenRouter (2.5 Flash is GA)
         "google/gemini-2.5-flash",
+        "google/gemini-3.8-flash",
+        "qwen/qwen3.8-max-0902",
+        "meta/muse-spark-1.3",
+        "inception/mercury-2.5",
         "z-ai/glm-5.2",
       ],
     },

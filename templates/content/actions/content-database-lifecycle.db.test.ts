@@ -2228,6 +2228,8 @@ describe("content database soft-delete actions and reads", () => {
       expect.arrayContaining([
         {
           databaseId: ownedDeleted.databaseId,
+          spaceId: null,
+          configurationRevision: expect.any(String),
           title: "Database",
           documentId: ownedDeleted.databaseDocumentId,
           ownerDocumentId: null,
