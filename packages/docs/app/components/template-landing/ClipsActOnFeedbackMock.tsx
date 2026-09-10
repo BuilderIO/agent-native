@@ -185,6 +185,13 @@ const CLIPS_PAGE_MOCK_CSS = [
   // is what makes the header's share controls read as solid white on dark.
   ".clips-page-mock-share-group { --primary: 0 0% 100%; }",
 
+  // The recording page is held back so the open share menu reads as the
+  // subject of the illustration. The popover is a sibling of this wrapper, so
+  // it keeps full contrast; the page behind it recedes toward its own
+  // background rather than toward the section, which is why the opacity sits
+  // on the app and not on a scrim over the whole crop.
+  ".clips-page-mock-app { opacity: 0.55; }",
+
   ".clips-page-mock-crop { position: relative; width: 100%; overflow: hidden; border-radius: 0 12px 12px 0; }",
   `.clips-page-mock-crop { height: ${Math.round(DESIGN_HEIGHT * SCALE)}px; }`,
   `.clips-page-mock-page { position: absolute; top: 0; right: 0; width: ${DESIGN_WIDTH}px; height: ${DESIGN_HEIGHT}px; transform-origin: top right; transform: scale(${SCALE}); }`,
@@ -242,200 +249,202 @@ export function ClipsActOnFeedbackMock({
       <style>{CLIPS_PAGE_MOCK_CSS}</style>
       <div className="clips-page-mock-crop" aria-hidden="true">
         <div className="clips-page-mock-page bg-background text-foreground">
-          {/* PageHeader: breadcrumb, then the joined share controls. */}
-          <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
-            <nav className="min-w-0">
-              <ol className="flex flex-nowrap items-center gap-1.5 overflow-hidden text-sm text-muted-foreground">
-                <li className="block max-w-48 shrink-0 truncate">Library</li>
-                <li className="shrink-0">
-                  <IconChevronRight className="size-3.5" />
-                </li>
-                <li className="min-w-0 truncate font-medium text-foreground">
-                  {RECORDING_TITLE}
-                </li>
-              </ol>
-            </nav>
-            <div className="ms-auto flex shrink-0 items-center">
-              <div className="clips-page-mock-share-group flex shrink-0 items-center">
-                <span className="inline-flex h-9 items-center gap-2 rounded-md rounded-e-none bg-primary px-3 text-sm font-medium text-primary-foreground">
-                  <IconUserPlus className="size-4" />
-                  <span>Share</span>
-                </span>
-                <span className="inline-flex h-9 w-8 items-center justify-center rounded-md rounded-s-none border-s border-primary-foreground/15 bg-primary px-0 text-primary-foreground shadow-none">
-                  <IconLink className="size-4" />
-                </span>
+          <div className="clips-page-mock-app">
+            {/* PageHeader: breadcrumb, then the joined share controls. */}
+            <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+              <nav className="min-w-0">
+                <ol className="flex flex-nowrap items-center gap-1.5 overflow-hidden text-sm text-muted-foreground">
+                  <li className="block max-w-48 shrink-0 truncate">Library</li>
+                  <li className="shrink-0">
+                    <IconChevronRight className="size-3.5" />
+                  </li>
+                  <li className="min-w-0 truncate font-medium text-foreground">
+                    {RECORDING_TITLE}
+                  </li>
+                </ol>
+              </nav>
+              <div className="ms-auto flex shrink-0 items-center">
+                <div className="clips-page-mock-share-group flex shrink-0 items-center">
+                  <span className="inline-flex h-9 items-center gap-2 rounded-md rounded-e-none bg-primary px-3 text-sm font-medium text-primary-foreground">
+                    <IconUserPlus className="size-4" />
+                    <span>Share</span>
+                  </span>
+                  <span className="inline-flex h-9 w-8 items-center justify-center rounded-md rounded-s-none border-s border-primary-foreground/15 bg-primary px-0 text-primary-foreground shadow-none">
+                    <IconLink className="size-4" />
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* clips-recording-view: player column + side panel column. */}
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(0,1fr)]">
-            <div className="col-start-1 row-start-1 flex min-w-0 flex-col gap-4 px-5 pb-5 pt-4">
-              <div className="mx-auto flex w-full flex-1 flex-col gap-4">
-                <div className="flex w-full shrink-0 justify-center">
-                  <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-border">
-                    <div className="group relative h-full w-full select-none overflow-hidden rounded-2xl bg-black @container">
-                      <img
-                        src="/clips/build-your-own.jpg"
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
+            {/* clips-recording-view: player column + side panel column. */}
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(0,1fr)]">
+              <div className="col-start-1 row-start-1 flex min-w-0 flex-col gap-4 px-5 pb-5 pt-4">
+                <div className="mx-auto flex w-full flex-1 flex-col gap-4">
+                  <div className="flex w-full shrink-0 justify-center">
+                    <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-border">
+                      <div className="group relative h-full w-full select-none overflow-hidden rounded-2xl bg-black @container">
+                        <img
+                          src="/clips/build-your-own.jpg"
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
 
-                      {/* CenterPlaybackOverlay */}
-                      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/15 text-white">
-                        <div className="flex flex-col items-center gap-3 px-4 drop-shadow-[0_8px_24px_rgba(0,0,0,0.55)]">
-                          <span className="flex size-[clamp(2.75rem,8cqw,4rem)] items-center justify-center rounded-full bg-player-control-foreground text-player-control shadow-xl ring-1 ring-player-control-foreground/35 [&_svg]:size-[clamp(1.25rem,3.5cqw,1.75rem)]">
-                            <IconPlayerPlay className="fill-current" />
-                          </span>
+                        {/* CenterPlaybackOverlay */}
+                        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/15 text-white">
+                          <div className="flex flex-col items-center gap-3 px-4 drop-shadow-[0_8px_24px_rgba(0,0,0,0.55)]">
+                            <span className="flex size-[clamp(2.75rem,8cqw,4rem)] items-center justify-center rounded-full bg-player-control-foreground text-player-control shadow-xl ring-1 ring-player-control-foreground/35 [&_svg]:size-[clamp(1.25rem,3.5cqw,1.75rem)]">
+                              <IconPlayerPlay className="fill-current" />
+                            </span>
+                          </div>
                         </div>
-                      </div>
 
-                      {/* PlayerControls */}
-                      <div className="absolute inset-x-0 bottom-0">
-                        <div className="bg-gradient-to-t from-black/80 via-black/50 to-transparent px-3 pb-2 pt-10">
-                          <div className="relative flex h-10 items-center">
-                            <div className="relative h-1.5 w-full rounded-full bg-white/35 shadow-[0_0_0_1px_rgba(0,0,0,0.16)]">
-                              <div className="absolute inset-y-0 left-0 w-[2%] rounded-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.45)]" />
-                              <span className="absolute top-1/2 left-[34%] h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/80" />
-                              <span className="absolute top-1/2 left-[68%] h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/80" />
+                        {/* PlayerControls */}
+                        <div className="absolute inset-x-0 bottom-0">
+                          <div className="bg-gradient-to-t from-black/80 via-black/50 to-transparent px-3 pb-2 pt-10">
+                            <div className="relative flex h-10 items-center">
+                              <div className="relative h-1.5 w-full rounded-full bg-white/35 shadow-[0_0_0_1px_rgba(0,0,0,0.16)]">
+                                <div className="absolute inset-y-0 left-0 w-[2%] rounded-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.45)]" />
+                                <span className="absolute top-1/2 left-[34%] h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/80" />
+                                <span className="absolute top-1/2 left-[68%] h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/80" />
+                              </div>
+                            </div>
+
+                            <div className="relative flex min-w-0 items-center gap-1.5 text-white">
+                              <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-md [&_svg]:size-5">
+                                <IconPlayerPlayFilled />
+                              </span>
+                              <IconBtn>
+                                <IconPlayerSkipForward className="size-4 rotate-180" />
+                              </IconBtn>
+                              <IconBtn>
+                                <IconPlayerSkipForward className="size-4" />
+                              </IconBtn>
+                              <IconBtn>
+                                <IconVolume className="size-4" />
+                              </IconBtn>
+                              <span className="shrink-0 px-1 font-mono text-[11px] leading-none whitespace-nowrap tabular-nums text-white/85">
+                                0:00
+                                <span className="text-white/50">/1:38</span>
+                              </span>
+                              <div className="flex-1" />
+                              <IconBtn>
+                                <IconSubtitles className="size-4" />
+                              </IconBtn>
+                              <span className="inline-flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium tabular-nums">
+                                1.2x
+                              </span>
+                              <IconBtn>
+                                <IconPictureInPicture className="size-4" />
+                              </IconBtn>
+                              <IconBtn>
+                                <IconRectangle className="size-4" />
+                              </IconBtn>
+                              <IconBtn>
+                                <IconMaximize className="size-4" />
+                              </IconBtn>
                             </div>
                           </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
 
-                          <div className="relative flex min-w-0 items-center gap-1.5 text-white">
-                            <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-md [&_svg]:size-5">
-                              <IconPlayerPlayFilled />
+                  {/* Title, owner meta, and the view / react / options actions. */}
+                  <div className="flex shrink-0 flex-col gap-3 px-1 pt-4">
+                    <div className="flex flex-row items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-2xl font-semibold leading-tight tracking-[-0.02em]">
+                          {RECORDING_TITLE}
+                        </div>
+                        <div className="mt-2 flex min-w-0 items-center gap-2">
+                          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
+                            N
+                          </span>
+                          <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
+                            <span className="min-w-0 max-w-full truncate font-medium text-foreground">
+                              nadia@example.com
                             </span>
-                            <IconBtn>
-                              <IconPlayerSkipForward className="size-4 rotate-180" />
-                            </IconBtn>
-                            <IconBtn>
-                              <IconPlayerSkipForward className="size-4" />
-                            </IconBtn>
-                            <IconBtn>
-                              <IconVolume className="size-4" />
-                            </IconBtn>
-                            <span className="shrink-0 px-1 font-mono text-[11px] leading-none whitespace-nowrap tabular-nums text-white/85">
-                              0:00
-                              <span className="text-white/50">/1:38</span>
+                            <span>·</span>
+                            <span>Aug 31, 2026</span>
+                            <span>·</span>
+                            <span>Public</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="inline-flex h-8 items-center gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground">
+                          <span className="flex size-5 items-center justify-center rounded-full bg-muted text-[9px] font-semibold ring-1 ring-background">
+                            P
+                          </span>
+                          <span className="tabular-nums">14 views</span>
+                        </span>
+                        <span className="inline-flex h-8 items-center gap-1.5 px-2 text-xs">
+                          <IconMoodSmile className="size-4" />
+                          React
+                        </span>
+                        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md">
+                          <IconDotsVertical className="size-4" />
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* RecordingSidePanel */}
+              <div className="col-start-2 row-start-1 my-4 me-4 flex w-[360px] min-w-0 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-sidebar shadow-sm">
+                <div className="flex h-10 min-h-10 w-fit max-w-full shrink-0 items-center justify-start gap-1 rounded-none bg-sidebar px-3 py-0 text-muted-foreground">
+                  <PanelTab label="Comments" />
+                  <PanelTab label="Transcript" active />
+                  <PanelTab label="Settings" />
+                </div>
+
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="flex items-center gap-2 border-b border-border p-3">
+                    <div className="relative flex-1">
+                      <IconSearch className="absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <div className="flex h-8 w-full items-center rounded-md border border-input bg-transparent pr-3 pl-8 text-xs text-muted-foreground">
+                        Search transcript
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <span className="inline-flex size-8 items-center justify-center rounded-md">
+                        <IconCopy className="h-4 w-4" />
+                      </span>
+                      <span className="inline-flex size-8 items-center justify-center rounded-md">
+                        <IconDownload className="h-4 w-4" />
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="min-h-0 flex-1 overflow-hidden px-3">
+                    <ul className="py-1">
+                      {TRANSCRIPT.map((segment, index) => (
+                        <li key={segment.time}>
+                          <div
+                            className={`relative flex w-full items-baseline gap-4 rounded-md px-3 py-1.5 text-left text-sm leading-normal text-foreground ${
+                              index === 0 ? "bg-accent" : ""
+                            }`}
+                          >
+                            <span className="min-w-0 flex-1 whitespace-pre-wrap">
+                              <span
+                                className={
+                                  index === 0
+                                    ? "text-sm leading-normal text-foreground"
+                                    : "text-sm leading-normal text-foreground/80"
+                                }
+                              >
+                                {segment.text}
+                              </span>
                             </span>
-                            <div className="flex-1" />
-                            <IconBtn>
-                              <IconSubtitles className="size-4" />
-                            </IconBtn>
-                            <span className="inline-flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium tabular-nums">
-                              1.2x
+                            <span className="pointer-events-none w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/80">
+                              {segment.time}
                             </span>
-                            <IconBtn>
-                              <IconPictureInPicture className="size-4" />
-                            </IconBtn>
-                            <IconBtn>
-                              <IconRectangle className="size-4" />
-                            </IconBtn>
-                            <IconBtn>
-                              <IconMaximize className="size-4" />
-                            </IconBtn>
                           </div>
-                        </div>
-                      </div>
-                    </div>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                </div>
-
-                {/* Title, owner meta, and the view / react / options actions. */}
-                <div className="flex shrink-0 flex-col gap-3 px-1 pt-4">
-                  <div className="flex flex-row items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-2xl font-semibold leading-tight tracking-[-0.02em]">
-                        {RECORDING_TITLE}
-                      </div>
-                      <div className="mt-2 flex min-w-0 items-center gap-2">
-                        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
-                          N
-                        </span>
-                        <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
-                          <span className="min-w-0 max-w-full truncate font-medium text-foreground">
-                            nadia@example.com
-                          </span>
-                          <span>·</span>
-                          <span>Aug 31, 2026</span>
-                          <span>·</span>
-                          <span>Public</span>
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <span className="inline-flex h-8 items-center gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground">
-                        <span className="flex size-5 items-center justify-center rounded-full bg-muted text-[9px] font-semibold ring-1 ring-background">
-                          P
-                        </span>
-                        <span className="tabular-nums">14 views</span>
-                      </span>
-                      <span className="inline-flex h-8 items-center gap-1.5 px-2 text-xs">
-                        <IconMoodSmile className="size-4" />
-                        React
-                      </span>
-                      <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md">
-                        <IconDotsVertical className="size-4" />
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* RecordingSidePanel */}
-            <div className="col-start-2 row-start-1 my-4 me-4 flex w-[360px] min-w-0 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-sidebar shadow-sm">
-              <div className="flex h-10 min-h-10 w-fit max-w-full shrink-0 items-center justify-start gap-1 rounded-none bg-sidebar px-3 py-0 text-muted-foreground">
-                <PanelTab label="Comments" />
-                <PanelTab label="Transcript" active />
-                <PanelTab label="Settings" />
-              </div>
-
-              <div className="flex min-h-0 flex-1 flex-col">
-                <div className="flex items-center gap-2 border-b border-border p-3">
-                  <div className="relative flex-1">
-                    <IconSearch className="absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <div className="flex h-8 w-full items-center rounded-md border border-input bg-transparent pr-3 pl-8 text-xs text-muted-foreground">
-                      Search transcript
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-0.5">
-                    <span className="inline-flex size-8 items-center justify-center rounded-md">
-                      <IconCopy className="h-4 w-4" />
-                    </span>
-                    <span className="inline-flex size-8 items-center justify-center rounded-md">
-                      <IconDownload className="h-4 w-4" />
-                    </span>
-                  </div>
-                </div>
-
-                <div className="min-h-0 flex-1 overflow-hidden px-3">
-                  <ul className="py-1">
-                    {TRANSCRIPT.map((segment, index) => (
-                      <li key={segment.time}>
-                        <div
-                          className={`relative flex w-full items-baseline gap-4 rounded-md px-3 py-1.5 text-left text-sm leading-normal text-foreground ${
-                            index === 0 ? "bg-accent" : ""
-                          }`}
-                        >
-                          <span className="min-w-0 flex-1 whitespace-pre-wrap">
-                            <span
-                              className={
-                                index === 0
-                                  ? "text-sm leading-normal text-foreground"
-                                  : "text-sm leading-normal text-foreground/80"
-                              }
-                            >
-                              {segment.text}
-                            </span>
-                          </span>
-                          <span className="pointer-events-none w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/80">
-                            {segment.time}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
                 </div>
               </div>
             </div>

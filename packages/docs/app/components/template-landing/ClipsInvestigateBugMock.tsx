@@ -7,17 +7,22 @@
  * landing page.
  *
  * All CSS lives here, scoped under `.clips-cell-mock`, following the same
- * convention as `ClipsLibraryMock.tsx`. The chat renders inside its own
- * floating window card (background, rounded corners, shadow) so it reads as
- * an app screenshot even though the section behind it has no panel of its
- * own.
+ * convention as `ClipsLibraryMock.tsx`. The chat renders inside its own window
+ * card (background, rounded corners, border) so it reads as an app screenshot
+ * even though the section behind it has no panel of its own. The card is flat
+ * on purpose: the surrounding rows sit directly on the section background, and
+ * a drop shadow made this one card float out of that plane.
  *
  * i18n-raw-literal-disable-file -- this is artwork, not UI copy. The wrapper is
  * a `role="img"` with a localized `aria-label` and the entire frame inside it
  * is `aria-hidden`, so no assistive tech ever reads these strings; they are
  * the pixels of a product screenshot (a fake chat transcript).
  */
-import { IconArrowUp, IconChevronRight, IconPaperclip } from "@tabler/icons-react";
+import {
+  IconArrowUp,
+  IconChevronRight,
+  IconPaperclip,
+} from "@tabler/icons-react";
 
 const FIXED_ITEMS = [
   "Sidebar nav didn't collapse on mobile. I saw it clipped in your screenshot at 0:42.",
@@ -28,7 +33,7 @@ const FIXED_ITEMS = [
 const CLIPS_CELL_MOCK_CSS = [
   ".clips-cell-mock { position: relative; width: 100%; }",
   ".clips-cell-mock, .clips-cell-mock * { box-sizing: border-box; }",
-  ".clips-cell-mock-frame { display: flex; flex-direction: column; gap: 24px; padding: 36px; border-radius: 12px; background: var(--cell-window-bg); border: 1px solid var(--cell-window-border); box-shadow: 0 28px 56px rgba(0, 0, 0, 0.35); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }",
+  ".clips-cell-mock-frame { display: flex; flex-direction: column; gap: 24px; padding: 36px; border-radius: 12px; background: var(--cell-window-bg); border: 1px solid var(--cell-window-border); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }",
 
   ".clips-cell-mock { --cell-window-bg: #1c1c1c; --cell-window-border: #2c2c2c; --cell-prompt-bg: #2c2c2c; --cell-prompt-border: #3d3d3d; --cell-prompt-fg: #e6e6e6; --cell-fg: #e6e6e6; --cell-fg-muted: #999999; --cell-fg-subtle: #808080; --cell-composer-bg: #262626; --cell-composer-border: #383838; }",
 
@@ -47,7 +52,6 @@ const CLIPS_CELL_MOCK_CSS = [
   ".clips-cell-mock-composer-send { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 999px; background: var(--cell-fg); color: #191919; flex-shrink: 0; }",
 
   "html.light .clips-cell-mock { --cell-window-bg: #fdfdfb; --cell-window-border: #e3e0d8; --cell-prompt-bg: #f1f0ea; --cell-prompt-border: #e3e0d8; --cell-prompt-fg: #22201c; --cell-fg: #22201c; --cell-fg-muted: #56534d; --cell-fg-subtle: #827e76; --cell-composer-bg: #f1f0ea; --cell-composer-border: #e3e0d8; }",
-  "html.light .clips-cell-mock-frame { box-shadow: 0 24px 48px rgba(50, 48, 38, 0.14); }",
   "html.light .clips-cell-mock-composer-send { color: #f1f0ea; }",
 ].join("\n");
 
@@ -59,7 +63,11 @@ export function ClipsInvestigateBugMock({
   label?: string;
 }) {
   return (
-    <div className={`clips-cell-mock ${className}`} role="img" aria-label={label}>
+    <div
+      className={`clips-cell-mock ${className}`}
+      role="img"
+      aria-label={label}
+    >
       <style>{CLIPS_CELL_MOCK_CSS}</style>
       <div className="clips-cell-mock-frame" aria-hidden="true">
         <div className="clips-cell-mock-prompt">
@@ -79,9 +87,7 @@ export function ClipsInvestigateBugMock({
           <ol className="clips-cell-mock-list">
             {FIXED_ITEMS.map((item, index) => (
               <li key={item} className="clips-cell-mock-list-item">
-                <span className="clips-cell-mock-list-index">
-                  {index + 1}.
-                </span>
+                <span className="clips-cell-mock-list-index">{index + 1}.</span>
                 <span>{item}</span>
               </li>
             ))}
