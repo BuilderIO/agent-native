@@ -181,6 +181,19 @@ pnpm action set-default-design-system --id <id>
 Pass `--isDefault false` to clear the current default. Setting a system as the
 default unsets the previous default in the same user and organization scope.
 
+### Deleting a Design System
+
+```bash
+pnpm action delete-design-system --id <id>
+```
+
+Requires admin access or higher — the owner, or anyone holding an `admin`
+share role. That is the same `canManage` flag `list-design-systems` returns
+and the Design Systems page renders its Delete control from. Removes the
+system and its shares, and clears `designSystemId` on every linked design.
+Those designs keep the tokens already baked into their HTML, so a design can
+still look on-brand while no longer linked to a system.
+
 ## Multi-Source Import Flow
 
 The design system setup page collects brand assets from multiple sources. When the user clicks "Continue to generation", a structured message is sent to the agent with all sources. Process each source type with the appropriate action:

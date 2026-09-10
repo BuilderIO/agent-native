@@ -9,11 +9,8 @@ import { desc } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { canManageDesignSystemRole } from "../server/lib/design-system-access.js";
 import { resolveDefaultDesignSystemId } from "../server/lib/design-system-defaults.js";
-
-function canManageRole(role: "owner" | ShareRole) {
-  return role === "owner" || role === "admin";
-}
 
 export default defineAction({
   description:
@@ -69,7 +66,10 @@ export default defineAction({
           );
         }
         const role = access?.role ?? "viewer";
-        accessById.set(row.id, { role, canManage: canManageRole(role) });
+        accessById.set(row.id, {
+          role,
+          canManage: canManageDesignSystemRole(role),
+        });
       }),
     );
 
