@@ -24,14 +24,15 @@ permissions:
   contents: write
   actions: read
 
-# Beta is a moving mirror of main. Keep one active push fleet run for a safe
-# publish, and replace any pending push with the newest main commit. Manual
-# recovery runs use a separate queue so they cannot evict an automatic push.
+# Beta is a moving mirror of main. Keep one accepted automatic publisher running
+# and coalesce pending automatic runs. Manual runs use isolated validation so an
+# invalid input cannot evict a valid pending publish; child queues still serialize
+# each site.
 concurrency:
   group: >-
-    ${{ github.event_name == 'push'
-        && 'deploy-agent-native-beta-sites-prebuilt'
-        || 'deploy-agent-native-beta-sites-prebuilt-manual' }}
+    ${{ github.event_name == 'workflow_dispatch'
+        && format('deploy-agent-native-beta-manual-{0}', github.run_id)
+        || 'deploy-agent-native-beta-sites-prebuilt' }}
   cancel-in-progress: false
 
 jobs:
@@ -337,6 +338,8 @@ jobs:
 
   deploy:
     name: ${{ matrix.site }} beta prebuilt deploy
+    permissions:
+      contents: read
     needs: [resolve-source, discover-sites, schema-gate]
     strategy:
       fail-fast: false

@@ -7,6 +7,7 @@ import {
   deleteAppSecret,
   last4,
   listAppSecretsForScope,
+  VAULT_SYNC_DESCRIPTION_PREFIX,
   writeAppSecret,
   type SecretScope,
 } from "@agent-native/core/secrets";
@@ -26,7 +27,6 @@ import {
 } from "./dispatch-store.js";
 
 const VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
-const VAULT_SYNC_DESCRIPTION_PREFIX = "Synced from Dispatch vault:";
 
 export type VaultAccessMode = "all-apps" | "manual";
 

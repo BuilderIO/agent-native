@@ -1,8 +1,7 @@
-name: Pilot prebuilt Netlify deploy
+name: Deploy Netlify prebuilt artifacts from GitHub Actions
 
-# Additive pilot lane for moving the build off Netlify while keeping Netlify as
-# the deploy/CDN layer. Existing Netlify site builds remain enabled during the
-# pilot; the automatic beta caller and manual production caller prove this path.
+# GitHub Actions owns builds for the canonical beta, production, and PR preview
+# sites. Netlify only receives the resulting prebuilt artifact and serves it.
 #
 # Safe rollout:
 #   1. deploy=false + build_context=deploy-preview validates the GitHub runner.
@@ -60,6 +59,26 @@ on:
         required: true
         type: boolean
         default: true
+      artifact_upload:
+        description: Package the built output for a separate trusted upload job
+        required: true
+        type: boolean
+        default: false
+      artifact_download:
+        description: Deploy a prebuilt artifact without checking out PR code
+        required: true
+        type: boolean
+        default: false
+      artifact_name:
+        description: GitHub Actions artifact name for a prebuilt deploy
+        required: false
+        type: string
+        default: ""
+      checkout_ref:
+        description: Trusted checkout revision used for artifact-only deploys
+        required: false
+        type: string
+        default: ""
   workflow_call:
     inputs:
       target:
@@ -101,9 +120,33 @@ on:
         required: false
         type: boolean
         default: false
+      artifact_upload:
+        required: false
+        type: boolean
+        default: false
+      artifact_download:
+        required: false
+        type: boolean
+        default: false
+      artifact_name:
+        required: false
+        type: string
+        default: ""
+      checkout_ref:
+        required: false
+        type: string
+        default: ""
+      pull_request_number:
+        required: false
+        type: number
+        default: 0
+      preview_alias:
+        required: false
+        type: string
+        default: ""
     secrets:
       NETLIFY_AUTH_TOKEN:
-        required: true
+        required: false
       ANALYTICS_DATABASE_URL:
         required: false
       PLAN_DATABASE_URL:
@@ -117,8 +160,9 @@ permissions:
 concurrency:
   # Direct production dispatches share the per-site queue with the fleet,
   # manager, and promotion jobs. Release migrations use a separate queue.
-  # Beta caller lanes stay separate so manual recovery cannot replace a
-  # pending automatic child deployment for the same site.
+  # Beta uploads share one per-site queue. Keep an accepted publisher alive and
+  # coalesce only pending beta children; manual validation must not evict a
+  # pending automatic publish, and production lanes are also non-canceling.
   group: >-
     ${{ inputs.caller == 'release-migration'
         && inputs.target == 'production'
@@ -126,21 +170,26 @@ concurrency:
         || inputs.caller == 'release-migration'
         && 'agent-native-release-migrations'
         || inputs.target == 'beta'
-        && format('netlify-prebuilt-beta-{0}-{1}', inputs.caller, inputs.site)
+        && github.event_name == 'workflow_dispatch'
+        && !inputs.caller
+        && format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)
+        || inputs.target == 'beta'
+        && format('netlify-prebuilt-beta-{0}', inputs.site)
         || inputs.caller == 'fleet'
         && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
         || inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
-  # Caller workflows own their workflow-level queues. These per-site child
-  # queues remain non-canceling for accepted uploads.
+  # An accepted beta upload must finish so its external Netlify deploy can be
+  # reconciled; a newer caller replaces the pending child in this queue.
   cancel-in-progress: false
 
 jobs:
   deploy:
     name: ${{ inputs.target }} ${{ inputs.site }} prebuilt deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Reserve time for stale beta cleanup after the 30-minute publish wait.
+    timeout-minutes: 150
     steps:
       - name: Validate the source revision
         id: source
@@ -148,6 +197,7 @@ jobs:
         env:
           SOURCE_REF: ${{ inputs.source_ref }}
           TARGET: ${{ inputs.target }}
+          CALLER: ${{ inputs.caller }}
         with:
           script: |
             const requested = process.env.SOURCE_REF.trim();
@@ -178,18 +228,47 @@ jobs:
               core.setOutput('source_ref', sourceSha);
               return;
             }
+            if (target === 'preview') {
+              const sourceSha = requested || context.sha;
+              if (!/^[0-9a-f]{40}$/i.test(sourceSha)) {
+                core.setFailed('Preview source_ref must be a full 40-character commit SHA.');
+                return;
+              }
+              core.setOutput('source_ref', sourceSha);
+              return;
+            }
             if (target === 'beta') {
-              core.setOutput('source_ref', requested || 'beta');
+              if (context.eventName === 'workflow_dispatch' && !process.env.CALLER.trim()) {
+                core.setFailed('Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt.yml.');
+                return;
+              }
+              const mainSha = (await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'heads/main',
+              })).data.object.sha;
+              const sourceSha = requested || mainSha;
+              if (!/^[0-9a-f]{40}$/i.test(sourceSha)) {
+                core.setFailed('Beta source_ref must be a full 40-character commit SHA.');
+                return;
+              }
+              if (sourceSha.toLowerCase() !== mainSha.toLowerCase()) {
+                core.setFailed(`Beta source_ref must equal current main ${mainSha}.`);
+                return;
+              }
+              core.setOutput('source_ref', sourceSha);
               return;
             }
             core.setFailed(`Unknown deployment target: ${target}`);
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          # Beta and production sites both build from the exact source revision
-          # selected by their publisher.
-          ref: ${{ steps.source.outputs.source_ref }}
+          # Artifact-only preview uploads use the trusted base revision for
+          # target resolution and deployment scripts; PR code stays in the
+          # separate build job that has no deployment secrets.
+          ref: ${{ inputs.checkout_ref || steps.source.outputs.source_ref }}
           fetch-depth: 1
+          persist-credentials: false
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -207,6 +286,8 @@ jobs:
           DEPLOY: ${{ inputs.deploy }}
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           MIGRATION_ONLY: ${{ inputs.migration_only }}
+          PREVIEW_ALIAS: ${{ inputs.preview_alias }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
           SITE: ${{ inputs.site }}
           TARGET: ${{ inputs.target }}
         run: |
@@ -232,6 +313,16 @@ jobs:
             exit 1
           fi
 
+          if [[ "$TARGET" == "preview" && "$DEPLOY" == "true" && ( "$BUILD_CONTEXT" != "deploy-preview" || "$DEPLOY_MODE" != "draft" ) ]]; then
+            echo "::error::PR previews must use build_context=deploy-preview and deploy_mode=draft."
+            exit 1
+          fi
+
+          if [[ "$TARGET" == "preview" && "$DEPLOY" == "true" && ( "$PULL_REQUEST_NUMBER" -le 0 || -z "$PREVIEW_ALIAS" ) ]]; then
+            echo "::error::PR previews require a pull request number and alias."
+            exit 1
+          fi
+
           if [[ "$TARGET" == "production" && ( "$SITE" == "chat" || "$SITE" == "www" ) ]]; then
             echo "::error::Production prebuilt dispatches must use canonical site ids (starter or fw), not aliases."
             exit 1
@@ -247,6 +338,34 @@ jobs:
           --target "$TARGET"
           --site "$SITE"
           --github-output "$GITHUB_OUTPUT"
+
+      - name: Download the prebuilt PR artifact
+        if: inputs.artifact_download
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ runner.temp }}/netlify-artifact
+
+      - name: Select the deploy directories
+        id: directories
+        env:
+          ARTIFACT_DOWNLOAD: ${{ inputs.artifact_download }}
+          TARGET: ${{ inputs.target }}
+          TARGET_FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
+          TARGET_PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+        run: |
+          set -euo pipefail
+          if [[ "$ARTIFACT_DOWNLOAD" == "true" ]]; then
+            echo "publish_directory=$RUNNER_TEMP/netlify-artifact/publish" >> "$GITHUB_OUTPUT"
+            if [[ "$TARGET" == "preview" ]]; then
+              echo "functions_directory=$TARGET_FUNCTIONS_DIRECTORY" >> "$GITHUB_OUTPUT"
+            else
+              echo "functions_directory=$RUNNER_TEMP/netlify-artifact/functions" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "functions_directory=$TARGET_FUNCTIONS_DIRECTORY" >> "$GITHUB_OUTPUT"
+            echo "publish_directory=$TARGET_PUBLISH_DIRECTORY" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Run the release migration from the Netlify environment
         if: inputs.migration_only
@@ -285,10 +404,12 @@ jobs:
           exit 1
 
       - name: Build with the Netlify project configuration
-        if: inputs.migration_only != true
+        if: inputs.migration_only != true && inputs.artifact_download != true
         env:
           BUILD_CONTEXT: ${{ inputs.build_context }}
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          ARTIFACT_DOWNLOAD: ${{ inputs.artifact_download }}
+          DEPLOY: ${{ inputs.deploy }}
+          NETLIFY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.NETLIFY_AUTH_TOKEN || '' }}
           MIGRATION_ONLY: ${{ inputs.migration_only }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
@@ -297,7 +418,9 @@ jobs:
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
-          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          if [[ "$TARGET" != "preview" || "$DEPLOY" == "true" ]]; then
+            : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          fi
           # The Netlify CLI uses DEPLOY_ID=0 during local prebuilt builds. Use
           # the checked-out source revision so fixed auth assets get a new URL
           # on every source deploy, including branch and beta deployments.
@@ -341,11 +464,11 @@ jobs:
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
-          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
+          if [[ ( "$TARGET" == "beta" || "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             # Starter's runtime database and auth secret are Netlify secrets.
-            # The external prebuilt runner receives masked values, so use
-            # build-only shapes and let the deployed Functions read the real
-            # site-scoped values at runtime.
+            # The external prebuilt runner receives masked values, including
+            # beta's branch-deploy context, so use build-only shapes and let
+            # the deployed Functions read the real site-scoped values at runtime.
             export agentNativePrebuiltBuild=true
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
@@ -364,11 +487,41 @@ jobs:
           if [[ "$SOURCE_TEMPLATE" == "crm" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
-          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
+          if [[ ( "$TARGET" == "beta" || "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
-          netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
+          build_args=(build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE")
+          if [[ "$TARGET" == "preview" && "$DEPLOY" != "true" ]]; then
+            # The PR build is intentionally secret-free. Offline mode keeps
+            # Netlify CLI from querying site config with a deployment token.
+            build_args+=(--offline)
+          fi
+          netlify "${build_args[@]}"
           unset ANALYTICS_DATABASE_URL_SECRET
+
+      - name: Build trusted preview Functions for the PR artifact
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.artifact_download && inputs.migration_only != true
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          # This checkout is the trusted base revision. The PR build job only
+          # supplies static files; arbitrary PR Functions never reach Netlify.
+          if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" || "$SOURCE_TEMPLATE" == "crm" || "$SOURCE_TEMPLATE" == "chat" ]]; then
+            export agentNativePrebuiltBuild=true
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
+          netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
 
       - name: Run Plan release migrations
         if: >-
@@ -396,8 +549,8 @@ jobs:
       - name: Verify deploy directories
         if: inputs.migration_only != true
         env:
-          FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
-          PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
+          PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
         run: |
           set -euo pipefail
           for directory in "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"; do
@@ -411,9 +564,10 @@ jobs:
       - name: Verify static SSR cache artifact
         if: >-
           inputs.migration_only != true &&
+          inputs.artifact_download != true &&
           (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')
         env:
-          PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+          PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
         run: |
           set -euo pipefail
           GUARD_SSR_CACHE_ARTIFACT_DIR="$PUBLISH_DIRECTORY" pnpm guard:ssr-cache-artifact
@@ -423,9 +577,9 @@ jobs:
       # sat above the whole fleet; this measures growth from where each app
       # actually is. An app with no recorded baseline is named, not passed.
       - name: Check serverless function sizes against their baseline
-        if: inputs.migration_only != true
+        if: inputs.migration_only != true && inputs.artifact_download != true
         env:
-          FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
+          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
           # source_template, not inputs.site: the input is a caller-facing alias
           # (docs production dispatches "fw", the starter site dispatches
           # "starter") and would miss the baseline recorded under the app's own
@@ -436,12 +590,44 @@ jobs:
           set -euo pipefail
           node scripts/check-function-size-baseline.mjs --site "$SITE" --dir "$FUNCTIONS_DIRECTORY"
 
+      - name: Package the prebuilt artifact
+        if: inputs.artifact_upload && inputs.migration_only != true
+        env:
+          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
+          PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          artifact_root="$RUNNER_TEMP/netlify-artifact"
+          mkdir -p "$artifact_root/publish"
+          cp -R "$PUBLISH_DIRECTORY"/. "$artifact_root/publish/"
+          if [[ "$TARGET" != "preview" ]]; then
+            mkdir -p "$artifact_root/functions"
+            cp -R "$FUNCTIONS_DIRECTORY"/. "$artifact_root/functions/"
+          fi
+
+      - name: Upload the prebuilt artifact
+        if: inputs.artifact_upload && inputs.migration_only != true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ runner.temp }}/netlify-artifact
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Verify docs cold-start budget
+        if: >-
+          inputs.migration_only != true && inputs.artifact_download != true &&
+          steps.target.outputs.source_template == '@agent-native/docs'
+        run: NODE_ENV=production NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs packages/docs
+
       - name: Pause automatic Netlify builds for production cutover
         id: pause
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production'
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
           node --experimental-strip-types <<'NODE'
@@ -825,11 +1011,12 @@ jobs:
       - name: Capture the current published deploy for callback rollback
         id: previous
         if: >-
-          inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production' &&
-          steps.target.outputs.source_template != '@agent-native/docs'
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          (inputs.target == 'beta' || (inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'))
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
           node --experimental-strip-types <<'NODE'
@@ -848,7 +1035,14 @@ jobs:
               throw new Error(`Netlify published deploy lookup failed with HTTP ${response.status}.`);
             }
             const deployId = site?.published_deploy?.id;
-            if (!deployId) throw new Error("Netlify site has no published deploy to protect.");
+            if (!deployId) {
+              if (process.env.TARGET === "beta") {
+                console.log("Netlify beta site has no published deploy; continuing without a rollback baseline.");
+                fs.appendFileSync(process.env.GITHUB_OUTPUT, "published_deploy_id=\n");
+                return;
+              }
+              throw new Error("Netlify site has no published deploy to protect.");
+            }
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `published_deploy_id=${deployId}\n`);
             console.log(`Captured current published deploy ${deployId} for callback rollback.`);
           })().catch((error) => {
@@ -890,24 +1084,40 @@ jobs:
           (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
-          FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
+          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+          PREVIEW_ALIAS: ${{ inputs.preview_alias }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+          PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+          TARGET: ${{ inputs.target }}
+          PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
         run: |
           set -euo pipefail
 
+          deploy_message="GitHub Actions prebuilt deploy ${SOURCE_REF:-$GITHUB_SHA}"
+          if [[ "$TARGET" == "preview" ]]; then
+            deploy_message="GitHub Actions PR preview #${PULL_REQUEST_NUMBER} ${SOURCE_TEMPLATE} ${SOURCE_REF}"
+          fi
           deploy_args=(
             --site "$NETLIFY_SITE_ID"
             --dir "$PUBLISH_DIRECTORY"
             --functions "$FUNCTIONS_DIRECTORY"
             --filter "$SOURCE_TEMPLATE"
             --no-build
-            --message "GitHub Actions prebuilt deploy ${GITHUB_SHA}"
+            --message "$deploy_message"
           )
+          if [[ "$TARGET" == "preview" ]]; then
+            deploy_args+=(--alias "$PREVIEW_ALIAS")
+          fi
           if [[ "$DEPLOY_MODE" == "production" ]]; then
-            deploy_args+=(--prod)
+            if [[ "$TARGET" == "beta" && -z "$PREVIOUS_DEPLOY_ID" ]]; then
+              echo "Uploading the first beta deploy as a draft until its source is revalidated."
+            else
+              deploy_args+=(--prod)
+            fi
           fi
 
           deploy_json="$RUNNER_TEMP/netlify-deploy.json"
@@ -934,6 +1144,7 @@ jobs:
           echo "Uploaded prebuilt ${DEPLOY_MODE} deploy: $deploy_url"
 
       - name: Wait for the Netlify deploy to publish
+        id: deploy_wait
         if: >-
           inputs.deploy &&
           (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
@@ -942,6 +1153,9 @@ jobs:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
+          PUBLISH_AFTER_FRESHNESS: ${{ inputs.target == 'beta' && inputs.deploy_mode == 'production' && steps.previous.outputs.published_deploy_id == '' }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
           node --experimental-strip-types <<'NODE'
@@ -975,6 +1189,7 @@ jobs:
                 throw new Error(`Netlify deploy failed: ${deploy.error_message || "unknown error"}`);
               }
               if (deploy.state === "ready") {
+                if (process.env.PUBLISH_AFTER_FRESHNESS === "true") return;
                 if (process.env.DEPLOY_MODE !== "production") return;
                 const site = await readJson(
                   await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`),
@@ -983,6 +1198,15 @@ jobs:
                 if (site.published_deploy?.id === process.env.DEPLOY_ID) {
                   console.log(`Netlify published ${process.env.DEPLOY_ID}.`);
                   return;
+                }
+                if (
+                  process.env.TARGET === "beta" &&
+                  site.published_deploy?.id &&
+                  site.published_deploy.id !== process.env.PREVIOUS_DEPLOY_ID
+                ) {
+                  throw new Error(
+                    `Netlify beta deploy ${process.env.DEPLOY_ID} was superseded by unrelated published deploy ${site.published_deploy.id}.`,
+                  );
                 }
                 console.log("Deploy is ready; waiting for Netlify to publish it.");
               } else {
@@ -997,13 +1221,634 @@ jobs:
           });
           NODE
 
+      - name: Verify first beta deploy source immediately before publish
+        id: beta_first_publish_freshness
+        if: >-
+          inputs.target == 'beta' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.previous.outputs.published_deploy_id == '' &&
+          steps.deploy.outputs.deploy_id != ''
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        with:
+          script: |
+            const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha.toLowerCase();
+            const current = /^[0-9a-f]{40}$/.test(sourceRef) && sourceRef === mainSha;
+            core.setOutput('current', String(current));
+            if (!current) {
+              core.warning(
+                `First beta deploy source ${sourceRef || 'unknown'} became stale before publish; main is now ${mainSha}.`,
+              );
+            }
+
+      - name: Publish first beta deploy after freshness verification
+        id: beta_first_publish
+        if: >-
+          inputs.target == 'beta' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.previous.outputs.published_deploy_id == '' &&
+          steps.beta_first_publish_freshness.outputs.current == 'true' &&
+          steps.deploy.outputs.deploy_id != ''
+        continue-on-error: true
+        env:
+          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+        run: |
+          set -euo pipefail
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "${main_sha,,}" != "${SOURCE_REF,,}" ]]; then
+            echo "::error::First beta deploy became stale before publish; main is now $main_sha."
+            exit 1
+          fi
+          deploy_json="$RUNNER_TEMP/netlify-first-beta-production.json"
+          deploy_message="GitHub Actions first beta production deploy $SOURCE_REF"
+          publish_started_at="$(date -u +%s%3N)"
+          echo "publish_started_at=$publish_started_at" >> "$GITHUB_OUTPUT"
+          set +e
+          netlify deploy \
+            --site "$NETLIFY_SITE_ID" \
+            --dir "$PUBLISH_DIRECTORY" \
+            --functions "$FUNCTIONS_DIRECTORY" \
+            --filter "$SOURCE_TEMPLATE" \
+            --no-build \
+            --prod \
+            --message "$deploy_message" \
+            --json | tee "$deploy_json"
+          netlify_exit="${PIPESTATUS[0]}"
+          set -e
+          if [[ "$netlify_exit" -ne 0 ]]; then
+            echo "::warning::Netlify CLI exited $netlify_exit after first beta publish; reconciling the accepted deploy before failing."
+          fi
+          deploy_details="$(
+            PUBLISH_STARTED_AT="$publish_started_at" \
+            DEPLOY_MESSAGE="$deploy_message" \
+            node --experimental-strip-types --input-type=module - "$deploy_json" <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { requestNetlifyApi } from "./scripts/netlify-api-request.ts";
+
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+          };
+          const deployJsonPath = process.argv[2];
+          const startedAt = Number(process.env.PUBLISH_STARTED_AT);
+          const sourceRef = process.env.SOURCE_REF.toLowerCase();
+          const message = process.env.DEPLOY_MESSAGE;
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const details = (deploy) => ({
+            deployId: deploy?.deploy_id || deploy?.id || "",
+            deployUrl: deploy?.deploy_url || deploy?.deploy_ssl_url || deploy?.ssl_url || deploy?.url || "",
+          });
+          const readJson = async (response, label) => {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          };
+
+          let result = {};
+          try {
+            result = JSON.parse(readFileSync(deployJsonPath, "utf8"));
+          } catch (error) {
+            console.error(`Could not parse Netlify CLI output; reconciling the site deploy list: ${error}`);
+          }
+          let selected = details(result);
+          if (selected.deployId && !selected.deployUrl) {
+            selected = { ...selected, ...details(await readJson(
+              await requestNetlifyApi(`${api}/deploys/${selected.deployId}`, { headers }),
+              `Netlify first beta production deploy ${selected.deployId} lookup`,
+            )) };
+          }
+
+          if (!selected.deployId || !selected.deployUrl) {
+            const deadline = Date.now() + 60_000;
+            while (Date.now() < deadline && (!selected.deployId || !selected.deployUrl)) {
+              const deploys = await readJson(
+                await requestNetlifyApi(`${api}/sites/${process.env.NETLIFY_SITE_ID}/deploys?per_page=100&production=true`, { headers }),
+                "Netlify first beta production deploy reconciliation",
+              );
+              if (!Array.isArray(deploys)) throw new Error("Netlify returned an invalid deploy list during first beta reconciliation.");
+              const candidates = deploys
+                .filter((deploy) => {
+                  const createdAt = Date.parse(deploy.created_at || "");
+                  const candidateSource = String(deploy.commit_ref || "").toLowerCase();
+                  const candidateMessage = String(deploy.title || deploy.message || "");
+                  return (
+                    deploy.context === "production" &&
+                    Number.isFinite(createdAt) &&
+                    createdAt >= startedAt - 30_000 &&
+                    (candidateSource === sourceRef || candidateMessage === message)
+                  );
+                })
+                .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
+              if (candidates[0]) selected = details(candidates[0]);
+              if (!selected.deployId || !selected.deployUrl) await sleep(5_000);
+            }
+          }
+          if (!selected.deployId || !selected.deployUrl) {
+            throw new Error("Netlify accepted the first beta production upload but its deploy id or URL could not be reconciled.");
+          }
+          process.stdout.write(JSON.stringify(selected));
+          NODE
+          )"
+          deploy_url="$(node --input-type=module -e 'process.stdout.write(JSON.parse(process.argv[1]).deployUrl)' "$deploy_details")"
+          deploy_id="$(node --input-type=module -e 'process.stdout.write(JSON.parse(process.argv[1]).deployId)' "$deploy_details")"
+          if [[ "$deploy_url" != https://* ]]; then
+            echo "::error::Netlify did not return a first beta production URL."
+            exit 1
+          fi
+          if [[ -z "$deploy_id" ]]; then
+            echo "::error::Netlify did not return a first beta production deploy id."
+            exit 1
+          fi
+          echo "deploy_url=$deploy_url" >> "$GITHUB_OUTPUT"
+          echo "deploy_id=$deploy_id" >> "$GITHUB_OUTPUT"
+          echo "Published first beta artifact as production deploy $deploy_id after the final freshness check."
+
+      - name: Reconcile first beta production deploy after publish attempt
+        id: beta_first_publish_reconcile
+        if: >-
+          always() && inputs.target == 'beta' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.previous.outputs.published_deploy_id == '' &&
+          steps.beta_first_publish.outputs.publish_started_at != '' &&
+          steps.beta_first_publish.outputs.deploy_id == ''
+        env:
+          DEPLOY_MESSAGE: GitHub Actions first beta production deploy ${{ steps.source.outputs.source_ref }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PUBLISH_STARTED_AT: ${{ steps.beta_first_publish.outputs.publish_started_at }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+          const fs = require("node:fs");
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+          };
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const readJson = async (response, label) => {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          };
+          const details = (deploy) => ({
+            deployId: deploy?.id || deploy?.deploy_id || "",
+            deployUrl: deploy?.deploy_url || deploy?.deploy_ssl_url || deploy?.ssl_url || deploy?.url || "",
+          });
+          const deadline = Date.now() + 60_000;
+          while (Date.now() < deadline) {
+            const deploys = await readJson(
+              await requestNetlifyApi(`${api}/sites/${process.env.NETLIFY_SITE_ID}/deploys?per_page=100&production=true`, { headers }),
+              "Netlify first beta production deploy recovery",
+            );
+            if (!Array.isArray(deploys)) throw new Error("Netlify returned an invalid deploy list during first beta recovery.");
+            const candidates = deploys
+              .filter((deploy) => {
+                const createdAt = Date.parse(deploy.created_at || "");
+                const candidateSource = String(deploy.commit_ref || "").toLowerCase();
+                const candidateMessage = String(deploy.title || deploy.message || "");
+                return (
+                  deploy.context === "production" &&
+                  Number.isFinite(createdAt) &&
+                  createdAt >= Number(process.env.PUBLISH_STARTED_AT) - 30_000 &&
+                  (candidateSource === process.env.SOURCE_REF.toLowerCase() || candidateMessage === process.env.DEPLOY_MESSAGE)
+                );
+              })
+              .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
+            const recovered = details(candidates[0]);
+            if (recovered.deployId && recovered.deployUrl) {
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `deploy_id=${recovered.deployId}\ndeploy_url=${recovered.deployUrl}\n`);
+              console.log(`Recovered first beta production deploy ${recovered.deployId} after the publisher step lost its output.`);
+              return;
+            }
+            await sleep(5_000);
+          }
+          throw new Error("Netlify accepted the first beta production upload, but recovery could not identify its production deploy.");
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Wait for first beta production deploy to publish
+        id: beta_first_publish_wait
+        if: >-
+          always() &&
+          (steps.beta_first_publish.outputs.deploy_id != '' ||
+          steps.beta_first_publish_reconcile.outputs.deploy_id != '')
+        env:
+          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+            const fs = require("node:fs");
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            const api = "https://api.netlify.com/api/v1";
+            const headers = {
+              Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            };
+            const request = (url) => requestNetlifyApi(url, { headers });
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            async function readJson(response, label) {
+              const text = await response.text();
+              const body = text ? JSON.parse(text) : null;
+              if (!response.ok) {
+                throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+              }
+              return body;
+            }
+            const deployId = process.env.DEPLOY_ID;
+            const siteId = process.env.NETLIFY_SITE_ID;
+            const deadline = Date.now() + 30 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const deploy = await readJson(
+                await request(`${api}/deploys/${deployId}`),
+                "Netlify first beta production deploy status",
+              );
+              if (["error", "canceled", "rejected"].includes(deploy.state)) {
+                throw new Error(
+                  `Netlify first beta production deploy ${deployId} failed in state ${deploy.state}: ${deploy.error_message || "unknown error"}`,
+                );
+              }
+              if (deploy.state === "ready") {
+                const site = await readJson(
+                  await request(`${api}/sites/${siteId}`),
+                  "Netlify first beta published deploy lookup",
+                );
+                const publishedId = site.published_deploy?.id;
+                if (publishedId === deployId) {
+                  fs.appendFileSync(process.env.GITHUB_OUTPUT, `published_deploy_id=${deployId}\n`);
+                  console.log(`Netlify published first beta production deploy ${deployId}.`);
+                  return;
+                }
+                if (publishedId) {
+                  throw new Error(
+                    `Netlify published unrelated deploy ${publishedId} while waiting for first beta production deploy ${deployId}.`,
+                  );
+                }
+                console.log("First beta production deploy is ready; waiting for Netlify to publish it.");
+              } else {
+                console.log(`Netlify first beta production deploy state: ${deploy.state || "unknown"}`);
+              }
+              await sleep(10_000);
+            }
+            throw new Error(
+              `Netlify first beta production deploy ${deployId} did not become ready and published within 30 minutes.`,
+            );
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Verify beta source is current after publish
+        id: beta_post_freshness
+        if: >-
+          always() && inputs.target == 'beta' && inputs.deploy &&
+          steps.beta_freshness.outputs.current == 'true' &&
+          steps.deploy.outputs.deploy_id != ''
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        continue-on-error: true
+        env:
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        with:
+          script: |
+            const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha.toLowerCase();
+            const current = /^[0-9a-f]{40}$/.test(sourceRef) && sourceRef === mainSha;
+            core.setOutput('current', String(current));
+            if (!current) {
+              core.warning(
+                `Beta source ${sourceRef || 'unknown'} became stale while publishing; main is now ${mainSha}.`,
+              );
+            }
+
+      - name: Delete staged first beta draft
+        id: beta_draft_cleanup
+        if: >-
+          always() && inputs.target == 'beta' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.previous.outputs.published_deploy_id == '' &&
+          steps.deploy.outputs.deploy_id != '' &&
+          steps.deploy.outputs.deploy_id != steps.beta_first_publish.outputs.deploy_id &&
+          steps.deploy.outputs.deploy_id != steps.beta_first_publish_reconcile.outputs.deploy_id
+        env:
+          DRAFT_DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            const api = "https://api.netlify.com/api/v1";
+            const headers = {
+              Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            };
+            const request = (url, options = {}) => requestNetlifyApi(url, {
+              ...options,
+              headers: { ...headers, ...(options.headers || {}) },
+            });
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            const readJson = async (response, label) => {
+              const text = await response.text();
+              const body = text ? JSON.parse(text) : null;
+              if (!response.ok) {
+                throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+              }
+              return body;
+            };
+            const draftId = process.env.DRAFT_DEPLOY_ID;
+            const siteId = process.env.NETLIFY_SITE_ID;
+            const site = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify staged beta draft site lookup",
+            );
+            if (site.published_deploy?.id === draftId) {
+              throw new Error(`Refusing to delete staged beta draft ${draftId} because Netlify published it.`);
+            }
+            const deletion = await request(`${api}/deploys/${draftId}`, { method: "DELETE" });
+            if (deletion.status === 404) {
+              console.log(`Staged beta draft ${draftId} was already removed.`);
+              return;
+            }
+            if (!deletion.ok) {
+              const cancellation = await request(`${api}/deploys/${draftId}/cancel`, { method: "POST" });
+              if (!cancellation.ok) {
+                throw new Error(`Netlify could not delete or cancel staged beta draft ${draftId}.`);
+              }
+              const cancellationDeadline = Date.now() + 5 * 60 * 1000;
+              while (Date.now() < cancellationDeadline) {
+                const current = await request(`${api}/deploys/${draftId}`);
+                if (current.status === 404) {
+                  console.log(`Staged beta draft ${draftId} was removed after cancellation.`);
+                  return;
+                }
+                const deploy = await readJson(
+                  current,
+                  `Netlify staged beta draft ${draftId} cancellation status`,
+                );
+                if (["error", "canceled", "rejected"].includes(deploy.state)) {
+                  const retryDeletion = await request(`${api}/deploys/${draftId}`, { method: "DELETE" });
+                  if (retryDeletion.status === 404) return;
+                  if (!retryDeletion.ok) {
+                    throw new Error(`Netlify canceled staged beta draft ${draftId} but rejected its final deletion.`);
+                  }
+                  await readJson(retryDeletion, `Netlify staged beta draft ${draftId} retry deletion`);
+                  const verification = await request(`${api}/deploys/${draftId}`);
+                  if (verification.status !== 404) {
+                    throw new Error(`Netlify staged beta draft ${draftId} still exists after cancellation and deletion.`);
+                  }
+                  console.log(`Canceled and deleted staged beta draft ${draftId}.`);
+                  return;
+                }
+                await sleep(10_000);
+              }
+              throw new Error(`Netlify staged beta draft ${draftId} did not become terminal after cancellation.`);
+            }
+            await readJson(deletion, `Netlify staged beta draft ${draftId} deletion`);
+            const verification = await request(`${api}/deploys/${draftId}`);
+            if (verification.status !== 404) {
+              throw new Error(`Netlify staged beta draft ${draftId} still exists after deletion.`);
+            }
+            console.log(`Deleted staged beta draft ${draftId}.`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Revert stale beta deploy
+        if: >-
+          always() && inputs.target == 'beta' && inputs.deploy &&
+          (steps.beta_first_publish.outputs.deploy_id != '' ||
+          steps.beta_first_publish_reconcile.outputs.deploy_id != '' ||
+          (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id != '')) &&
+          (steps.beta_post_freshness.outputs.current == 'false' ||
+          steps.beta_post_freshness.outcome == 'failure' ||
+          steps.deploy_wait.outcome == 'failure' ||
+          steps.beta_first_publish_wait.outcome == 'failure' ||
+          (steps.beta_first_publish.outcome == 'failure' &&
+          steps.beta_first_publish.outputs.deploy_id == '' &&
+          steps.beta_first_publish_reconcile.outputs.deploy_id == ''))
+        env:
+          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id) }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            "User-Agent": "agent-native-prebuilt-beta-freshness-revert",
+          };
+          const request = (url, options = {}) => requestNetlifyApi(url, {
+            ...options,
+            headers: { ...headers, ...(options.headers || {}) },
+          });
+          async function readJson(response, label) {
+            const text = await response.text();
+            let body = null;
+            try {
+              body = text ? JSON.parse(text) : null;
+            } catch {
+              body = text;
+            }
+            if (!response.ok) {
+              throw new Error(
+                `${label} failed with HTTP ${response.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`,
+              );
+            }
+            return body;
+          }
+          const siteId = process.env.NETLIFY_SITE_ID;
+          const deployId = process.env.DEPLOY_ID;
+          const previousId = process.env.PREVIOUS_DEPLOY_ID;
+          if (!siteId || !deployId) throw new Error("Beta freshness cleanup is missing the site or deploy id.");
+          // Keep this job in the per-site concurrency group until Netlify
+          // proves the stale deploy cannot publish. The job timeout is the
+          // final bound; a local cleanup deadline would release the queue
+          // while an external deploy could still win it later.
+          const cleanupStartedAt = Date.now();
+          let cancellationRequested = false;
+          let cancellationRejected = false;
+          let deletionRequested = false;
+          let lastDeletionAttempt = 0;
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          while (true) {
+            const site = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify beta freshness site lookup",
+            );
+            const publishedDeployId = site.published_deploy?.id;
+            if (publishedDeployId === deployId) {
+              if (!previousId) {
+                throw new Error(
+                  `Cannot safely revert first beta deploy ${deployId}: no previous published deploy exists. First publishes are staged as drafts and only published after a current-main check; a live first publish here indicates an external race, so the queued latest-main beta run must replace it.`,
+                );
+              }
+              const beforeRestore = await readJson(
+                await request(`${api}/sites/${siteId}`),
+                "Netlify beta freshness restore precondition",
+              );
+              if (beforeRestore.published_deploy?.id !== deployId) {
+                await sleep(1_000);
+                continue;
+              }
+              const restored = await readJson(
+                await request(`${api}/sites/${siteId}/deploys/${previousId}/restore`, { method: "POST" }),
+                `Netlify beta freshness revert to ${previousId}`,
+              );
+              const restoredDeployId = restored?.id;
+              if (!restoredDeployId) {
+                throw new Error(
+                  `Netlify beta freshness revert to ${previousId} did not return a new deploy id.`,
+                );
+              }
+              const restoreDeadline = Date.now() + 5 * 60 * 1000;
+              while (Date.now() < restoreDeadline) {
+                const current = await readJson(
+                  await request(`${api}/sites/${siteId}`),
+                  "Netlify beta freshness revert verification",
+                );
+                if (current.published_deploy?.id === restoredDeployId) {
+                  console.log(`Restored beta deploy ${previousId} as ${restoredDeployId} after superseding ${deployId}.`);
+                  process.exitCode = 1;
+                  return;
+                }
+                await sleep(10_000);
+              }
+              throw new Error(
+                `Netlify did not publish rollback deploy ${restoredDeployId} (restore of ${previousId}) within five minutes.`,
+              );
+            }
+            if (publishedDeployId && publishedDeployId !== previousId) {
+              console.log(
+                `Netlify beta deploy ${deployId} was superseded by published deploy ${publishedDeployId}; keeping the beta queue occupied until the stale deploy is non-publishable.`,
+              );
+            }
+
+            const deployResponse = await request(`${api}/deploys/${deployId}`);
+            if (deployResponse.status === 404) {
+              throw new Error(
+                `Stale beta deploy ${deployId} was removed and cannot publish; the queued successor may proceed.`,
+              );
+            }
+            const deploy = await readJson(
+              deployResponse,
+              `Netlify beta freshness deploy ${deployId} lookup`,
+            );
+            if (['error', 'canceled', 'rejected'].includes(deploy.state)) {
+              throw new Error(`Beta source ${deployId} was superseded by a newer main commit.`);
+            }
+            if (!cancellationRequested) {
+              try {
+                await readJson(
+                  await request(`${api}/deploys/${deployId}/cancel`, { method: "POST" }),
+                  `Netlify stale beta deploy ${deployId} cancellation`,
+                );
+                console.log(`Requested cancellation for stale beta deploy ${deployId}; observing until it settles.`);
+              } catch (error) {
+                console.log(`Netlify stale beta deploy ${deployId} did not accept cancellation; continuing to observe it.`);
+                console.log(error instanceof Error ? error.message : error);
+                cancellationRejected = true;
+              }
+              cancellationRequested = true;
+            }
+            if (
+              !deletionRequested &&
+              (cancellationRejected || Date.now() - cleanupStartedAt >= 5 * 60 * 1000) &&
+              Date.now() - lastDeletionAttempt >= 60_000
+            ) {
+              lastDeletionAttempt = Date.now();
+              try {
+                const deletion = await request(`${api}/deploys/${deployId}`, {
+                  method: "DELETE",
+                });
+                if (deletion.status === 404) {
+                  deletionRequested = true;
+                  console.log(`Stale beta deploy ${deployId} was already removed.`);
+                } else {
+                  await readJson(
+                    deletion,
+                    `Netlify stale beta deploy ${deployId} deletion`,
+                  );
+                  deletionRequested = true;
+                  console.log(`Requested deletion for stale beta deploy ${deployId}; observing until it is non-publishable.`);
+                }
+              } catch (error) {
+                console.log(`Netlify stale beta deploy ${deployId} deletion was not accepted; keeping the beta queue occupied.`);
+                console.log(error instanceof Error ? error.message : error);
+              }
+            }
+            await sleep(10_000);
+          }
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Fail after beta freshness verification
+        if: >-
+          always() &&
+          (steps.beta_post_freshness.outcome == 'failure' ||
+          steps.beta_post_freshness.outputs.current == 'false' ||
+          steps.beta_first_publish_freshness.outcome == 'failure' ||
+          steps.beta_first_publish_freshness.outputs.current == 'false' ||
+          (steps.beta_first_publish.outcome == 'failure' &&
+          steps.beta_first_publish.outputs.deploy_id == '' &&
+          steps.beta_first_publish_reconcile.outputs.deploy_id == ''))
+        run: |
+          set -euo pipefail
+          echo "::error::Beta source freshness could not be verified after publish."
+          exit 1
+
       - name: Smoke-test the uploaded deploy
         if: >-
-          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
-          inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'
+          inputs.target != 'preview' && inputs.deploy &&
+          steps.beta_freshness.outputs.current != 'false' &&
+          inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs' &&
+          (inputs.target != 'beta' ||
+          steps.beta_first_publish.outputs.deploy_id != '' ||
+          steps.beta_first_publish_reconcile.outputs.deploy_id != '' ||
+          (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id != ''))
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
-          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id) }}
+          DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.beta_first_publish_reconcile.outputs.deploy_url || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_url) }}
           HOST: ${{ steps.target.outputs.host }}
         run: |
           set -euo pipefail
@@ -1020,6 +1865,28 @@ jobs:
               --url "$url" --auth-routes
           fi
 
+      - name: Smoke-test the uploaded PR preview
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          steps.beta_freshness.outputs.current != 'false' && inputs.smoke &&
+          steps.target.outputs.source_template != '@agent-native/docs'
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          HOST: ${{ steps.target.outputs.host }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+        run: |
+          set -euo pipefail
+          smoke_args=(
+            --url "$DEPLOY_URL"
+            --canonical-host "$HOST"
+            --auth-routes
+            --preview
+          )
+          if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
+            smoke_args+=(--allow-missing-health)
+          fi
+          node --experimental-strip-types scripts/smoke-check-health.ts "${smoke_args[@]}"
+
       # The active managed client and its capability are observable only from
       # the live host, so this is a post-publish verification. If the declared
       # managed callback is definitively unregistered, the immediately
@@ -1032,7 +1899,8 @@ jobs:
         if: >-
           inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
           inputs.smoke && inputs.deploy_mode == 'production' &&
-          steps.target.outputs.source_template != '@agent-native/docs'
+          steps.target.outputs.source_template != '@agent-native/docs' &&
+          steps.previous.outputs.published_deploy_id != ''
         continue-on-error: true
         env:
           HOST: ${{ steps.target.outputs.host }}
@@ -1050,7 +1918,7 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          NEW_DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          NEW_DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id || steps.deploy.outputs.deploy_id }}
           PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
         run: |
           set -euo pipefail
@@ -1088,26 +1956,34 @@ jobs:
                 `Refusing callback rollback because Netlify now serves ${current?.published_deploy?.id || "an unknown deploy"}, expected ${newId}.`,
               );
             }
-            await readJson(
+            const restored = await readJson(
               await request(`${api}/sites/${siteId}/deploys/${previousId}/restore`, {
                 method: "POST",
               }),
               `Netlify callback rollback to ${previousId}`,
             );
+            const restoredDeployId = restored?.id;
+            if (!restoredDeployId) {
+              throw new Error(
+                `Netlify callback rollback to ${previousId} did not return a new deploy id.`,
+              );
+            }
             const deadline = Date.now() + 5 * 60 * 1000;
             while (Date.now() < deadline) {
               const site = await readJson(
                 await request(`${api}/sites/${siteId}`),
                 "Netlify callback rollback verification",
               );
-              if (site?.published_deploy?.id === previousId) {
-                console.log(`Restored previous published deploy ${previousId}.`);
+              if (site?.published_deploy?.id === restoredDeployId) {
+                console.log(`Restored previous published deploy ${previousId} as ${restoredDeployId}.`);
                 process.exitCode = 1;
                 return;
               }
               await new Promise((resolve) => setTimeout(resolve, 10_000));
             }
-            throw new Error(`Netlify did not publish rollback deploy ${previousId} within five minutes.`);
+            throw new Error(
+              `Netlify did not publish rollback deploy ${restoredDeployId} (restore of ${previousId}) within five minutes.`,
+            );
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;
@@ -1139,8 +2015,12 @@ jobs:
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/" >/dev/null
           echo "Static docs smoke check passed: ${url%/}/"
 
-      - name: Purge the production Netlify cache
-        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
+      - name: Purge the published Netlify cache
+        if: >-
+          (inputs.target == 'production' || inputs.target == 'beta') &&
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') &&
+          success()
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -1155,7 +2035,7 @@ jobs:
               headers: {
                 Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
                 "Content-Type": "application/json",
-                "User-Agent": "agent-native-prebuilt-production-cache-purge",
+                "User-Agent": "agent-native-prebuilt-published-cache-purge",
               },
               body: JSON.stringify({ site_id: process.env.NETLIFY_SITE_ID }),
             });
@@ -1167,9 +2047,9 @@ jobs:
               body = text;
             }
             if (!response.ok) {
-              throw new Error(`Netlify production cache purge failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+              throw new Error(`Netlify published cache purge failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
             }
-            console.log(`Purged the Netlify production cache for ${process.env.NETLIFY_SITE_ID} (HTTP ${response.status}).`);
+            console.log(`Purged the published Netlify cache for ${process.env.NETLIFY_SITE_ID} (HTTP ${response.status}).`);
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;
@@ -1446,3 +2326,47 @@ jobs:
               echo "- Deploy: build-only; no Netlify deploy was created"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Generate the record name only after every preview smoke check has
+      # passed. The random suffix prevents PR build code from pre-creating the
+      # privileged handoff artifact under a predictable name.
+      - name: Prepare the trusted PR preview deploy record
+        id: pr_preview_record
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.pull_request_number > 0 && success()
+        env:
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+          SITE_NAME: ${{ steps.target.outputs.site_name }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_ID:?PR preview upload did not return a deploy id.}"
+          : "${DEPLOY_URL:?PR preview upload did not return a deploy URL.}"
+          : "${SOURCE_REF:?PR preview upload did not return a source ref.}"
+          record_dir="$RUNNER_TEMP/netlify-pr-preview-record"
+          mkdir -p "$record_dir"
+          artifact_name="netlify-pr-preview-record-${SITE_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-$(openssl rand -hex 16)"
+          jq -n \
+            --arg deploy_id "$DEPLOY_ID" \
+            --arg deploy_url "$DEPLOY_URL" \
+            --arg pull_request_number "$PULL_REQUEST_NUMBER" \
+            --arg site_name "$SITE_NAME" \
+            --arg source_ref "$SOURCE_REF" \
+            '{deployId: $deploy_id, deployUrl: $deploy_url, pullRequestNumber: ($pull_request_number | tonumber), siteName: $site_name, sourceRef: $source_ref}' \
+            > "$record_dir/record.json"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the trusted PR preview deploy record
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.pull_request_number > 0 &&
+          steps.pr_preview_record.outcome == 'success' && success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.pr_preview_record.outputs.artifact_name }}
+          path: ${{ runner.temp }}/netlify-pr-preview-record/record.json
+          if-no-files-found: error
+          retention-days: 1

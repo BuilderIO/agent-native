@@ -43,6 +43,7 @@ import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
   referenceDeckId?: string | null;
+  referenceFilePaths?: string[];
   referenceSource?: {
     kind: "google-docs" | "website" | "figma";
     value: string;
@@ -57,6 +58,7 @@ export interface ImportedReference {
   id: string;
   title: string;
   source: "pptx" | "pdf" | "docx" | "google-slides";
+  referenceFilePaths?: string[];
 }
 
 type FileImportSource = Exclude<ImportedReference["source"], "google-slides">;
@@ -190,6 +192,9 @@ export function NewDeckReferenceStep({
         designSystemId: selectedDesignSystemId,
         referenceDeckId: selectedReferenceDeckId,
         referenceSource: trimmedSource,
+        ...(importedReference?.referenceFilePaths?.length
+          ? { referenceFilePaths: importedReference.referenceFilePaths }
+          : {}),
       });
     } finally {
       setContinuing(false);

@@ -2415,3 +2415,130 @@ describe("Builder gateway credential lane", () => {
     });
   });
 });
+
+describe("resolveSecretDetailed source/scopeId reporting", () => {
+  it("reports source 'user' and scopeId = email on a user-scope hit", async () => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "user" && scopeId === "tim@b.com"
+        ? { value: "user-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(
+      resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+    ).resolves.toMatchObject({
+      value: "user-secret",
+      lookupFailed: false,
+      source: "user",
+      scopeId: "tim@b.com",
+    });
+  });
+
+  it("reports source 'org' and scopeId = orgId on an org-scope hit", async () => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "org" && scopeId === "builder_io"
+        ? { value: "org-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(
+      resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+    ).resolves.toMatchObject({
+      value: "org-secret",
+      lookupFailed: false,
+      source: "org",
+      scopeId: "builder_io",
+    });
+  });
+
+  it("reports source 'workspace' and scopeId = orgId on a workspace-scope hit with an org", async () => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "workspace" && scopeId === "builder_io"
+        ? { value: "workspace-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(
+      resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+    ).resolves.toMatchObject({
+      value: "workspace-secret",
+      lookupFailed: false,
+      source: "workspace",
+      scopeId: "builder_io",
+    });
+  });
+
+  it("reports source 'workspace' and scopeId = solo:<email> on a solo workspace hit", async () => {
+    mockGetRequestUserEmail.mockReturnValue("solo@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "workspace" && scopeId === "solo:solo@b.com"
+        ? { value: "solo-workspace-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(
+      resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+    ).resolves.toMatchObject({
+      value: "solo-workspace-secret",
+      lookupFailed: false,
+      source: "workspace",
+      scopeId: "solo:solo@b.com",
+    });
+  });
+
+  it("reports source 'env' with no scopeId on an env fallback", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.OPENAI_API_KEY = "deploy-key";
+    mockIsLocalDatabase.mockReturnValue(true);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecret.mockResolvedValue(null);
+
+    const detailed = await resolveSecretDetailed("OPENAI_API_KEY");
+    expect(detailed).toMatchObject({
+      value: "deploy-key",
+      lookupFailed: false,
+      source: "env",
+    });
+    expect(detailed.scopeId).toBeUndefined();
+  });
+
+  it("reports no source on a definitive miss", async () => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecret.mockResolvedValue(null);
+
+    const detailed = await resolveSecretDetailed("GOOGLE_CLIENT_SECRET");
+    expect(detailed).toMatchObject({ value: null, lookupFailed: false });
+    expect(detailed.source).toBeUndefined();
+  });
+
+  it("skipUserScope: true never reads the user scope and returns the org row", async () => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "org" && scopeId === "builder_io"
+        ? { value: "org-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(
+      resolveSecretDetailed("GOOGLE_CLIENT_SECRET", { skipUserScope: true }),
+    ).resolves.toMatchObject({
+      value: "org-secret",
+      lookupFailed: false,
+      source: "org",
+      scopeId: "builder_io",
+    });
+    expect(
+      mockReadAppSecret.mock.calls.some((call) => call[0].scope === "user"),
+    ).toBe(false);
+  });
+});

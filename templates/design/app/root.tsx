@@ -154,12 +154,21 @@ function DesignCommandMenu({
       changelogKey="design"
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
+        {isDesignEditor ||
+        location.pathname.startsWith("/templates") ||
+        location.pathname.startsWith("/design-systems") ? (
+          <CommandMenu.Item onSelect={() => navigate("/home")}>
+            {t("navigation.designs")}
+          </CommandMenu.Item>
+        ) : null}
+        {location.pathname === "/home" ? (
+          <CommandMenu.Item onSelect={() => navigate("/templates")}>
+            {t("navigation.templates")}
+          </CommandMenu.Item>
+        ) : null}
         <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
           <IconHierarchy2 size={16} />
           {t("root.openAgent")}
-        </CommandMenu.Item>
-        <CommandMenu.Item onSelect={() => {}}>
-          {t("root.commandSearch")}
         </CommandMenu.Item>
       </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.commandAppearance")}>

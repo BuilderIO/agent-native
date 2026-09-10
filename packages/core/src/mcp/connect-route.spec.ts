@@ -193,6 +193,11 @@ describe("handleMcpConnect", () => {
       expect(body).toContain("u@example.com");
       expect(body).not.toContain("Allow Claude Code, Codex, or Cowork");
       expect(body).toContain('<details id="connections" class="connections">');
+      expect(body).toContain(
+        '<details id="staticTokenMint" class="connections static-token-mint">',
+      );
+      expect(body).toContain('class="flow-terminal"');
+      expect(body).not.toContain("&lt;/&gt;");
       expect(body).not.toContain("connectionsEl.open = true");
       // The page never embeds a token.
       expect(body).not.toContain("Bearer ey");
@@ -289,6 +294,10 @@ describe("handleMcpConnect", () => {
       expect(body).toContain(".msg-copy");
       expect(body).toContain('btn.setAttribute("aria-busy", "true")');
       expect(body).not.toContain("Pick your AI assistant");
+      expect(body).not.toContain('<details id="staticTokenMint"');
+      expect(body).not.toContain('class="connections-title">Authorize device');
+      expect(body).toContain('class="flow-terminal"');
+      expect(body).not.toContain("&lt;/&gt;");
     });
   });
 
