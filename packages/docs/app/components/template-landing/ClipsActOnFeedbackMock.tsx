@@ -165,7 +165,7 @@ const CLIPS_PAGE_MOCK_CSS = [
   // button rather than from its own centre. Toggling the reveal class off
   // when the illustration scrolls out (see the component) lets it replay
   // rather than only ever opening once.
-  ".clips-page-mock-menu-anim { opacity: 0; transform: scale(0.95) translateY(-4px); transform-origin: top right; transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }",
+  ".clips-page-mock-menu-anim { opacity: 0; transform: scale(0.95) translateY(-4px); transform-origin: top right; transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), transform 0.7s cubic-bezier(0.22, 1, 0.36, 1); }",
   ".clips-page-mock-menu-anim.clips-menu-reveal-in { opacity: 1; transform: scale(1) translateY(0); }",
   "@media (scripting: none) { .clips-page-mock-menu-anim { opacity: 1; transform: none; } }",
   "@media (prefers-reduced-motion: reduce) { .clips-page-mock-menu-anim { opacity: 1; transform: none; transition: none; } }",
@@ -214,7 +214,7 @@ export function ClipsActOnFeedbackMock({
     if (!node) return;
     const observer = new IntersectionObserver(
       ([entry]) => setMenuOpen(entry?.isIntersecting ?? false),
-      { threshold: 0.3 },
+      { threshold: 0.6 },
     );
     observer.observe(node);
     return () => observer.disconnect();
