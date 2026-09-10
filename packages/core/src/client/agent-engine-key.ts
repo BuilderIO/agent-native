@@ -51,6 +51,11 @@ export interface SaveAgentEngineProviderSettingsOptions {
   scope?: "user" | "org";
 }
 
+export interface SavedAgentEngineSelection {
+  engine: string;
+  model: string;
+}
+
 function resolveProviderEnvVar(
   provider: AgentEngineProvider | undefined,
   key: string | undefined,
@@ -66,6 +71,74 @@ function dispatchConfiguredChanged(): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(CONFIGURED_CHANGED_EVENT));
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function decodeAgentEngineSelectionPayload(
+  value: unknown,
+  fallbackMessage: string,
+  depth = 0,
+): Record<string, unknown> {
+  if (depth > 3) {
+    throw new Error(fallbackMessage);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new Error(fallbackMessage);
+    }
+    if (/^(Error|Warning):/i.test(trimmed)) {
+      throw new Error(trimmed);
+    }
+    try {
+      return decodeAgentEngineSelectionPayload(
+        JSON.parse(trimmed) as unknown,
+        fallbackMessage,
+        depth + 1,
+      );
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new Error(fallbackMessage);
+      }
+      throw error;
+    }
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(fallbackMessage);
+  }
+
+  if (Object.hasOwn(value, "error")) {
+    const error = value.error;
+    throw new Error(
+      typeof error === "string" && error.trim()
+        ? error.trim()
+        : fallbackMessage,
+    );
+  }
+  if (Object.hasOwn(value, "warning")) {
+    const warning = value.warning;
+    throw new Error(
+      typeof warning === "string" && warning.trim()
+        ? warning.trim()
+        : fallbackMessage,
+    );
+  }
+  if (Object.hasOwn(value, "ok") && value.ok !== true) {
+    throw new Error(fallbackMessage);
+  }
+  if (Object.hasOwn(value, "result")) {
+    return decodeAgentEngineSelectionPayload(
+      value.result,
+      fallbackMessage,
+      depth + 1,
+    );
+  }
+  return value;
 }
 
 async function readProviderSettingsError(
@@ -168,7 +241,7 @@ export async function setAgentEngineProvider({
 }: {
   provider: AgentEngineProvider;
   model?: string;
-}): Promise<void> {
+}): Promise<SavedAgentEngineSelection> {
   const option = getAgentProviderOption(provider);
   const res = await fetch(
     agentNativePath("/_agent-native/actions/manage-agent-engine"),
@@ -182,34 +255,23 @@ export async function setAgentEngineProvider({
       }),
     },
   );
+  const fallbackMessage = `Could not select ${option.label}.`;
+  const text = await res.text();
+  const body = decodeAgentEngineSelectionPayload(text, fallbackMessage);
   if (!res.ok) {
-    const message = await res
-      .json()
-      .then((body: { error?: string; result?: unknown }) =>
-        typeof body?.error === "string"
-          ? body.error
-          : typeof body?.result === "string"
-            ? body.result
-            : undefined,
-      )
-      .catch(() => undefined);
-    throw new Error(message ?? `Could not select ${option.label}.`);
+    throw new Error(fallbackMessage);
   }
-  const body = await res
-    .json()
-    .catch(() => null as { error?: string; result?: unknown } | null);
-  const actionResult = body?.result;
+
+  const savedEngine = body.engine;
+  const savedModel = body.model;
   if (
-    typeof body?.error === "string" ||
-    (typeof actionResult === "string" &&
-      /^(Error|Warning):/i.test(actionResult))
+    body.ok !== true ||
+    savedEngine !== option.engine ||
+    typeof savedModel !== "string" ||
+    !savedModel.trim()
   ) {
-    throw new Error(
-      body.error ??
-        (typeof actionResult === "string"
-          ? actionResult
-          : `Could not select ${option.label}.`),
-    );
+    throw new Error(fallbackMessage);
   }
   dispatchConfiguredChanged();
+  return { engine: savedEngine, model: savedModel.trim() };
 }

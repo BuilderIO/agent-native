@@ -1,11 +1,15 @@
 import {
+  buildDeepLink,
   emailStrong,
+  getAppProductionUrl,
   isEmailConfigured,
   renderEmail,
   sendEmail,
+  toAbsoluteOpenUrl,
 } from "@agent-native/core/server";
 
 import type { CalendarEvent, DeleteEventScope } from "../../shared/api.js";
+import { dateKeyInTimezone } from "../../shared/timezone.js";
 import {
   CALENDAR_EVENT_CANCELLATION_NOTE_EMAIL_ID,
   CALENDAR_EVENT_UPDATE_NOTE_EMAIL_ID,
@@ -68,6 +72,16 @@ function safeTimeZone(event: CalendarEvent): string | undefined {
   }
 }
 
+function eventDateKey(event: CalendarEvent): string | undefined {
+  if (!event.start) return undefined;
+  if (event.allDay || /^\d{4}-\d{2}-\d{2}$/.test(event.start)) {
+    return event.start.slice(0, 10);
+  }
+  const timezone = safeTimeZone(event);
+  if (!timezone) return event.start.slice(0, 10);
+  return dateKeyInTimezone(new Date(event.start), timezone);
+}
+
 function formatWhen(event: CalendarEvent): string {
   const zone = safeTimeZone(event);
   const start = new Date(event.start);
@@ -107,7 +121,7 @@ export function renderEventGuestNote({
   when,
   kind,
   appliesTo,
-  htmlLink,
+  calendarLink,
 }: {
   title: string;
   organizer: string;
@@ -115,7 +129,7 @@ export function renderEventGuestNote({
   when: string;
   kind: GuestNotificationKind;
   appliesTo?: string;
-  htmlLink?: string | null;
+  calendarLink?: string | null;
 }) {
   const heading =
     kind === "cancellation" ? "Event cancellation note" : "Event update note";
@@ -138,8 +152,8 @@ export function renderEventGuestNote({
       heading,
       paragraphs,
       cta:
-        kind === "update" && htmlLink
-          ? { label: "Open in Google Calendar", url: htmlLink }
+        kind === "update" && calendarLink
+          ? { label: "Open in AN Calendar", url: calendarLink }
           : undefined,
       footer:
         "Google Calendar sends the calendar update separately. This message carries the organizer note.",
@@ -189,6 +203,18 @@ export async function sendEventGuestNotificationNote({
     };
   }
 
+  const calendarLink = toAbsoluteOpenUrl(
+    buildDeepLink({
+      app: "calendar",
+      view: "calendar",
+      params: {
+        eventId: event.id,
+        date: eventDateKey(event),
+      },
+    }),
+    getAppProductionUrl(),
+  );
+
   const rendered = renderEventGuestNote({
     title: stripCrlf(event.title) || "Calendar event",
     organizer: stripCrlf(event.organizer?.displayName) || organizerEmail,
@@ -196,7 +222,7 @@ export async function sendEventGuestNotificationNote({
     when: formatWhen(event),
     kind,
     appliesTo: scopeLabel(scope),
-    htmlLink: event.htmlLink,
+    calendarLink,
   });
 
   let sentCount = 0;

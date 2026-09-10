@@ -28,10 +28,13 @@ test.beforeEach(async ({ page }) => {
 test("editor renders the toolbar and the design iframe content", async ({
   page,
 }) => {
+  // Scoped to the toolbar: screen-card chrome carries its own "Interact"
+  // button for one frame, so an unscoped role query matches two controls.
+  const toolbar = page.locator("[data-design-bottom-toolbar]");
   for (const tool of ["Move", "Frame", "Text", "Pen", "Edit", "Interact"]) {
     // exact:true keeps "Move" from matching the "Move options" split button.
     await expect(
-      page.getByRole("button", { name: tool, exact: true }),
+      toolbar.getByRole("button", { name: tool, exact: true }),
     ).toBeVisible();
   }
   // Frame-locator reaches inside the sandboxed iframe and stays stable around overlays.
@@ -55,7 +58,7 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
 
   const tabListBox = await shareOptions.boundingBox();
   expect(tabListBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    340,
+    420,
   );
   expect(tabListBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
     42,
@@ -66,6 +69,14 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   expect(sendTabBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
     36,
   );
+
+  const contextTab = page.getByRole("tab", { name: "Context", exact: true });
+  await expect(contextTab).toBeVisible();
+  await contextTab.click();
+  await expect(
+    page.getByRole("region", { name: "Creative context" }),
+  ).toBeVisible();
+  await cdpScreenshot(page, testInfo.outputPath("share-dialog-context.png"));
 
   await sendTab.click();
   await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
@@ -121,6 +132,39 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
 });
 
+test("right rail actions row keeps the Share button inside the panel", async ({
+  page,
+}, testInfo) => {
+  const actionsRow = page.locator(
+    '[data-design-chrome-region="right-toolbar-actions"]',
+  );
+  await expect(actionsRow).toBeVisible();
+
+  await expect(
+    page.getByRole("button", { name: "Add to Context" }),
+  ).toHaveCount(0);
+
+  const shareButton = page
+    .getByRole("button", { name: /^share(?: \(.+\))?$/i })
+    .first();
+  await expect(shareButton).toBeVisible();
+
+  const rowBox = await actionsRow.boundingBox();
+  const shareBox = await shareButton.boundingBox();
+  if (!rowBox || !shareBox) throw new Error("missing right rail action boxes");
+
+  expect(shareBox.width).toBeGreaterThan(0);
+  expect(shareBox.x).toBeGreaterThanOrEqual(rowBox.x - 1);
+  expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(
+    rowBox.x + rowBox.width + 1,
+  );
+  expect(
+    await actionsRow.evaluate((node) => node.scrollWidth - node.clientWidth),
+  ).toBeLessThanOrEqual(1);
+
+  await cdpScreenshot(page, testInfo.outputPath("editor-share-toolbar.png"));
+});
+
 test("screen overview adds and targets frames from the unified breakpoint control", async ({
   page,
 }) => {
@@ -132,7 +176,8 @@ test("screen overview adds and targets frames from the unified breakpoint contro
   await breakpointControl
     .getByRole("button", { name: "Add breakpoint" })
     .click();
-  await page.getByRole("button", { name: /Phone/ }).click();
+  // The device menu lists every iPhone preset alongside the generic row.
+  await page.getByRole("button", { name: /^Phone \d+$/ }).click();
 
   const mobileTarget = breakpointControl.getByRole("button", { name: "390" });
   await expect(mobileTarget).toBeVisible();
@@ -278,17 +323,19 @@ test("left sidebar switches between all screens and focused screens", async ({
   await expect(allScreens).toHaveAttribute("aria-current", "page");
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 
+  const screenCards = page.locator("[data-screen-card]");
+  await expect(screenCards.first()).toBeVisible();
+
   await homeScreen.click();
   await expect(homeScreen).toHaveAttribute("aria-current", "page");
   await expect(allScreens).not.toHaveAttribute("aria-current", "page");
-  await expect
-    .poll(
-      async () =>
-        (await page.locator("iframe[data-design-preview-iframe]").boundingBox())
-          ?.width ?? 0,
-      { timeout: 10_000 },
-    )
-    .toBeGreaterThan(600);
+  // Leaving the board is the switch under test. The focused preview's width is
+  // the screen's own device width, so pinning a pixel floor here asserts the
+  // seed's frame geometry instead — 320 once the overview persists one.
+  await expect(screenCards).toHaveCount(0, { timeout: 10_000 });
+  await expect(
+    page.locator("iframe[data-design-preview-iframe]"),
+  ).toBeVisible();
 
   await allScreens.click();
   await expect(allScreens).toHaveAttribute("aria-current", "page");
@@ -455,7 +502,9 @@ test("selecting a different element changes the selection", async ({
 test("the layers panel lists layers and a layer row selects on the canvas", async ({
   page,
 }) => {
-  const rows = page.locator('[role="treeitem"][aria-selected]');
+  // :visible — a collapsed screen's descendant rows stay in the DOM, and
+  // clicking one that is not on screen can never select anything.
+  const rows = page.locator('[role="treeitem"][aria-selected]:visible');
   await expect(rows.first()).toBeVisible({ timeout: 15_000 });
   expect(await rows.count()).toBeGreaterThan(0);
 

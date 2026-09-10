@@ -8,6 +8,7 @@ import {
 } from "../lib/app";
 import { originFor, productionHostFor, selectedSites } from "../lib/fleet";
 import { mustRespond, parseJson, probe, warm } from "../lib/http";
+import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
 
 /**
  * The unauthenticated fleet sweep.
@@ -31,6 +32,10 @@ interface HealthSample {
 const SAMPLE_COUNT = 4;
 
 const sites = selectedSites();
+
+test.beforeEach(async ({ page }) => {
+  await installBetaE2ETrafficMarker(page.context());
+});
 
 test.describe.configure({ mode: "parallel" });
 

@@ -1,6 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
-import { IconDots, IconMessageCircle, IconUser } from "@tabler/icons-react";
+import {
+  IconCalendarTime,
+  IconDots,
+  IconMessageCircle,
+  IconUser,
+} from "@tabler/icons-react";
 import { useEffect, useId, useMemo, useState } from "react";
 
 import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
@@ -34,6 +39,7 @@ import {
 import { getLocalTimezone } from "@/lib/event-form-utils";
 import {
   canInlineRsvp,
+  hasTimeProposal,
   RsvpStatusIcon,
   type RsvpStatus,
 } from "@/lib/rsvp-status";
@@ -43,6 +49,7 @@ type RecurringScope = "single" | "all" | "thisAndFollowing";
 
 type Attendee = NonNullable<CalendarEvent["attendees"]>[number];
 type EditableRsvpStatus = Exclude<RsvpStatus, "needsAction">;
+type ProposalAction = "propose" | "review";
 
 const ATTENDEE_TRUNCATE_THRESHOLD = 5;
 const ATTENDEE_INITIAL_SHOW = 3;
@@ -72,7 +79,7 @@ function getAvatarUrl(email: string): string {
 function AttendeeAvatar({
   attendee,
   resolvedPhotoUrl,
-  sizeClassName = "h-8 w-8",
+  sizeClassName = "size-5",
 }: {
   attendee: Attendee;
   resolvedPhotoUrl?: string;
@@ -102,7 +109,7 @@ function AttendeeAvatar({
     <div
       className={cn(
         sizeClassName,
-        "flex items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground",
+        "flex items-center justify-center rounded-full bg-muted-foreground/25 text-[10px] font-medium text-foreground/80",
       )}
     >
       {initials}
@@ -117,6 +124,8 @@ function RsvpControls({
   note,
   onChange,
   isRecurring,
+  proposalAction,
+  googleCalendarLink,
 }: {
   eventId: string;
   accountEmail?: string;
@@ -124,6 +133,8 @@ function RsvpControls({
   note?: string;
   onChange: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
+  proposalAction?: ProposalAction;
+  googleCalendarLink?: string;
 }) {
   const t = useT();
   const mutation = useRsvpEvent();
@@ -205,53 +216,83 @@ function RsvpControls({
       open={!!pendingStatus}
       onOpenChange={(open) => !open && closePopover()}
     >
-      <div className="mt-2 flex items-center gap-1 rounded-2xl bg-muted/60 p-1">
-        {options.map((option) => {
-          const active = value === option.value;
-          const btn = (
-            <button
-              key={option.value}
-              type="button"
-              disabled={mutation.isPending}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRsvp(option.value);
-              }}
-              className={cn(
-                "min-w-0 flex-1 rounded-xl px-3 py-2 text-sm font-medium",
-                active
-                  ? "bg-background text-foreground shadow-sm ring-1 ring-border"
-                  : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
-                mutation.isPending && "opacity-60",
-              )}
-            >
-              {option.label}
-            </button>
-          );
-          if (pendingStatus === option.value) {
-            return (
-              <PopoverTrigger key={option.value} asChild>
-                {btn}
-              </PopoverTrigger>
+      <div className="mt-1.5 flex items-center gap-1">
+        <div className="flex min-w-0 flex-1 items-center gap-1 rounded-lg bg-muted/60 p-0.5">
+          {options.map((option) => {
+            const active = value === option.value;
+            const btn = (
+              <button
+                key={option.value}
+                type="button"
+                disabled={mutation.isPending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRsvp(option.value);
+                }}
+                className={cn(
+                  "min-w-0 flex-1 rounded-md px-3 py-1 text-[13px] leading-[18px] font-medium",
+                  active
+                    ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+                    : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+                  mutation.isPending && "opacity-60",
+                )}
+              >
+                {option.label}
+              </button>
             );
-          }
-          return btn;
-        })}
+            if (pendingStatus === option.value) {
+              return (
+                <PopoverTrigger key={option.value} asChild>
+                  {btn}
+                </PopoverTrigger>
+              );
+            }
+            return btn;
+          })}
+        </div>
+
+        {canEditNote && (
+          <button
+            type="button"
+            disabled={mutation.isPending}
+            onClick={(e) => {
+              e.stopPropagation();
+              openPopover(value as EditableRsvpStatus);
+            }}
+            aria-label={
+              currentNote ? t("eventForm.editNote") : t("eventForm.addNote")
+            }
+            title={
+              currentNote ? t("eventForm.editNote") : t("eventForm.addNote")
+            }
+            className="flex size-[30px] shrink-0 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+          >
+            <IconMessageCircle className="size-3.5" />
+          </button>
+        )}
       </div>
 
-      {canEditNote && (
-        <button
-          type="button"
-          disabled={mutation.isPending}
-          onClick={(e) => {
-            e.stopPropagation();
-            openPopover(value as EditableRsvpStatus);
-          }}
-          className="mt-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+      {proposalAction && googleCalendarLink && (
+        <Button
+          asChild
+          variant="ghost"
+          size="sm"
+          className="mt-1 h-8 w-full justify-start gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
-          <IconMessageCircle className="h-3 w-3" />
-          {currentNote ? t("eventForm.editNote") : t("eventForm.addNote")}
-        </button>
+          <a
+            href={googleCalendarLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <IconCalendarTime aria-hidden="true" className="size-3.5" />
+            {t(
+              proposalAction === "review"
+                ? "eventForm.reviewProposedTime"
+                : "eventForm.proposeNewTime",
+            )}
+          </a>
+        </Button>
       )}
 
       <PopoverContent
@@ -371,6 +412,8 @@ function AttendeeRow({
   currentNote,
   onResponseChange,
   isRecurring,
+  proposalAction,
+  googleCalendarLink,
   canEditOptional,
   onToggleOptional,
   timezoneOverrides,
@@ -387,6 +430,8 @@ function AttendeeRow({
   currentNote?: string;
   onResponseChange?: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
+  proposalAction?: ProposalAction;
+  googleCalendarLink?: string;
   canEditOptional?: boolean;
   onToggleOptional?: (email: string, optional: boolean) => void;
   timezoneOverrides?: Record<string, string>;
@@ -420,6 +465,23 @@ function AttendeeRow({
         })
       : null;
 
+  // One muted line under the name, the way Notion stacks it. The RSVP state is
+  // already on the avatar badge, so it does not get a line of its own; the
+  // attendee's local time still has to survive here because nothing else in the
+  // popover shows it.
+  const subLabel = [
+    attendee.organizer
+      ? t("eventForm.organizer")
+      : attendee.optional
+        ? t("attendees.optionalBadge")
+        : inlineRsvp
+          ? t("eventForm.yourResponse", { status: statusLabel })
+          : null,
+    localTimeLabel,
+  ]
+    .filter(Boolean)
+    .join(" \u00b7 ");
+
   useEffect(() => {
     if (timezonePickerOpen) {
       setDraftTimezone(resolvedZone);
@@ -427,56 +489,40 @@ function AttendeeRow({
   }, [timezonePickerOpen, resolvedZone]);
 
   return (
-    <div className="group rounded-xl px-1 py-1 transition-colors hover:bg-muted/40">
+    <div className="group -mx-1 rounded-lg px-1 py-0.5 transition-colors hover:bg-muted/40">
       <div className="flex items-start">
         <div className="min-w-0 flex-1">
           <AttendeeApolloPopover attendee={attendee}>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
               <div className="relative shrink-0">
                 <AttendeeAvatar
                   attendee={attendee}
                   resolvedPhotoUrl={photoUrl}
                 />
-                <div className="absolute -bottom-0.5 -right-0.5">
-                  <RsvpStatusIcon status={displayStatus ?? "needsAction"} />
+                <div className="absolute -bottom-1 -right-1 rounded-full bg-popover p-px">
+                  <RsvpStatusIcon
+                    status={displayStatus ?? "needsAction"}
+                    className="size-2.5"
+                  />
                 </div>
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate text-sm text-foreground">
+                  <span
+                    className="truncate text-[13px] leading-[18px] text-foreground"
+                    title={attendee.email}
+                  >
                     {attendee.displayName || attendee.email}
+                    {attendee.displayName && (
+                      <span className="sr-only">{attendee.email}</span>
+                    )}
                   </span>
-                  {attendee.organizer && (
-                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                      {t("eventForm.organizer")}
-                    </span>
-                  )}
-                  {attendee.optional && !attendee.organizer && (
-                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                      {t("attendees.optionalBadge")}
-                    </span>
-                  )}
                 </div>
-                {attendee.displayName && (
-                  <div className="truncate text-[11px] text-muted-foreground/60">
-                    {attendee.email}
-                    {localTimeLabel ? (
-                      <span className="ms-1.5 text-muted-foreground/50">
-                        · {localTimeLabel}
-                      </span>
-                    ) : null}
-                  </div>
-                )}
-                {!attendee.displayName && localTimeLabel ? (
-                  <div className="truncate text-[11px] text-muted-foreground/50">
-                    {localTimeLabel}
+                {subLabel ? (
+                  <div className="truncate text-[13px] leading-[18px] text-muted-foreground/70">
+                    {subLabel}
                   </div>
                 ) : null}
-                <div className="mt-0.5 text-[11px] text-muted-foreground/70">
-                  {inlineRsvp
-                    ? t("eventForm.yourResponse", { status: statusLabel })
-                    : statusLabel}
-                </div>
               </div>
             </div>
             {comment && (
@@ -601,6 +647,8 @@ function AttendeeRow({
           note={currentNote}
           onChange={onResponseChange}
           isRecurring={isRecurring}
+          proposalAction={proposalAction}
+          googleCalendarLink={googleCalendarLink}
         />
       )}
     </div>
@@ -634,16 +682,19 @@ export function EventAttendeesSection({
     | "start"
     | "startTimeZone"
     | "allDay"
+    | "htmlLink"
+    | "organizer"
   >;
   canEditOptional?: boolean;
   onToggleOptional?: (email: string, optional: boolean) => void;
 }) {
   const t = useT();
   const attendees = event.attendees ?? [];
+  const organizerIsSelf = event.organizer?.self === true;
+  const initialSelfStatus: RsvpStatus =
+    event.responseStatus || (organizerIsSelf ? "accepted" : "needsAction");
   const [expanded, setExpanded] = useState(false);
-  const [selfStatus, setSelfStatus] = useState<RsvpStatus>(
-    event.responseStatus || "needsAction",
-  );
+  const [selfStatus, setSelfStatus] = useState<RsvpStatus>(initialSelfStatus);
   const [selfNote, setSelfNote] = useState(
     attendees.find((attendee) => attendee.self)?.comment?.trim() ?? "",
   );
@@ -655,17 +706,37 @@ export function EventAttendeesSection({
   const sorted = useMemo(() => sortAttendees(attendees), [attendees]);
   const canRsvpInline = canInlineRsvp(event);
   const selfAttendee = canRsvpInline
-    ? sorted.find((attendee) => attendee.self)
+    ? (sorted.find((attendee) => attendee.self) ??
+      (organizerIsSelf && event.organizer
+        ? {
+            email: event.organizer.email,
+            displayName: event.organizer.displayName,
+            organizer: true,
+            self: true,
+            responseStatus: initialSelfStatus,
+          }
+        : undefined))
     : undefined;
+  const userIsOrganizer = Boolean(
+    event.organizer?.self || selfAttendee?.organizer,
+  );
+  const proposalAction: ProposalAction | undefined =
+    selfAttendee && event.htmlLink && !event.allDay
+      ? userIsOrganizer
+        ? hasTimeProposal(event)
+          ? "review"
+          : undefined
+        : "propose"
+      : undefined;
   const others =
     canRsvpInline && selfAttendee
       ? sorted.filter((attendee) => !attendee.self)
       : sorted;
 
   useEffect(() => {
-    setSelfStatus(event.responseStatus || "needsAction");
+    setSelfStatus(initialSelfStatus);
     setSelfNote(selfAttendee?.comment?.trim() ?? "");
-  }, [event.id, event.responseStatus, selfAttendee?.comment]);
+  }, [event.id, initialSelfStatus, selfAttendee?.comment]);
 
   const handleSelfResponseChange = (status: RsvpStatus, note: string) => {
     setSelfStatus(status);
@@ -677,6 +748,7 @@ export function EventAttendeesSection({
   };
 
   const shouldTruncate = attendees.length > ATTENDEE_TRUNCATE_THRESHOLD;
+  const showSummary = attendees.length > 1;
   const visibleOthers =
     shouldTruncate && !expanded
       ? others.slice(0, ATTENDEE_INITIAL_SHOW)
@@ -696,15 +768,15 @@ export function EventAttendeesSection({
 
   return (
     <div className="px-4 py-1">
-      <div className="flex items-start gap-3">
-        <IconUser className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
-        <div className="flex-1">
-          {shouldTruncate && (
-            <div className="mb-2">
-              <div className="text-sm font-medium text-foreground">
+      {showSummary && (
+        <div className="mb-1 flex items-start gap-2">
+          <IconUser className="mt-0.5 size-[18px] shrink-0 text-muted-foreground" />
+          <div className="flex-1">
+            <div>
+              <div className="text-[13px] leading-[18px] font-medium text-foreground">
                 {t("eventForm.participants", { count: attendees.length })}
               </div>
-              <div className="text-[11px] text-muted-foreground/60">
+              <div className="text-xs text-muted-foreground/60">
                 {[
                   t("eventForm.responseYesCount", { count: accepted }),
                   tentative > 0
@@ -721,62 +793,64 @@ export function EventAttendeesSection({
                   .join(", ")}
               </div>
             </div>
-          )}
-
-          <div className="space-y-0.5">
-            {visibleOthers.map((attendee, index) => (
-              <AttendeeRow
-                key={attendee.email + index}
-                attendee={attendee}
-                event={event}
-                photoUrl={photos?.[attendee.email.toLowerCase()]}
-                canEditOptional={canEditOptional}
-                onToggleOptional={onToggleOptional}
-                timezoneOverrides={timezoneOverrides}
-                onSetTimezone={handleSetTimezone}
-              />
-            ))}
-
-            {shouldTruncate && !expanded && hiddenCount > 0 && (
-              <button
-                type="button"
-                onClick={() => setExpanded(true)}
-                className="flex items-center gap-2.5 -mx-1 px-1 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <span className="flex h-8 w-8 items-center justify-center text-lg text-muted-foreground/50">
-                  ⋮
-                </span>
-                <span>
-                  {t("eventForm.seeAllParticipants", {
-                    count: attendees.length,
-                  })}
-                </span>
-              </button>
-            )}
-
-            {selfAttendee && (
-              <>
-                {others.length > 0 && (
-                  <div className="my-1 border-t border-border/30" />
-                )}
-                <AttendeeRow
-                  attendee={selfAttendee}
-                  event={event}
-                  photoUrl={photos?.[selfAttendee.email.toLowerCase()]}
-                  inlineRsvp={canRsvpInline}
-                  currentStatus={selfStatus}
-                  currentNote={selfNote}
-                  onResponseChange={handleSelfResponseChange}
-                  isRecurring={!!event.recurringEventId}
-                  canEditOptional={canEditOptional}
-                  onToggleOptional={onToggleOptional}
-                  timezoneOverrides={timezoneOverrides}
-                  onSetTimezone={handleSetTimezone}
-                />
-              </>
-            )}
           </div>
         </div>
+      )}
+
+      <div>
+        {visibleOthers.map((attendee, index) => (
+          <AttendeeRow
+            key={attendee.email + index}
+            attendee={attendee}
+            event={event}
+            photoUrl={photos?.[attendee.email.toLowerCase()]}
+            canEditOptional={canEditOptional}
+            onToggleOptional={onToggleOptional}
+            timezoneOverrides={timezoneOverrides}
+            onSetTimezone={handleSetTimezone}
+          />
+        ))}
+
+        {shouldTruncate && !expanded && hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="flex items-center gap-2 -mx-1 px-1 py-1.5 text-[13px] leading-[18px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <span className="flex h-8 w-8 items-center justify-center text-lg text-muted-foreground/50">
+              ⋮
+            </span>
+            <span>
+              {t("eventForm.seeAllParticipants", {
+                count: attendees.length,
+              })}
+            </span>
+          </button>
+        )}
+
+        {selfAttendee && (
+          <>
+            {others.length > 0 && (
+              <div className="my-1 border-t border-border/30" />
+            )}
+            <AttendeeRow
+              attendee={selfAttendee}
+              event={event}
+              photoUrl={photos?.[selfAttendee.email.toLowerCase()]}
+              inlineRsvp={canRsvpInline}
+              currentStatus={selfStatus}
+              currentNote={selfNote}
+              onResponseChange={handleSelfResponseChange}
+              isRecurring={!!event.recurringEventId}
+              proposalAction={proposalAction}
+              googleCalendarLink={event.htmlLink}
+              canEditOptional={canEditOptional}
+              onToggleOptional={onToggleOptional}
+              timezoneOverrides={timezoneOverrides}
+              onSetTimezone={handleSetTimezone}
+            />
+          </>
+        )}
       </div>
     </div>
   );

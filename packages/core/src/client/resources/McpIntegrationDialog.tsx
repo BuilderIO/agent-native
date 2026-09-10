@@ -26,6 +26,7 @@ import {
   filterMcpIntegrations,
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
+  isMcpIntegrationUrl,
   isCustomMcpIntegrationEnabled,
   navigateToMcpOAuthStart,
   resolveMcpIntegrationScope,
@@ -58,6 +59,7 @@ export interface McpIntegrationDialogProps {
   hasOrg: boolean;
   onCreateMcpServer: (args: CreateMcpServerArgs) => Promise<unknown>;
   onOAuthStart?: (url: string) => void | Promise<void>;
+  oauthReady?: boolean;
   oauthReturnPath?: string;
   onCreated?: () => void;
   integrations?: DefaultMcpIntegration[];
@@ -81,16 +83,6 @@ function parseHeaderLines(text: string): Record<string, string> | undefined {
     out[key] = value;
   }
   return Object.keys(out).length > 0 ? out : undefined;
-}
-
-function compareUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
 }
 
 function requiresMcpIntegrationSetup(
@@ -131,6 +123,7 @@ export function McpIntegrationDialog({
   hasOrg,
   onCreateMcpServer,
   onOAuthStart,
+  oauthReady = true,
   oauthReturnPath,
   onCreated,
   integrations,
@@ -172,7 +165,7 @@ export function McpIntegrationDialog({
   );
   const showCatalog = defaultIntegrations.length > 0;
 
-  const connectedUrls = useMemo(() => {
+  const connectedServers = useMemo(() => {
     const servers = [
       ...(mcpServersQuery.data?.user ?? []),
       ...(mcpServersQuery.data?.org ?? []),
@@ -180,11 +173,7 @@ export function McpIntegrationDialog({
     // A saved server is not necessarily a working connection. The settings
     // page reports failed and unknown health states separately, so only mark
     // catalog entries as connected after the health probe succeeds.
-    return new Set(
-      servers
-        .filter((server) => server.status.state === "connected")
-        .map((server) => compareUrl(server.url)),
-    );
+    return servers.filter((server) => server.status.state === "connected");
   }, [mcpServersQuery.data]);
 
   const filteredIntegrations = useMemo(
@@ -294,6 +283,7 @@ export function McpIntegrationDialog({
     },
     options?: { scope?: McpServerScope },
   ) => {
+    if (!oauthReady) return;
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
       setError(validationError);
@@ -318,7 +308,13 @@ export function McpIntegrationDialog({
       }),
     );
     if (!onOAuthStart) {
-      navigateToMcpOAuthStart(oauthUrl);
+      const opened = navigateToMcpOAuthStart(oauthUrl);
+      setBusy(false);
+      if (opened) {
+        onOpenChange(false);
+      } else {
+        setError(t("mcpIntegrations.connectionError"));
+      }
       return;
     }
     void Promise.resolve()
@@ -352,6 +348,18 @@ export function McpIntegrationDialog({
     );
 
   const connectCustomWithOAuth = () => {
+    if (!name.trim()) {
+      setError(t("mcpIntegrations.serverNameRequired"));
+      return;
+    }
+    beginOAuth({
+      name: name.trim(),
+      url: url.trim(),
+      description: description.trim(),
+    });
+  };
+
+  const connectSelectedWithOAuth = () => {
     if (!name.trim()) {
       setError(t("mcpIntegrations.serverNameRequired"));
       return;
@@ -401,6 +409,10 @@ export function McpIntegrationDialog({
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
+      return;
+    }
+    if (!integration.url.trim()) {
+      openForm(integration);
       return;
     }
     if (requiresMcpIntegrationSetup(integration)) {
@@ -463,7 +475,15 @@ export function McpIntegrationDialog({
       (candidate) => candidate.id === quickConnectIntegrationId,
     );
     if (!integration) return;
+    if (integration.authMode === "oauth" && !oauthReady) return;
     quickConnectAttemptedRef.current = quickConnectIntegrationId;
+    if (
+      integration.authMode === "oauth" &&
+      !(hasOrg && supportsMcpIntegrationOrganizationScope(integration))
+    ) {
+      openForm(integration, { scope: "user" });
+      return;
+    }
     quickConnectRef.current?.(integration);
   }, [
     defaultIntegrations,
@@ -471,6 +491,7 @@ export function McpIntegrationDialog({
     mcpServersQuery.isError,
     mcpServersQuery.isSuccess,
     open,
+    oauthReady,
     quickConnectIntegrationId,
   ]);
 
@@ -482,6 +503,7 @@ export function McpIntegrationDialog({
       (candidate) => candidate.id === connectIntegrationId,
     );
     if (!integration) return;
+    if (integration.authMode === "oauth" && !oauthReady) return;
     const attemptKey = `connect:${connectIntegrationId}`;
     if (quickConnectAttemptedRef.current === attemptKey) return;
     quickConnectAttemptedRef.current = attemptKey;
@@ -494,6 +516,10 @@ export function McpIntegrationDialog({
       openForm(integration);
       return;
     }
+    if (integration.authMode === "oauth") {
+      openForm(integration, { scope: "user" });
+      return;
+    }
     quickConnectRef.current?.(integration);
   }, [
     canCreateOrgMcp,
@@ -503,6 +529,7 @@ export function McpIntegrationDialog({
     mcpServersQuery.isError,
     mcpServersQuery.isSuccess,
     open,
+    oauthReady,
   ]);
 
   const connectPersonal = (integration: DefaultMcpIntegration) => {
@@ -758,8 +785,8 @@ export function McpIntegrationDialog({
                 ) : null}
                 <IntegrationGrid
                   items={filteredIntegrations.map((integration) => {
-                    const connected = connectedUrls.has(
-                      compareUrl(integration.url),
+                    const connected = connectedServers.some((server) =>
+                      isMcpIntegrationUrl(integration, server.url),
                     );
                     const setupOnly = requiresMcpIntegrationSetup(integration);
                     const apiFallback =
@@ -1065,7 +1092,7 @@ export function McpIntegrationDialog({
                 <button
                   type="button"
                   onClick={connectCustomWithOAuth}
-                  disabled={!name.trim() || !url.trim() || busy}
+                  disabled={!oauthReady || !name.trim() || !url.trim() || busy}
                   aria-busy={busy}
                   className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
                 >
@@ -1081,7 +1108,7 @@ export function McpIntegrationDialog({
                     <button
                       type="button"
                       onClick={() => connectWithOAuth(selected)}
-                      disabled={busy}
+                      disabled={!oauthReady || busy}
                       aria-busy={busy}
                       className="inline-flex min-w-[132px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
                     >
@@ -1095,8 +1122,8 @@ export function McpIntegrationDialog({
               ) : selected?.authMode === "oauth" ? (
                 <button
                   type="button"
-                  onClick={() => connectWithOAuth(selected)}
-                  disabled={!name.trim() || !url.trim() || busy}
+                  onClick={connectSelectedWithOAuth}
+                  disabled={!oauthReady || !name.trim() || !url.trim() || busy}
                   aria-busy={busy}
                   className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
                 >

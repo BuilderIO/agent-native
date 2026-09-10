@@ -1,11 +1,7 @@
 import { resolveCredential } from "@agent-native/core/credentials";
-import { isLocalDatabase } from "@agent-native/core/db";
-import { orgMembers, resolveOrgIdForEmail } from "@agent-native/core/org";
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { resolveWorkspaceConnectionCredentialForApp } from "@agent-native/core/workspace-connections";
-import { eq, sql } from "drizzle-orm";
-
-import { getDb } from "../db/index.js";
 
 function getVaultOrgId(): string | undefined {
   return process.env.AGENT_VAULT_ORG_ID?.trim() || undefined;
@@ -13,6 +9,7 @@ function getVaultOrgId(): string | undefined {
 
 export interface ResolveConnectorSecretOptions {
   orgId?: string | null;
+  recordUsage?: boolean;
 }
 
 const WORKSPACE_PROVIDER_BY_KEY: Record<string, string> = {
@@ -22,23 +19,24 @@ const WORKSPACE_PROVIDER_BY_KEY: Record<string, string> = {
   SLACK_BOT_TOKEN: "slack",
   SLACK_BOT_TOKEN_2: "slack",
 };
+const GITHUB_APP_KEYS = [
+  "GITHUB_APP_ID",
+  "GITHUB_APP_INSTALLATION_ID",
+  "GITHUB_APP_PRIVATE_KEY",
+] as const;
 const VAULT_ONLY_KEYS = new Set([
   ...Object.keys(WORKSPACE_PROVIDER_BY_KEY),
+  ...GITHUB_APP_KEYS,
   "SENTRY_ORG_SLUG",
 ]);
 
 function isMissingTableError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  return (
-    /no such table/i.test(message) ||
-    /relation .* does not exist/i.test(message)
-  );
+  return /relation .* does not exist/i.test(message);
 }
 
 function isExplicitLocalNodeEnv(): boolean {
-  return (
-    process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
-  );
+  return process.env.NODE_ENV === "development";
 }
 
 function isNetlifyCliLocalRuntime(): boolean {
@@ -52,8 +50,8 @@ function isNetlifyHostedRuntime(): boolean {
   if (isNetlifyCliLocalRuntime()) return false;
   if (/^(1|true)$/i.test(process.env.NETLIFY ?? "")) return true;
   // NETLIFY is a build-only variable. Deployed Functions document SITE_ID as
-  // the runtime host marker. `netlify dev` also injects SITE_ID, so local
-  // sqlite keeps the .env fallback only when a CLI-local signal is present.
+  // the runtime host marker. `netlify dev` also injects SITE_ID, so the
+  // explicit CLI-local signal above keeps its development fallback available.
   return Boolean(process.env.SITE_ID); // guard:allow-env-credential — Netlify's read-only public site identifier is a runtime host marker, not a user credential.
 }
 
@@ -90,10 +88,9 @@ function isHostedWorkspaceRuntime(): boolean {
 }
 
 function canUseLocalProviderEnvFallback(): boolean {
-  // Allowlist: sqlite `pnpm dev` / vitest. A file: URL on an unnamed hosted
-  // runtime is not local development, even when NODE_ENV is unset.
+  // Allow the fallback only for explicit local development. Hosted runtimes
+  // must resolve provider credentials through shared connections or the vault.
   return (
-    isLocalDatabase() &&
     isExplicitLocalNodeEnv() &&
     !isHostedPlatformRuntime() &&
     !isHostedWorkspaceRuntime()
@@ -109,14 +106,6 @@ export class VaultUnavailableError extends Error {
     );
     this.cause = cause;
   }
-}
-
-async function listOrgIdsForEmail(userEmail: string): Promise<string[]> {
-  const rows = await getDb()
-    .select({ orgId: orgMembers.orgId })
-    .from(orgMembers)
-    .where(eq(sql`lower(${orgMembers.email})`, userEmail));
-  return Array.from(new Set(rows.map((row) => row.orgId).filter(Boolean)));
 }
 
 async function readVaultSecret(
@@ -145,9 +134,9 @@ async function readVaultSecret(
 }
 
 /**
- * Resolve a workspace connector key without assuming the caller's active org.
- * Dispatch may sync a workspace key under another org, so memberships and the
- * designated vault org are part of the lookup rather than a fallback afterthought.
+ * Resolve a workspace connector key for the requested organization only.
+ * The designated vault org is the only extra org searched — never every
+ * membership — so an org-A Factory job cannot pick up org-B's token.
  */
 export async function resolveConnectorSecret(
   key: string,
@@ -155,7 +144,7 @@ export async function resolveConnectorSecret(
   options: ResolveConnectorSecretOptions = {},
 ): Promise<string | undefined> {
   const userEmail = ownerEmail.trim().toLowerCase();
-  const primaryOrgId =
+  const requestedOrgId =
     options.orgId?.trim() || (await resolveOrgIdForEmail(userEmail));
 
   const workspaceProvider = WORKSPACE_PROVIDER_BY_KEY[key];
@@ -166,7 +155,8 @@ export async function resolveConnectorSecret(
         provider: workspaceProvider,
         key,
         userEmail,
-        orgId: primaryOrgId,
+        orgId: requestedOrgId,
+        recordUsage: options.recordUsage,
       });
       if (connected.available && connected.value) return connected.value.trim();
     } catch (error) {
@@ -177,12 +167,10 @@ export async function resolveConnectorSecret(
   const userSecret = await readVaultSecret(key, "user", userEmail);
   if (userSecret) return userSecret;
 
-  const membershipOrgIds = await listOrgIdsForEmail(userEmail);
+  const vaultOrgId = getVaultOrgId();
   const orgIds = Array.from(
     new Set(
-      [primaryOrgId, ...membershipOrgIds].filter((id): id is string =>
-        Boolean(id),
-      ),
+      [requestedOrgId, vaultOrgId].filter((id): id is string => Boolean(id)),
     ),
   );
 
@@ -193,7 +181,7 @@ export async function resolveConnectorSecret(
     }
   }
 
-  if (orgIds.length === 0) {
+  if (!requestedOrgId) {
     const soloSecret = await readVaultSecret(
       key,
       "workspace",
@@ -207,20 +195,101 @@ export async function resolveConnectorSecret(
     if (legacySecret?.trim()) return legacySecret.trim();
   }
 
-  const vaultOrgId = getVaultOrgId();
-  if (vaultOrgId && !orgIds.includes(vaultOrgId)) {
-    for (const scope of ["org", "workspace"] as const) {
-      const vaultSecret = await readVaultSecret(key, scope, vaultOrgId);
-      if (vaultSecret) return vaultSecret;
-    }
-  }
-
-  // Hosted Factory keeps Slack/GitHub/Sentry vault-only. Local `pnpm dev`
-  // sqlite may still read `.env` so polling works without a Dispatch connection.
   if (!VAULT_ONLY_KEYS.has(key) || canUseLocalProviderEnvFallback()) {
-    const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - local sqlite and generic deploy-level connector fallback
+    const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - explicit local development or generic deploy-level connector fallback
     if (environmentSecret) return environmentSecret;
   }
 
   return undefined;
+}
+
+export function slackConnectorKey(
+  workspace: "primary" | "secondary" = "primary",
+): "SLACK_BOT_TOKEN" | "SLACK_BOT_TOKEN_2" {
+  return workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN";
+}
+
+export function connectorKeysForSource(
+  source: "slack" | "github" | "sentry",
+  slackWorkspace: "primary" | "secondary" = "primary",
+): readonly string[] {
+  if (source === "slack") return [slackConnectorKey(slackWorkspace)];
+  if (source === "github") return ["GITHUB_TOKEN"];
+  return ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"];
+}
+
+/** Presence only — never return the secret value to callers. */
+export async function hasConnectorSecret(
+  keys: string | readonly string[],
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions = {},
+): Promise<boolean> {
+  const list = typeof keys === "string" ? [keys] : keys;
+  for (const key of list) {
+    const value = await resolveConnectorSecret(key, ownerEmail, options);
+    if (value) return true;
+  }
+  return false;
+}
+
+async function hasGitHubConnectorSecret(
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions,
+): Promise<boolean> {
+  if (await hasConnectorSecret("GITHUB_TOKEN", ownerEmail, options)) {
+    return true;
+  }
+  const appSecrets = await Promise.all(
+    GITHUB_APP_KEYS.map((key) => hasConnectorSecret(key, ownerEmail, options)),
+  );
+  return appSecrets.every(Boolean);
+}
+
+export async function resolveFactoryConnectorReadiness(
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions = {},
+): Promise<{
+  slack: boolean;
+  slackSecondary: boolean;
+  github: boolean;
+  sentry: boolean;
+}> {
+  const readinessOptions = { ...options, recordUsage: false };
+  const [slack, slackSecondary, github, sentry] = await Promise.all([
+    hasConnectorSecret("SLACK_BOT_TOKEN", ownerEmail, readinessOptions),
+    hasConnectorSecret("SLACK_BOT_TOKEN_2", ownerEmail, readinessOptions),
+    hasGitHubConnectorSecret(ownerEmail, readinessOptions),
+    hasConnectorSecret(
+      ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"],
+      ownerEmail,
+      readinessOptions,
+    ),
+  ]);
+  return { slack, slackSecondary, github, sentry };
+}
+
+export async function assertFactoryConnectorReady(
+  source: "slack" | "github" | "sentry",
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions & {
+    slackWorkspace?: "primary" | "secondary";
+    verb?: "creating" | "saving";
+  } = {},
+): Promise<void> {
+  const verb = options.verb ?? "creating";
+  const label =
+    source === "slack" ? "Slack" : source === "github" ? "GitHub" : "Sentry";
+  const ready =
+    source === "github"
+      ? await hasGitHubConnectorSecret(ownerEmail, options)
+      : await hasConnectorSecret(
+          connectorKeysForSource(source, options.slackWorkspace),
+          ownerEmail,
+          options,
+        );
+  if (!ready) {
+    throw new Error(
+      `Connect ${label} in Dispatch or add a vault token before ${verb} this job.`,
+    );
+  }
 }

@@ -5,6 +5,7 @@ import {
 } from "@agent-native/toolkit/sharing";
 import { useCallback, useState } from "react";
 
+import { trackEvent } from "../analytics.js";
 import { writeClipboardText } from "../clipboard.js";
 import { useT } from "../i18n.js";
 import { useActionMutation } from "../use-action.js";
@@ -35,6 +36,20 @@ export function AgentShareSection({
   const [open, setOpen] = useState(false);
   const [contextUrl, setContextUrl] = useState("");
   const [linkError, setLinkError] = useState(false);
+  const handleCopy = useCallback(
+    async (value: string) => {
+      const copied = await writeClipboardText(value);
+      if (copied) {
+        trackEvent("share_link_copied", {
+          resource_type: resourceType,
+          resource_id: resourceId,
+          link_type: "agent_context",
+        });
+      }
+      return copied;
+    },
+    [resourceId, resourceType],
+  );
 
   const loadContextUrl = useCallback(() => {
     setContextUrl("");
@@ -84,7 +99,7 @@ export function AgentShareSection({
             copiedLabel={t("agentChat.share.copied", {
               defaultValue: "Copied",
             })}
-            onCopy={writeClipboardText}
+            onCopy={handleCopy}
           />
         ) : null}
         {createAgentLink.isPending ? (

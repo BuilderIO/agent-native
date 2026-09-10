@@ -55,6 +55,10 @@ import {
   useGoogleDesktopAuth,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
+import {
+  getMeetingStartNotificationPermission,
+  requestMeetingStartNotificationPermission,
+} from "@/hooks/use-meeting-start-notifications";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import {
   useConnectZoom,
@@ -93,6 +97,12 @@ export default function Settings() {
   const [bookingDescription, setBookingDescription] = useState("");
   const [defaultDuration, setDefaultDuration] = useState(30);
   const [weekStart, setWeekStart] = useState<CalendarWeekStart>("sunday");
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationPermission | null>(() =>
+      getMeetingStartNotificationPermission(),
+    );
+  const [notificationPermissionPending, setNotificationPermissionPending] =
+    useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -164,6 +174,21 @@ export default function Settings() {
     });
   }
 
+  async function handleEnableDesktopNotifications() {
+    setNotificationPermissionPending(true);
+    try {
+      const permission = await requestMeetingStartNotificationPermission();
+      setNotificationPermission(permission);
+      if (permission !== "granted") {
+        toast.error(t("settings.desktopNotificationsBlocked"));
+      }
+    } catch {
+      toast.error(t("settings.desktopNotificationsBlocked"));
+    } finally {
+      setNotificationPermissionPending(false);
+    }
+  }
+
   function handleDisconnectZoom() {
     disconnectZoom.mutate(undefined, {
       onSuccess: () => toast.success(t("settings.zoomDisconnected")),
@@ -209,6 +234,12 @@ export default function Settings() {
         label: t("settings.appearance"),
         keywords: "appearance theme color mode dark light",
         hash: "appearance",
+      },
+      {
+        id: "calendar-notifications",
+        label: t("settings.desktopNotifications"),
+        keywords: "desktop system notifications meeting reminders permission",
+        hash: "notifications",
       },
     ],
     [t],
@@ -256,6 +287,29 @@ export default function Settings() {
                 }}
               />
             </SettingsRow>
+            {notificationPermission !== null ? (
+              <SettingsRow
+                id="notifications"
+                label={t("settings.desktopNotifications")}
+                description={t("settings.desktopNotificationsDescription")}
+                control={
+                  notificationPermission === "granted" ? (
+                    <span className="text-sm text-muted-foreground">
+                      {t("settings.desktopNotificationsEnabled")}
+                    </span>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleEnableDesktopNotifications()}
+                      disabled={notificationPermissionPending}
+                    >
+                      {t("settings.enableDesktopNotifications")}
+                    </Button>
+                  )
+                }
+              />
+            ) : null}
             <SettingsRow
               id="availability"
               label={t("bookingLinks.availability")}

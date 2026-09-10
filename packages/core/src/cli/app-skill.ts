@@ -575,9 +575,6 @@ function copyDirFiltered(source: string, dest: string): void {
         !base.startsWith(".env") &&
         base !== ".dev.vars" &&
         base !== ".npmrc" &&
-        !lower.endsWith(".db") &&
-        !lower.endsWith(".sqlite") &&
-        !lower.endsWith(".sqlite3") &&
         !lower.endsWith(".pem") &&
         !lower.endsWith(".key") &&
         !lower.endsWith(".crt") &&
@@ -692,7 +689,9 @@ function standardAgentPluginMcpConfig(manifest: AppSkillManifest) {
 }
 
 function pluginName(manifest: AppSkillManifest): string {
-  return `agent-native-${manifest.id}`;
+  return manifest.id === "agent-native"
+    ? manifest.id
+    : `agent-native-${manifest.id}`;
 }
 
 function claudeMarketplaceName(): string {

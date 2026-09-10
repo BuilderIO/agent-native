@@ -54,6 +54,7 @@ function harness(): Harness {
 function pasteEvent(
   values: Record<string, string>,
   target: EventTarget | null = document.body,
+  items: DataTransferItem[] = [],
 ) {
   let defaultPrevented = false;
   return {
@@ -65,7 +66,7 @@ function pasteEvent(
     },
     target,
     clipboardData: {
-      items: [],
+      items,
       getData: (type: string) => values[type] ?? "",
     },
   } as unknown as ClipboardEvent;
@@ -112,6 +113,25 @@ describe("runEditorPaste", () => {
     expect(h.pasted).toBe(0);
     expect(toastError).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("routes image files to the immediate image insertion path", () => {
+    const file = new File(["image"], "pasted.png", { type: "image/png" });
+    const handlePastedImageFiles = vi.fn(() => true);
+    const h = harness();
+    h.args.handlePastedImageFiles = handlePastedImageFiles;
+    const event = pasteEvent({}, document.body, [
+      {
+        kind: "file",
+        type: "image/png",
+        getAsFile: () => file,
+      } as unknown as DataTransferItem,
+    ]);
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedImageFiles).toHaveBeenCalledWith([file]);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it("says why a Figma link paste produced no screen", () => {

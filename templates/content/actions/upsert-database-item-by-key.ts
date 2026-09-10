@@ -30,12 +30,15 @@ const schema = databaseMutationEnvelopeSchema.extend({
   ),
 });
 const agentSchema = schema
-  .extend({ target: databaseMutationAgentTargetSchema })
-  .omit({ propertyValues: true });
+  .extend({ target: databaseMutationAgentTargetSchema.strict() })
+  .omit({ propertyValues: true })
+  .strict();
 
 export default defineAction({
   description:
-    "Create or sparsely update one Content database row by that database's explicitly configured natural key. Requires schema and row compare-and-swap revisions and returns a verified idempotent receipt.",
+    "Create or sparsely update one Content database row by its configured natural key using the mutation target and schema revision from a fresh get-content-database read. Use expectedRowRevision null only to assert the key is absent and create; copy the matching item's fresh rowRevision to update. Preserves omitted properties and returns a verified idempotent receipt.",
+  mcpTool: true,
+  mcpApp: { structuredContent: true },
   agentInputSchema: agentSchema,
   schema,
   audit: {
@@ -53,16 +56,23 @@ export default defineAction({
         : "Upserted Content database row by natural key";
     },
   },
-  run: (args) => upsertDatabaseRow(canonicalizeDatabasePropertyInput(args)),
+  run: (args, context) => {
+    if (context?.caller === "mcp") agentSchema.parse(args);
+    return upsertDatabaseRow(canonicalizeDatabasePropertyInput(args));
+  },
   link: ({ result }) => {
-    const documentId = (result as ContentDatabaseRowMutationResult | null)
-      ?.receipt.row.documentId;
-    if (!documentId) return null;
+    const receipt = (result as ContentDatabaseRowMutationResult | null)
+      ?.receipt;
+    if (!receipt) return null;
     return {
       url: buildDeepLink({
         app: "content",
         view: "editor",
-        params: { documentId },
+        params: {
+          documentId: receipt.row.documentId,
+          databaseId: receipt.target.databaseId,
+          databaseDocumentId: receipt.target.databaseDocumentId,
+        },
       }),
       label: "Open database row",
       view: "editor",

@@ -33,8 +33,9 @@ export interface Automation {
   name: string;
   path: string;
   scope: "personal" | "organization";
-  triggerType: "event" | "schedule";
+  triggerType: "event" | "schedule" | "webhook";
   event: string | null;
+  webhookPath: string | null;
   schedule: string | null;
   timezone: string | null;
   scheduleDescription: string | null;
@@ -66,7 +67,12 @@ export type ManageJobInput = {
   timezone?: string;
 };
 
-export type ManageAutomationInput = ManageJobInput;
+export type ManageAutomationInput = ManageJobInput & {
+  operation: "create" | "update" | "delete";
+  triggerType?: "event" | "schedule" | "webhook";
+  body?: string;
+  event?: string;
+};
 
 export interface RunAutomationNowInput {
   name?: string;
@@ -217,13 +223,13 @@ export function useRunAutomationNow() {
         const name =
           variables.name ??
           variables.path?.replace(/^jobs\//, "").replace(/\.md$/, "");
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-automation-runs", { scope, name }],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-automations", { scope }],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-recurring-jobs", { scope }],
         });
       },
@@ -231,7 +237,9 @@ export function useRunAutomationNow() {
   );
 }
 
-function optimisticPatch(variables: ManageJobInput) {
+function optimisticPatch(
+  variables: Pick<ManageJobInput, "enabled" | "schedule" | "timezone">,
+) {
   const patch: {
     enabled?: boolean;
     schedule?: string;

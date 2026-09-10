@@ -1,3 +1,5 @@
+import { parseRetryAfterMs } from "../../shared/retry-after.js";
+
 /**
  * Compose an error's message with its `cause` chain.
  *
@@ -12,12 +14,24 @@
 const DEFAULT_MAX_CAUSE_LINKS = 4;
 const MAX_CAUSE_LINK_CHARS = 200;
 
+function stringifyUnknown(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
 export function describeErrorWithCauses(
   err: unknown,
   maxLinks: number = DEFAULT_MAX_CAUSE_LINKS,
 ): string {
   const head =
-    err instanceof Error ? err.message : String(err ?? "Unknown error");
+    err instanceof Error
+      ? err.message
+      : stringifyUnknown(err) || "Unknown error";
   const links: string[] = [];
   const seen = new Set<unknown>([err]);
   let cause: unknown = (err as { cause?: unknown } | null)?.cause;
@@ -25,7 +39,8 @@ export function describeErrorWithCauses(
     if (seen.has(cause)) break;
     seen.add(cause);
     const code = (cause as { code?: unknown }).code;
-    const message = cause instanceof Error ? cause.message : String(cause);
+    const message =
+      cause instanceof Error ? cause.message : stringifyUnknown(cause);
     const text = (typeof code === "string" ? `${code} ${message}` : message)
       .trim()
       .slice(0, MAX_CAUSE_LINK_CHARS);
@@ -151,6 +166,43 @@ export interface ProviderErrorClassification {
   errorCode?: string;
   statusCode?: number;
   providerRetryable?: boolean;
+  /**
+   * Provider-requested backoff from its `Retry-After` header, capped at
+   * {@link MAX_RETRY_AFTER_MS}. Absent when no error in the chain carried a
+   * (parseable) header — callers fall back to their own fixed backoff.
+   */
+  retryAfterMs?: number;
+}
+
+/**
+ * Upper bound on a provider-requested `Retry-After` wait. Without a cap, a
+ * provider asking for an hour-long backoff would silently consume the entire
+ * hosted foreground run budget on one retry attempt.
+ */
+const MAX_RETRY_AFTER_MS = 60_000;
+
+/**
+ * Read `Retry-After` off whichever error in the chain actually carries the
+ * HTTP response: the raw error, the AI SDK's unwrapped `RetryError.lastError`,
+ * or a plain `.cause`. Checked in that order so the most specific source wins.
+ */
+function extractRetryAfterMs(err: unknown): number | undefined {
+  const wrapped = err as { lastError?: unknown; cause?: unknown } | null;
+  for (const source of [err, wrapped?.lastError, wrapped?.cause]) {
+    const headers = (source as { responseHeaders?: unknown } | null)
+      ?.responseHeaders;
+    if (!headers || typeof headers !== "object") continue;
+    const ms = parseRetryAfterMs(headers as Record<string, string>);
+    if (ms !== null) {
+      if (ms > MAX_RETRY_AFTER_MS) {
+        console.warn(
+          `[classifyProviderError] Retry-After ${ms}ms exceeds cap; using ${MAX_RETRY_AFTER_MS}ms`,
+        );
+      }
+      return Math.min(ms, MAX_RETRY_AFTER_MS);
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -200,7 +252,7 @@ export function classifyProviderError(
       isProviderConnectionErrorMessage(
         typeof providerError?.message === "string"
           ? providerError.message
-          : String(providerError),
+          : stringifyUnknown(providerError),
       ));
 
   const providerRetryable =
@@ -209,6 +261,8 @@ export function classifyProviderError(
       : isConnectionError || timedOut
         ? true
         : undefined;
+
+  const retryAfterMs = extractRetryAfterMs(err);
 
   return {
     // Tag every known status as `http_<status>` (not just 401) so a rate limit
@@ -225,6 +279,7 @@ export function classifyProviderError(
             return code ? { errorCode: code } : {};
           })()),
     ...(providerRetryable !== undefined ? { providerRetryable } : {}),
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
   };
 }
 

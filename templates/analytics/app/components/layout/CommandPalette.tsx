@@ -338,7 +338,7 @@ export function CommandPalette() {
 
   const go = useCallback(
     (href: string) => {
-      navigate(href);
+      void navigate(href);
       setOpen(false);
     },
     [navigate],

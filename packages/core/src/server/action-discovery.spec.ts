@@ -4,7 +4,10 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveFrameworkTools } from "../framework-tools.js";
+import {
+  filterFrameworkToolGroups,
+  resolveFrameworkTools,
+} from "../framework-tools.js";
 import {
   ALWAYS_ON_CORE_ACTIONS,
   autoDiscoverActions,
@@ -68,6 +71,29 @@ describe("action discovery", () => {
     expect(registry["mutating-read"].readOnly).toBe(false);
   });
 
+  it(
+    "makes audit reads available with a static registry while respecting disabled groups",
+    async () => {
+      const registry = loadActionsFromStaticRegistry({});
+      await mergeCoreSharingActions(registry);
+      const enabled = filterFrameworkToolGroups(
+        registry,
+        resolveFrameworkTools({}).disabledGroups,
+      );
+      const disabled = filterFrameworkToolGroups(
+        registry,
+        resolveFrameworkTools({ frameworkTools: { audit: false } })
+          .disabledGroups,
+      );
+      for (const name of ["list-audit-events", "get-audit-event"]) {
+        expect(enabled[name]?.readOnly).toBe(true);
+        expect(disabled[name]).toBeUndefined();
+        expect(registry[name]).toBeDefined();
+      }
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
   it("preserves grounding metadata from static action entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "grounded-query": {
@@ -113,6 +139,20 @@ describe("action discovery", () => {
     });
 
     expect(registry["safe-write"].parallelSafe).toBe(true);
+  });
+
+  it("preserves explicit endsTurn metadata", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "show-questions": {
+        default: {
+          tool: { description: "Show questions", parameters: {} },
+          endsTurn: true,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["show-questions"].endsTurn).toBe(true);
   });
 
   it("preserves explicit duplicate-read opt-out metadata", () => {
@@ -531,6 +571,7 @@ describe("action discovery", () => {
         "list-transactional-emails",
         "render-transactional-email-preview",
         "list-email-log",
+        "get-email-log-body",
         "list-email-activity",
         "list-email-engagement",
       ],

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyOpToDeck,
   deriveInverseOp,
+  reorderSlidesById,
   type Deck,
   type PatchDeckOp,
   type Slide,
@@ -58,6 +59,13 @@ function expectRoundTrip(before: Deck, op: PatchDeckOp) {
 }
 
 describe("deriveInverseOp / applyOpToDeck round-trips", () => {
+  it("moves a selected slide group together while preserving its order", () => {
+    const slides = [slide("a"), slide("b"), slide("c"), slide("d")];
+    expect(
+      reorderSlidesById(slides, "b", "d", ["b", "c"])?.map((s) => s.id),
+    ).toEqual(["a", "d", "b", "c"]);
+  });
+
   it("patch-slide: inverse restores the prior field values", () => {
     const before = deck([
       slide("a", { content: "<div>original</div>", background: "bg-black" }),

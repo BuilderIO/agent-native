@@ -13,6 +13,9 @@
  * automatically by the core-routes plugin).
  */
 
+import { getAppConfig } from "../app-config/index.js";
+import { getRequestContext } from "../server/request-context.js";
+import { isQaTestEmail } from "../shared/qa-test-email.js";
 import { reshapeTrackedExceptionProperties } from "./posthog-exception.js";
 import { registerTrackingProvider } from "./registry.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
@@ -305,6 +308,17 @@ export function sendPostHogEvent(
   properties: Record<string, unknown>,
   distinctId: string,
 ): boolean {
+  const requestContext = getRequestContext();
+  if (
+    requestContext?.isSyntheticTraffic === true ||
+    isQaTestEmail(distinctId) ||
+    isQaTestEmail(requestContext?.userEmail) ||
+    isQaTestEmail(properties.email) ||
+    isQaTestEmail(properties.userEmail) ||
+    isQaTestEmail(properties.user_email)
+  ) {
+    return false;
+  }
   const apiKey = process.env.POSTHOG_API_KEY;
   if (!apiKey) return false;
   const host = (process.env.POSTHOG_HOST || POSTHOG_DEFAULT_HOST).replace(
@@ -545,19 +559,14 @@ export function registerBuiltinProviders(): void {
     registerTrackingProvider(createAmplitudeProvider(amplitudeKey));
   }
 
-  const agentNativeAnalyticsKey =
-    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY ||
-    process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
-  if (
-    agentNativeAnalyticsKey &&
-    !shouldSkipAgentNativeAnalyticsForLocalhost()
-  ) {
+  const { agentNativePublicKey, agentNativeEndpoint } =
+    getAppConfig().analytics;
+  if (agentNativePublicKey && !shouldSkipAgentNativeAnalyticsForLocalhost()) {
     registerTrackingProvider(
       createAgentNativeAnalyticsProvider(
-        agentNativeAnalyticsKey,
+        agentNativePublicKey,
         (
-          process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT ||
-          AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
+          agentNativeEndpoint || AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
         ).replace(/\/+$/, ""),
       ),
     );

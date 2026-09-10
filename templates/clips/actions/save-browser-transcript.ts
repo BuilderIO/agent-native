@@ -16,6 +16,7 @@
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -104,6 +105,7 @@ export default defineAction({
       .describe("Why native speech recognition could not save text"),
   }),
   run: async (args) => {
+    await assertAccess("recording", args.recordingId, "editor");
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();

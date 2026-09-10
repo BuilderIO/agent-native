@@ -55,8 +55,8 @@ export interface AgentNativeActionManifestEntry {
   /** Alias for schema for function-calling/tooling runtimes. */
   parameters?: AgentNativeJsonSchema;
   title?: string;
-  source?: "client" | "backend" | string;
-  availability?: AgentNativeActionAvailability | string;
+  source?: "client" | "backend" | (string & {});
+  availability?: AgentNativeActionAvailability | (string & {});
   destructive?: boolean;
   requiresApproval?: boolean | AgentNativeClientActionApprovalConfig;
   approval?: AgentNativeClientActionApprovalConfig;
@@ -67,7 +67,7 @@ export interface AgentNativeClientActionApprovalConfig {
   title?: string;
   description?: string;
   confirmLabel?: string;
-  risk?: "low" | "medium" | "high" | string;
+  risk?: "low" | "medium" | "high" | (string & {});
   [key: string]: unknown;
 }
 
@@ -81,6 +81,7 @@ export interface AgentNativeHostSession {
 
 export interface AgentNativeClientActionRuntime {
   requestId?: string;
+  signal?: AbortSignal;
   origin: string;
   context: AgentNativeHostContext;
   session: AgentNativeHostSession;
@@ -578,7 +579,8 @@ function toActionManifest(
   action: AgentNativeClientAction,
 ): AgentNativeActionManifestEntry | null {
   if (!action?.name || !action.description) return null;
-  const { run: _run, ...manifest } = action;
+  const manifest = { ...action };
+  delete (manifest as Partial<AgentNativeClientAction>).run;
   return serializeForMessage(
     {
       source: "client",
@@ -1433,7 +1435,7 @@ export function sendAgentNativeHostCommand<
   TPayload = unknown,
   TResult = unknown,
 >(
-  command: BuiltInAgentNativeHostCommand | string,
+  command: BuiltInAgentNativeHostCommand | (string & {}),
   payload?: TPayload,
   options: AgentNativeHostRequestOptions = {},
 ): Promise<TResult> {

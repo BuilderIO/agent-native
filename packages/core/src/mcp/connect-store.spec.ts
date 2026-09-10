@@ -33,6 +33,8 @@ interface DeviceRow {
 let tokens: TokenRow[] = [];
 let devices: DeviceRow[] = [];
 let failNextCreateTable = false;
+let failNextOrgLookup = false;
+const executeDdlMock = vi.hoisted(() => vi.fn());
 
 const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   const sql = (typeof input === "string" ? input : input.sql).trim();
@@ -70,6 +72,14 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   if (/^SELECT revoked_at FROM mcp_connect_tokens WHERE jti = \?/i.test(sql)) {
     const t = tokens.find((r) => r.jti === args[0]);
     return { rows: t ? [{ revoked_at: t.revoked_at }] : [], rowsAffected: 0 };
+  }
+  if (/^SELECT org_id FROM mcp_connect_tokens WHERE jti = \?/i.test(sql)) {
+    if (failNextOrgLookup) {
+      failNextOrgLookup = false;
+      throw new Error("transient org lookup failure");
+    }
+    const t = tokens.find((r) => r.jti === args[0]);
+    return { rows: t ? [{ org_id: t.org_id }] : [], rowsAffected: 0 };
   }
   if (
     /^SELECT id, jti, owner_email.* FROM mcp_connect_tokens WHERE owner_email = \?/i.test(
@@ -219,9 +229,15 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: exec }),
   isConnectionError: () => false,
-  isPostgres: () => false,
-  intType: () => "INTEGER",
 }));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: (_table: string, _column: string, sql: string) =>
+    executeDdlMock(sql),
+  ensureTableExists: (_table: string, sql: string) => executeDdlMock(sql),
+}));
+
+executeDdlMock.mockImplementation((sql: string) => exec(sql));
 
 const store = await import("./connect-store.js");
 
@@ -230,6 +246,7 @@ describe("connect-store", () => {
     tokens = [];
     devices = [];
     failNextCreateTable = false;
+    failNextOrgLookup = false;
     vi.restoreAllMocks();
   });
 
@@ -282,6 +299,36 @@ describe("connect-store", () => {
 
     it("isJtiRevoked is false for an unknown jti", async () => {
       expect(await store.isJtiRevoked("nope")).toBe(false);
+    });
+
+    it("looks up the org bound to a token and distinguishes missing rows", async () => {
+      await store.recordMintedToken({
+        jti: "jti-org",
+        ownerEmail: "a@example.com",
+        orgId: "org-1",
+      });
+      await store.recordMintedToken({
+        jti: "jti-personal",
+        ownerEmail: "a@example.com",
+      });
+
+      await expect(store.lookupConnectTokenOrg("jti-org")).resolves.toEqual({
+        status: "found",
+        orgId: "org-1",
+      });
+      await expect(
+        store.lookupConnectTokenOrg("jti-personal"),
+      ).resolves.toEqual({ status: "found", orgId: null });
+      await expect(store.lookupConnectTokenOrg("missing")).resolves.toEqual({
+        status: "missing",
+      });
+    });
+
+    it("reports an unavailable org lookup instead of treating it as missing", async () => {
+      failNextOrgLookup = true;
+      await expect(
+        store.lookupConnectTokenOrg("jti-unavailable"),
+      ).resolves.toEqual({ status: "unavailable" });
     });
 
     it("revokeToken only affects tokens owned by the caller", async () => {

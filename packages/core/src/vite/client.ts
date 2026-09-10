@@ -39,6 +39,7 @@ import {
   resolveRecurringJobsBuildMarker,
 } from "../server/agent-chat/recurring-jobs-runtime.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
+import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
@@ -73,6 +74,10 @@ import {
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
+import {
+  createSentrySourceMapUploadPlugin,
+  isSentrySourceMapUploadEnabled,
+} from "./sentry-source-maps.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -263,7 +268,28 @@ function nitroVitePlugin(
 ) {
   installNitroFsWatchGuard();
   const plugins = require("nitro/vite").nitro(...args) as Plugin[];
-  return plugins.map(debounceNitroFullReloadHotUpdate);
+  return plugins
+    .map(debounceNitroFullReloadHotUpdate)
+    .map(skipViteChildCompiler);
+}
+
+function skipViteChildCompiler(plugin: Plugin): Plugin {
+  const originalApply = plugin.apply;
+  return {
+    ...plugin,
+    apply(config, configEnv) {
+      // React Router creates a config-file-free child compiler to inspect route
+      // exports. Nitro must only own the main server; a second environment
+      // would open the same PGlite directory and lose writes on close.
+      if ((config as UserConfig & { configFile?: false }).configFile === false)
+        return false;
+      if (!originalApply) return true;
+      if (typeof originalApply === "function") {
+        return originalApply(config, configEnv);
+      }
+      return originalApply === configEnv.command;
+    },
+  };
 }
 
 /**
@@ -1107,8 +1133,6 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/voice",
 ];
 
-const NODE_SSR_NATIVE_EXTERNALS = ["better-sqlite3", "bindings"];
-
 /**
  * Dep-prebundle sourcemaps are roughly two thirds of `node_modules/.vite/deps`
  * (65 MB of maps against 37 MB of code in a typical app), and Vite writes the
@@ -1144,7 +1168,6 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
           // imports. Eagerly including every leaf would rebuild the old
           // all-app prebundle under a different set of entry names.
         ] as Array<{ specifier: string; packageName?: string }>)),
-    { specifier: "@libsql/client" },
     { specifier: "@amplitude/analytics-browser" },
     { specifier: "@assistant-ui/react" },
     { specifier: "@assistant-ui/react-markdown" },
@@ -1210,7 +1233,6 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "diff-match-patch" },
     { specifier: "drizzle-orm" },
     { specifier: "drizzle-orm/pg-core", packageName: "drizzle-orm" },
-    { specifier: "drizzle-orm/sqlite-core", packageName: "drizzle-orm" },
     { specifier: "embla-carousel-react" },
     { specifier: "h3" },
     {
@@ -1634,7 +1656,7 @@ function getCoreSourceAliases(
 }
 
 export interface NitroOptions {
-  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
+  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "aws_amplify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
   preset?: string;
   /** Source directory for server files. Default: "./server" */
   srcDir?: string;
@@ -1806,7 +1828,7 @@ function fullReloadOnOptimizeDep504(): Plugin {
       let lastReloadAt: number | null = null;
       let reloadHistory: number[] = [];
       server.middlewares.use((req, res, next) => {
-        const originalEnd = res.end;
+        const originalEnd = res.end.bind(res);
         (res as unknown as { end: (...args: unknown[]) => unknown }).end = (
           ...endArgs: unknown[]
         ) => {
@@ -2595,6 +2617,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "Fragment",
     "Image",
     "InputRule",
+    "Item",
     "Link",
     "Map",
     "Markdown",
@@ -2619,6 +2642,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "TaskItem",
     "TaskList",
     "Terminal",
+    "Text",
     "TextSelection",
     "ThreadPrimitive",
     "WebLinksAddon",
@@ -2659,6 +2683,9 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "useThread",
     "useThreadRuntime",
     "withScope",
+    "ContentType",
+    "UndoManager",
+    "XmlElement",
     "XmlFragment",
     "XmlText",
   ];
@@ -2867,7 +2894,7 @@ function isNitroEnvironmentUnavailable(error: unknown): boolean {
 type NitroModuleNode = {
   id: string | null;
   ssrError?: Error | null;
-  transformResult: unknown | null;
+  transformResult: unknown;
 };
 
 type NitroModuleGraph = {
@@ -3478,7 +3505,8 @@ function forceServeOnly(pluginOrPreset: any): any {
   if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
   return {
     ...pluginOrPreset,
-    apply: (_config: UserConfig, configEnv: ConfigEnv) =>
+    apply: (config: UserConfig, configEnv: ConfigEnv) =>
+      (config as UserConfig & { configFile?: false }).configFile !== false &&
       configEnv.command === "serve" &&
       !(configEnv.isPreview && process.env.IS_RR_BUILD_REQUEST === "yes"),
   };
@@ -3500,6 +3528,91 @@ function nitroPresetMarkerPlugin(
   };
 }
 
+const AUTH_CLIENT_ASSET_PATH = "assets/auth-client.js";
+
+function authClientEntryPath(): string {
+  const sourceEntry = path.resolve(__dirname, "../client/auth/entry.tsx");
+  return fs.existsSync(sourceEntry)
+    ? sourceEntry
+    : path.resolve(__dirname, "../client/auth/entry.js");
+}
+
+function authClientAssetPlugin(): Plugin {
+  const entry = authClientEntryPath();
+  let isBuild = false;
+  let hasReactRouterHmr = false;
+  return {
+    name: "agent-native-auth-client-asset",
+    applyToEnvironment(environment) {
+      return environment.name === "client";
+    },
+    configResolved(config) {
+      isBuild = config.command === "build";
+      hasReactRouterHmr = config.plugins.some((plugin) =>
+        plugin.name?.startsWith("react-router"),
+      );
+    },
+    buildStart() {
+      if (!isBuild) return;
+      this.emitFile({
+        type: "chunk",
+        id: entry,
+        fileName: AUTH_CLIENT_ASSET_PATH,
+      });
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathname = new URL(req.url ?? "/", "http://agent-native.local")
+          .pathname;
+        if (
+          req.method !== "GET" ||
+          !pathname.endsWith(`/${AUTH_CLIENT_ASSET_PATH}`)
+        ) {
+          next();
+          return;
+        }
+
+        void server
+          .transformRequest(entry)
+          .then((result) => {
+            if (!result?.code) {
+              res.statusCode = 500;
+              res.end("Unable to transform the auth client asset.");
+              return;
+            }
+            const authClientCode = hasReactRouterHmr
+              ? `import ${JSON.stringify(
+                  `${server.config.base.replace(/\/+$/, "")}/@id/__x00__virtual:react-router/inject-hmr-runtime`,
+                )};\n${result.code}`
+              : result.code;
+            res.statusCode = 200;
+            res.setHeader("Content-Type", "application/javascript");
+            res.end(authClientCode);
+          })
+          .catch(next);
+      });
+    },
+  };
+}
+
+// `.env`/`.env.production` values aren't in `process.env` unless the shell
+// exported them — Vite loads them separately via `loadEnv`. Env-gated
+// checks that only read `process.env` silently miss file-only config, so
+// this is the one merge both the plugin list and the build config use.
+function resolveAgentNativeRuntimeEnv(
+  cwd: string,
+  mode: string,
+): Record<string, string | undefined> {
+  const workspaceRoot = findWorkspaceRoot(cwd);
+  return {
+    ...(workspaceRoot && workspaceRoot !== cwd
+      ? loadEnv(mode, workspaceRoot, "")
+      : {}),
+    ...loadEnv(mode, cwd, ""),
+    ...process.env,
+  };
+}
+
 function createAgentNativePlugins(
   options: ClientConfigOptions | AgentNativeVitePluginOptions,
   {
@@ -3518,6 +3631,12 @@ function createAgentNativePlugins(
   const nitroPlugin = createNitroDevPlugin(options, appBasePath);
   const includeNitro = !isBuildCommand(command);
   const presetMarkerPlugin = nitroPresetMarkerPlugin(options);
+  // Vite's real `mode` isn't resolved yet at this eager, pre-config-hook
+  // point — same fallback createAgentNativeConfig uses as its own default.
+  const runtimeEnv = resolveAgentNativeRuntimeEnv(
+    process.cwd(),
+    process.env.NODE_ENV === "production" ? "production" : "development",
+  );
 
   return [
     presetMarkerPlugin,
@@ -3530,6 +3649,7 @@ function createAgentNativePlugins(
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
+    authClientAssetPlugin(),
     autoReloadOnOptimizeDep(),
     fullReloadOnOptimizeDep504(),
     embedDevFrameHeaders(),
@@ -3553,6 +3673,8 @@ function createAgentNativePlugins(
     includeReactTransform ? createReactTransformPlugin() : null,
     createDesignSystemThemePlugin(options.designSystemTheme),
     createTailwindPlugin(options),
+    // No-ops unless a Sentry auth token/org/project is configured.
+    ...createSentrySourceMapUploadPlugin(runtimeEnv),
   ].filter(Boolean);
 }
 
@@ -3636,13 +3758,7 @@ function createAgentNativeConfig(
   const workspaceRoot = findWorkspaceRoot(cwd);
   const envDir = workspaceRoot && workspaceRoot !== cwd ? workspaceRoot : cwd;
 
-  const runtimeEnv = {
-    ...(workspaceRoot && workspaceRoot !== cwd
-      ? loadEnv(mode, workspaceRoot, "")
-      : {}),
-    ...loadEnv(mode, cwd, ""),
-    ...process.env,
-  };
+  const runtimeEnv = resolveAgentNativeRuntimeEnv(cwd, mode);
   const appConfig = resolveAgentNativeConfig(
     mergeAgentNativeConfigs(
       mergeAgentNativeConfigs(
@@ -3672,13 +3788,7 @@ function createAgentNativeConfig(
           deployment: { environment: inferredDeploymentEnvironment },
         }
       : appConfig;
-  const buildId =
-    process.env.DEPLOY_ID?.trim() ||
-    process.env.COMMIT_REF?.trim() ||
-    process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
-    process.env.CF_PAGES_COMMIT_SHA?.trim() ||
-    process.env.AGENT_NATIVE_BUILD_SHA?.trim() ||
-    "development";
+  const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
 
   // Preload workspace-root .env into process.env so Nitro server code sees
@@ -3785,6 +3895,16 @@ function createAgentNativeConfig(
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),
+      "process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY": JSON.stringify(
+        process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+          process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+          "",
+      ),
+      "process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT": JSON.stringify(
+        process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+          process.env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+          "",
+      ),
       // The release migration owner is configured at build time. Netlify's
       // netlify.toml environment is available to the build but not injected
       // into deployed Functions, so embed the decision in the server bundle.
@@ -3886,6 +4006,11 @@ function createAgentNativeConfig(
       // the standard property survives the production pipeline.
       cssMinify: userConfig.build?.cssMinify ?? "esbuild",
       cssTarget: userConfig.build?.cssTarget ?? ["es2020", "safari18"],
+      // "hidden" writes .map files for upload without a public
+      // sourceMappingURL comment, so production never serves them directly.
+      sourcemap:
+        userConfig.build?.sourcemap ??
+        (isSentrySourceMapUploadEnabled(runtimeEnv) ? "hidden" : false),
     },
     // Bundle all non-Node.js deps into the production SSR server build.
     // Edge runtimes (CF Workers, Deno) don't have node_modules at runtime.
@@ -3905,7 +4030,6 @@ function createAgentNativeConfig(
             // bundle still owns and bundles the dependency, so both paths
             // share one portable module instance.
             "yjs",
-            ...NODE_SSR_NATIVE_EXTERNALS,
             ...arrayFrom((userConfig.ssr as { external?: any })?.external),
           ],
           // Pick the workspace-core's compiled `dist/` exports in prod —

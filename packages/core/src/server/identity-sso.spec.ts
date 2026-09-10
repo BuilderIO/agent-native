@@ -12,13 +12,20 @@ const getSessionMock = vi.fn();
 const createOAuthSessionMock = vi.fn(async () => ({
   sessionToken: "fresh-session-token",
 }));
-const signUpEmailMock = vi.fn(async () => ({}));
 const googleAuthRequiredMock = vi.fn(async () => false);
 const adapterUsers: Array<{
   id: string;
   email: string;
   accounts: Array<{ providerId: string; accountId: string }>;
 }> = [];
+const signUpEmailMock = vi.fn(async ({ body }: any) => {
+  adapterUsers.push({
+    id: `created-${body.email}`,
+    email: body.email,
+    accounts: [],
+  });
+  return {};
+});
 const linkAccountMock = vi.fn(async (input: any) => {
   const user = adapterUsers.find((candidate) => candidate.id === input.userId);
   if (user) {
@@ -79,6 +86,8 @@ vi.mock("./auth.js", () => ({
 }));
 vi.mock("./google-oauth.js", () => ({
   createOAuthSession: (...args: any[]) => createOAuthSessionMock(...args),
+  getAppUrl: (event: any, path: string) =>
+    `https://${event.headers?.host ?? "mail.agent-native.com"}${path}`,
   getOrigin: (event: any) =>
     `https://${event.headers?.host ?? "mail.agent-native.com"}`,
 }));
@@ -88,6 +97,7 @@ vi.mock("../org/auth-policy.js", () => ({
     googleAuthRequiredMock(...args),
 }));
 vi.mock("./better-auth-instance.js", () => ({
+  getAuthSecret: () => "test-auth-secret",
   getBetterAuth: async () => ({
     api: { signUpEmail: (...args: any[]) => signUpEmailMock(...args) },
   }),
@@ -109,8 +119,6 @@ vi.mock("./identity-sso-store.js", () => ({
       return undefined;
     }
   },
-  identitySsoLoginButtonHtml: () =>
-    process.env.AGENT_NATIVE_IDENTITY_HUB_URL ? "<a>sso</a>" : "",
   isCanonicalAgentNativeAppRequest: (host: string, protocol: string) =>
     protocol === "https" &&
     ["mail.agent-native.com", "dispatch.agent-native.com"].includes(host),
@@ -159,8 +167,12 @@ vi.mock("./identity-sso-store.js", () => ({
   }),
 }));
 
-const { handleIdentitySso, isIdentitySsoBypassPath, resolveIdentityHubUrl } =
-  await import("./identity-sso.js");
+const {
+  canIdentitySsoBootstrapBindingCookieReachHub,
+  handleIdentitySso,
+  isIdentitySsoBypassPath,
+  resolveIdentityHubUrl,
+} = await import("./identity-sso.js");
 
 const HUB = "https://dispatch.agent-native.com";
 const SECRET = "test-a2a-secret";
@@ -210,10 +222,13 @@ async function signAssertion(
     .sign(new TextEncoder().encode(options.secret ?? SECRET));
 }
 
-async function startLogin(returnPath = "/inbox") {
-  const loginEvent = event(
-    `/_agent-native/identity/login?return=${returnPath}`,
-  );
+async function startLogin(
+  returnPath = "/inbox",
+  options: { prompt?: string } = {},
+) {
+  const query = new URLSearchParams({ return: returnPath });
+  if (options.prompt) query.set("prompt", options.prompt);
+  const loginEvent = event(`/_agent-native/identity/login?${query.toString()}`);
   const response = await handleIdentitySso(loginEvent, "/login");
   const location = new URL(response.headers.get("Location")!);
   const state = location.searchParams.get("state")!;
@@ -335,6 +350,72 @@ describe("identity SSO browser contract", () => {
     );
     expect(location.searchParams.has("token")).toBe(false);
     expect(location.searchParams.has("id_token")).toBe(false);
+  });
+
+  it("uses a source-origin bridge when the configured hub is on another site", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_IDENTITY_HUB_URL",
+      "https://identity.example.test",
+    );
+    vi.stubEnv("AGENT_NATIVE_IDENTITY_FEDERATION_SECRET", SECRET);
+    getSessionMock.mockResolvedValue({ email: "alice@example.test" });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          continue_url:
+            "https://identity.example.test/_agent-native/identity/bootstrap/continue?handle=" +
+            "h".repeat(43),
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const request = event("/_agent-native/identity/bootstrap?return=%2Fafter", {
+      headers: { host: "workspace.example.test" },
+    });
+    const response = await handleIdentitySso(request, "/bootstrap");
+
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('id="identity-sso-bridge"');
+    expect(body).toContain("source_origin");
+    expect(request.cookies.an_identity_bootstrap_binding).toMatch(
+      /^[A-Za-z0-9_-]{43}$/,
+    );
+    expect(
+      canIdentitySsoBootstrapBindingCookieReachHub(
+        request,
+        "https://identity.example.test",
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves prompt=none for silent browser probes", async () => {
+    const { response, location } = await startLogin("/inbox", {
+      prompt: "none",
+    });
+
+    expect(response.status).toBe(302);
+    expect(location.searchParams.get("prompt")).toBe("none");
+  });
+
+  it("returns a silent-provider error to local sign-in without an error page", async () => {
+    const { loginEvent, state } = await startLogin("/welcome", {
+      prompt: "none",
+    });
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?error=login_required&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "/sign-in?sso=unavailable&return=%2Fwelcome",
+    );
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
   it("exchanges the code server-to-server, binds state/PKCE, and links the verified email", async () => {
@@ -470,12 +551,49 @@ describe("identity SSO browser contract", () => {
     expect(createOAuthSessionMock).toHaveBeenCalledWith(
       expect.anything(),
       "alice@example.test",
-      expect.objectContaining({ hasProductionSession: false }),
+      expect.objectContaining({
+        authProvider: "google",
+        hasProductionSession: false,
+      }),
     );
   });
 });
 
 describe("additive JIT linking", () => {
+  it("fails closed when the initial local account lookup is unavailable", async () => {
+    findUserByEmailMock.mockRejectedValueOnce(new Error("database offline"));
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"j".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(400);
+    expect(signUpEmailMock).not.toHaveBeenCalled();
+    expect(createOAuthSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the post-signup local account lookup is unavailable", async () => {
+    findUserByEmailMock
+      .mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(new Error("database offline"));
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"k".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(400);
+    expect(signUpEmailMock).toHaveBeenCalledTimes(1);
+    expect(createOAuthSessionMock).not.toHaveBeenCalled();
+  });
+
   it("keeps an existing local user and adds only the inert provider link", async () => {
     adapterUsers.push({
       id: "existing-1",
@@ -528,6 +646,18 @@ describe("additive JIT linking", () => {
 });
 
 describe("route boundaries", () => {
+  it("bypasses auth for both browser bootstrap hops", () => {
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/bootstrap/binding"),
+    ).toBe(true);
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/bootstrap/continue"),
+    ).toBe(true);
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/bootstrap/activate"),
+    ).toBe(true);
+  });
+
   it("does not bypass auth for the Desktop completion page", () => {
     expect(
       isIdentitySsoBypassPath("/_agent-native/identity/desktop-complete"),

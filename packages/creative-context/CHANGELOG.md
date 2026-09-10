@@ -1,5 +1,75 @@
 # @agent-native/creative-context
 
+## 0.7.23
+
+### Patch Changes
+
+- a53a789: Clean up and streamline the Creative Context share tab interface.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.22
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.21
+
+### Patch Changes
+
+- cb3a95f: Add opt-in canonical organization federation across Agent-Native app deployments.
+- Release all public npm packages with a patch version bump.
+- cc2a915: Standardize framework persistence on PostgreSQL. Local development uses PGlite,
+  hosted deployments use PostgreSQL, and the database client, schema, migrations,
+  templates, docs, and tooling now target PostgreSQL directly.
+
+## 0.7.20
+
+### Patch Changes
+
+- 345fcd7: Allow signed Creative Context background processors to bypass session auth and
+  cover both processor HMAC routes.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.19
+
+### Patch Changes
+
+- 56404c7: Restore Creative context as a Share tab and compact its submission controls.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.18
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.16
+
+### Patch Changes
+
+- 1f8e13c: Route managed Google OAuth through the provider-aware root callback on standalone apps.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.14
+
+### Patch Changes
+
+- 4776e61: Reduce CI lint warnings across publishable packages.
+- Release all public npm packages with a patch version bump.
+
 ## 0.7.13
 
 ### Patch Changes

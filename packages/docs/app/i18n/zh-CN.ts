@@ -62,6 +62,7 @@ const zhCN = {
     dialogLabel: "搜索文档",
     placeholder: "搜索文档...",
     empty: "输入内容以搜索所有文档",
+    toggleChatSidebar: "切换聊天侧边栏",
     loadError: "搜索加载失败。请重试。",
     retry: "重试",
     noResults: "未找到“{{query}}”的结果",
@@ -153,8 +154,8 @@ const zhCN = {
           body: "一次定义工作，然后从 UI、agent、HTTP、MCP、A2A 和 CLI 使用它。",
         },
         sqlStateOrm: {
-          title: "SQL 状态与 ORM",
-          body: "持久应用数据、application state、迁移，以及不绑定供应商的 schema。",
+          title: "PostgreSQL 状态与 ORM",
+          body: "持久应用数据、application state、迁移，以及 PostgreSQL/PGlite schema。",
         },
         dbAdmin: {
           title: "数据库管理",
@@ -206,7 +207,8 @@ const zhCN = {
       title: "面向 agent-native apps 的框架",
       body1:
         "Agent-Native 是一个开源框架，用来构建 agentic applications：从 Chat 开始，定义共享 actions，再围绕同一份 state 添加 UI、jobs 和协作。",
-      body2: "使用你自己的数据库、托管服务、模型栈和 app 代码。",
+      body2:
+        "使用本地 PGlite 或托管 PostgreSQL，以及你自己的托管服务、模型栈和 app 代码。",
       cta: "阅读框架指南",
       primitives: {
         actions: {
@@ -223,10 +225,10 @@ const zhCN = {
           description:
             "app-agent loop、tools、skills、memory、jobs 和可观测性一起交付。",
         },
-        backendAgnostic: {
-          title: "后端无关",
+        postgresSpecific: {
+          title: "PostgreSQL 专用",
           description:
-            "接入任何 Drizzle 支持的 SQL 数据库和 Nitro 兼容的托管环境。",
+            "使用框架的 PostgreSQL schema 助手，在本地使用 PGlite，或在任何 Nitro 兼容主机上使用托管 Postgres。",
         },
       },
     },
@@ -304,7 +306,7 @@ const zhCN = {
     },
     quickStart: {
       title: "从一条命令开始",
-      body: "一条命令会创建一个聊天优先的本地 app，背后有 actions、durable threads 和 SQLite 支撑。只有 automation-first workflow 暂时不需要浏览器 UI 时才使用 `--headless`。",
+      body: "一条命令会创建一个聊天优先的本地 app，背后有 actions、durable threads 和 PGlite 支撑。只有 automation-first workflow 暂时不需要浏览器 UI 时才使用 `--headless`。",
     },
     finalCta: {
       title: "为 agentic 时代而建的软件",
@@ -409,6 +411,7 @@ const zhCN = {
   },
   common: {
     copied: "已复制",
+    copyFailed: "复制失败",
     copyCommand: "复制命令",
     copyCode: "复制代码",
     tryIt: "试用",
@@ -429,7 +432,7 @@ const zhCN = {
   homepage: {
     hero: {
       title: "面向 agentic 应用的框架",
-      bodyLine1: "为 agent 构建，无需为用户单独打造第二个产品。",
+      bodyLine1: "构建配备直观 UI 的自主型 agent。",
       bodyLine2: "使用你自己的 LLM，随处部署。",
       tryAnApp: "试用应用",
     },
@@ -438,14 +441,13 @@ const zhCN = {
     },
     actions: {
       title: "一个 Action 驱动所有能力面",
-      bodyLine1: "Action 是 Agent-Native 应用的基础构建块。",
-      bodyLine2:
-        "只需定义一次功能，即可在 UI、agent 对话、HTTP API、MCP、A2A 或 CLI 中使用。",
+      bodyLine1: "使用 defineAction() 一次定义一项能力。",
+      bodyLine2: "你的 agent、React UI、HTTP 客户端和集成都调用同一份代码。",
       diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
     },
     builtIn: {
-      title: "每个 Agent-Native 应用都内置这些能力",
-      body: "用户和 AI agent 协同工作所需的一切，已经集成到同一个应用中。",
+      title: "你的 agent 所需的一切",
+      body: "UI、上下文、数据、权限和基础设施都已连接在一起。",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -453,14 +455,14 @@ const zhCN = {
         },
         agentChat: {
           title: "内嵌 agent 对话",
-          body: "让用户无需离开应用即可委派工作、提问和查看结果。",
+          body: "让用户在同一个 UI 中委派工作、提问和查看结果。",
         },
         sharedState: {
           title: "共享的应用状态",
           body: "agent 知道用户正在查看、选择和编辑的内容。",
         },
         sharedSql: {
-          title: "共享的 SQL 数据",
+          title: "共享的 PostgreSQL 数据",
           body: "用户和 agent 读取并更新同一份可信数据源。",
         },
         skillsMemory: {
@@ -469,11 +471,11 @@ const zhCN = {
         },
         automations: {
           title: "自动化",
-          body: "按计划或应用事件自动运行 agent 工作。",
+          body: "按计划或事件自动运行 agent 工作。",
         },
         agentTeams: {
           title: "Agent 团队",
-          body: "在应用内部或跨应用把工作委派给专业 agent。",
+          body: "在同一个工作区或相互连接的 agent 之间，把工作委派给专业 agent。",
         },
         auth: {
           title: "身份认证与组织",
@@ -486,20 +488,20 @@ const zhCN = {
       },
     },
     stack: {
-      title: "适配你的技术栈",
-      body: "带上你自己的 LLM、数据库、工具和基础设施，Agent-Native 是开源的 TypeScript，你的应用始终归你所有。",
+      title: "使用你自己的技术栈",
+      body: "Agent-Native 是开源 TypeScript。选择你的模型、数据库和托管方式，并将应用代码保留在你的代码仓库中。",
       exploreApps: "探索用 Agent-Native 构建的应用",
     },
     showcase: {
-      title: "你能用 Agent-Native 构建什么？",
-      body: "从聊天、专注的内部工具，到完整的面向客户的产品，任何形态都可以从这里开始。每个应用都为用户提供 UI，也为 agent 提供完成同样工作的工具。",
+      title: "用 Agent-Native 构建的真实应用",
+      body: "可免费使用或无限定制的开源 Agent-Native 应用。",
       browseApps: "浏览应用",
       scrollLeft: "向左滚动应用",
       scrollRight: "向右滚动应用",
     },
     bottomCta: {
-      title: "构建你的第一个 Agent-Native 应用",
-      body: "为用户和 AI agent 打造同一个应用。使用你自己的 LLM，随处部署。",
+      title: "构建你的第一个带 UI 的 agent",
+      body: "Agent 和 UI 共享相同的能力。使用你自己的 LLM，并随处部署。",
     },
     footer: {
       tagline: "面向 agentic 应用的框架。",
@@ -508,39 +510,97 @@ const zhCN = {
       community: "社区",
       legal: "法律",
       docs: "文档",
-      actions: "行动",
+      download: "下载",
       apps: "应用",
       privacyPolicy: "隐私政策",
       saasTerms: "SaaS 条款",
+      legalResources: "法律资源",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "不在本地构建？",
-      exploreApp: "先试用在线应用",
-      between: "或",
-      joinWaitlist: "加入候补名单",
-      end: "改为在浏览器中构建。",
+    tabs: {
+      label: "选择构建方式",
+      local: "本地构建",
+      localDescription: "使用 CLI 在你的计算机上构建。",
+      cloud: "云端构建",
+      cloudDescription: "使用 Builder.io 在浏览器中构建。",
+    },
+    cloud: {
+      intro:
+        "无需安装任何内容，即可构建相同的应用。描述你想要的内容，智能体会在 Builder 为你托管的工作区中编写并运行代码。",
+      stepOneTitle: "创建 Builder 账号",
+      stepOneBody:
+        "使用 Builder 账号在浏览器中构建。免费开始，无需自带 API 密钥。",
+      stepTwoTitle: "开始输入提示",
+      stepTwoBody: "用自然语言描述你想构建的内容，智能体会为你创建。",
+      stepThreeTitle: "部署",
+      stepThreeBody: "准备好后，在 Builder 中一键部署你的 agent 及其 UI。",
     },
   },
   templatesPage: {
     title: "您拥有的开源、代理本机应用程序",
     eyebrow: "从一个可运行的 app 开始，让 agent 继续改进它。",
     body: "你可以自定义一切。",
+    firstPartyTitle: "Agent-Native 官方应用",
     community: "想要空白应用？从框架指南开始从零构建。",
     createYourOwn: "从零开始",
-    communityTitle: "社区模板",
+    communityTitle: "社区应用",
     communityDescription:
-      "由作者独立维护的应用。可从公开 GitHub 仓库安装；如有托管版本，也可以先在线体验。",
-    submitCommunityTemplate: "提交你的模板",
+      "探索由作者维护的社区应用。有托管版本时可以先体验，也可以查看源代码并自行定制。",
+    submitCommunityTemplate: "提交应用",
     communityEmpty:
-      "社区目录现已开放。请将专注于明确场景的 Agent-Native 应用发布到公开仓库并提交收录。",
+      "社区目录现已开放。请发布专注于明确场景的 Agent-Native 应用并提交收录。",
     publishGuide: "阅读发布指南",
     communityTrust:
-      "社区模板属于第三方代码。运行前请检查仓库、许可证、依赖项和安装脚本。",
+      "社区应用属于第三方代码。运行前请检查源代码、许可证、依赖项和安装脚本。",
     copyCommunityInstallCommand: "复制安装命令",
     viewRepository: "查看仓库",
     tryCommunityDemo: "体验演示",
+    customizeDescription: "以这个应用为起点。",
+    customizeOnline: "在线",
+    customizeOnlineBadge: "加入等候名单",
+    customizeLocally: "本地",
+    communityNew: "新应用",
+    communityComingSoon: "即将推出",
+    communityGithubStars: "{{count}} 个 GitHub 星标",
+    tryCommunityApp: "试用应用",
+    viewCommunitySource: "查看源代码",
+    communityEyebrow: "社区应用",
+    communityScreenshots: "截图",
+    previousScreenshot: "上一张截图",
+    nextScreenshot: "下一张截图",
+    communityNoScreenshots: "审核后将在这里显示截图。",
+    communityScreenshotAlt: "{{name}} 截图 {{index}}",
+    communityNoHostedVersion: "托管版本即将推出。通过源代码链接关注开发进展。",
+    communitySubmissionTitle: "分享社区应用",
+    communitySubmissionDescription:
+      "告诉我们在哪里找到你的应用以及它的用途。发布目录前，我们会先审核这些信息。",
+    communitySubmissionName: "应用名称",
+    communitySubmissionNamePlaceholder: "客户支持中心",
+    communitySubmissionUrl: "应用 URL",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "描述",
+    communitySubmissionDescriptionPlaceholder: "应用做什么，适合哪些人？",
+    communitySubmissionRepository: "GitHub 仓库（可选）",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "截图（可选）",
+    communitySubmissionScreenshotsPlaceholder: "将最多 5 张图片拖到这里",
+    communitySubmissionScreenshotDropHint:
+      "PNG、JPG 或 WebP。每张不超过 1.5 MB。",
+    communitySubmissionScreenshotSlot: "截图 {{index}}",
+    communitySubmissionScreenshotsAdd: "添加截图",
+    communitySubmissionScreenshotsCount: "已选择 {{count}} / 5",
+    communitySubmissionScreenshotRemove: "移除截图 {{index}}",
+    communitySubmissionSubmit: "提交应用",
+    communitySubmissionReady: "谢谢。我们会在发布前审核你的应用。",
+    communitySubmissionNameError: "请输入应用名称。",
+    communitySubmissionDescriptionError: "请添加简短描述。",
+    communitySubmissionUrlError: "请输入有效的应用链接，例如 example.com。",
+    communitySubmissionRepositoryError: "请输入 GitHub 仓库链接。",
+    communitySubmissionScreenshotsError:
+      "请使用 PNG、JPG 或 WebP 图片，每张不超过 1.5 MB，最多上传 5 张。",
+    communitySubmissionSubmitError: "暂时无法提交。请检查标记的字段后重试。",
+    communitySubmissionSubmitting: "提交中…",
   },
   buildFromScratch: {
     title: "从零开始构建",
@@ -548,7 +608,8 @@ const zhCN = {
     readDocs: "阅读文档",
     buildOnline: "在线构建",
     popoverTitle: "在浏览器中构建",
-    popoverBody:
+    popoverBody: "使用 Builder.io 在云端快速生成 agent-native 应用。",
+    waitlistBody:
       "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
     emailLabel: "邮箱",
     emailPlaceholder: "you@company.com",
@@ -557,6 +618,8 @@ const zhCN = {
     joined: "你已加入候补名单。在线构建访问开放后我们会发送邮件通知你。",
     invalidEmail: "请输入有效的邮箱地址。",
     submitError: "无法加入候补名单。请重试。",
+    waitlistUnavailable: "此环境暂不支持加入候补名单。请改用托管的文档网站。",
+    launchBuilder: "启动 Builder",
   },
   templateCard: {
     pasteIntoTerminal: "粘贴到您的终端中。",
@@ -574,8 +637,7 @@ const zhCN = {
   templates: {
     clips: {
       replaces: "替代或增强 Loom、Granola 和 Wisprflow",
-      description:
-        "带有浏览器调试捕获、日历同步会议记录和 Fn-hold 语音听写的屏幕录制 — 所有这些都经过转录、总结和搜索，代理可以编辑其中任何内容。",
+      description: "录制屏幕、会议和语音笔记，让代理了解发生了什么并采取行动。",
     },
     plan: {
       replaces: "面向 Codex、Claude Code 和编码代理的可视化计划模式",
@@ -585,27 +647,27 @@ const zhCN = {
     design: {
       replaces: "替代或增强设计原型工具",
       description:
-        "Agent-Native HTML 原型工作室。生成交互式 Alpine/Tailwind 设计，比较变体，实时微调控件，并导出结果。",
+        "将提示转化为符合你的设计系统的交互式设计，同时由代理根据反馈完善每个界面。",
     },
     content: {
       replaces: "替换或增强 Obsidian 为 MDX、Notion、Google Docs",
       description:
-        "编辑本地 Markdown/MDX 文件（如 Obsidian），生成丰富的交互式自定义块，并使用 AI 代理来起草、重写和发布。",
+        "处理你的文档，同时由代理以你的口吻起草内容、创建交互式内容并发布到你的网站。",
     },
     slides: {
       replaces: "替换或增强 Google Slides、Pitch",
       description:
-        "根据提示生成完整的演示文稿。视觉或对话方式编辑。 AI 图像生成、8 种布局和内置演示模式。",
+        "根据提示或现有幻灯片创建符合品牌且可编辑的演示文稿，代理可以创建、编辑和完善。",
     },
     analytics: {
       replaces: "Amplitude 和 FullStory 的开源替代品",
       description:
-        "连接任何数据源、提示任何图表、构建可重用的仪表板。代理编写 SQL、生成可视化并改进应用程序。",
+        "连接你的数据，让代理用通俗语言回答问题，并将结果转化为图表和仪表板。",
     },
     mail: {
       replaces: "替换或增强 Superhuman、Gmail",
       description:
-        "Superhuman 风格的电子邮件客户端，具有键盘快捷键、AI 分类、多帐户支持和电子邮件自动化。拥有您的收件箱工作流程。",
+        "一个键盘优先的收件箱，代理可以排列邮件优先级、起草回复、总结会话并持续跟进。",
     },
     forms: {
       replaces: "替换或增强 Typeform、Google Forms",
@@ -615,12 +677,12 @@ const zhCN = {
     assets: {
       replaces: "替换或增强 DAMs、品牌资产库和 AI 媒体生成器",
       description:
-        "用于上传、品牌库、可搜索参考和品牌图像/视频生成的数字资产管理器，其他应用程序可以通过 A2A 调用或嵌入为选择器。",
+        "为代理提供共享的品牌指南、图片和视频库，以便在各个应用中创建和选择符合品牌的媒体。",
     },
     calendar: {
       replaces: "替换或增强 Google Calendar、Calendly",
       description:
-        "具有 Google 同步、可用性管理和公共预订页面的完整日历。该代理会查找空闲时段、创建活动并管理您的日程安排。",
+        "汇集你的多个 Google 日历，让代理查找空闲时间、安排或重新安排活动，并管理预约。",
     },
     dispatch: {
       replaces: "代理本机应用程序的任务控制",
@@ -813,13 +875,63 @@ const zhCN = {
     },
     clips: {
       s001: "Clips 模板屏幕截图",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "让 AI 智能体能看懂、听懂的屏幕录制",
+      heroDescription:
+        "Clips 是一款免费开源的屏幕录制工具,方便你与 AI 智能体分享错误报告、反馈和操作演示。",
+      heroCta: "录制一段 Clip",
+      useCasesHeading: "用 Clips 能做什么?",
+      useCasesBody:
+        "从一段你自己录制的 Clip,或别人分享给你的 Clip 开始。把上下文交给你的 AI 智能体,告诉它你需要什么。",
+      useCase1Title: "根据录制的反馈采取行动",
+      useCase1Body:
+        "把录制的反馈交给你的 AI 智能体,让它整理成计划或帮你实现所需的改动。",
+      useCase2Title: "调查一个被报告的 bug",
+      useCase2Body:
+        "把 bug 录制内容分享给你的 AI 智能体,让它调查出问题所在并梳理下一步该怎么做。",
+      useCase3Title: "根据录制的需求说明进行创作",
+      useCase3Body:
+        "用录制的需求说明来指导你的 AI 智能体创作演示文稿、设计稿、内容或应用改动。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "录制、转录、分享,一应俱全",
+      feature1Title: "AI 智能体可读的录制内容",
+      feature1Body:
+        "通过一个智能体可读的链接,把 Clip 的文字记录和带时间戳的图片分享给你的 AI 智能体。",
+      feature2Title: "自动转录",
+      feature2Body:
+        "获取录制、会议和口述内容的文字记录。点击文字记录的任意一行即可跳转回放到对应时刻。",
+      feature3Title: "浏览器调试日志",
+      feature3Body:
+        "使用 Clips 的 Chrome 扩展,在录制的同时捕获控制台错误和失败的请求。",
+      feature4Title: "内置 AI 智能体",
+      feature4Body:
+        "向内置 AI 智能体询问某段 Clip 或整个资料库的问题,并让它在聊天中编辑文字记录。",
+      feature5Title: "可搜索的录制资料库",
+      feature5Body:
+        "通过搜索文字记录来查找 Clip。用文件夹、标签和团队空间整理你的录制内容。",
+      feature6Title: "按键说话式口述输入",
+      feature6Body:
+        "在桌面应用中按住 Fn 键,即可向其他应用口述输入。在历史记录中可以回看文字记录和整理后的文本。",
+      teammatesLine: "你的团队成员可以在播放器中观看同一段录制内容。",
+      teammatesLinkLabel: "阅读智能体分享指南",
+      seeInActionHeading: "看看 Clips 的实际效果",
+      seeInActionBody:
+        "看看 Clips 的实际使用场景,从录制浏览器操作流程到向 AI 智能体演示如何完成一项任务。",
+      watchClipLabel: "观看这段 Clip",
+      finalCtaHeading: "让你的下一段 Clip 发挥作用",
+      finalCtaBody: "录制一段说明,或把一段分享的 Clip 交给你的 AI 智能体。",
+      finalCtaButton: "打开 Clips",
       s002: "屏幕录制",
       s003: "浏览器调试日志",
       s004: "口授",
       s005: "能看到+听到",
       s006: "所有模板",
-      s007: "Loom 的开源替代方案",
-      s008: "将 Clips 链接粘贴到代理中，即使其模型无法摄取原始视频或音频，它也可以听到文字记录、读取摘要并查看带时间戳的帧。",
+      s007Primary: "AI 能看懂、听懂的",
+      s007Secondary: "屏幕录制。",
+      s008: "捕获浏览器调试日志、获取文字记录并使用内置听写。100% 免费、开源且可自定义。",
+      s063: "获取个性化建议",
+      s064: "将此提示粘贴到 Claude、ChatGPT 或 Cursor 中，看看 Clips 会如何改变你的工作流程。",
       s009: "试试看",
       s010: "你能做什么",
       s011: "记录、转录和调试 — 一个应用程序、一个库，无需订阅堆栈。",
@@ -872,8 +984,24 @@ const zhCN = {
       s058: "免费和开源",
       s059: "立即开始",
       s060: "选择要捕获的内容，然后在 Clips 中开始录制。",
-      s061: "查看更多应用",
       s062: "查看所有模板",
+      faq: {
+        question1: "Clips 是免费开源的吗?",
+        answer1:
+          "是的。Clips 是免费的开源软件。你可以直接使用这个应用,也可以自行定制并自托管你自己的版本。",
+        question2: "我可以把录制内容分享给 Claude、ChatGPT 或 Cursor 吗?",
+        answer2:
+          "Clips 会提供一个 AI 智能体可读的链接,其中包含文字记录和带时间戳的图片。你的智能体需要能够打开链接内容并读取图片才能同时用到两者。部分聊天模式可以读取文字记录,但需要你单独上传图片。",
+        question3: "录制屏幕需要用到 Chrome 扩展吗?",
+        answer3:
+          "不需要。你可以直接在 Clips 网页应用中录制。如果还想获取所演示标签页的控制台消息和网络诊断信息,再使用 Chrome 扩展即可。",
+        question4: "AI 智能体可以观看我的屏幕录制内容吗?",
+        answer4:
+          "在 Clips 中,兼容的 AI 智能体可以通过文字记录和带时间戳的图片来理解你的录制内容。它们使用的是文本和图片,而不是播放视频,因此你可以就发生的事情提问,或让 AI 智能体基于录制内容执行任务。",
+        question5: "谁可以访问一段分享的录制内容?",
+        answer5:
+          "除非你的组织更改了设置,否则录制内容默认使用公开链接,任何拿到链接的人都可以访问。系统也提供私密和组织内访问选项,私密的 Clip 可以通过临时链接分享给智能体,而无需将录制内容公开。",
+      },
       quickStart: {
         recordingMode: "录制模式",
         modeScreenCamera: "屏幕 + 摄像头",
@@ -978,7 +1106,7 @@ const zhCN = {
       s004: "精炼",
       s005: "所有模板",
       s006: "开源 AI HTML 原型工作室",
-      s007: "根据提示生成交互式 Alpine/Tailwind 原型，比较变体，使用调整控件进行优化，并导出您拥有的真实文件。",
+      s007: "创建交互式设计和原型。使用熟悉的工具进行优化，或进行对话编辑。可导出到任何地方。",
       s008: "设计点什么",
       s009: "它是如何运作的",
       s010: "你需要的一切",
@@ -1032,6 +1160,7 @@ const zhCN = {
       s058: "从模板开始，并开始使用编辑源的代理生成交互式原型。",
       s059: "阅读文档",
       s060: "查看所有模板",
+      s061: "100% 免费、开源且可自定义。",
       faq: {
         question1: "AI 能生成真正的代码设计，而不只是模型图吗？",
         answer1:
@@ -1385,8 +1514,8 @@ const zhCN = {
       s003: "生成",
       s004: "精炼",
       s005: "所有模板",
-      s006Primary: "面向人类和代理的",
-      s006Secondary: "幻灯片演示",
+      s006Primary: "由你的 AI 代理生成的幻灯片。",
+      s006Secondary: "契合品牌，可自由编辑",
       s007: "使用 AI 代理生成符合品牌风格的幻灯片演示文稿，随时手动修改，并可导出到任何地方。",
       s008: "试用",
       s009: "它是如何运作的",
@@ -1595,7 +1724,7 @@ const zhCN = {
   },
   downloadPage: {
     title: "下载 Agent-Native",
-    body: "所有 agent-native 应用都在一个桌面外壳中。内置生产应用，并提供用于本地开发的开发模式开关。",
+    body: "试用面向会议、设计、演示文稿、数据、日程安排、邮件等场景的智能体应用，全部集成在一个桌面应用中。",
     openDesktop: "打开 Agent-Native",
     downloadInstaller: "下载安装程序",
     downloadStarted: "下载已开始",
@@ -1604,27 +1733,33 @@ const zhCN = {
     checkingRelease: "正在检查最新桌面版...",
     retry: "重试",
     unavailable: "此平台暂无安装程序",
+    allPlatforms: "所有平台",
     stable: "稳定版",
     nightly: "Nightly",
-    switchToNightly: "切换到 Nightly 构建",
-    switchToStable: "切换到稳定版构建",
-    runFromSource: "或从源码运行",
+    runFromSource: "自己构建",
     runFromSourceBody:
-      "还没有适用于你平台的安装程序，或更喜欢 CLI？使用 npm 创建新应用并在本地运行；支持 macOS、Windows 和 Linux。",
+      "通过命令行创建一个 Agent-Native 应用，并在 macOS、Windows 或 Linux 上本地运行。",
     platforms: {
       mac: {
         primary: "下载 Apple Silicon 版本",
         alternative: "Intel Mac 版本",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "下载 Windows 版本",
         alternative: "ARM64",
+        gridPrimary: "x64 安装程序",
+        gridAlternative: "Arm64 安装程序",
         note: "Windows 10 或更高版本。",
       },
       linux: {
         primary: "下载 Linux 归档包",
         appImage: "下载 AppImage",
         deb: "下载 .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "通用",
+        gridDeb: "Debian / Ubuntu",
         note: "归档包无需 FUSE 即可使用。某些发行版上的 AppImage 可能需要 FUSE 2。",
       },
     },
@@ -1662,6 +1797,34 @@ const zhCN = {
   },
   legal: {
     lastUpdated: "上次更新：{{date}}",
+    resources: {
+      eyebrow: "法律资源",
+      title: "Agent-Native 法律资源",
+      intro: "适用于 Agent-Native 托管应用和服务的独立法律政策。",
+      agentNative: {
+        title: "Agent-Native 政策",
+        body: "这些页面将通用政策框架调整为适用于 Agent-Native 开源项目和托管示例的版本。",
+        terms: "Agent-Native 服务条款",
+        privacy: "Agent-Native 隐私政策",
+      },
+      builder: {
+        title: "托管服务的其他政策",
+        body: "这些本地副本涵盖可接受使用、AI 功能、平台规则、暂停和下架、版权以及执法请求。英文版本具有控制效力。",
+      },
+      links: {
+        terms: "SaaS 服务协议",
+        privacy: "隐私政策",
+        acceptableUse: "可接受使用政策",
+        aiTerms: "AI 条款",
+        platformRules: "平台规则",
+        takedown: "暂停、下架和数据处理政策",
+        lawEnforcement: "执法机关请求政策",
+      },
+      notIncluded: {
+        title: "不包含商业条款",
+        body: "Agent-Native 没有付费计划或企业合同。不包含企业 SLA、支持条款、DPA、安全附录、专业服务条款和费用等商业材料。",
+      },
+    },
     privacy: {
       eyebrow: "隐私政策",
       title: "Agent-Native 托管应用程序",
@@ -1684,6 +1847,7 @@ const zhCN = {
       sections: {
         scope: "适用范围",
         information: "我们收集的信息",
+        cookies: "Cookie 和分析",
         clipsExtension: "Agent-Native Clips Chrome 扩展",
         use: "我们如何使用信息",
         sharing: "共享和第三方",
@@ -1697,6 +1861,8 @@ const zhCN = {
           "Agent-Native 是开源的，源代码可在 MIT 许可证下获得。本政策仅适用于 Builder.io 为 Agent-Native 用户运营的托管应用程序和服务。它不适用于其他人对代码的使用，包括分叉、自定义模板、私有部署或自托管版本。如果您操作自己的部署，则您应对自己的数据实践和隐私政策负责。",
         scope2Prefix: "本政策旨在补充 Builder.io 更广泛的政策",
         scope2Suffix: "对于 Agent-Native 托管应用程序行为。",
+        cookies:
+          "Agent-Native 文档网站和托管应用程序可能使用必要的 Cookie 来进行身份验证和安全保护、保存语言或主题等偏好设置，以及运行已配置的分析技术。如果部署进行了配置，文档网站可能会加载 Google Analytics 或 Google Tag Manager；托管服务也可能使用第一方分析来衡量可靠性和功能使用情况。我们不会将托管应用程序内容用于第三方广告。你可以在浏览器设置中管理 Cookie，但禁用必要 Cookie 可能会导致无法登录或使用其他功能。",
         clips1:
           "Agent-Native Clips Chrome extension 可帮助您开始基于浏览器的录制，并在启用后将浏览器诊断附加到剪辑。它可能会收集所选的捕获源、您选择包含的摄像头和麦克风媒体、活动选项卡标题和 URL，以及将扩展程序连接到托管 Clips 所需的身份验证状态。",
         clips2:
@@ -1839,6 +2005,8 @@ const zhCN = {
         scope2Middle: "和 Agent-Native",
         scope2Suffix:
           "如果您代表公司或组织使用托管 Agent-Native 应用程序，则表示您有权接受该组织的这些条款。",
+        scope3:
+          "Agent-Native 没有付费计划或付费托管订阅。除非另行签署书面协议，Builder.io 的商业条款（例如订单表、费用、企业支持、服务级别和数据处理附录）不属于本服务的一部分。",
         hostedService:
           "Builder.io 可以提供托管的 Agent-Native 应用程序、模板、演示、共享工作区、浏览器扩展和相关代理工作流程。随着产品的发展，托管服务可能会更新、限制、暂停或终止。",
         accounts1:
@@ -1895,7 +2063,6 @@ const zhCN = {
     usingYourAgent: "使用你的 Agent",
     agentResources: "代理资源",
     integrations: "集成",
-    buildApps: "构建应用",
     advancedRuntime: "高级：扩展运行时",
     templatesSection: "应用",
     gettingStarted: "入门",
@@ -1953,12 +2120,19 @@ const zhCN = {
     actionsAgentTools: "生产环境 Agent 访问权限",
     publicAgentWeb: "公共 Agent Web",
     database: "数据库",
+    databaseProviders: "数据库提供商",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
+    databasePostgres: "Plain Postgres",
     internationalization: "国际化",
     localFileMode: "本地文件模式",
     fileUploads: "文件上传",
     deployment: "部署",
     deploymentOverview: "概览",
-    deploymentProviders: "提供商",
+    deploymentProviders: "托管服务商",
     deploymentProduction: "生产与高级",
     deployAnApp: "部署应用",
     workspaceDeployment: "工作区部署",
@@ -2029,7 +2203,6 @@ const zhCN = {
     syncingTemplateChanges: "同步模板变更",
     writingAgentInstructions: "编写 Agent 指令",
     embeddingSdk: "嵌入 SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native 代码 UI",
     harnessAgents: "Harness 代理",
     adapters: "适配器",
@@ -2106,8 +2279,9 @@ const zhCN = {
     dispatchReference: "操作与数据参考",
     forms: "表单",
     formsOverview: "概览",
-    formsBuildingPublishing: "构建与发布",
-    formsResponses: "回复与洞察",
+    formsFeatures: "功能",
+    formsAgent: "与 Agent 对话",
+    formsIntegrations: "跨应用使用",
     docsComponents: "Docs Components",
     formsDevelopers: "开发者指南",
   },

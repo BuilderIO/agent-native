@@ -10,6 +10,7 @@ import {
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
+  BuilderConnectPopover,
   SettingsGroup,
   SettingsRow,
   SettingsTabsPage,
@@ -228,6 +229,7 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
   };
 
   const flow = useBuilderConnectFlow({
+    provisionAccount: true,
     trackingSource: "assets_settings_connections",
     trackingFlow: "image_generation",
     onConnected: refreshSetup,
@@ -307,31 +309,32 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
           }
           control={
             builderEnabled ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => flow.start()}
-                disabled={flow.connecting}
-                className="shrink-0"
-              >
-                {flow.connecting ? (
-                  <>
-                    <IconLoader2 className="size-3.5 animate-spin" />
-                    {t("settings.connecting")}
-                  </>
-                ) : builderConnected ? (
-                  <>
-                    {t("settings.reconnect")}
-                    <IconExternalLink className="size-3.5" />
-                  </>
-                ) : (
-                  <>
-                    {t("settings.connect")}
-                    <IconExternalLink className="size-3.5" />
-                  </>
-                )}
-              </Button>
+              <BuilderConnectPopover flow={flow}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={flow.connecting}
+                  className="shrink-0"
+                >
+                  {flow.connecting ? (
+                    <>
+                      <IconLoader2 className="size-3.5 animate-spin" />
+                      {t("settings.connecting")}
+                    </>
+                  ) : builderConnected ? (
+                    <>
+                      {t("settings.reconnect")}
+                      <IconExternalLink className="size-3.5" />
+                    </>
+                  ) : (
+                    <>
+                      {t("settings.connect")}
+                      <IconExternalLink className="size-3.5" />
+                    </>
+                  )}
+                </Button>
+              </BuilderConnectPopover>
             ) : null
           }
         />

@@ -1,8 +1,7 @@
 import { appPath } from "@agent-native/core/client/api-path";
+import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
-
-import { Spinner } from "../../components/ui/spinner";
 
 const SEO_TITLE =
   "Dispatch - Open Source workspace control plane for AI agents";
@@ -53,11 +52,7 @@ export function clientLoader({ url }: LoaderFunctionArgs) {
 }
 
 export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <Spinner className="size-8" />
-    </div>
-  );
+  return <DefaultSpinner />;
 }
 
 export default function IndexPage() {

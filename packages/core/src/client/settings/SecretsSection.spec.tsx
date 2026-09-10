@@ -11,6 +11,17 @@ vi.mock("../api-path.js", () => ({
   agentNativePath: (path: string) => path,
 }));
 
+vi.mock("../org/workspace-app-links.js", () => ({
+  useOrgSwitcherAppLinks: () => ({
+    isWorkspace: true,
+    dispatchVaultHref: "/dispatch/vault",
+    apps: [],
+    isLoading: false,
+    dispatchHref: "",
+    dispatchAllAppsHref: "",
+  }),
+}));
+
 const registeredSecrets = [
   {
     key: "OPENAI_API_KEY",
@@ -20,6 +31,8 @@ const registeredSecrets = [
     kind: "api-key",
     required: false,
     status: "set",
+    source: "personal",
+    managedHere: true,
     last4: "1234",
   },
   {
@@ -56,7 +69,7 @@ function renderSecretsSection(root: Root, focusKey?: string) {
   );
 }
 
-async function click(element: Element | undefined) {
+async function click(element: Element | undefined | null) {
   expect(element).toBeTruthy();
   await act(async () => {
     element!.dispatchEvent(
@@ -67,6 +80,39 @@ async function click(element: Element | undefined) {
 
 async function openNewMenu() {
   await click(findButton("New"));
+}
+
+async function openRow(label: string) {
+  const toggle = Array.from(document.querySelectorAll("button")).find(
+    (button) =>
+      button.hasAttribute("aria-expanded") &&
+      button.textContent?.includes(label),
+  );
+  await click(toggle);
+}
+
+function mockFetchWithSecrets(secrets: unknown[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/secrets/adhoc")) {
+        return Response.json([
+          {
+            name: "CUSTOM_TOKEN",
+            scope: "user",
+            scopeId: "user-1",
+            source: "personal",
+            description: "Custom service",
+            last4: "5678",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ]);
+      }
+      return Response.json(secrets);
+    }),
+  );
 }
 
 describe("SecretsSection", () => {
@@ -83,26 +129,7 @@ describe("SecretsSection", () => {
         disconnect() {}
       },
     );
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request) => {
-        const url = String(input);
-        if (url.endsWith("/secrets/adhoc")) {
-          return Response.json([
-            {
-              name: "CUSTOM_TOKEN",
-              scope: "user",
-              scopeId: "user-1",
-              description: "Custom service",
-              last4: "5678",
-              createdAt: 1,
-              updatedAt: 1,
-            },
-          ]);
-        }
-        return Response.json(registeredSecrets);
-      }),
-    );
+    mockFetchWithSecrets(registeredSecrets);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -132,7 +159,7 @@ describe("SecretsSection", () => {
 
     expect(document.body.textContent).toContain("Brave Search API Key");
     expect(document.body.textContent).toContain("Tavily API Key");
-    expect(document.body.textContent).toContain("Custom");
+    expect(document.body.textContent).toContain("Custom key");
     expect(document.body.textContent).not.toContain(
       "Choose a keyOpenAI API key",
     );
@@ -158,7 +185,7 @@ describe("SecretsSection", () => {
     await openNewMenu();
     const customItem = Array.from(
       document.querySelectorAll('[role="option"]'),
-    ).find((item) => item.textContent?.trim() === "Custom");
+    ).find((item) => item.textContent?.includes("Custom key"));
     await click(customItem);
 
     expect(
@@ -210,6 +237,95 @@ describe("SecretsSection", () => {
     expect(container.textContent).not.toContain("Brave Search API Key");
     expect(container.querySelector('input[placeholder="Paste key"]')).toBe(
       document.activeElement,
+    );
+  });
+
+  it("shows a Vault-provided key as shadowed with no Rotate/Remove", async () => {
+    mockFetchWithSecrets([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI API key",
+        description: "OpenAI services",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "set",
+        source: "vault",
+        managedHere: false,
+        last4: "1234",
+      },
+    ]);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    expect(container.textContent).toContain("Set · Vault");
+
+    await openRow("OpenAI API key");
+
+    expect(container.textContent).toContain(
+      "Managed in the workspace Vault. Every app in this workspace uses this value.",
+    );
+    expect(findButton("Rotate")).toBeUndefined();
+    expect(findButton("Delete")).toBeUndefined();
+  });
+
+  it("adds a custom key by typed name from the New search", async () => {
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    await openNewMenu();
+    const search = document.querySelector<HTMLInputElement>(
+      'input[placeholder="Search keys..."]',
+    );
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(search, "hubspot");
+      search!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const customItem = Array.from(
+      document.querySelectorAll('[role="option"]'),
+    ).find((item) => item.textContent?.includes("HUBSPOT"));
+    expect(customItem?.textContent).toContain("Add “HUBSPOT” as a custom key");
+
+    await click(customItem);
+
+    const nameInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="Key name"]',
+    );
+    expect(nameInput?.value).toBe("HUBSPOT");
+  });
+
+  it("shows the overrides note for a personal key shadowing the Vault", async () => {
+    mockFetchWithSecrets([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI API key",
+        description: "OpenAI services",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "set",
+        source: "personal",
+        managedHere: true,
+        overrides: "vault",
+        last4: "1234",
+      },
+    ]);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    await openRow("OpenAI API key");
+
+    expect(container.textContent).toContain(
+      "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
     );
   });
 });

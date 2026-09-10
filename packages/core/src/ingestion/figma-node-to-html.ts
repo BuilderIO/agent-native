@@ -590,12 +590,17 @@ function paintToCssImage(
       const geometry = resolveGradientGeometry(paint);
       const cx = geometry ? round(geometry.start.x * 100, 2) : 50;
       const cy = geometry ? round(geometry.start.y * 100, 2) : 50;
-      // A conic gradient's `from` angle aims at the end *handle* (a point), so
-      // it scales like a position -- not like the linear gradient's iso-line
-      // normal, which scales by the inverse. See the two angle helpers in
-      // figma-paint-math.
+      // In NORMALIZED space, not the node's pixel box. The angle aims at the
+      // end *handle*, so it does scale like a position — but `buildFills`
+      // routes every angular paint through `angularGradientOverlay`, which
+      // draws into a `side x side` SQUARE and then scales that square to the
+      // box. Both axes scale equally inside it, so the correct `from` is the
+      // normalized angle; passing the real box pre-compensated for a stretch
+      // that the overlay applies afterwards. The `.fig` walker already
+      // computes it normalized, and says why — the two disagreed on every
+      // non-square angular paint, and this side was the wrong one.
       const fromAngle = geometry
-        ? gradientRayAngleDegreesFromHandles(geometry, box)
+        ? gradientRayAngleDegreesFromHandles(geometry, { width: 1, height: 1 })
         : 0;
       tracker.record(
         node,
@@ -735,6 +740,21 @@ interface PaintLayer {
  * outer div carries the clipping (`border-radius: inherit`), because a
  * transform on the painted div would scale the corner radii with it.
  */
+/**
+ * A dashed stroke as an inline SVG rect laid over the node's box.
+ *
+ * Figma states a dash pattern as explicit lengths, and CSS `border-style:
+ * dashed` cannot: the browser picks dash and gap itself. Rasterizing the node
+ * was the previous answer, and it is expensive out of proportion to the
+ * feature — the PNG replaces the node AND its whole subtree, so a dashed
+ * container flattens every child frame, icon and text run inside it into
+ * pixels that can no longer be edited or re-themed. One real design hit this
+ * on six containers and lost 48 descendants to it.
+ *
+ * `stroke-dasharray` states the same lengths Figma does, so the border is
+ * exact and the subtree stays real DOM. Returns undefined when the shape is
+ * not a plain rounded rect, where a single `<rect>` would misdraw it.
+ */
 function angularGradientOverlay(
   image: string,
   box: { width: number; height: number },
@@ -798,6 +818,7 @@ function imageScaleModeCss(
   node: FigmaNode,
   tracker: FidelityTracker,
   box: { width: number; height: number },
+  intrinsic: { width: number; height: number } | undefined,
 ): { size: string; position: string; repeat: string } {
   const transform = paint.imageTransform;
   const isAxisAligned =
@@ -816,7 +837,20 @@ function imageScaleModeCss(
     case "FIT":
       return { size: "contain", position: "center", repeat: "no-repeat" };
     case "TILE":
-      return { size: "auto", position: "top left", repeat: "repeat" };
+      // `auto` IS a tile's size and renders identically, but it is also what
+      // an unset size looks like, so the export hop could not recover the
+      // tile's dimensions and drew one stretched copy over the whole box.
+      // Stating the size explicitly is the same pixels here and a recoverable
+      // tile there; without a resolved size `auto` stays and the exporter
+      // reports the tile it could not reproduce.
+      return {
+        size:
+          intrinsic && intrinsic.width > 0 && intrinsic.height > 0
+            ? `${px(intrinsic.width)} ${px(intrinsic.height)}`
+            : "auto",
+        position: "top left",
+        repeat: "repeat",
+      };
     case "STRETCH": {
       // STRETCH plus an `imageTransform` is Figma's CROP mode: the matrix
       // picks a sub-rectangle of the image — origin (tx, ty), size (a, d) in
@@ -827,6 +861,22 @@ function imageScaleModeCss(
       // non-text difference left on that page.
       const a = transform?.[0][0];
       const d = transform?.[1][1];
+      // Negative scales are a FLIP, which `background-size` cannot express —
+      // it has no negative form, and flipping needs a transform on an overlay.
+      // Falling through to the plain stretch is the same answer this walker
+      // has always given; saying so is the part that was missing.
+      if (
+        isAxisAligned &&
+        typeof a === "number" &&
+        typeof d === "number" &&
+        (a < -1e-6 || d < -1e-6)
+      ) {
+        tracker.record(
+          node,
+          "approximated",
+          `Image fill's crop transform flips the artwork (${a < 0 ? "horizontally" : ""}${a < 0 && d < 0 ? " and " : ""}${d < 0 ? "vertically" : ""}); CSS background-size has no negative form, so the crop was approximated without the flip.`,
+        );
+      }
       if (
         isAxisAligned &&
         typeof a === "number" &&
@@ -951,14 +1001,14 @@ function buildFills(
         );
         continue;
       }
-      const mode = imageScaleModeCss(fill, node, tracker, box);
+      const intrinsic = fill.imageRef
+        ? options.imageFillSizes?.[fill.imageRef]
+        : undefined;
+      const mode = imageScaleModeCss(fill, node, tracker, box, intrinsic);
       layer = { image: `url("${url}")`, ...mode };
       // Only when magnified: `pixelated` is nearest in BOTH directions, and a
       // photo scaled down with nearest aliases badly. A small tolerance keeps
       // a fill that is effectively 1:1 on the smooth path.
-      const intrinsic = fill.imageRef
-        ? options.imageFillSizes?.[fill.imageRef]
-        : undefined;
       if (
         intrinsic &&
         intrinsic.width > 0 &&
@@ -1200,7 +1250,7 @@ interface EffectResult {
  * Still recorded as `approximated`: this is a two-radius empirical fit against
  * one renderer, not a published Figma constant.
  */
-const FIGMA_BLUR_RADIUS_TO_CSS_BLUR = 0.45;
+export const FIGMA_BLUR_RADIUS_TO_CSS_BLUR = 0.45;
 
 function buildEffects(
   node: FigmaNode,
@@ -1260,6 +1310,20 @@ function buildEffects(
       ) {
         // drop-shadow()'s third length is a standard deviation, half the
         // box-shadow blur LENGTH; spread has no equivalent and is folded in.
+        //
+        // Folding is wrong ON THIS HOP and still the better trade. Spread is
+        // not a softness term — Figma erodes or dilates the silhouette and
+        // blurs it with the radius unchanged — and dropping the fold does
+        // improve the import: Landify example 3.247% -> 3.183%. But the
+        // exporter reconstructs the blur from this very length, so a larger
+        // std-dev here comes back as a larger radius there, and the export hop
+        // paid more than the import gained: example export 3.309% -> 3.439%,
+        // tablet 4.549% -> 4.670%. Measured in all four combinations against
+        // the backdrop-filter clip below; unfolding lost 0.238 on export to
+        // gain 0.123 on import. Do not unfold this without fixing the export
+        // reconstruction in the same change. Building the erode properly as an
+        // feMorphology filter was fitted against Figma too and scored 6.22,
+        // worse than either. See FIGMA_INTEROPERABILITY.md.
         const stdDev =
           px(
             Math.max(0, (effect.radius ?? 0) + (effect.spread ?? 0) * 2) / 2,
@@ -1283,7 +1347,14 @@ function buildEffects(
       tracker.record(
         node,
         "exact",
-        `${effect.type} rendered as ${isTextNode ? "text-shadow" : "box-shadow"}.`,
+        // Always `box-shadow`: this walker has no `text-shadow` path. Saying
+        // otherwise made the report claim a glyph-shaped shadow where a text
+        // layer actually gets a rectangular one around its whole box.
+        `${effect.type} rendered as box-shadow${
+          isTextNode
+            ? ", which follows the text layer's box rather than its glyphs"
+            : ""
+        }.`,
       );
     } else if (effect.type === "LAYER_BLUR") {
       const radius =
@@ -1810,6 +1881,39 @@ function geometryPaths(node: FigmaNode): FigmaVectorPath[] {
  * `background-size`, so guessing one would be a structural approximation this
  * module does not make.
  */
+/**
+ * A vector node's own painted silhouette as a CSS `clip-path`, so an effect
+ * that CSS applies to the border box lands only where the layer paints.
+ * Returns undefined when the shape is not knowable, because clipping to a
+ * guess is worse than not clipping at all.
+ */
+function vectorClipPath(
+  node: FigmaNode,
+  tracker: FidelityTracker,
+): string | undefined {
+  // A stroke-only vector — a LINE, an open path — has `strokeGeometry` and no
+  // `fillGeometry`, and its ink IS that outlined stroke region. Reading only
+  // the fill left exactly those nodes with no clip, i.e. back to the
+  // rectangular wrapper this function exists to avoid.
+  const source =
+    (node.fillGeometry?.length ?? 0) > 0
+      ? node.fillGeometry
+      : node.strokeGeometry;
+  const paths = (source ?? [])
+    .map((entry) => entry.path?.trim())
+    .filter((d): d is string => Boolean(d));
+  if (paths.length === 0) {
+    tracker.record(
+      node,
+      "approximated",
+      "Background blur on a vector node was applied to its bounding box: the node has no fillGeometry to clip the blur to its own silhouette.",
+    );
+    return undefined;
+  }
+  const rule = source?.[0]?.windingRule === "EVENODD" ? "evenodd, " : "";
+  return `path(${rule}"${paths.join(" ").replace(/"/g, "'")}")`;
+}
+
 function rendersVectorGeometry(
   node: FigmaNode,
   options: MapFigmaNodeOptions,
@@ -1820,6 +1924,14 @@ function rendersVectorGeometry(
   const box = node.absoluteBoundingBox;
   // A zero-extent box gives an unusable `viewBox` (nothing renders); those
   // nodes keep the PNG fallback, which is sized from absoluteRenderBounds.
+  //
+  // `buildVectorSvg` below CAN draw a collapsed axis — it gives that axis the
+  // stroke's width and recentres the geometry — and letting it try turns five
+  // rules in one real design from PNGs into editable vectors. Measured, it
+  // costs more than it gives: interior-checkout 1.297% -> 1.341% and
+  // interior-product-comparison 2.369% -> 2.423%, because Figma's own render
+  // of a hairline is more exact than the reconstruction. Do not relax this
+  // without a reconstruction that matches those two cases.
   if (!box || box.width <= 0 || box.height <= 0) return false;
   if (geometryPaths(node).length === 0) return false;
   return [...(node.fills ?? []), ...(node.strokes ?? [])]
@@ -2078,11 +2190,11 @@ function needsImageFallback(
   );
   if (
     visibleStrokes.length > 1 ||
-    visibleStrokes.some((stroke) => stroke.type !== "SOLID") ||
-    (node.strokeDashes?.length ?? 0) > 0
+    visibleStrokes.some((stroke) => stroke.type !== "SOLID")
   ) {
     return true;
   }
+  if ((node.strokeDashes?.length ?? 0) > 0) return true;
   const visibleFills = (node.fills ?? []).filter(
     (fill) => fill.visible !== false,
   );
@@ -2837,6 +2949,20 @@ function buildNode(
     filter: effects.filter,
     "backdrop-filter": effects.backdropFilter,
     "-webkit-backdrop-filter": effects.backdropFilter,
+    // A vector node's wrapper div paints nothing — the shape is an inline
+    // <svg><path> child — and it never gets a border-radius, so CSS filtered
+    // the backdrop of the whole bounding RECTANGLE while Figma blurs only
+    // where the layer paints. Landify's hero shape blurs 1440x752 of backdrop
+    // for a path that stops at a diagonal; the first differing pixel sits
+    // exactly on that edge. Clipping the div to the path fixes it, and the
+    // geometry is already in border-box coordinates, so it needs no transform.
+    // Gated on backdrop-filter ALONE on purpose: `filter` is applied before
+    // `clip-path`, so a layer-blurred vector is already correct and clipping
+    // would shear its halo, and clipping an outer box-shadow deletes it.
+    "clip-path":
+      isVector && effects.backdropFilter
+        ? vectorClipPath(node, tracker)
+        : undefined,
     opacity:
       typeof node.opacity === "number" && node.opacity !== 1
         ? String(round(node.opacity, 4))

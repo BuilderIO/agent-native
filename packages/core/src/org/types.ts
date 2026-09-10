@@ -39,6 +39,7 @@ export interface OrgInfo {
   orgName: string | null;
   role: OrgRole | null;
   orgs: OrgSummary[];
+  pendingRemovals?: OrgPendingRemoval[];
   pendingInvitations: OrgInvitationSummary[];
   domainMatches: DomainMatchOrg[];
   allowedDomain: string | null;
@@ -62,10 +63,17 @@ export interface OrgInfo {
   a2aSecretSet?: boolean;
 }
 
+export interface OrgPendingRemoval {
+  orgId: string;
+  orgName: string;
+}
+
 export interface OrgMember {
   email: string;
   role: OrgRole;
   joinedAt: number;
+  name?: string | null;
+  image?: string | null;
 }
 
 export interface OrgPendingInvitation {

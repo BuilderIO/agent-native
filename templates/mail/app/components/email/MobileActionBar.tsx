@@ -2,6 +2,8 @@ import { useT } from "@agent-native/core/client/i18n";
 import type { MobileActionId } from "@shared/types";
 import {
   IconArchive,
+  IconFilter,
+  IconInbox,
   IconTrash,
   IconStarFilled,
   IconStar,
@@ -31,6 +33,7 @@ import { cn } from "@/lib/utils";
 
 export const ALL_MOBILE_ACTIONS: MobileActionId[] = [
   "archive",
+  "aiFilter",
   "trash",
   "star",
   "reply",
@@ -43,6 +46,7 @@ export const ALL_MOBILE_ACTIONS: MobileActionId[] = [
 
 export const DEFAULT_MOBILE_ACTIONS: MobileActionId[] = [
   "archive",
+  "aiFilter",
   "trash",
   "star",
   "reply",
@@ -64,6 +68,15 @@ const ACTION_META: Record<
   archive: {
     labelKey: "mail.mobileActions.archive",
     icon: () => <IconArchive className="h-5 w-5" />,
+  },
+  aiFilter: {
+    labelKey: "mail.aiFilter.filterButton",
+    icon: (active) =>
+      active ? (
+        <IconInbox className="h-5 w-5" />
+      ) : (
+        <IconFilter className="h-5 w-5" />
+      ),
   },
   trash: {
     labelKey: "mail.mobileActions.trash",
@@ -107,6 +120,7 @@ const ACTION_META: Record<
 export type MobileActionBarProps = {
   actions: MobileActionId[];
   isStarred?: boolean;
+  isAiFiltered?: boolean;
   onAction: (action: MobileActionId) => void;
   onUpdateActions?: (actions: MobileActionId[]) => void;
 };
@@ -114,6 +128,7 @@ export type MobileActionBarProps = {
 export function MobileActionBar({
   actions,
   isStarred,
+  isAiFiltered,
   onAction,
   onUpdateActions,
 }: MobileActionBarProps) {
@@ -148,18 +163,32 @@ export function MobileActionBar({
           {actions.map((id) => {
             const meta = ACTION_META[id];
             if (!meta) return null;
-            const label = t(meta.labelKey);
+            const label =
+              id === "aiFilter"
+                ? t(
+                    isAiFiltered
+                      ? "mail.aiFilter.keepButton"
+                      : "mail.aiFilter.filterButton",
+                  )
+                : t(meta.labelKey);
             return (
               <Tooltip key={id}>
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => onAction(id)}
+                    aria-label={label}
                     className={cn(
                       "flex shrink-0 flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-[44px] min-h-[44px]",
                       "text-muted-foreground active:text-foreground active:bg-accent/50 rounded-lg",
                     )}
                   >
-                    {meta.icon(id === "star" ? isStarred : false)}
+                    {meta.icon(
+                      id === "star"
+                        ? isStarred
+                        : id === "aiFilter"
+                          ? isAiFiltered
+                          : false,
+                    )}
                     <span className="text-[10px] leading-tight">{label}</span>
                   </button>
                 </TooltipTrigger>
@@ -183,7 +212,10 @@ export function MobileActionBar({
                 const meta = ACTION_META[id];
                 if (!meta) return null;
                 const enabled = actions.includes(id);
-                const label = t(meta.labelKey);
+                const label =
+                  id === "aiFilter"
+                    ? t("mail.aiFilter.filterButton")
+                    : t(meta.labelKey);
                 return (
                   <div
                     key={id}

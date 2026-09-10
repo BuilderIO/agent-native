@@ -119,8 +119,7 @@ export default defineAction({
     // short preview plus the true length. `substr` truncates the transferred
     // text to the first 400 chars (well above the ~180-char preview, leaving
     // headroom for whitespace collapse), while `length` reports the real size.
-    // Both `substr` and `length` work identically on SQLite/libsql and
-    // Postgres.
+    // Both `substr` and `length` work in PostgreSQL and PGlite.
     const documents = await db
       .select({
         id: schema.documents.id,
@@ -290,6 +289,9 @@ export default defineAction({
       }
     }
 
+    const visibleDocumentIds = new Set(
+      documents.map((document) => document.id),
+    );
     const mapped = documents.map((d) => {
       let accessRole: EffectiveRole = "viewer";
       const shareRole = shareRoleByDocumentId.get(d.id) ?? null;
@@ -310,7 +312,8 @@ export default defineAction({
 
       return {
         id: d.id,
-        parentId: d.parentId,
+        parentId:
+          d.parentId && visibleDocumentIds.has(d.parentId) ? d.parentId : null,
         title: d.title,
         description: d.description,
         contentPreview: contentPreview(d.contentSnippet),
@@ -338,7 +341,14 @@ export default defineAction({
             }
           : undefined,
         databaseMembership: databaseMembership
-          ? serializeDatabaseMembership(databaseMembership)
+          ? visibleDocumentIds.has(databaseMembership.database.documentId)
+            ? serializeDatabaseMembership(databaseMembership)
+            : {
+                databaseId: null,
+                databaseDocumentId: null,
+                databaseTitle: null,
+                position: null,
+              }
           : undefined,
         accessRole,
         canComment: canCommentRole(accessRole),

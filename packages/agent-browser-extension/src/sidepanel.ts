@@ -310,10 +310,7 @@ async function refreshRelayAccess(): Promise<void> {
     !config || (await hasRemoteHostAccess(config.relayBaseUrl));
 }
 
-function setStatus(
-  value: string,
-  tone: "success" | "error" | undefined = undefined,
-): void {
+function setStatus(value: string, tone?: "success" | "error"): void {
   captureStatus.textContent = value;
   if (tone) captureStatus.dataset.tone = tone;
   else delete captureStatus.dataset.tone;

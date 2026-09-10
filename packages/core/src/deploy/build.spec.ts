@@ -1,15 +1,23 @@
+import { execFileSync } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
+import { DefaultSpinner } from "../client/DefaultSpinner.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
@@ -46,14 +54,16 @@ import {
   findInstalledPackageRoot,
   findInstalledResvgPackages,
   findServerlessBrowserRuntimeConsumer,
-  findNonLinuxBetterSqlite3Binaries,
   isServerlessNativePlatformPackage,
   generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
   generateProvidedPluginsNitroPluginSource,
+  generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
-  getNodeBuiltinNames,
+  isAwsAmplifyPreset,
+  configureAwsLambdaRuntimeOutput,
   isCloudflareModulePreset,
+  configureAwsAmplifyRuntimeOutput,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
   isKeepWarmBackgroundDeployEnabled,
@@ -61,18 +71,21 @@ import {
   resolveKeepWarmSchedule,
   NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
   NITRO_RUNTIME_IGNORE_PATTERNS,
-  bundleImportsLibsqlNativeAddon,
   nitroNoExternalsForPreset,
+  nitroServerCodeSplittingConfigForPreset,
+  nitroServerCodeSplittingGroupsForPreset,
   patchCloudflareModuleNitroEntry,
   pruneServerlessFunctionDeadWeight,
+  removeNetlifyStaticRootShell,
   resolveNitroBundledYjsEntry,
   resolveNitroBuildReplacements,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
-  stubLocalOnlySqliteDriverForServerless,
   shouldBundleYjsRuntimeForPreset,
   shouldBundleFfmpegStaticForServerless,
   writeSingleTemplateNetlifyRedirects,
+  shouldRemoveNetlifyStaticRootShell,
+  shouldPreserveNetlifyStaticRootShell,
 } from "./build.js";
 import {
   pruneBrowserRuntimeFromNonAgentClone,
@@ -87,10 +100,13 @@ import {
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
-  it("leaves Yjs external for the controlled serverless bundling pass", () => {
+  it("bundles all Amplify dependencies and leaves Yjs external elsewhere", () => {
     expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
     expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
     expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
+    expect(nitroNoExternalsForPreset("aws_amplify")).toBe(true);
+    expect(nitroNoExternalsForPreset("aws-amplify")).toBe(true);
+    expect(nitroNoExternalsForPreset("awsAmplify")).toBe(true);
     expect(nitroNoExternalsForPreset("node")).toEqual([]);
     expect(nitroNoExternalsForPreset("node-server")).toEqual([]);
   });
@@ -103,13 +119,15 @@ describe("nitroNoExternalsForPreset", () => {
 });
 
 describe("shouldBundleYjsRuntimeForPreset", () => {
-  it("covers Node and serverless output but leaves edge presets to bundling", () => {
+  it("covers Node and serverless output but leaves self-contained edge presets to Nitro", () => {
     for (const preset of [
       "node",
       "node-server",
       "netlify",
       "vercel",
       "aws-lambda",
+      "aws_lambda",
+      "awsLambda",
     ]) {
       expect(shouldBundleYjsRuntimeForPreset(preset)).toBe(true);
     }
@@ -118,7 +136,305 @@ describe("shouldBundleYjsRuntimeForPreset", () => {
   });
 });
 
+describe("nitroServerCodeSplittingGroupsForPreset", () => {
+  it("co-locates Core and Creative Context for Node-style output", () => {
+    for (const preset of [
+      "vercel",
+      "netlify",
+      "aws_amplify",
+      "aws-amplify",
+      "awsAmplify",
+    ]) {
+      const groups = nitroServerCodeSplittingGroupsForPreset(preset);
+      expect(groups).toHaveLength(1);
+      expect(
+        groups[0]?.test.test("/node_modules/@agent-native/core/server.js"),
+      ).toBe(true);
+      expect(
+        groups[0]?.test.test(
+          "/node_modules/@agent-native/creative-context/server.js",
+        ),
+      ).toBe(true);
+      expect(
+        groups[0]?.test.test("/node_modules/@agent-native/toolkit/server.js"),
+      ).toBe(false);
+    }
+    expect(nitroServerCodeSplittingGroupsForPreset("cloudflare-pages")).toEqual(
+      [],
+    );
+  });
+
+  it("passes the group through Nitro's Rolldown configuration", () => {
+    const config = nitroServerCodeSplittingConfigForPreset("vercel");
+
+    expect(config.output?.codeSplitting?.groups).toHaveLength(1);
+  });
+});
+
+describe("Nitro server code-splitting output", { timeout: 30_000 }, () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits Core and Creative Context in the configured package chunk", async () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-nitro-chunk-test-"),
+    );
+    dirs.push(appDir);
+
+    for (const [packageName, source] of [
+      [
+        "core",
+        'import { creativeMarker } from "@agent-native/creative-context"; export const coreMarker = "core-marker"; export const coreValue = coreMarker + creativeMarker;\n',
+      ],
+      [
+        "creative-context",
+        'import { coreMarker } from "@agent-native/core"; export const creativeMarker = "creative-marker"; export const contextValue = coreMarker + creativeMarker;\n',
+      ],
+    ]) {
+      const packageDir = path.join(
+        appDir,
+        "node_modules",
+        "@agent-native",
+        packageName,
+      );
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ type: "module", exports: "./index.js" }),
+      );
+      fs.writeFileSync(path.join(packageDir, "index.js"), source);
+    }
+
+    const routesDir = path.join(appDir, "server", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(routesDir, "index.ts"),
+      'import { coreValue } from "@agent-native/core"; export default defineEventHandler(() => coreValue);\n',
+    );
+
+    const { build, createNitro, prepare } = await import("nitro/builder");
+    const nitro = await createNitro({
+      rootDir: appDir,
+      preset: "node",
+      dev: false,
+      minify: false,
+      noExternals: true,
+      serverDir: "./server",
+      rolldownConfig: nitroServerCodeSplittingConfigForPreset("node"),
+    });
+    await prepare(nitro);
+    await build(nitro);
+
+    const outputDir = nitro.options.output.serverDir;
+    const packageChunks = fs
+      .readdirSync(outputDir)
+      .filter(
+        (file) =>
+          file.startsWith("agent-native-core+") && file.endsWith(".mjs"),
+      );
+
+    expect(packageChunks).toHaveLength(1);
+    const packageChunk = fs.readFileSync(
+      path.join(outputDir, packageChunks[0]!),
+      "utf8",
+    );
+    expect(packageChunk).toContain("core-marker");
+    expect(packageChunk).toContain("creative-marker");
+    await nitro.close();
+  });
+});
+
+describe("isAwsAmplifyPreset", () => {
+  it("accepts Nitro's standard name and alias", () => {
+    expect(isAwsAmplifyPreset("aws_amplify")).toBe(true);
+    expect(isAwsAmplifyPreset("aws-amplify")).toBe(true);
+    expect(isAwsAmplifyPreset("awsAmplify")).toBe(true);
+    expect(isAwsAmplifyPreset("node")).toBe(false);
+  });
+});
+
+describe("AWS Lambda streaming runtime output", () => {
+  it("loads env before lazily importing Nitro's streaming handler", async () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-lambda-stream-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      "export const handler = () => {};\n",
+    );
+
+    configureAwsLambdaRuntimeOutput(serverDir, appDir, {
+      APP_URL: "https://calendar.example.test",
+      AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME: "1",
+      BETTER_AUTH_SECRET: "lambda-example-secret",
+      UNDECLARED_SECRET: "must-not-ship",
+    });
+
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).toContain(
+      'AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME="1"',
+    );
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).toContain(
+      'APP_URL="https://calendar.example.test"',
+    );
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).toContain(
+      'BETTER_AUTH_SECRET="lambda-example-secret"',
+    );
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).not.toContain(
+      "UNDECLARED_SECRET",
+    );
+    expect(fs.readFileSync(path.join(serverDir, "server.js"), "utf8")).toBe(
+      "// AWS Lambda loads env vars before evaluating Nitro's ESM handler.\n" +
+        'import { dirname, join } from "node:path";\n' +
+        'import { fileURLToPath } from "node:url";\n' +
+        'process.loadEnvFile(join(dirname(fileURLToPath(import.meta.url)), ".env"));\n' +
+        'const { handler } = await import("./index.mjs");\n' +
+        "export { handler };\n",
+    );
+    expect(
+      JSON.parse(fs.readFileSync(path.join(serverDir, "package.json"), "utf8")),
+    ).toMatchObject({ type: "module" });
+    const archiveHandler = await import(
+      pathToFileURL(path.join(serverDir, "server.js")).href
+    );
+    expect(typeof archiveHandler.handler).toBe("function");
+  });
+
+  it("writes response metadata through Nitro's Lambda stream wrapper", () => {
+    const runtime = generateAwsLambdaStreamingRuntimeEntry();
+
+    expect(runtime).toContain("awslambda.HttpResponseStream.from");
+    expect(runtime).toContain("streamToNodeStream(body.getReader(), writer)");
+    expect(runtime).not.toContain("streamToNodeStream(reader, responseStream)");
+  });
+});
+
+describe("AWS Amplify runtime output", () => {
+  it("loads declared env keys before Nitro's compute entry", () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-amplify-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "compute");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, ".env.example"),
+      "# DECLARED_SECRET=\n# VITE_PUBLIC=value\n",
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      'if (process.env.DECLARED_SECRET !== "line1\\nline2") process.exit(1);\n',
+    );
+
+    configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
+      APP_URL: "https://example.test",
+      DECLARED_SECRET: "line1\nline2",
+      VITE_PUBLIC: "public",
+      RESEND_API_KEY: "resend-example-key",
+      SENDGRID_API_KEY: "sendgrid-example-key",
+      EMAIL_FROM: "Calendar <calendar@example.test>",
+      OPENAI_API_KEY: "openai-example-key",
+      APP_NAME: "my-calendar",
+      MY_CALENDAR_SECRETS_ENCRYPTION_KEY: "app-scoped-example-key",
+      MY_CALENDAR_DATABASE_URL: "postgres://calendar.example/db",
+      MY_CALENDAR_DATABASE_URL_UNPOOLED:
+        "postgres://calendar.example/direct-db",
+      SECRETS_ENCRYPTION_KEY: "generic-encryption-key",
+      WORKSPACE_SECRETS_ENCRYPTION_KEY: "workspace-encryption-key",
+      WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS:
+        "previous-workspace-encryption-key",
+      AGENT_ENGINE: "ai-sdk:openai",
+      AGENT_NATIVE_WORKSPACE: "true",
+      WEBHOOK_BASE_URL: "https://example.test/webhooks",
+      AUTH_REQUIRE_EMAIL_VERIFICATION: "1",
+      AGENT_NATIVE_BUILDER_RELAY_SECRET: "relay-example-secret",
+      AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS: "https://preview.example.test",
+      AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES:
+        ".builder-preview.example",
+      UNDECLARED_SECRET: "must-not-ship",
+      AWS_SECRET_ACCESS_KEY: "must-not-ship",
+    });
+
+    const runtimeEnv = fs.readFileSync(path.join(serverDir, ".env"), "utf8");
+    expect(runtimeEnv).toContain('APP_URL="https://example.test"');
+    expect(runtimeEnv).toContain('DECLARED_SECRET="line1\\nline2"');
+    expect(runtimeEnv).toContain('VITE_PUBLIC="public"');
+    expect(runtimeEnv).toContain('RESEND_API_KEY="resend-example-key"');
+    expect(runtimeEnv).toContain('SENDGRID_API_KEY="sendgrid-example-key"');
+    expect(runtimeEnv).toContain(
+      'EMAIL_FROM="Calendar <calendar@example.test>"',
+    );
+    expect(runtimeEnv).toContain('OPENAI_API_KEY="openai-example-key"');
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_SECRETS_ENCRYPTION_KEY="app-scoped-example-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_DATABASE_URL="postgres://calendar.example/db"',
+    );
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_DATABASE_URL_UNPOOLED="postgres://calendar.example/direct-db"',
+    );
+    expect(runtimeEnv).toContain(
+      'SECRETS_ENCRYPTION_KEY="generic-encryption-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'WORKSPACE_SECRETS_ENCRYPTION_KEY="workspace-encryption-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS="previous-workspace-encryption-key"',
+    );
+    expect(runtimeEnv).toContain('AGENT_ENGINE="ai-sdk:openai"');
+    expect(runtimeEnv).toContain('AGENT_NATIVE_WORKSPACE="true"');
+    expect(runtimeEnv).toContain(
+      'WEBHOOK_BASE_URL="https://example.test/webhooks"',
+    );
+    expect(runtimeEnv).toContain('AUTH_REQUIRE_EMAIL_VERIFICATION="1"');
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_SECRET="relay-example-secret"',
+    );
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS="https://preview.example.test"',
+    );
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES=".builder-preview.example"',
+    );
+    expect(runtimeEnv).not.toContain("UNDECLARED_SECRET");
+    expect(runtimeEnv).not.toContain("AWS_SECRET_ACCESS_KEY");
+    expect(fs.readFileSync(path.join(serverDir, "server.js"), "utf8")).toBe(
+      "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
+        'process.loadEnvFile(require("node:path").join(__dirname, ".env"));\n' +
+        'import("./index.mjs");\n',
+    );
+    execFileSync(process.execPath, [path.join(serverDir, "server.js")], {
+      cwd: serverDir,
+      env: {},
+    });
+  });
+});
+
 describe("resolveNitroBuildReplacements", () => {
+  it("falls back to the source build id before Netlify assigns a deploy id", () => {
+    expect(
+      resolveNitroBuildReplacements({
+        DEPLOY_ID: "0",
+        AGENT_NATIVE_BUILD_ID: "source-sha",
+      })["process.env.AGENT_NATIVE_BUILD_ID"],
+    ).toBe(JSON.stringify("source-sha"));
+    expect(
+      resolveNitroBuildReplacements({
+        DEPLOY_ID: "deploy-id",
+        AGENT_NATIVE_BUILD_ID: "source-sha",
+      })["process.env.AGENT_NATIVE_BUILD_ID"],
+    ).toBe(JSON.stringify("deploy-id"));
+  });
+
   it("embeds release migration ownership into the Nitro server bundle", () => {
     const replacements = resolveNitroBuildReplacements({
       AGENT_NATIVE_RELEASE_MIGRATIONS: " 1 ",
@@ -156,6 +472,98 @@ describe("resolveNitroBuildReplacements", () => {
     expect(
       replacements["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
     ).toBe(JSON.stringify("beta"));
+  });
+
+  it("falls back to the source revision for the server build id", () => {
+    const replacements = resolveNitroBuildReplacements({
+      COMMIT_REF: "commit-auth-client-123",
+    });
+
+    expect(replacements["process.env.AGENT_NATIVE_BUILD_ID"]).toBe(
+      JSON.stringify("commit-auth-client-123"),
+    );
+  });
+
+  it("uses the client build fallback when no server build metadata exists", () => {
+    const replacements = resolveNitroBuildReplacements({});
+
+    expect(replacements["process.env.AGENT_NATIVE_BUILD_ID"]).toBe(
+      JSON.stringify("development"),
+    );
+  });
+
+  it("prefers the shared Agent-Native build id over source revisions", () => {
+    const replacements = resolveNitroBuildReplacements({
+      AGENT_NATIVE_BUILD_ID: " agent-build-123 ",
+      COMMIT_REF: "commit-auth-client-123",
+    });
+
+    expect(replacements["process.env.AGENT_NATIVE_BUILD_ID"]).toBe(
+      JSON.stringify("agent-build-123"),
+    );
+  });
+
+  it("embeds only the app's runtime package declarations for bundled engine checks", () => {
+    const projectCwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-engine-package-marker-"),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify({
+          dependencies: {
+            ai: "^7",
+            "@ai-sdk/openai": "^4",
+          },
+          optionalDependencies: { "optional-provider": "^1" },
+          devDependencies: { "dev-only-provider": "^1" },
+        }),
+      );
+
+      const replacements = resolveNitroBuildReplacements(
+        {},
+        undefined,
+        projectCwd,
+      );
+
+      expect(
+        replacements["process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES"],
+      ).toBe(
+        JSON.stringify(
+          JSON.stringify(["@ai-sdk/openai", "ai", "optional-provider"]),
+        ),
+      );
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
+
+  it("does not infer optional engine packages from a core-only app", () => {
+    const projectCwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-engine-package-core-"),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify({
+          dependencies: { "@agent-native/core": "workspace:*" },
+        }),
+      );
+
+      const marker = JSON.parse(
+        JSON.parse(
+          resolveNitroBuildReplacements({}, undefined, projectCwd)[
+            "process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES"
+          ],
+        ),
+      ) as string[];
+
+      expect(marker).toContain("@agent-native/core");
+      expect(marker).not.toContain("ai");
+      expect(marker).not.toContain("@ai-sdk/openai");
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
   });
 });
 
@@ -375,6 +783,105 @@ describe("Netlify static cache headers", () => {
   });
 });
 
+describe("Netlify static root shell", () => {
+  it("keeps a public prerendered root shell available to the CDN", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": { workspaceApp: { audience: "public" } },
+      }),
+    );
+
+    expect(shouldRemoveNetlifyStaticRootShell(projectCwd)).toBe(false);
+  });
+
+  it("removes the root shell for internal apps", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(path.join(projectCwd, "package.json"), "{}");
+
+    expect(shouldRemoveNetlifyStaticRootShell(projectCwd)).toBe(true);
+  });
+
+  it("keeps the internal-app default when a public app protects root", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": {
+          workspaceApp: { audience: "public", protectedPaths: ["/"] },
+        },
+      }),
+    );
+
+    expect(shouldRemoveNetlifyStaticRootShell(projectCwd)).toBe(true);
+  });
+
+  it("honors restrictive effective environment overrides", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": { workspaceApp: { audience: "public" } },
+      }),
+    );
+
+    expect(
+      shouldRemoveNetlifyStaticRootShell(projectCwd, {
+        AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "internal",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRemoveNetlifyStaticRootShell(projectCwd, {
+        AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+        AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: '["/"]',
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat environment-only public audience as sufficient", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(path.join(projectCwd, "package.json"), "{}");
+
+    expect(
+      shouldRemoveNetlifyStaticRootShell(projectCwd, {
+        AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+      }),
+    ).toBe(true);
+  });
+
+  it("requires the prerendered root artifact before preserving it", () => {
+    const projectCwd = makeTempDir();
+    const publishDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": { workspaceApp: { audience: "public" } },
+      }),
+    );
+
+    expect(shouldPreserveNetlifyStaticRootShell(projectCwd, publishDir)).toBe(
+      false,
+    );
+    fs.writeFileSync(path.join(publishDir, "index.html"), "<html></html>");
+    expect(shouldPreserveNetlifyStaticRootShell(projectCwd, publishDir)).toBe(
+      true,
+    );
+  });
+
+  it("leaves the root request to the SSR auth handler", () => {
+    const publishDir = makeTempDir();
+    fs.writeFileSync(path.join(publishDir, "index.html"), "<html></html>");
+    fs.mkdirSync(path.join(publishDir, "assets"));
+    fs.writeFileSync(path.join(publishDir, "assets", "app.js"), "export {};");
+
+    removeNetlifyStaticRootShell(publishDir);
+
+    expect(fs.existsSync(path.join(publishDir, "index.html"))).toBe(false);
+    expect(fs.existsSync(path.join(publishDir, "assets", "app.js"))).toBe(true);
+  });
+});
+
 async function importGeneratedWorker(
   entrySource: string,
   options: { responseHeaders?: Record<string, string> } = {},
@@ -457,7 +964,13 @@ export function createRequestHandler() {
 // a bounded suite-local allowance so local prep tests behavior, not scheduler
 // contention; focused runs normally complete well below this limit.
 describe("generateWorkerEntry", { timeout: 15_000 }, () => {
+  beforeEach(() => {
+    resetAppConfigForTests();
+    defineAppConfig({ app: { homePath: "/home" } });
+  });
+
   afterEach(() => {
+    resetAppConfigForTests();
     vi.unstubAllEnvs();
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -637,6 +1150,51 @@ export default (event) =>
     );
     expect(redirect.status).toBe(302);
     expect(redirect.headers.get("location")).toBe("/docs/login");
+  });
+
+  it("injects the auth handoff into the public root only", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const rootResponse = await worker.fetch(
+      new Request("https://app.test/"),
+      {},
+      {},
+    );
+    const rootHtml = await rootResponse.text();
+    const handoff = rootHtml.indexOf("data-agent-native-auth-redirect");
+    expect(handoff).toBeGreaterThan(rootHtml.indexOf("<head>"));
+    expect(handoff).toBeLessThan(rootHtml.indexOf("</head>"));
+    expect(handoff).toBeLessThan(rootHtml.indexOf("<body>"));
+
+    const appResponse = await worker.fetch(
+      new Request("https://app.test/home"),
+      {},
+      {},
+    );
+    expect(await appResponse.text()).not.toContain(
+      "data-agent-native-auth-redirect",
+    );
+  });
+
+  it("resolves a custom app home from a generated config plugin", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "home-config.mjs");
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({ app: { homePath: "/inbox" } });
+`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('var homePath = (root || "") + "/inbox"');
+    expect(html).toContain('"appHomePath":"/inbox"');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
@@ -1045,6 +1603,19 @@ export default (event) =>
     );
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
+    expect(html).toContain("var(--agent-native-viewport-height, 100vh)");
+    expect(html).toContain("__agentNativeLoadingLabelIndex");
+    expect(html).toContain("Math.random()");
+    expect(html).toContain("setInterval");
+    expect(html).toContain("__agentNativeLoadingLabelHydrated");
+    expect(html).toContain("__agentNativeLoadingLabelInterval");
+    expect(html).toContain("__agentNativeLoadingLabelCleanup");
+    expect(html).toContain("clearInterval");
+    expect(html).toContain("MutationObserver");
+    expect(html).toContain("loader.isConnected");
+    expect(html).toContain("an-cube-pulse");
+    expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
+    expect(html).not.toContain("an-spin");
     expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");
     expect(html).not.toContain("dev server");
@@ -1087,6 +1658,91 @@ export default (event) =>
 
     expect(html).toContain("data-agent-native-sentry-config");
     expect(html).toContain("https://public@example/4511270423822336");
+  });
+
+  it("injects runtime Agent-Native Analytics config into generated worker SSR HTML", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-analytics-config");
+    expect(html).toContain('"agentNativeAnalyticsPublicKey":"anpk_test"');
+    expect(html).toContain(
+      '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/track"',
+    );
+  });
+
+  it("bakes build-time Agent-Native Analytics config into workers", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY", "anpk_build");
+    vi.stubEnv(
+      "AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/build-track",
+    );
+
+    const source = generateWorkerEntry([], []);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT", undefined);
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-analytics-config");
+    expect(html).toContain('"agentNativeAnalyticsPublicKey":"anpk_build"');
+    expect(html).toContain(
+      '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/build-track"',
+    );
+  });
+
+  it("bakes code-defined Agent-Native Analytics config into workers", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT", undefined);
+
+    const source = generateWorkerEntry([], [], [], [], null, [], "/", {
+      analytics: {
+        agentNativePublicKey: "anpk_config",
+        agentNativeEndpoint: "https://analytics.example.test/config-track",
+      },
+    });
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-analytics-config");
+    expect(html).toContain('"agentNativeAnalyticsPublicKey":"anpk_config"');
+    expect(html).toContain(
+      '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/config-track"',
+    );
+    expect(source).toContain(
+      "const configuredAnalytics = getAgentNativeAppConfig().analytics;",
+    );
   });
 
   it("normalizes explicit deployment environment in generated browser telemetry", async () => {
@@ -1468,12 +2124,6 @@ describe("generateProvidedPluginsNitroPluginSource", () => {
   });
 });
 
-describe("Cloudflare deploy builtins", () => {
-  it("externalizes node:sqlite references from optional runtime probes", () => {
-    expect(getNodeBuiltinNames()).toContain("sqlite");
-  });
-});
-
 describe("copyDir", () => {
   const dirs: string[] = [];
 
@@ -1552,11 +2202,8 @@ describe("copyDrizzleMigrationAssets", () => {
       true,
     );
     const runtime = globalThis as Record<string, unknown>;
-    const hadCfEnv = "__cf_env" in runtime;
     const hadEnv = "__env__" in runtime;
-    const previousCfEnv = runtime.__cf_env;
     const previousEnv = runtime.__env__;
-    Reflect.deleteProperty(runtime, "__cf_env");
     Reflect.deleteProperty(runtime, "__env__");
     try {
       await expect(
@@ -1565,7 +2212,6 @@ describe("copyDrizzleMigrationAssets", () => {
             "./migrations",
             pathToFileURL(path.join(serverDir, "main.mjs")),
           ),
-          { dialect: "postgresql" },
         ),
       ).resolves.toMatchObject([
         {
@@ -1575,12 +2221,9 @@ describe("copyDrizzleMigrationAssets", () => {
             postgres:
               "ALTER TABLE tasks ADD COLUMN priority INTEGER;\n--> statement-breakpoint",
           },
-          dialectSpecific: true,
         },
       ]);
     } finally {
-      if (hadCfEnv) runtime.__cf_env = previousCfEnv;
-      else Reflect.deleteProperty(runtime, "__cf_env");
       if (hadEnv) runtime.__env__ = previousEnv;
       else Reflect.deleteProperty(runtime, "__env__");
     }
@@ -1809,7 +2452,7 @@ describe("pruneServerlessFunctionDeadWeight", () => {
       "linux-x64-gnu",
       "linux-arm64-musl",
     ]) {
-      writePackage(path.join(nodeModules, "@libsql", name));
+      writePackage(path.join(nodeModules, "@resvg", `resvg-js-${name}`));
     }
     // sharp names its prebuilds without the gnu/musl suffix, so every one of
     // them reads as dead to isServerlessNativePlatformPackage.
@@ -1818,21 +2461,16 @@ describe("pruneServerlessFunctionDeadWeight", () => {
     }
     writePackage(path.join(nodeModules, "tar-fs"));
     fs.mkdirSync(path.join(functionDir, "data"), { recursive: true });
-    fs.writeFileSync(path.join(functionDir, "data", "app.db"), "sqlite");
     return functionDir;
   }
 
   it("drops prebuilds a serverless function cannot execute and the local dev database", () => {
     const functionDir = setupFunctionDir();
-    const libsql = path.join(functionDir, "node_modules", "@libsql");
-
     expect(pruneServerlessFunctionDeadWeight(functionDir)).toBeGreaterThan(0);
 
-    expect(fs.readdirSync(libsql).sort()).toEqual([
-      "linux-arm64-musl",
-      "linux-x64-gnu",
-    ]);
-    expect(fs.existsSync(path.join(functionDir, "data"))).toBe(false);
+    expect(
+      fs.readdirSync(path.join(functionDir, "node_modules", "@resvg")).sort(),
+    ).toEqual(["resvg-js-linux-arm64-musl", "resvg-js-linux-x64-gnu"]);
     expect(
       fs.existsSync(path.join(functionDir, "node_modules", "tar-fs")),
     ).toBe(true);
@@ -1872,8 +2510,6 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
           name: "traced-node-modules",
           type: "module",
           dependencies: {
-            "@libsql/linux-x64-gnu": "0.5.29",
-            "better-sqlite3": "12.11.1",
             electron: "41.9.0",
             "node-pty": "1.1.0",
             "playwright-core": "1.61.1",
@@ -1909,8 +2545,6 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
       fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
     );
     expect(packageJson.dependencies).toEqual({
-      "@libsql/linux-x64-gnu": "0.5.29",
-      "better-sqlite3": "12.11.1",
       "playwright-core": "1.61.1",
     });
     expect(packageJson.optionalDependencies).toBeUndefined();
@@ -2203,6 +2837,34 @@ describe("runNitroBuildPipeline", () => {
     expect(
       nitro.options.routeRules["/assets/entry.client-abc.js"],
     ).toBeUndefined();
+  });
+
+  it("skips exact immutable rules when the target limits header rule count", async () => {
+    const { cwd, clientDir, publicOutputDir } = setupFixture();
+    const nitro: any = {
+      options: {
+        output: { publicDir: publicOutputDir },
+        routeRules: { "/assets/**": { headers: { "x-test": "kept" } } },
+      },
+    };
+
+    await runNitroBuildPipeline({
+      nitro,
+      hooks: {
+        prepare: async () => {},
+        copyPublicAssets: async () => {},
+        nitroBuild: async () => {},
+      },
+      clientDir,
+      publicOutputDir,
+      appBasePath: "",
+      cwd,
+      includeImmutableAssetRouteRules: false,
+    });
+
+    expect(nitro.options.routeRules).toEqual({
+      "/assets/**": { headers: { "x-test": "kept" } },
+    });
   });
 
   it("merges immutable headers into existing route rules", () => {
@@ -2904,97 +3566,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
   });
 
-  it("rejects a macOS better-sqlite3 binary before Netlify publication", () => {
-    const cwd = setupNetlifyOutput();
-    prepareSingleTemplateNetlifyOutput(cwd);
-    const binary = path.join(
-      cwd,
-      ".netlify",
-      "functions-internal",
-      "server",
-      "node_modules",
-      "better-sqlite3",
-      "build",
-      "Release",
-      "better_sqlite3.node",
-    );
-    fs.mkdirSync(path.dirname(binary), { recursive: true });
-    fs.writeFileSync(binary, Buffer.from([0xcf, 0xfa, 0xed, 0xfe]));
-
-    const serverDir = path.join(
-      cwd,
-      ".netlify",
-      "functions-internal",
-      "server",
-    );
-    expect(findNonLinuxBetterSqlite3Binaries(serverDir)).toEqual([binary]);
-    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
-      /non-Linux better-sqlite3 native binaries: .*better_sqlite3\.node/,
-    );
-  });
-
-  it("allows the Linux ELF better-sqlite3 binary", () => {
-    const cwd = setupNetlifyOutput();
-    prepareSingleTemplateNetlifyOutput(cwd);
-    const binary = path.join(
-      cwd,
-      ".netlify",
-      "functions-internal",
-      "server",
-      "node_modules",
-      "better-sqlite3",
-      "build",
-      "Release",
-      "better_sqlite3.node",
-    );
-    fs.mkdirSync(path.dirname(binary), { recursive: true });
-    const header = Buffer.alloc(20);
-    header.set([0x7f, 0x45, 0x4c, 0x46, 2, 1], 0);
-    header.writeUInt16LE(62, 18);
-    fs.writeFileSync(binary, header);
-
-    const serverDir = path.join(
-      cwd,
-      ".netlify",
-      "functions-internal",
-      "server",
-    );
-    expect(findNonLinuxBetterSqlite3Binaries(serverDir)).toEqual([]);
-    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
-  });
-
-  it("rejects a Linux ELF better-sqlite3 binary for a non-x86_64 architecture", () => {
-    const cwd = setupNetlifyOutput();
-    prepareSingleTemplateNetlifyOutput(cwd);
-    const binary = path.join(
-      cwd,
-      ".netlify",
-      "functions-internal",
-      "server",
-      "node_modules",
-      "better-sqlite3",
-      "build",
-      "Release",
-      "better_sqlite3.node",
-    );
-    fs.mkdirSync(path.dirname(binary), { recursive: true });
-    const header = Buffer.alloc(20);
-    header.set([0x7f, 0x45, 0x4c, 0x46, 2, 1], 0);
-    header.writeUInt16LE(183, 18);
-    fs.writeFileSync(binary, header);
-
-    const serverDir = path.join(
-      cwd,
-      ".netlify",
-      "functions-internal",
-      "server",
-    );
-    expect(findNonLinuxBetterSqlite3Binaries(serverDir)).toEqual([binary]);
-    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
-      /non-Linux better-sqlite3 native binaries: .*better_sqlite3\.node/,
-    );
-  });
-
   it("fails a function that ships more than the per-function size budget", () => {
     const cwd = setupNetlifyOutput();
     prepareSingleTemplateNetlifyOutput(cwd);
@@ -3475,56 +4046,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
   });
 });
 
-describe("bundleImportsLibsqlNativeAddon", () => {
-  let dir: string;
-
-  beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), "libsql-probe-"));
-  });
-
-  afterEach(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("detects a bare libsql import so the native package is still shipped", () => {
-    fs.mkdirSync(path.join(dir, "_libs"), { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, "_libs", "client.mjs"),
-      'import x from "libsql";\nexport default x;\n',
-    );
-
-    expect(bundleImportsLibsqlNativeAddon(dir)).toBe(true);
-  });
-
-  it("detects the CommonJS require form too", () => {
-    fs.writeFileSync(
-      path.join(dir, "index.cjs"),
-      'const db = require("libsql");\nmodule.exports = db;\n',
-    );
-
-    expect(bundleImportsLibsqlNativeAddon(dir)).toBe(true);
-  });
-
-  it("does not count @libsql/client/web, which needs no native addon", () => {
-    fs.writeFileSync(
-      path.join(dir, "index.mjs"),
-      'import { createClient } from "@libsql/client/web";\nexport { createClient };\n',
-    );
-
-    expect(bundleImportsLibsqlNativeAddon(dir)).toBe(false);
-  });
-
-  it("ignores the copied native package so the gate cannot justify itself", () => {
-    // Without this, a second build would see the package copied by the first
-    // and keep copying it forever.
-    const pkg = path.join(dir, "node_modules", "@libsql", "linux-x64-gnu");
-    fs.mkdirSync(pkg, { recursive: true });
-    fs.writeFileSync(path.join(pkg, "index.js"), 'require("libsql");\n');
-
-    expect(bundleImportsLibsqlNativeAddon(dir)).toBe(false);
-  });
-});
-
 describe("pruneSsrIslandFromRewritingClone", () => {
   let dir: string;
 
@@ -3663,76 +4184,5 @@ describe("serverless bundle trimming", () => {
 
     expect(fs.existsSync(path.join(pkg, "index.d.ts"))).toBe(false);
     expect(fs.existsSync(path.join(pkg, "index.js"))).toBe(true);
-  });
-});
-
-describe("stubLocalOnlySqliteDriverForServerless", () => {
-  function seedDriver(root: string, files: Record<string, string>): string {
-    const packageDir = path.join(root, "node_modules", "better-sqlite3");
-    for (const [relative, contents] of Object.entries(files)) {
-      const target = path.join(packageDir, relative);
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, contents);
-    }
-    return packageDir;
-  }
-
-  it("replaces the driver with a resolvable stub that throws when constructed", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-stub-"));
-    const packageDir = seedDriver(root, {
-      "package.json": JSON.stringify({
-        name: "better-sqlite3",
-        version: "12.11.1",
-        main: "lib/index.js",
-      }),
-      "lib/index.js": "module.exports = class Real {};",
-      "deps/sqlite3/sqlite3.c": "x".repeat(2048),
-      "build/Release/better_sqlite3.node": "y".repeat(4096),
-    });
-
-    const freed = stubLocalOnlySqliteDriverForServerless(root);
-
-    expect(freed).toBeGreaterThan(0);
-    // The specifier must stay resolvable: drizzle-orm's bundled postgres chunk
-    // imports it at module scope, so a missing package is a cold-start crash.
-    expect(fs.existsSync(path.join(packageDir, "package.json"))).toBe(true);
-    expect(fs.existsSync(path.join(packageDir, "index.js"))).toBe(true);
-    expect(fs.existsSync(path.join(packageDir, "deps"))).toBe(false);
-    expect(fs.existsSync(path.join(packageDir, "build"))).toBe(false);
-
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(packageDir, "package.json"), "utf8"),
-    );
-    expect(manifest.version).toBe("12.11.1");
-    expect(manifest.main).toBe("index.js");
-    // The CLI's native-dependency preflight keys off this to avoid probing a
-    // package whose constructor throws by design.
-    expect(manifest.agentNativeServerlessStub).toBe(true);
-
-    const Stub = createRequire(import.meta.url)(packageDir);
-    expect(() => new Stub(":memory:")).toThrow(/not available in a serverless/);
-  });
-
-  it("does nothing when the driver was never bundled", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-stub-absent-"));
-    expect(stubLocalOnlySqliteDriverForServerless(root)).toBe(0);
-  });
-
-  it("throws rather than stubbing a package tree it cannot read", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-stub-broken-"));
-    seedDriver(root, { "lib/index.js": "module.exports = class Real {};" });
-    expect(() => stubLocalOnlySqliteDriverForServerless(root)).toThrow(
-      /no package\.json/,
-    );
-
-    const versionless = fs.mkdtempSync(
-      path.join(os.tmpdir(), "sqlite-stub-versionless-"),
-    );
-    seedDriver(versionless, {
-      "package.json": JSON.stringify({ name: "better-sqlite3" }),
-    });
-    expect(() => stubLocalOnlySqliteDriverForServerless(versionless)).toThrow(
-      /declares no version/,
-    );
   });
 });

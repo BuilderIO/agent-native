@@ -24,6 +24,7 @@ export { readSetting, writeSetting, removeSetting } from "./script-helpers.js";
 // User-scoped helpers
 export {
   getUserSetting,
+  mutateUserSetting,
   putUserSetting,
   deleteUserSetting,
 } from "./user-settings.js";

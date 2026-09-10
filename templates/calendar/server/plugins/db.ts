@@ -118,14 +118,10 @@ export const runCalendarMigrations = runMigrations(
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
-    // v14: on Postgres, `is_active` was originally created as INTEGER (v2's
-    // `INTEGER NOT NULL DEFAULT 1` got adapted to BIGINT). The Drizzle schema
-    // maps `integer({mode: "boolean"})` to BOOLEAN on Postgres, so inserts pass
-    // `true`/`false`, which BIGINT rejects. Coerce to BOOLEAN on Postgres only;
-    // SQLite keeps is_active as INTEGER 0/1 and needs no migration.
+    // v14: coerce the legacy integer column to PostgreSQL BOOLEAN.
     {
       version: 14,
       sql: {
@@ -186,9 +182,7 @@ SET owner_email = COALESCE(
 WHERE owner_email = ${LEGACY_DEV_OWNER_SQL}`,
     },
     // v19: performance indexes for the ownable booking_links table, its shares
-    // companion, and the bookings child rows. Plain CREATE INDEX IF NOT EXISTS
-    // only (no DESC / partial / Postgres-only syntax) so it runs on both
-    // Postgres and SQLite.
+    // companion, and the bookings child rows.
     // - booking_links: accessFilter() predicates on (owner_email, org_id) plus
     //   the list ordering by updated_at. slug already has a UNIQUE index from v2.
     // - booking_link_shares: accessFilter()'s correlated EXISTS subqueries match
@@ -210,6 +204,18 @@ CREATE INDEX IF NOT EXISTS idx_bookings_slug_start ON bookings (slug, "start");`
       version: 21,
       name: "bookings-calendar-account-id",
       sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS calendar_account_id TEXT`,
+    },
+    {
+      version: 22,
+      name: "bookings-additional-guest-emails",
+      sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS additional_guest_emails TEXT`,
+    },
+    {
+      version: 23,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS booking_link_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
     },
   ],
   { table: "calendar_migrations" },

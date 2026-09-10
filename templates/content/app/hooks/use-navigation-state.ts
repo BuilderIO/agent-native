@@ -17,13 +17,13 @@ interface NavigationState {
  *  - `{ path }` — the `navigate` action's explicit path form.
  *  - `{ view, documentId }` — the deep-link / `/_agent-native/open` form
  *    (the open route writes the non-reserved params + view, never a `path`).
- * `view: "editor"` + `documentId` maps to `/page/<id>`, `view: "list"` to `/`.
+ * `view: "editor"` + `documentId` maps to `/page/<id>`, `view: "list"` to `/home`.
  */
 export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: getBrowserTabId(),
     getNavigationState: ({ pathname }) => {
-      if (pathname === "/" || pathname === "") return { view: "list" };
+      if (pathname === "/home" || pathname === "") return { view: "list" };
       if (pathname.startsWith("/local-files")) return { view: "local-files" };
 
       // Document editor: /:id or /page/:id
@@ -38,7 +38,7 @@ export function useNavigationState() {
       if (cmd.path) return cmd.path;
       if (cmd.documentId) return `/page/${cmd.documentId}`;
       if (cmd.view === "local-files") return "/local-files";
-      if (cmd.view === "list") return "/";
+      if (cmd.view === "list") return "/home";
       return null;
     },
   });

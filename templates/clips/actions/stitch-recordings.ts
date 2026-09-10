@@ -41,6 +41,7 @@ import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -194,6 +195,14 @@ export default defineAction({
       // Reuse the first source's thumbnail so the new row has something to show immediately.
       thumbnailUrl: ordered[0].thumbnailUrl ?? null,
     } as any);
+
+    if (videoUrl && !ordered[0].thumbnailUrl) {
+      await dispatchPostFinalizeJob({
+        recordingId: id,
+        kind: "thumbnail",
+        requireAccepted: true,
+      });
+    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     if (!videoUrl) {

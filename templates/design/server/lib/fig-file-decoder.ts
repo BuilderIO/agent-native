@@ -647,7 +647,7 @@ function compileBudgetedSchema(schema: Schema): CompiledDecoder {
 function decodeKiwiDocument(
   schemaBuf: Uint8Array,
   documentBuf: Uint8Array,
-): { document: unknown | null; decodeError?: string } {
+): { document: unknown; decodeError?: string } {
   let schema: Schema;
   try {
     assertSafeBinarySchemaShape(schemaBuf);

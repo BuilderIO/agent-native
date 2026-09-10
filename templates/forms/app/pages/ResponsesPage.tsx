@@ -14,6 +14,8 @@ import { format } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router";
 
+import { CommunityPromotionCell } from "@/components/CommunityPromotionCell";
+import { ResponseValue } from "@/components/ResponseValue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,13 +25,18 @@ import { useFormResponses } from "@/hooks/use-responses";
 import { normalizeFields } from "@/lib/normalize-fields";
 import { cn } from "@/lib/utils";
 
-type SortKey = "_submitted" | string; // string = field id
+type SortKey = "_submitted" | (string & {}); // string = field id
 type SortDir = "asc" | "desc";
 
 function valueAsString(val: unknown): string {
   if (val === undefined || val === null) return "";
   if (Array.isArray(val)) return val.join(", ");
-  return String(val);
+  return typeof val === "string" ||
+    typeof val === "number" ||
+    typeof val === "boolean" ||
+    typeof val === "bigint"
+    ? String(val)
+    : JSON.stringify(val);
 }
 
 /** Drop the protocol for a cleaner table cell; the full URL stays the link href. */
@@ -85,7 +92,9 @@ function compareValues(a: unknown, b: unknown): number {
 
 export function ResponsesPage() {
   const t = useT();
-  const { formatDate, formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const { id } = useParams<{ id: string }>();
   const { data: form } = useForm(id!);
   const { data, isLoading, error, refetch } = useFormResponses(id!);
@@ -108,6 +117,7 @@ export function ResponsesPage() {
     [data?.fields, form?.fields],
   );
   const total = data?.total ?? 0;
+  const isCommunitySubmissionForm = form?.slug === "community-app-submission";
 
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("_submitted");
@@ -130,6 +140,7 @@ export function ResponsesPage() {
     (hasSubmitterEmail ? 224 : 0) +
     (hasPageUrl ? 256 : 0) +
     (hasClientSurface ? 160 : 0) +
+    (isCommunitySubmissionForm ? 168 : 0) +
     Math.max(fields.length, 1) * 320;
 
   function toggleSort(key: SortKey) {
@@ -279,7 +290,7 @@ export function ResponsesPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border pl-12 pr-2 sm:px-4 md:pl-4 h-14 shrink-0 gap-2 min-w-0">
+      <div className="flex items-center justify-between border-b border-border pl-14 pr-2 sm:px-4 md:pl-4 h-14 shrink-0 gap-2 min-w-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <Button
             variant="ghost"
@@ -379,6 +390,7 @@ export function ResponsesPage() {
                 {hasSubmitterEmail ? <col className="w-56" /> : null}
                 {hasPageUrl ? <col className="w-64" /> : null}
                 {hasClientSurface ? <col className="w-40" /> : null}
+                {isCommunitySubmissionForm ? <col className="w-40" /> : null}
                 {fields.map((f, index) => (
                   <col
                     key={f.id}
@@ -423,6 +435,14 @@ export function ResponsesPage() {
                       dir={sortDir}
                       onClick={() => toggleSort("_source")}
                     />
+                  ) : null}
+                  {isCommunitySubmissionForm ? (
+                    <th
+                      scope="col"
+                      className="min-w-40 px-4 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                    >
+                      {t("responses.communityReview")}
+                    </th>
                   ) : null}
                   {fields.map((f) => (
                     <SortableHeader
@@ -506,6 +526,11 @@ export function ResponsesPage() {
                         })()}
                       </td>
                     ) : null}
+                    {isCommunitySubmissionForm ? (
+                      <td className="px-4 py-3 align-top">
+                        <CommunityPromotionCell response={response} />
+                      </td>
+                    ) : null}
                     {fields.map((f) => {
                       const val = response.data[f.id];
                       const display =
@@ -518,7 +543,7 @@ export function ResponsesPage() {
                           className="min-w-48 px-4 py-3 align-top text-xs leading-5 whitespace-pre-wrap break-words"
                           title={display}
                         >
-                          {display}
+                          <ResponseValue value={val} />
                         </td>
                       );
                     })}

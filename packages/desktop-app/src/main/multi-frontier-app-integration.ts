@@ -85,8 +85,8 @@ export function initializeMultiFrontierAppIntegration(
   const readClaudeStatus =
     options.readClaudeStatus ?? (() => readClaudeSubscriptionStatus());
   const workspace = createRegisteredWorkspaceResolver({
-    listWorkspaces: options.listWorkspaces,
-    resolveDirectory: options.resolveDirectory,
+    listWorkspaces: () => options.listWorkspaces(),
+    resolveDirectory: (value) => options.resolveDirectory(value),
   });
   const runGit = options.runGit ?? runGitCommand;
   const manager = new MultiFrontierManager({

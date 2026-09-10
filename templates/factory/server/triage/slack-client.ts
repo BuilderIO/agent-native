@@ -1,9 +1,9 @@
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import {
   getChannelHistory as readChannelHistory,
-  addEyesReaction as writeEyesReaction,
+  addReaction as writeReaction,
   authTest as readAuthTest,
-  getEyesReaction as readEyesReaction,
+  hasReaction as readReaction,
   getThread as readThread,
   getTeamInfo as readTeamInfo,
   getUserInfo as readUserInfo,
@@ -121,13 +121,20 @@ export function createSlackReader(identity: SlackReaderIdentity) {
         tokenResolver,
       );
     },
-    async addEyesReaction(
+    async addReaction(
       workspace: Workspace,
       channelId: string,
       timestamp: string,
+      name: string,
     ): Promise<SlackReactionResult> {
       await verifyAgentNativeIdentity(workspace);
-      return writeEyesReaction(workspace, channelId, timestamp, tokenResolver);
+      return writeReaction(
+        workspace,
+        channelId,
+        timestamp,
+        name,
+        tokenResolver,
+      );
     },
     async postThreadReply(
       workspace: Workspace,
@@ -144,13 +151,14 @@ export function createSlackReader(identity: SlackReaderIdentity) {
         tokenResolver,
       );
     },
-    async getEyesReaction(
+    async hasReaction(
       workspace: Workspace,
       channelId: string,
       timestamp: string,
+      name: string,
     ): Promise<SlackReactionState> {
       await verifyAgentNativeIdentity(workspace);
-      return readEyesReaction(workspace, channelId, timestamp, tokenResolver);
+      return readReaction(workspace, channelId, timestamp, name, tokenResolver);
     },
     async getCompleteThread(
       workspace: Workspace,

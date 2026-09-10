@@ -36,7 +36,8 @@
     }
     return {
       name: "Error",
-      message: String(error ?? "Unknown content-script error"),
+      message:
+        typeof error === "string" ? error : "Unknown content-script error",
     };
   }
 
@@ -148,7 +149,7 @@
     clearTimeout(bubblePersistTimer);
     bubblePersistTimer = setTimeout(() => {
       try {
-        chrome.storage.local.set({ bubbleGeom });
+        void chrome.storage.local.set({ bubbleGeom });
       } catch {
         /* ignore */
       }
@@ -189,7 +190,7 @@
     clearTimeout(toolbarPersistTimer);
     toolbarPersistTimer = setTimeout(() => {
       try {
-        chrome.storage.local.set({ toolbarGeom });
+        void chrome.storage.local.set({ toolbarGeom });
       } catch {
         /* ignore */
       }

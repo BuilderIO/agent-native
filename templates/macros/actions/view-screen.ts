@@ -10,7 +10,7 @@ export default defineAction({
   run: async () => {
     const navigation = await readAppState("navigation");
     return {
-      navigation: navigation || { view: "entry", path: "/" },
+      navigation: navigation || { view: "entry", path: "/home" },
       hint: "Use list-meals, list-exercises, or list-weights with the date from navigation to see the user's data",
     };
   },

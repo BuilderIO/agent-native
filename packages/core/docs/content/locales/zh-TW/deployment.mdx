@@ -1,6 +1,6 @@
 ---
 title: "部署"
-description: "使用持久性 SQL 資料庫，將 Agent-Native 應用程式或工作區部署到相容於 Nitro 的平台。"
+description: "使用持久性 PostgreSQL 資料庫，將 Agent-Native 應用程式或工作區部署到相容於 Nitro 的平台。"
 ---
 
 <!-- i18n-docs-ignore -->
@@ -26,13 +26,21 @@ Agent-Native 應用程式執行於 Nitro。請選擇符合部署內容的路徑�
 
 ## 部署前：選擇持久性資料庫 {#persistent-database}
 
-每個已部署的應用程式都需要持久性 SQL 資料庫。在第一次正式環境部署前，請將 `DATABASE_URL` 設定在部署環境中。如果資料庫供應商需要獨立權杖，也請設定 `DATABASE_AUTH_TOKEN`。
+每個已部署的應用程式都需要持久性 PostgreSQL 資料庫。在第一次正式環境部署前，請將 `DATABASE_URL` 設定在部署環境中。託管 PostgreSQL 提供者包括 [Neon](/docs/neon)、[Supabase](/docs/supabase)、Railway、Render、[Amazon RDS for PostgreSQL](/docs/aws-rds)、[Cloud SQL for PostgreSQL](/docs/cloud-sql) 和 [Azure Database for PostgreSQL](/docs/azure-postgresql)。其他代管服務與自行託管的 PostgreSQL 伺服器請參閱 [Plain Postgres](/docs/postgres) 指南。
 
 獨立應用程式需要穩定的 `BETTER_AUTH_SECRET`。使用簽署跨應用程式要求的工作區需要 `A2A_SECRET`。
 
+請將這些值儲存在託管提供者的環境設定中，而不只是在本機 `.env`。使用 `openssl rand -hex 32` 產生驗證密鑰。Agent-Native 不包含電子郵件傳送帳戶；請另外連接 Resend 或 SendGrid。
+
+## 電子郵件傳送是選用功能，但建議設定 {#email-provider}
+
+電子郵件供應商不是電子郵件/密碼驗證的必要條件。沒有供應商時，已部署的應用程式會使用電子郵件/密碼註冊與登入，略過註冊時的電子郵件驗證，也不會提供魔術連結驗證。
+
+如果需要魔術連結、電子郵件驗證、密碼重設、邀請或分享通知，請在部署前連接 Resend 或 SendGrid。在部署環境設定 `RESEND_API_KEY` 或 `SENDGRID_API_KEY`；SendGrid 也需要 `EMAIL_FROM`。如需了解驗證模式，請參閱[驗證](/docs/authentication)。
+
 ## 支援的部署目標
 
-Agent-Native 支援 [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Pages](/docs/cloudflare#cloudflare-pages)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb) 和 [Render](/docs/render)。
+Agent-Native 支援 [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Pages](/docs/cloudflare#cloudflare-pages)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Amplify](/docs/aws-amplify)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb) 和 [Render](/docs/render)。
 
 如需進階設定、密鑰和正式環境值，請參閱[部署環境變數參考](/docs/deployment-environment-variables)。
 

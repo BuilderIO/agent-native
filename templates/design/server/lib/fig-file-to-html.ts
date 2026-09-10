@@ -22,6 +22,7 @@ import {
 import {
   cssBlendMode,
   figmaDrawnText,
+  FIGMA_BLUR_RADIUS_TO_CSS_BLUR,
   hasPrivateUseCharacters,
   gradientAngleDegreesFromHandles,
   gradientGeometryFromTransform,
@@ -1250,7 +1251,7 @@ function parametricShapePath(node: FigNode): string | null {
  */
 function withoutPrivateUse(text: string): string {
   if (!hasPrivateUseCharacters(text)) return text;
-  return [...text]
+  return Array.from(text)
     .filter((character) => !hasPrivateUseCharacters(character))
     .join("");
 }
@@ -1453,13 +1454,10 @@ function backgroundShorthand(
       bgRepeats.push("repeat");
       continue;
     }
-    const mode = f.imageScaleMode ?? "FILL";
-    if (mode === "FILL") bgSizes.push("cover");
-    else if (mode === "FIT") bgSizes.push("contain");
-    else if (mode === "STRETCH") bgSizes.push("100% 100%");
-    else bgSizes.push("auto");
-    bgPositions.push(mode === "TILE" ? "0% 0%" : "center");
-    bgRepeats.push(mode === "TILE" ? "repeat" : "no-repeat");
+    const scale = imageScaleModeCss(f, node, ctx);
+    bgSizes.push(scale.size);
+    bgPositions.push(scale.position);
+    bgRepeats.push(scale.repeat);
   }
   // `image-rendering` is one property for the element, not per layer, so a
   // single magnified fill switches the whole stack to nearest — which is what
@@ -1467,8 +1465,7 @@ function backgroundShorthand(
   // and a photo scaled DOWN with nearest aliases badly.
   const magnified = fills.some((f) => {
     if (f.type !== "IMAGE" || !node.size) return false;
-    const hex = hashToHex(f.image?.hash);
-    const intrinsic = hex ? intrinsicImageSize(imageUrl(hex, ctx)) : null;
+    const intrinsic = fillIntrinsicSize(hashToHex(f.image?.hash), ctx);
     if (!intrinsic || intrinsic.width <= 0 || intrinsic.height <= 0)
       return false;
     return (
@@ -1572,6 +1569,87 @@ interface BackgroundLayer {
  * Only the TOPMOST fill is ever pulled out: an overlay child paints above the
  * whole background stack, so moving a lower layer would reorder the paint.
  */
+/**
+ * A Figma image scale mode as the three CSS background properties that carry
+ * it. All five modes reach the DOM only through these, so they are decided in
+ * one place: the same mapping was written twice and the CROP and TILE work
+ * landed in only one of the copies, which is how a half-fixed walker happens.
+ */
+function imageScaleModeCss(
+  p: Paint,
+  node: FigNode,
+  ctx: Ctx,
+): { size: string; position: string; repeat: string } {
+  const mode = p.imageScaleMode ?? "FILL";
+  if (mode === "FILL")
+    return { size: "cover", position: "center", repeat: "no-repeat" };
+  if (mode === "FIT")
+    return { size: "contain", position: "center", repeat: "no-repeat" };
+  if (mode === "TILE") {
+    // `auto` is what a tile's size means and it renders identically — but it
+    // is also what an unset size looks like, so the export hop could not tell
+    // a tile's dimensions and drew one stretched copy. Stating the intrinsic
+    // size is the same pixels here and a recoverable tile there. When it
+    // cannot be resolved `auto` stays and the exporter reports the lost tiling.
+    const tile = fillIntrinsicSize(hashToHex(p.image?.hash), ctx);
+    return {
+      size:
+        tile && tile.width > 0 && tile.height > 0
+          ? `${num(tile.width)}px ${num(tile.height)}px`
+          : "auto",
+      position: "0% 0%",
+      repeat: "repeat",
+    };
+  }
+  if (mode === "STRETCH") {
+    // STRETCH plus a paint transform is Figma's CROP: the matrix picks a
+    // sub-rectangle of the image — origin (m02, m12), size (m00, m11) in the
+    // image's own normalized space — and stretches THAT to fill the box.
+    // Drawing the whole image instead reads as the artwork zoomed out. The
+    // REST walker has done this since the Positivus service cards exposed it;
+    // this walker decoded `transform` for gradients only, never for an image.
+    const t = p.transform;
+    const axisAligned =
+      !t || (Math.abs(t.m01) < 1e-6 && Math.abs(t.m10) < 1e-6);
+    const box = node.size;
+    if (
+      t &&
+      axisAligned &&
+      t.m00 > 1e-6 &&
+      t.m11 > 1e-6 &&
+      box &&
+      box.x > 0 &&
+      box.y > 0
+    ) {
+      const displayWidth = box.x / t.m00;
+      const displayHeight = box.y / t.m11;
+      return {
+        size: `${num(displayWidth)}px ${num(displayHeight)}px`,
+        position: `${num(-(t.m02 ?? 0) * displayWidth)}px ${num(-(t.m12 ?? 0) * displayHeight)}px`,
+        repeat: "no-repeat",
+      };
+    }
+    if (t && !axisAligned) {
+      recordApproximation(
+        node,
+        ctx,
+        "Image fill has a non-axis-aligned paint transform (rotated/skewed crop); approximated with the scale-mode-only CSS mapping, without the transform matrix",
+      );
+    } else if (t && (t.m00 < -1e-6 || t.m11 < -1e-6)) {
+      // A negative scale is a FLIP. `background-size` has no negative form, so
+      // the crop falls through to the plain stretch as it always has; the
+      // omission is now stated rather than silent.
+      recordApproximation(
+        node,
+        ctx,
+        "Image fill's crop transform flips the artwork; CSS background-size has no negative form, so the crop was approximated without the flip",
+      );
+    }
+    return { size: "100% 100%", position: "center", repeat: "no-repeat" };
+  }
+  return { size: "auto", position: "center", repeat: "no-repeat" };
+}
+
 function paintOverlayMarkup(p: Paint, node: FigNode, ctx: Ctx): string | null {
   const box = node.size ? { width: node.size.x, height: node.size.y } : null;
   if (!box || box.width <= 0 || box.height <= 0) return null;
@@ -1601,20 +1679,12 @@ function paintOverlayMarkup(p: Paint, node: FigNode, ctx: Ctx): string | null {
     // photo painted solid and hid the fills beneath it.
     const image = paintToBackground(p, node, ctx);
     if (!image) return null;
-    const mode = p.imageScaleMode ?? "FILL";
-    const size =
-      mode === "FILL"
-        ? "cover"
-        : mode === "FIT"
-          ? "contain"
-          : mode === "STRETCH"
-            ? "100% 100%"
-            : "auto";
+    const scale = imageScaleModeCss(p, node, ctx);
     const style =
       `position:absolute;inset:0;border-radius:inherit;pointer-events:none;` +
-      `background-image:${image};background-size:${size};` +
-      `background-position:${mode === "TILE" ? "0% 0%" : "center"};` +
-      `background-repeat:${mode === "TILE" ? "repeat" : "no-repeat"};` +
+      `background-image:${image};background-size:${scale.size};` +
+      `background-position:${scale.position};` +
+      `background-repeat:${scale.repeat};` +
       `opacity:${num(p.opacity ?? 1)}`;
     return `<div style="${escapeHtmlAttr(style)}"></div>`;
   }
@@ -1632,18 +1702,35 @@ function paintOverlayMarkup(p: Paint, node: FigNode, ctx: Ctx): string | null {
  * read: "unknown" must not be reported as "not magnified", so the caller only
  * ever switches sampling on a size it actually measured.
  */
-function intrinsicImageSize(
-  url: string,
+/**
+ * An image fill's intrinsic size: the map decoded from bytes at import time
+ * first, then the URL parser for the `data:` URLs the harness supplies. Null
+ * means "cannot tell", which callers must keep distinct from a real size.
+ */
+function fillIntrinsicSize(
+  hashHex: string | null,
+  ctx: Ctx,
 ): { width: number; height: number } | null {
-  const match = /^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/.exec(
-    url,
+  if (!hashHex) return null;
+  return (
+    ctx.imageSizes.get(hashHex) ?? intrinsicImageSize(imageUrl(hashHex, ctx))
   );
-  if (!match) return null;
-  // No try/catch: base64 decoding does not throw in Node, it drops invalid
-  // characters — so a short/garbled buffer simply fails the length checks
-  // below and reports "cannot tell" rather than a wrong size.
-  const bytes = base64ToBytes(match[2]!);
-  if (match[1] === "png") {
+}
+
+/**
+ * A PNG or JPEG's intrinsic pixel size, read from its own header.
+ *
+ * Returns null for anything it cannot decode — including WebP and GIF — which
+ * callers must treat as "cannot tell", never as a size of zero. Exported so
+ * the import driver can size images it holds as BYTES: reading the size out of
+ * a URL only ever worked for the `data:` URLs the measurement harness
+ * supplies, and every production caller passes an uploaded https URL.
+ */
+export function imageSizeFromBytes(
+  bytes: Uint8Array,
+  kind: "png" | "jpeg",
+): { width: number; height: number } | null {
+  if (kind === "png") {
     // 8-byte signature, then the IHDR chunk: length(4) type(4) width(4) height(4).
     if (bytes.length < 24 || readAscii(bytes, 12, 16) !== "IHDR") return null;
     return { width: readU32BE(bytes, 16), height: readU32BE(bytes, 20) };
@@ -1669,6 +1756,34 @@ function intrinsicImageSize(
     offset += 2 + length;
   }
   return null;
+}
+
+/** Sniff the container from the first bytes, so a caller with raw bytes and no
+ *  declared MIME type still gets an answer instead of a guess. */
+export function imageSizeFromUnknownBytes(
+  bytes: Uint8Array,
+): { width: number; height: number } | null {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50)
+    return imageSizeFromBytes(bytes, "png");
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8)
+    return imageSizeFromBytes(bytes, "jpeg");
+  return null;
+}
+
+function intrinsicImageSize(
+  url: string,
+): { width: number; height: number } | null {
+  const match = /^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/.exec(
+    url,
+  );
+  if (!match) return null;
+  // No try/catch: base64 decoding does not throw in Node, it drops invalid
+  // characters — so a short/garbled buffer simply fails the length checks in
+  // the decoder and reports "cannot tell" rather than a wrong size.
+  return imageSizeFromBytes(
+    base64ToBytes(match[2]!),
+    match[1] === "png" ? "png" : "jpeg",
+  );
 }
 
 function borderShorthand(node: FigNode, ctx: Ctx): Record<string, string> {
@@ -1844,9 +1959,15 @@ function effectStyles(
         `inset ${num(e.offset?.x ?? 0)}px ${num(e.offset?.y ?? 0)}px ${num(e.radius ?? 0)}px ${num(e.spread ?? 0)}px ${c}`,
       );
     } else if (e.type === "FOREGROUND_BLUR" || e.type === "LAYER_BLUR") {
-      filters.push(`blur(${num((e.radius ?? 0) / 2)}px)`);
+      // The REST walker's 0.45 is fitted against Figma's own renders; this
+      // walker's 0.5 was a guess, and an 11% wider kernel changes every pixel
+      // of a blurred region. One constant, so the two import routes cannot
+      // drift apart again.
+      filters.push(
+        `blur(${num((e.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR)}px)`,
+      );
     } else if (e.type === "BACKGROUND_BLUR") {
-      backdropBlur = `blur(${num((e.radius ?? 0) / 2)}px)`;
+      backdropBlur = `blur(${num((e.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR)}px)`;
     }
   }
   const out: Record<string, string> = {};
@@ -2775,6 +2896,10 @@ interface Ctx {
   blobs: Uint8Array[];
   /** Hex hash -> on-disk filename (e.g. `<hash>` or `<hash>.png`). */
   imageMap: Map<string, string>;
+  /** Intrinsic pixel size per image hash, decoded from the image BYTES at
+   *  import time. Reading it back out of the URL only ever worked for the
+   *  `data:` URLs the harness supplies; production passes uploaded https. */
+  imageSizes: Map<string, { width: number; height: number }>;
   /**
    * `family|style` -> the line-height ratio Figma resolves AUTO to for that
    * font, derived from the document's own boxes. See `deriveAutoLineHeights`.
@@ -3376,27 +3501,83 @@ function emitSvgBody(
   }
   // Stroke paths
   if (strokePaint && strokeWeight > 0) {
-    for (const g of node.strokeGeometry ?? node.fillGeometry ?? []) {
-      if (typeof g.commandsBlob !== "number") continue;
-      const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
-      if (!d) continue;
-      emittedFlat = true;
-      const attrs = [
-        `d="${d}"`,
-        `fill="none"`,
-        `stroke="${strokePaint.color}"`,
-        `stroke-width="${num(strokeWeight)}"`,
-      ];
-      if (strokePaint.opacity !== undefined)
-        attrs.push(`stroke-opacity="${strokePaint.opacity}"`);
-      if (node.strokeJoin)
-        attrs.push(`stroke-linejoin="${node.strokeJoin.toLowerCase()}"`);
-      if (node.strokeCap)
-        attrs.push(`stroke-linecap="${node.strokeCap.toLowerCase()}"`);
-      const dashes = dashArrayAttr(node);
-      if (dashes) attrs.push(dashes);
-      lines.push(`${indent}  <path ${attrs.join(" ")} />`);
-    }
+    // `strokeGeometry` is the stroke ALREADY OUTLINED into a closed region —
+    // weight, joins, caps and dashes are baked into its outline. Re-stroking
+    // it draws a band of `strokeWeight` around that outline, so every vector
+    // stroke came out roughly twice as thick and spilled past Figma's
+    // silhouette. It is filled, exactly as the REST walker does
+    // (figma-node-to-html.ts, `emit(node.strokeGeometry, ...)`).
+    const outlined = node.strokeGeometry ?? [];
+    if (outlined.length > 0) {
+      const strokeStart = lines.length;
+      for (const g of outlined) {
+        if (typeof g.commandsBlob !== "number") continue;
+        const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
+        if (!d) continue;
+        emittedFlat = true;
+        const attrs = [
+          `d="${d}"`,
+          `fill="${strokePaint.color}"`,
+          `fill-rule="${g.windingRule === "ODD" ? "evenodd" : "nonzero"}"`,
+        ];
+        if (strokePaint.opacity !== undefined)
+          attrs.push(`fill-opacity="${strokePaint.opacity}"`);
+        lines.push(`${indent}  <path ${attrs.join(" ")} />`);
+      }
+      // That outlined region is not clipped to the alignment Figma states: on
+      // an INSIDE stroke it still reaches outside the shape, and a mitred
+      // corner reaches a long way. Clipping it to the fill shape is what
+      // INSIDE means. Node-scoped id: a bare one would collide across the many
+      // inline SVGs in a document, and `url(#id)` takes the first match.
+      if (
+        node.strokeAlign === "INSIDE" &&
+        lines.length > strokeStart &&
+        (node.fillGeometry?.length ?? 0) > 0
+      ) {
+        const clipId = `fig-stroke-inside-${guidKey(node.guid).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+        const clipPaths = (node.fillGeometry ?? [])
+          .map((g) => {
+            if (typeof g.commandsBlob !== "number") return "";
+            const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
+            return d
+              ? `<path d="${d}"${g.windingRule === "ODD" ? ' clip-rule="evenodd"' : ""} />`
+              : "";
+          })
+          .join("");
+        if (clipPaths) {
+          defs.push(`<clipPath id="${clipId}">${clipPaths}</clipPath>`);
+          lines.splice(
+            strokeStart,
+            0,
+            `${indent}  <g clip-path="url(#${clipId})">`,
+          );
+          lines.push(`${indent}  </g>`);
+        }
+      }
+    } else
+      for (const g of node.fillGeometry ?? []) {
+        // No outlined region: the stroke is described only by the shape's own
+        // path, so a real centred SVG stroke IS the right rendering here.
+        if (typeof g.commandsBlob !== "number") continue;
+        const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
+        if (!d) continue;
+        emittedFlat = true;
+        const attrs = [
+          `d="${d}"`,
+          `fill="none"`,
+          `stroke="${strokePaint.color}"`,
+          `stroke-width="${num(strokeWeight)}"`,
+        ];
+        if (strokePaint.opacity !== undefined)
+          attrs.push(`stroke-opacity="${strokePaint.opacity}"`);
+        if (node.strokeJoin)
+          attrs.push(`stroke-linejoin="${node.strokeJoin.toLowerCase()}"`);
+        if (node.strokeCap)
+          attrs.push(`stroke-linecap="${node.strokeCap.toLowerCase()}"`);
+        const dashes = dashArrayAttr(node);
+        if (dashes) attrs.push(dashes);
+        lines.push(`${indent}  <path ${attrs.join(" ")} />`);
+      }
   }
 
   // Vector-network fallback (clipboard paste ships only the editable network,
@@ -4268,6 +4449,8 @@ export interface RenderHtmlOptions {
   imageRefBase?: string;
   /** Pre-built `hash -> filename` map for image references. */
   imageMap?: Map<string, string>;
+  /** Intrinsic pixel size per image hash, from the decoded image bytes. */
+  imageSizes?: Map<string, { width: number; height: number }>;
   /** Safe URL used when an embedded image was omitted (for example no storage provider). */
   missingImageUrl?: string;
   /**
@@ -4567,6 +4750,9 @@ export function renderHtmlTemplates(
     imageRefBase: options.imageRefBase,
     blobs,
     imageMap: options.imageMap ?? new Map<string, string>(),
+    imageSizes:
+      options.imageSizes ??
+      new Map<string, { width: number; height: number }>(),
     autoLineHeight: deriveAutoLineHeights(nodes),
     missingImageUrl: options.missingImageUrl,
     trackUnresolvedImageRefs: options.trackUnresolvedImageRefs,

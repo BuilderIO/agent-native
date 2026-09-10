@@ -152,6 +152,16 @@ In manual mode, grant a secret to a specific app, or approve a pending request f
 
 </Steps>
 
+### How apps see Vault keys
+
+Saving a key in the Vault writes it to the workspace's shared credential store, so you never re-enter it per app. Each app's **Settings → Integrations → Keys** section shows the value the app actually uses and where it comes from, in this order:
+
+1. **Personal** — a key you saved for yourself in an app's Keys section. Only your own sessions use it, and it overrides the shared value; the Keys section says so and offers to remove it.
+2. **Vault / Workspace** — the shared value every app and every member uses. Vault-managed keys show as `Set · Vault` and link back here; edit them in the Vault, not in the app.
+3. **Environment** — a deploy-level `.env` value, used only when nothing is saved above it.
+
+The **+ New** menu in an app's Keys section lists the keys that app declares; type any other name to add it as a custom key. Custom keys and Vault keys are both available to automations and the `web-request` tool as `${keys.NAME}`.
+
 ### Reusable integrations
 
 One place to connect provider accounts and grant apps access, instead of every domain app doing its own OAuth or holding its own key. Dispatch owns provider identity and app grants. Domain apps still own app-specific source choices, such as Brain's Slack channel allow-list or Analytics' metric/dashboard configuration.

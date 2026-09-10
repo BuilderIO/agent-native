@@ -86,7 +86,7 @@ export function GoogleSetupWizard() {
   }, []);
 
   useEffect(() => {
-    fetchStatus();
+    void fetchStatus();
   }, [fetchStatus]);
 
   const allConfigured =
@@ -199,7 +199,7 @@ export function GoogleSetupWizard() {
   }
 
   function copyToClipboard(text: string, key: string) {
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
   }
@@ -227,7 +227,7 @@ export function GoogleSetupWizard() {
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                !saved && setCurrentStep(i);
+                if (!saved) setCurrentStep(i);
               }
             }}
           >
@@ -315,7 +315,7 @@ export function GoogleSetupWizard() {
                           className="hidden"
                           onChange={(e) => {
                             const file = e.target.files?.[0];
-                            if (file) handleJsonUpload(file);
+                            if (file) void handleJsonUpload(file);
                           }}
                         />
                         {error && (
@@ -393,7 +393,7 @@ export function GoogleSetupWizard() {
                               className="h-7 text-xs"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleSave();
+                                void handleSave();
                               }}
                               disabled={
                                 saving ||

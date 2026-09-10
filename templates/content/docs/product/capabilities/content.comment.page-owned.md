@@ -41,6 +41,7 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 - Rich Comment bodies use the shared Blocks-field grammar; replies and mentions retain the same Page authority.
 - Anchors follow stable Block identity where possible and preserve historical target context after deletion rather than attaching to plausible new text.
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
+- Comments submitted through MCP or the in-app agent's Action tools retain the authenticated account as their author and separately persist their submission source. The UI and notifications identify them as posted via AI on that person's behalf; this describes submission, not a claim that AI wrote every word. Replies record their own source, edits preserve the original submission attribution, and historical comments without provenance remain unclassified.
 - References and embeds display the authoritative Page-owned thread; they do not clone or re-home it.
 
 ## Boundaries and non-goals
@@ -62,6 +63,15 @@ Given a Page with a Comment thread is referenced or embedded elsewhere, when a v
 ## Current evidence
 
 `document_comments` schema and editor Comment UI/actions provide anchored threaded-comment substrate. Stable multi-Block anchors, rich universal fields, historical repair, and embed authority are not fully proven; this remains `approved_shape`.
+
+The anchored editor workflow includes document-session drafts, author text editing,
+readable resolved conversations, and optimistic comment mutations with scoped
+refreshes. Behavioral coverage lives in `CommentsSidebar.interaction.test.tsx`,
+`comment-drafts.test.tsx`, `DocumentEditor.layout.test.ts`,
+`use-comments.mutations.test.ts`, and `update-comment.test.ts`. These cover draft
+retention, responsive sizing, failed and overlapping mutations, and existing
+commenter/editor access. They do not establish the broader multi-Block,
+historical-deletion, notification, or embed contracts above.
 
 ## Proof plan
 

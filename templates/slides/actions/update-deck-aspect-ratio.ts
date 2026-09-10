@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -6,8 +6,18 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
+import { isAgentPatchCaller } from "./patch-deck.js";
 
 export default defineAction({
   description:
@@ -17,7 +27,7 @@ export default defineAction({
     deckId: z.string().describe("Deck ID"),
     aspectRatio: z.enum(ASPECT_RATIO_VALUES).describe("Target aspect ratio"),
   }),
-  run: async ({ deckId, aspectRatio }) => {
+  run: async ({ deckId, aspectRatio }, ctx) => {
     await assertAccess("deck", deckId, "editor");
     const db = getDb();
     const rows = await db
@@ -25,25 +35,53 @@ export default defineAction({
       .from(schema.decks)
       .where(eq(schema.decks.id, deckId))
       .limit(1);
-    if (!rows.length) throw new Error(`Deck not found: ${deckId}`);
-    await createDeckVersionSnapshot(
-      {
-        id: rows[0].id,
-        title: rows[0].title,
-        data: rows[0].data,
-        ownerEmail: rows[0].ownerEmail,
-      },
-      { label: "Before aspect ratio change" },
-    );
+    // Reachable only in the narrow window where access resolved and the row
+    // was deleted before this select. A wrong deck id never gets here:
+    // assertAccess throws Forbidden first, on purpose, so a non-member
+    // cannot probe a deck id for existence. Do not delete this as dead.
+    if (!rows.length)
+      fail(`Deck not found: ${deckId}`, {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      });
     const data = JSON.parse(rows[0].data);
+    if (data.aspectRatio === aspectRatio) {
+      if (isAgentPatchCaller(ctx?.caller)) {
+        throw new Error(
+          "Nothing was written: the requested aspect ratio is already set. Re-read with get-deck before retrying.",
+        );
+      }
+      return { id: deckId, aspectRatio, applied: false };
+    }
     data.aspectRatio = aspectRatio;
-    const now = new Date().toISOString();
+    const now = nextDeckRevision(rows[0].updatedAt);
     data.updatedAt = now;
-    await db
-      .update(schema.decks)
-      .set({ data: JSON.stringify(data), updatedAt: now })
-      .where(eq(schema.decks.id, deckId));
-    notifyClients(deckId);
+    await db.transaction(async (tx: any) => {
+      await createDeckVersionSnapshot(
+        {
+          id: rows[0].id,
+          title: rows[0].title,
+          data: rows[0].data,
+          ownerEmail: rows[0].ownerEmail,
+        },
+        {
+          chatContext: deckVersionChatContextFromAction(ctx),
+          label: "Before aspect ratio change",
+          db: tx,
+        },
+      );
+      const updateResult = await tx
+        .update(schema.decks)
+        .set({ data: JSON.stringify(data), updatedAt: now })
+        .where(deckRevisionWhere(schema.decks, deckId, rows[0].updatedAt));
+      assertDeckWriteApplied(updateResult, deckId, "aspect ratio change");
+    });
+    const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+    if (agentChangeId) {
+      await notifyClients(deckId, { agentChangeId });
+    } else {
+      await notifyClients(deckId);
+    }
     await writeAppState("refresh-signal", {
       ts: now,
       source: "update-deck-aspect-ratio",

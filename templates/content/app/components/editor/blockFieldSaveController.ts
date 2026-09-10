@@ -149,7 +149,8 @@ export function createBlockFieldSaveController(args: {
       //    edit/flush.
       if (pending !== lastSaved) {
         kick();
-        if (inFlight !== null) await inFlight;
+        const pendingSave = inFlight;
+        if (pendingSave !== null) await Promise.resolve(pendingSave);
       }
     },
     cancel() {

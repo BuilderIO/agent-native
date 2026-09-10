@@ -7,6 +7,8 @@ export function isMacPlatform(): boolean {
   );
 }
 
+// macOS spells this modifier with the glyph, not the word — "Cmd J" next to a
+// key chip reads as two words rather than a shortcut.
 export function shortcutModifierLabel(): string {
-  return isMacPlatform() ? "Cmd" : "Ctrl";
+  return isMacPlatform() ? "\u2318" : "Ctrl";
 }

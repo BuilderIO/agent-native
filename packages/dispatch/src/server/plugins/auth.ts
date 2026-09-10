@@ -22,12 +22,13 @@ const DEFAULT_MARKETING = {
 const dispatchAuthPlugin = async (nitroApp: any) => {
   const { auth: authConfig = {} } = getDispatchConfig();
   const googleOnly = authConfig.googleOnly ?? false;
-  const marketing =
-    (authConfig.marketing as Record<string, unknown> | undefined) ??
-    DEFAULT_MARKETING;
+  const marketing = authConfig.marketing
+    ? { ...DEFAULT_MARKETING, ...authConfig.marketing }
+    : DEFAULT_MARKETING;
   const plugin = createAuthPlugin({
     googleOnly,
     marketing: marketing as any,
+    workspaceAppPublicPaths: ["/"],
     publicPaths: authConfig.publicPaths,
   });
   return plugin(nitroApp);

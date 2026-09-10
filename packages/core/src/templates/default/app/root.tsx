@@ -20,6 +20,7 @@ import {
   ScrollRestoration,
   isRouteErrorResponse,
   Link,
+  useLocation,
   useRouteError,
 } from "react-router";
 
@@ -254,10 +255,16 @@ function DbSyncSetup() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isMarketingHome = location.pathname === "/";
   return (
-    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+    <AppProviders
+      queryClient={queryClient}
+      isPublicPath={isMarketingHome}
+      i18n={{ catalog: i18nCatalog }}
+    >
       <AppToolkitProvider>
-        <DbSyncSetup />
+        {isMarketingHome ? null : <DbSyncSetup />}
         <Outlet />
       </AppToolkitProvider>
     </AppProviders>
@@ -320,7 +327,7 @@ export function ErrorBoundary() {
         <h1 className="mt-3 text-2xl font-semibold">{title}</h1>
         <p className="mt-2 text-muted-foreground text-sm">{details}</p>
         <Link
-          to="/"
+          to="/home"
           className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer"
         >
           {copy.goHome}

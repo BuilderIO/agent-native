@@ -6,13 +6,16 @@ export async function apiFetch(
   url: string,
   options?: RequestInit,
 ): Promise<any> {
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    "X-Request-Source": TAB_ID,
+  });
+  new Headers(options?.headers).forEach((value, key) =>
+    headers.set(key, value),
+  );
   const res = await fetch(agentNativePath(url), {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Request-Source": TAB_ID,
-      ...options?.headers,
-    },
+    headers,
   });
   if (res.status === 204) return null;
   const data = await res.json();

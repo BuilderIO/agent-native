@@ -178,8 +178,8 @@ export default function AnalysisDetail() {
     if (!id || !canManage) return;
     await deleteAnalysis({ id });
     queryClient.removeQueries({ queryKey: analysisDetailPrefetchKey(id) });
-    queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
-    navigate("/analyses");
+    void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+    void navigate("/analyses");
   };
 
   const analysisShareUrl = useMemo(() => {

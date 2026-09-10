@@ -207,16 +207,20 @@ jobs:
           const fs = require("node:fs");
           const builderPath = "electron-builder.yml";
           let builder = fs.readFileSync(builderPath, "utf8");
-          builder = builder
-            .replace(
-              /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
-              "$1Agent-Native Nightly$2",
-            )
-            .replace(
-              /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
-              "$1agentnative-nightly$2",
-            );
-          if (!/^\s*- agentnative-nightly\s*$/m.test(builder)) {
+          let nightlySchemeConfigured = false;
+          builder = builder.replace(
+            /^([ \t]*- )(agentnative(?:-nightly)?)([ \t]*\r?\n)$/gm,
+            (_match, prefix, _scheme, suffix) => {
+              if (nightlySchemeConfigured) return "";
+              nightlySchemeConfigured = true;
+              return `${prefix}agentnative-nightly${suffix}`;
+            },
+          );
+          builder = builder.replace(
+            /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
+            "$1Agent-Native Nightly$2",
+          );
+          if (!nightlySchemeConfigured) {
             throw new Error("Could not configure the Nightly deep-link scheme.");
           }
           fs.writeFileSync(builderPath, builder);
@@ -296,16 +300,20 @@ jobs:
           const fs = require("node:fs");
           const builderPath = "electron-builder.yml";
           let builder = fs.readFileSync(builderPath, "utf8");
-          builder = builder
-            .replace(
-              /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
-              "$1Agent-Native Nightly$2",
-            )
-            .replace(
-              /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
-              "$1agentnative-nightly$2",
-            );
-          if (!/^\s*- agentnative-nightly\s*$/m.test(builder)) {
+          let nightlySchemeConfigured = false;
+          builder = builder.replace(
+            /^([ \t]*- )(agentnative(?:-nightly)?)([ \t]*\r?\n)$/gm,
+            (_match, prefix, _scheme, suffix) => {
+              if (nightlySchemeConfigured) return "";
+              nightlySchemeConfigured = true;
+              return `${prefix}agentnative-nightly${suffix}`;
+            },
+          );
+          builder = builder.replace(
+            /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
+            "$1Agent-Native Nightly$2",
+          );
+          if (!nightlySchemeConfigured) {
             throw new Error("Could not configure the Nightly deep-link scheme.");
           }
           fs.writeFileSync(builderPath, builder);
@@ -369,16 +377,20 @@ jobs:
           const fs = require("node:fs");
           const builderPath = "electron-builder.yml";
           let builder = fs.readFileSync(builderPath, "utf8");
-          builder = builder
-            .replace(
-              /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
-              "$1Agent-Native Nightly$2",
-            )
-            .replace(
-              /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
-              "$1agentnative-nightly$2",
-            );
-          if (!/^\s*- agentnative-nightly\s*$/m.test(builder)) {
+          let nightlySchemeConfigured = false;
+          builder = builder.replace(
+            /^([ \t]*- )(agentnative(?:-nightly)?)([ \t]*\r?\n)$/gm,
+            (_match, prefix, _scheme, suffix) => {
+              if (nightlySchemeConfigured) return "";
+              nightlySchemeConfigured = true;
+              return `${prefix}agentnative-nightly${suffix}`;
+            },
+          );
+          builder = builder.replace(
+            /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
+            "$1Agent-Native Nightly$2",
+          );
+          if (!nightlySchemeConfigured) {
             throw new Error("Could not configure the Nightly deep-link scheme.");
           }
           fs.writeFileSync(builderPath, builder);

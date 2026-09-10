@@ -4,6 +4,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import type {
+  ContentDatabaseItemsPageResponse,
   ContentDatabaseResponse,
   ContentDatabaseItem,
   Document,
@@ -26,6 +27,8 @@ import {
   type DocumentQueryContext,
 } from "../lib/document-query";
 import {
+  contentDatabaseConstrainedQueryFilter,
+  contentDatabaseItemsContainingDocumentFilter,
   removeOptimisticItemFromContentDatabase,
   useRestoreContentDatabase,
 } from "./use-content-database";
@@ -57,6 +60,9 @@ export type PageOwnedDocumentCachePatch = Pick<
   | "source"
   | "createdAt"
   | "updatedAt"
+  | "revision"
+  | "bodyRevision"
+  | "contentHash"
 >;
 
 export const LIST_DOCUMENTS_QUERY_KEY = [
@@ -218,7 +224,7 @@ export async function fetchCompleteDocumentList(
 
 export function documentPropertiesQueryKey(
   documentId: string,
-  databaseId: string,
+  databaseId: string | null,
 ) {
   return [
     "action",
@@ -272,6 +278,9 @@ export function mergeDocumentIntoDocumentCache(
     source: document.source,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
+    revision: document.revision,
+    bodyRevision: document.bodyRevision,
+    contentHash: document.contentHash,
   };
   return old && typeof old === "object"
     ? { ...old, ...pageOwnedPatch }
@@ -315,11 +324,13 @@ export function setDocumentFavoriteInListCache(
   return patchDocumentInListDocumentsCache(old, documentId, { isFavorite });
 }
 
-export function patchDocumentInDatabaseCache(
-  current: ContentDatabaseResponse | undefined,
+export function patchDocumentInDatabaseCache<
+  T extends ContentDatabaseResponse | ContentDatabaseItemsPageResponse,
+>(
+  current: T | undefined,
   documentId: string,
   patch: Partial<Document>,
-): ContentDatabaseResponse | undefined {
+): T | undefined {
   if (!current) return current;
   let changed = false;
   const items = current.items.map((item) => {
@@ -330,7 +341,7 @@ export function patchDocumentInDatabaseCache(
       document: { ...item.document, ...patch },
     };
   });
-  return changed ? { ...current, items } : current;
+  return changed ? ({ ...current, items } as T) : current;
 }
 
 export function setDocumentFavoriteInDatabaseCache(
@@ -374,6 +385,10 @@ export function patchDocumentCaches(
         documentId,
         patch,
       ),
+  );
+  queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
+    contentDatabaseItemsContainingDocumentFilter(documentId),
+    (current) => patchDocumentInDatabaseCache(current, documentId, patch),
   );
 }
 
@@ -423,6 +438,9 @@ export function documentUpdateSuccessPatch(
 ): PageOwnedDocumentCachePatch {
   return {
     updatedAt: data.updatedAt,
+    revision: data.revision,
+    bodyRevision: data.bodyRevision,
+    contentHash: data.contentHash,
     ...(variables.title !== undefined ? { title: data.title } : {}),
     ...(variables.content !== undefined ? { content: data.content } : {}),
     ...(variables.description !== undefined
@@ -464,8 +482,11 @@ export function seedDatabaseItemDocumentCaches(
       {
         documentId: item.document.id,
         databaseId: item.databaseId,
+        canEditValues: false,
+        canManageSchema: false,
         properties: item.properties,
       },
+      { updatedAt: 0 },
     );
   }
 }
@@ -572,7 +593,9 @@ export function useUpdatePreviewDocumentDraft() {
 }
 
 export function useCreateDocument() {
-  return useActionMutation<Document, DocumentCreateRequest>("create-document");
+  return useActionMutation<Document, DocumentCreateRequest>("create-document", {
+    skipActionQueryInvalidation: true,
+  });
 }
 
 export function useUpdateDocument() {
@@ -596,6 +619,9 @@ export function useUpdateDocument() {
         const databaseFilter = {
           queryKey: ["action", "get-content-database"],
         } as const;
+        const databasePageFilter = contentDatabaseItemsContainingDocumentFilter(
+          variables.id,
+        );
         const contentSpacesFilter = {
           queryKey: ["action", "list-content-spaces"],
         } as const;
@@ -603,6 +629,7 @@ export function useUpdateDocument() {
           queryClient.cancelQueries(documentFilter),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
           queryClient.cancelQueries(databaseFilter),
+          queryClient.cancelQueries(databasePageFilter),
           queryClient.cancelQueries(contentSpacesFilter),
         ]);
 
@@ -614,6 +641,9 @@ export function useUpdateDocument() {
           ],
           ...queryClient.getQueriesData<ContentDatabaseResponse>(
             databaseFilter,
+          ),
+          ...queryClient.getQueriesData<ContentDatabaseItemsPageResponse>(
+            databasePageFilter,
           ),
           ...queryClient.getQueriesData(contentSpacesFilter),
         ];
@@ -664,23 +694,35 @@ export function useUpdateDocument() {
                 serverDocument,
               ),
           );
+          queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
+            contentDatabaseItemsContainingDocumentFilter(variables.id),
+            (current) =>
+              patchDocumentInDatabaseCache(
+                current,
+                variables.id,
+                serverDocument,
+              ),
+          );
           if (renamedContentSpace) {
             patchContentSpaceNameCaches(
               queryClient,
               variables.id,
               serverDocument.title,
             );
-            queryClient.invalidateQueries({
+            void queryClient.invalidateQueries({
               queryKey: ["action", "list-content-spaces"],
             });
-            queryClient.invalidateQueries({
+            void queryClient.invalidateQueries({
               queryKey: ["action", "get-content-database"],
             });
           }
-          queryClient.invalidateQueries(documentQueryFilter(variables.id));
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries(documentQueryFilter(variables.id));
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });
+          void queryClient.invalidateQueries(
+            contentDatabaseConstrainedQueryFilter(),
+          );
           return;
         }
 
@@ -689,26 +731,31 @@ export function useUpdateDocument() {
           variables.id,
           documentUpdateSuccessPatch(data, variables),
         );
+        if (variables.title !== undefined) {
+          void queryClient.invalidateQueries(
+            contentDatabaseConstrainedQueryFilter(),
+          );
+        }
         if (renamedContentSpace) {
           patchContentSpaceNameCaches(queryClient, variables.id, data.title);
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-content-spaces"],
           });
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-content-database"],
           });
         }
         if (variables.isFavorite !== undefined) {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-content-database"],
           });
         }
 
         if (data.softDeletedDatabaseIds.length > 0) {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-content-database"],
           });
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-trashed-content-databases"],
           });
           const databaseIds = data.softDeletedDatabaseIds;
@@ -744,20 +791,20 @@ export function useDeleteDocument() {
     { id: string; databaseDocumentId?: string }
   >("delete-document", {
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
-      queryClient.invalidateQueries(documentQueryFilter(variables.id));
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries(documentQueryFilter(variables.id));
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-content-spaces"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-documents"],
       });
     },
@@ -778,16 +825,16 @@ export function useRestoreDocument() {
     { id: string }
   >("restore-document", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-documents"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],
       });
     },
@@ -801,16 +848,16 @@ export function usePermanentlyDeleteDocument() {
     { id: string }
   >("permanently-delete-document", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-documents"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],
       });
     },
@@ -823,10 +870,10 @@ export function useMoveDocument() {
     "move-document",
     {
       onSuccess: (_data, variables) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        queryClient.invalidateQueries(documentQueryFilter(variables.id));
+        void queryClient.invalidateQueries(documentQueryFilter(variables.id));
       },
     },
   );

@@ -41,7 +41,7 @@ async function runLocalDispatchAction(
   const modulePath = `./${name}.js`;
   const module = (await import(/* @vite-ignore */ modulePath)) as {
     default?: {
-      run: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+      run: (args: Record<string, unknown>) => unknown;
     };
   };
   if (!module.default) throw new Error(`Dispatch action not found: ${name}`);
@@ -247,20 +247,30 @@ export default defineAction({
     if (navigation?.view === "metrics") {
       try {
         const usageScope =
-          navigation.usageScope === "workspace" ? "workspace" : "me";
+          navigation.usageScope === "app"
+            ? "app"
+            : navigation.usageScope === "workspace"
+              ? "workspace"
+              : "me";
         const usageUserEmail =
           typeof navigation.usageUserEmail === "string"
             ? navigation.usageUserEmail
+            : undefined;
+        const usageAppId =
+          typeof navigation.usageAppId === "string"
+            ? navigation.usageAppId
             : undefined;
         const metrics = await listDispatchUsageMetrics({
           sinceDays: 30,
           scope: usageScope,
           userEmail: usageUserEmail,
+          appId: usageAppId,
         });
         screen.usageMetrics = {
           billing: metrics.billing,
           viewScope: metrics.viewScope,
           selectedUserEmail: metrics.selectedUserEmail,
+          selectedAppId: metrics.selectedAppId,
           totals: metrics.totals,
           byApp: metrics.byApp.slice(0, 8),
           byUser: metrics.byUser.slice(0, 8),

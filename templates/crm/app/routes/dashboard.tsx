@@ -56,7 +56,7 @@ export default function DashboardRoute() {
   async function installDashboard() {
     try {
       const result = await install.mutateAsync({});
-      navigate(`/dashboard?id=${encodeURIComponent(result.dashboardId)}`, {
+      void navigate(`/dashboard?id=${encodeURIComponent(result.dashboardId)}`, {
         replace: true,
       });
       toast.success(t("dashboard.ready"));

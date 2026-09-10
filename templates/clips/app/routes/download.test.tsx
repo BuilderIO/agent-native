@@ -21,11 +21,16 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadRoute.clipsDesktop": "Clips Desktop",
       "downloadRoute.heroDescription": "Record your screen.",
       "downloadRoute.downloadFor": "Download for {{platform}}",
+      "downloadRoute.downloadStarted": "Download started",
+      "downloadRoute.downloadAgain": "Didn't work? Try downloading again",
       "downloadRoute.retry": "Try again",
       "downloadRoute.stable": "Stable",
       "downloadRoute.nightly": "Nightly",
       "downloadRoute.switchToNightly": "Switch to Nightly builds",
       "downloadRoute.switchToStable": "Switch to stable builds",
+      "downloadRoute.chromeTitle": "Chrome extension for browser logs",
+      "captureInstall.chromeDescription":
+        "Best when you want redacted console and network diagnostics from the browser tab.",
     };
     return (messages[key] ?? key).replace(
       "{{platform}}",
@@ -35,9 +40,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@/lib/capture-install-options", () => ({
-  clipsChromeExtensionUrl: null,
+  clipsChromeExtensionUrl: "https://chromewebstore.google.com/detail/example",
   markDesktopAppDownloaded: markDownloaded,
-  useClipsChromeExtensionEnabled: () => false,
+  useClipsChromeExtensionEnabled: () => true,
 }));
 
 vi.mock("@/lib/download-release-channel", () => ({
@@ -96,6 +101,7 @@ describe("Clips download page", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    window.localStorage.clear();
     fetchMock.mockImplementation(async (input: string) => ({
       ok: true,
       json: async () =>
@@ -115,6 +121,7 @@ describe("Clips download page", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    window.localStorage.clear();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -167,5 +174,35 @@ describe("Clips download page", () => {
         .querySelector('button[role="switch"]')
         ?.getAttribute("aria-checked"),
     ).toBe("true");
+  });
+
+  it("confirms the download and offers a retry link after clicking", () => {
+    const download = container.querySelector<HTMLAnchorElement>("a[download]");
+    expect(download).toBeTruthy();
+
+    act(() => {
+      download?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(markDownloaded).toHaveBeenCalledTimes(1);
+    expect(download?.textContent).toContain("Download started");
+    expect(container.textContent).toContain(
+      "Didn't work? Try downloading again",
+    );
+  });
+
+  it("keeps the extension explanation compact and links to its docs", () => {
+    expect(container.textContent).toContain(
+      "Best when you want redacted console and network diagnostics from the browser tab.",
+    );
+    const docsLink = container.querySelector<HTMLAnchorElement>(
+      'a[aria-label="Chrome extension for browser logs"]',
+    );
+    expect(docsLink?.getAttribute("href")).toBe(
+      "https://www.agent-native.com/docs/template-clips-capture-everywhere#browser-logs-with-the-chrome-extension",
+    );
+    expect(docsLink?.querySelector("svg")).toBeTruthy();
   });
 });

@@ -13,6 +13,27 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 
+function parseChatContext(raw: unknown) {
+  if (typeof raw !== "string") return undefined;
+  try {
+    const value = JSON.parse(raw);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const context = Object.fromEntries(
+      ["threadId", "runId", "turnId"].flatMap((key) =>
+        typeof value[key] === "string" && value[key].trim()
+          ? [[key, value[key]]]
+          : [],
+      ),
+    );
+    return context.runId || context.turnId ? context : null;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
 export default defineAction({
   description:
     "List bounded saved visual graph version metadata for a Factory, newest first. Use get-factory-graph-version to read one validated snapshot for preview or restore.",
@@ -45,6 +66,7 @@ export default defineAction({
         changeSummary: factoryGraphVersions.changeSummary,
         createdAt: factoryGraphVersions.createdAt,
         createdBy: factoryGraphVersions.createdBy,
+        chatContext: factoryGraphVersions.chatContext,
       })
       .from(factoryGraphVersions)
       .where(
@@ -67,16 +89,21 @@ export default defineAction({
       hasMore,
       nextBeforeVersion:
         hasMore && page.length > 0 ? page[page.length - 1].version : null,
-      versions: page.map((row) => ({
-        id: row.id,
-        factoryId: row.factoryId,
-        version: row.version,
-        source: row.source,
-        changeSummary: row.changeSummary,
-        createdAt: row.createdAt,
-        createdBy: row.createdBy,
-        isCurrent: currentVersion === row.version,
-      })),
+      versions: page.map((row) => {
+        const chatContext = parseChatContext(row.chatContext);
+        return {
+          id: row.id,
+          factoryId: row.factoryId,
+          version: row.version,
+          source: row.source,
+          changeSummary: row.changeSummary,
+          createdAt: row.createdAt,
+          createdBy: row.createdBy,
+          isCurrent: currentVersion === row.version,
+          editable: Boolean(chatContext),
+          ...(chatContext ? { chatContext } : {}),
+        };
+      }),
     };
   },
 });

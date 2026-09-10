@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { getAppBasePath } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 
-const cachedAssets = new Map<string, Promise<unknown | undefined>>();
+const cachedAssets = new Map<string, Promise<unknown>>();
 
 function localAssetPaths(filename: string): string[] {
   const roots = [

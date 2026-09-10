@@ -6,6 +6,10 @@ import {
   ANALYTICS_CLIENT_PLATFORM_HEADER,
   normalizeAnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
+import {
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "../shared/test-traffic.js";
 import { getSession } from "./auth.js";
 import {
   runWithRequestContext,
@@ -108,6 +112,17 @@ export function readBrowserSessionIdHeader(event: H3Event): string | undefined {
     : undefined;
 }
 
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+/** Stable browser-tab context used to scope ambient application state. */
+export function readBrowserTabIdHeader(event: H3Event): string | undefined {
+  const raw = readHeaderValue(event, "x-agent-native-browser-tab");
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+}
+
 export function readAnalyticsClientPlatformHeader(
   event: H3Event,
 ):
@@ -122,6 +137,12 @@ export function readAnalyticsClientPlatformHeader(
         ANALYTICS_CLIENT_PLATFORM_BODY_FIELD
       ],
     )
+  );
+}
+
+export function readSyntheticTrafficHeader(event: H3Event): boolean {
+  return isSyntheticTrafficValue(
+    readHeaderValue(event, SYNTHETIC_TRAFFIC_HEADER),
   );
 }
 
@@ -243,7 +264,9 @@ export async function resolveAgentRunRequestContext(options: {
   const orgId = await resolveAgentRunOrgId(options);
   const timezone = readAgentRunTimezone(options.event);
   const browserSessionId = readBrowserSessionIdHeader(options.event);
+  const browserTabId = readBrowserTabIdHeader(options.event);
   const clientPlatform = readAnalyticsClientPlatformHeader(options.event);
+  const isSyntheticTraffic = readSyntheticTrafficHeader(options.event);
   const waitUntil = requestWaitUntil(options.event);
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
@@ -256,7 +279,9 @@ export async function resolveAgentRunRequestContext(options: {
     timezone,
     ...(browserSessionId ? { browserSessionId } : {}),
     ...(clientPlatform ? { clientPlatform } : {}),
-    ...(Object.keys(run).length > 0 ? { run } : {}),
+    ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
+    ...(browserTabId ? { run: { ...run, browserTabId } } : {}),
+    ...(!browserTabId && Object.keys(run).length > 0 ? { run } : {}),
   };
 }
 

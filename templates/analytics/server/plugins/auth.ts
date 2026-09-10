@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 
 const authPlugin = createAuthPlugin({
+  workspaceAppPublicPaths: ["/"],
   publicPaths: [
     "/track",
     "/api/analytics/track",
@@ -22,6 +23,10 @@ const authPlugin = createAuthPlugin({
   publicCorsPaths: ["/track", "/api/analytics/track", "/api/analytics/replay"],
   marketing: {
     appName: "Analytics",
+    screenshotPath: "/auth-marketing/analytics.webp",
+    screenshotWidth: 927,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/analytics",
     tagline:
       "Your AI agent queries your data sources, builds dashboards, and answers business questions alongside you.",
     features: [

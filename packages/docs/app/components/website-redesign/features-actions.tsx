@@ -46,16 +46,16 @@ export function FeaturesActions() {
           src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe77f7df4d30242f19b5a06734894d77c"
           alt={diagramAlt}
           crossOrigin="anonymous"
-          sizes="(max-width: 1400px) 100vw, 1400px"
+          sizes="(max-width: 1300px) 100vw, 1300px"
           loading="lazy"
           decoding="async"
         />
         <BuilderImage
           className="theme-img-light absolute inset-0 h-full w-full border-x border-solid border-[var(--b-border-subtle)]"
-          src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2ee8d6c41d884ac08d486ba49634af1d"
+          src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F95c51363178042528f8f36185d250047"
           alt={diagramAlt}
           crossOrigin="anonymous"
-          sizes="(max-width: 1400px) 100vw, 1400px"
+          sizes="(max-width: 1300px) 100vw, 1300px"
           loading="lazy"
           decoding="async"
         />

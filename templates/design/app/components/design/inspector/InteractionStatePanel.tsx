@@ -164,12 +164,12 @@ export function InteractionStatePanel({
   };
 
   return (
-    <div className="border-b border-[var(--design-editor-control-border)] px-2 py-1.5">
+    <div className="px-2 py-1.5 shadow-[inset_0_-1px_var(--design-editor-control-border)]">
       <DropdownMenu open={open} onOpenChange={handleOpenChange}>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md bg-[var(--design-editor-control-bg)] px-2 text-left text-[12px] font-semibold text-foreground outline-none transition-colors hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:ring-1 focus-visible:ring-ring"
+            className="design-sidebar-section-title flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md bg-[var(--design-editor-control-bg)] px-2 text-left text-foreground outline-none transition-colors hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:ring-1 focus-visible:ring-ring"
             aria-label={t("editPanel.interactionStates.selectorLabel")}
             aria-description={
               isNonDefault

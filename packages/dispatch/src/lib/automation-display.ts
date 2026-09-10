@@ -33,6 +33,7 @@ export function automationTroubleshootPath(
 
 export function automationTarget(item: DispatchAutomationItem): string {
   if (item.triggerType === "event" && item.event) return item.event;
+  if (item.triggerType === "webhook") return "On webhook";
   if (item.scheduleDescription) return item.scheduleDescription;
   if (item.schedule) return item.schedule;
   return item.triggerType || "schedule";
@@ -72,6 +73,7 @@ export function automationLastCheck(item: DispatchAutomationItem): string {
 export function automationNextRun(item: DispatchAutomationItem): string {
   if (!item.enabled) return "paused";
   if (item.triggerType === "event") return "on event";
+  if (item.triggerType === "webhook") return "on webhook";
   return item.nextRun ? relativeRunTime(item.nextRun) : "not scheduled";
 }
 

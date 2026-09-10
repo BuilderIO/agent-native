@@ -7,12 +7,18 @@ function emailsHandlerSource(): string {
 }
 
 describe("emails handler Gmail draft listing", () => {
-  it("hydrates full draft payloads while keeping other thread lists on metadata", () => {
+  it("hydrates drafts and attachment-filter inboxes while keeping other lists on metadata", () => {
     const source = emailsHandlerSource();
 
+    expect(source).toContain("threadFormat:");
+    expect(source).toContain('view === "drafts"');
+    expect(source).toContain("const isPlainInboxRequest =");
+    expect(source).toContain("const hasAttachmentSavedFilter =");
     expect(source).toContain(
-      'threadFormat: view === "drafts" ? "full" : "metadata"',
+      "searchQueryNeedsAttachmentMetadata(filter.query)",
     );
+    expect(source).toContain('"full"');
+    expect(source).toContain('"metadata"');
   });
 
   it("uses attachment account metadata when resolving Gmail-backed draft attachments", () => {
@@ -29,5 +35,19 @@ describe("emails handler Gmail label listing", () => {
     expect(source).toContain("setResponseStatus(_event, 502)");
     expect(source).toContain("failedAccountReads > 0");
     expect(source).toContain("Unable to load Gmail labels. Please retry.");
+  });
+
+  it("filters local all-mail label reads and scopes Gmail label counts", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain(
+      "if (label) emails = filterLabelMessages(emails, label);",
+    );
+    expect(source).toContain(
+      "const accountTokens = await getAccountTokens(email, accountEmails);",
+    );
+    expect(source).toContain(
+      "return recomputeUnreadCounts(\n    await readEmails(email),\n    await readLabels(email),\n  );",
+    );
   });
 });

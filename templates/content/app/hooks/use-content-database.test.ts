@@ -14,8 +14,10 @@ import {
   applyOptimisticSourceFieldPropertyToDatabaseResponse,
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
+  contentDatabaseCreationRequest,
   contentDatabaseResponseCanSeedQuery,
   contentDatabaseItemsPageQueryKey,
+  contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
   fetchCompleteContentDatabaseList,
   invalidateBuilderBodyHydrationQueries,
@@ -31,6 +33,49 @@ import {
 } from "./use-content-database";
 
 const createdAt = "2026-06-15T12:00:00.000Z";
+
+describe("contentDatabaseCreationRequest", () => {
+  it("uses the optimistic document id as the stable intent for an exact space", () => {
+    expect(
+      contentDatabaseCreationRequest({
+        newDocumentId: "database-page",
+        spaceId: "personal-space",
+        title: "Launches",
+      }),
+    ).toEqual({
+      newDocumentId: "database-page",
+      idempotencyKey: "database-page",
+      parentId: null,
+      spaceId: "personal-space",
+      title: "Launches",
+    });
+  });
+
+  it("preserves the exact space, parent, and title for a nested database", () => {
+    expect(
+      contentDatabaseCreationRequest({
+        newDocumentId: "nested-database",
+        parentId: "parent-page",
+        spaceId: "organization-space",
+        title: "Projects",
+      }),
+    ).toMatchObject({
+      parentId: "parent-page",
+      spaceId: "organization-space",
+      title: "Projects",
+    });
+  });
+
+  it("rejects creation when the exact space is unavailable", () => {
+    expect(() =>
+      contentDatabaseCreationRequest({
+        newDocumentId: "database-page",
+        spaceId: undefined,
+        title: "Launches",
+      }),
+    ).toThrow("Choose a Content space before creating a database");
+  });
+});
 
 describe("complete Content database discovery", () => {
   it("exhausts every bounded page before returning source-picker options", async () => {
@@ -121,6 +166,49 @@ describe("preserveScopedDatabasePlaceholder", () => {
   });
 });
 
+describe("contentDatabaseConstrainedQueryFilter", () => {
+  it("targets the canonical bounded result for one database document", () => {
+    const queryClient = new QueryClient();
+    const matchingKey = [
+      "action",
+      "query-content-database-items",
+      {
+        documentId: "database-page",
+        limit: 100,
+        tableQuery: {
+          search: "",
+          filters: [],
+          sorts: [],
+          filterMode: "and",
+        },
+      },
+    ] as const;
+    const otherKey = [
+      "action",
+      "query-content-database-items",
+      {
+        documentId: "other-database-page",
+        limit: 100,
+        tableQuery: {
+          search: "",
+          filters: [],
+          sorts: [],
+          filterMode: "and",
+        },
+      },
+    ] as const;
+    queryClient.setQueryData(matchingKey, { items: [] });
+    queryClient.setQueryData(otherKey, { items: [] });
+
+    void queryClient.invalidateQueries(
+      contentDatabaseConstrainedQueryFilter("database-page"),
+    );
+
+    expect(queryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(otherKey)?.isInvalidated).toBe(false);
+  });
+});
+
 describe("isContentDatabaseByIdQueryEnabled", () => {
   it("fetches when a databaseId is present and the caller doesn't pause it", () => {
     expect(isContentDatabaseByIdQueryEnabled("files-db")).toBe(true);
@@ -146,6 +234,27 @@ describe("isContentDatabaseByIdQueryEnabled", () => {
 });
 
 describe("optimistic Content database items", () => {
+  it("patches a visible value in a bounded filtered result", () => {
+    const current = databaseResponse();
+    const property = { ...current.properties[0]!, value: "2026-09-01" };
+    const bounded = {
+      items: [{ ...current.items[0]!, properties: [property] }],
+      source: current.source,
+      sources: current.sources,
+      pagination: current.pagination,
+      tableQueryMode: "server" as const,
+    };
+    const propertyId = property.definition.id;
+
+    const updated = applyDocumentPropertyValueToDatabaseResponse(bounded, {
+      documentId: bounded.items[0]!.document.id,
+      propertyId,
+      value: "2026-09-05",
+    });
+
+    expect(updated?.items[0]!.properties[0]!.value).toBe("2026-09-05");
+  });
+
   it("shows the durable Builder row count before the authoritative readback", () => {
     const completed = applyBuilderAttachCompletion(
       {

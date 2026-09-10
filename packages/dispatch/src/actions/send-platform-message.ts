@@ -14,6 +14,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { getDestinationById } from "../server/lib/dispatch-store.js";
 
 function getAdapter(
@@ -78,6 +79,7 @@ async function assertOutboundConfigured(
 export default defineAction({
   description:
     "Send a proactive message to a saved Slack, Telegram, or email destination.",
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     platform: z.enum(["slack", "telegram", "email"]).optional(),
     destinationId: z.string().optional().describe("Saved destination id"),

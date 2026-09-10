@@ -495,7 +495,7 @@ export function runUndo({
     if (scope !== "global" && um?.canUndo()) {
       um.undo();
       if (ydoc && activeFile) {
-        const next = ydoc.getText("content").toString();
+        const next = ydoc.getText("content").toJSON();
         markPendingLocalFileContent(activeFile.id, next, activeFile.updatedAt);
         lastLocalContentRef.current = next;
         queueFileContentSave(activeFile.id, next, {
@@ -820,7 +820,7 @@ export function runUndo({
           if (geometry) nextGeometry[file.id] = geometry;
         });
         writeFrameGeometrySnapshot(nextGeometry);
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
 
@@ -835,7 +835,10 @@ export function runUndo({
       } catch (error) {
         await Promise.allSettled(
           recreatedIds.map((fileId) =>
-            deleteFileMutation.mutateAsync({ id: fileId } as any),
+            deleteFileMutation.mutateAsync({
+              id: fileId,
+              allowLockedLayers: true,
+            } as any),
           ),
         );
         fileDeletionUndoStackRef.current = [
@@ -848,7 +851,7 @@ export function runUndo({
           ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
           "file-deleted",
         ];
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
         toast.error(

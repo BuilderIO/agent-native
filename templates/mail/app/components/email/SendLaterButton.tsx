@@ -14,6 +14,7 @@ interface SendLaterButtonProps {
   onSendLater: (runAt: number) => void;
   disabled?: boolean;
   isSending?: boolean;
+  isScheduling?: boolean;
 }
 
 function getPresets(): Array<{ labelKey: string; date: Date }> {
@@ -58,6 +59,7 @@ export function SendLaterButton({
   onSendLater,
   disabled,
   isSending,
+  isScheduling,
 }: SendLaterButtonProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -65,6 +67,7 @@ export function SendLaterButton({
   const dateInputRef = useRef<HTMLInputElement>(null);
 
   const handleSendLater = (date: Date) => {
+    if (disabled || isSending || isScheduling) return;
     onSendLater(date.getTime());
     setOpen(false);
   };
@@ -75,7 +78,7 @@ export function SendLaterButton({
         size="sm"
         variant="default"
         className="rounded-r-none pr-3"
-        disabled={disabled || isSending}
+        disabled={disabled || isSending || isScheduling}
         onClick={onSend}
       >
         <IconSend className="h-3.5 w-3.5 mr-1.5" />
@@ -87,7 +90,7 @@ export function SendLaterButton({
             size="sm"
             variant="default"
             className="rounded-l-none border-l border-primary-foreground/20 px-1.5"
-            disabled={disabled}
+            disabled={disabled || isSending || isScheduling}
           >
             <IconChevronDown className="h-3.5 w-3.5" />
           </Button>
@@ -102,6 +105,7 @@ export function SendLaterButton({
                 <button
                   key={preset.labelKey}
                   onClick={() => handleSendLater(preset.date)}
+                  disabled={disabled || isSending || isScheduling}
                   className="w-full flex items-center justify-between text-left px-2.5 py-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors group"
                 >
                   <div className="text-sm font-medium">
@@ -117,6 +121,7 @@ export function SendLaterButton({
               <div className="relative">
                 <button
                   onClick={() => dateInputRef.current?.showPicker()}
+                  disabled={disabled || isSending || isScheduling}
                   className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-sm text-muted-foreground"
                 >
                   <IconCalendar className="h-4 w-4" />

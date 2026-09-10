@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
+import { runWithRequestContext } from "./request-context.js";
 
 describe("server captureError", () => {
   it("no-ops when no capture provider is registered", () => {
@@ -47,5 +48,19 @@ describe("server captureError", () => {
     expect(result).toBe("evt_ok");
     expect(throwing).toHaveBeenCalledTimes(1);
     expect(working).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not forward synthetic traffic to observability providers", () => {
+    const provider = vi.fn(() => "evt_test");
+    const unregister = registerErrorCaptureProvider("synthetic-test", provider);
+
+    const result = runWithRequestContext({ isSyntheticTraffic: true }, () =>
+      captureError(new Error("synthetic failure")),
+    );
+
+    unregister();
+
+    expect(result).toBeUndefined();
+    expect(provider).not.toHaveBeenCalled();
   });
 });

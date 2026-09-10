@@ -11,7 +11,13 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { createError, getHeader, setCookie, type H3Event } from "h3";
+import {
+  createError,
+  getHeader,
+  getRequestURL,
+  setCookie,
+  type H3Event,
+} from "h3";
 
 import { canonicalizeNfm } from "../../shared/nfm.js";
 
@@ -78,10 +84,10 @@ export class NotionApiError extends Error {
 }
 
 function getOrigin(event: H3Event): string {
-  const req = event.node?.req;
-  const host = req?.headers["x-forwarded-host"] || req?.headers.host;
-  const proto = req?.headers["x-forwarded-proto"] || "http";
-  return `${proto}://${host}`;
+  return getRequestURL(event, {
+    xForwardedHost: true,
+    xForwardedProto: true,
+  }).origin;
 }
 
 /**
@@ -348,15 +354,16 @@ export async function notionFetch<T>(
 ): Promise<T> {
   const MAX_RETRIES = 2;
   for (let attempt = 0; ; attempt++) {
+    const headers = new Headers({
+      Authorization: `Bearer ${accessToken}`,
+      "Notion-Version": NOTION_API_VERSION,
+      "Content-Type": "application/json",
+    });
+    new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
     const response = await fetch(`${NOTION_API_BASE}${path}`, {
       ...init,
       signal: init?.signal ?? AbortSignal.timeout(NOTION_FETCH_TIMEOUT_MS),
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Notion-Version": NOTION_API_VERSION,
-        "Content-Type": "application/json",
-        ...(init?.headers || {}),
-      },
+      headers,
     });
     if (response.status === 429 && attempt < MAX_RETRIES) {
       const rawRetryAfter = Number(response.headers.get("retry-after"));

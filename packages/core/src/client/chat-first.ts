@@ -881,16 +881,25 @@ function createChatFirstSurfaceTabsStore(
     },
     open: (tab) => {
       const existingIndex = activeIndex(tab.id);
+      const keepMainChatActive =
+        existingIndex < 0 &&
+        tab.kind === "app" &&
+        tab.placement === "side" &&
+        state.activeTabId === null &&
+        !state.tabs.some(
+          (current) => current.kind === "app" && current.placement === "side",
+        );
+      const nextActiveTabId = keepMainChatActive ? null : tab.id;
       if (existingIndex >= 0) {
         const tabs = state.tabs.map((current, index) =>
           index === existingIndex ? tab : current,
         );
-        publish({ tabs, activeTabId: tab.id });
+        publish({ tabs, activeTabId: nextActiveTabId });
         return;
       }
       publish({
         tabs: [...state.tabs, tab],
-        activeTabId: tab.id,
+        activeTabId: nextActiveTabId,
       });
     },
     activate: (tabId) => {

@@ -68,13 +68,11 @@ tous les autres catalogues afin que les utilisateurs ne téléchargent que le pa
 régional actif. Les codes de paramètres régionaux pris en charge sont `en-US`, `zh-CN`,
 `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN` et `ar-SA`.
 
-Cette liste est fixée par le framework. Ce n'est pas seulement ce que cet exemple
-regroupe par hasard. `LocaleCode` est une union TypeScript composée exactement de ces
-codes, et `set-localization-preference` rejette toute autre valeur au moment de
-l'exécution. Chaque paramètre régional a également besoin de métadonnées gérées par le
-framework, comme le sens d'écriture pour les langues s'écrivant de droite à gauche.
-Ajouter un nouveau paramètre régional implique d'étendre le framework lui-même, et non
-d'ajouter un fichier de catalogue à votre application.
+Le framework fournit des paramètres régionaux intégrés. Les applications
+peuvent enregistrer des paramètres régionaux BCP-47 canoniques supplémentaires
+avec leurs propres métadonnées, comme les noms natif et anglais et le sens du
+texte. Utilisez `coreMessageOverrides` pour les traductions facultatives
+du framework ; les clés manquantes reviennent à l'anglais.
 
 `createAgentNativeI18nCatalog` accepte également un paramètre facultatif
 `sourceLocale`, dont la valeur par défaut est `en-US`, ainsi qu'un tableau facultatif
@@ -83,7 +81,11 @@ traductions que pour une partie des paramètres régionaux du framework plutôt 
 les dix. Par défaut, il inclut tous les paramètres régionaux pris en charge par le
 framework. `LanguagePicker` n'affiche que les paramètres régionaux présents dans cet
 ensemble, et tout paramètre régional détecté ou demandé en dehors de celui-ci revient à
-`sourceLocale`.
+`sourceLocale`. Les paramètres régionaux enregistrés dans `locales` sont
+ajoutés à cette liste même lorsque `supportedLocales` limite les paramètres
+intégrés. `translations.locales` dans `agent-native.json` est une liste
+d'autorisation explicite de l'application et prend priorité sur l'inscription
+du catalogue.
 
 ## UI
 
@@ -113,7 +115,7 @@ Chaque application hérite de :
 - `get-localization-preference` — lit le `{ locale, timezone }` de l'utilisateur actuel
 - `set-localization-preference` — définit `locale` et/ou `timezone`, chacun optionnel
 
-`locale` vaut `"system"` ou un paramètre régional BCP-47 pris en charge. `timezone`
+`locale` vaut `"system"` ou un paramètre régional BCP-47 valide enregistré par l'application. `timezone`
 vaut `"system"` ou un fuseau IANA tel que `America/New_York`. Il existe afin que les
 tâches planifiées et les automatisations s'exécutent dans le fuseau de l'utilisateur
 plutôt que dans celui de l'hôte. Ne définir qu'un seul champ laisse l'autre inchangé,

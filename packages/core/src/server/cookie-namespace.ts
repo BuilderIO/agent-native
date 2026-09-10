@@ -19,6 +19,12 @@ export interface AuthCookieNamespace {
   isFirstPartyCookieDomain: boolean;
 }
 
+export function frameworkSessionHintCookieName(
+  sessionCookieName: string,
+): string {
+  return `${sessionCookieName}_hint`;
+}
+
 export function resolveAuthCookieNamespace(
   env: Record<string, string | undefined> = process.env,
   cwd = process.cwd(),

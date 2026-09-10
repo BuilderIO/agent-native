@@ -149,8 +149,8 @@ function installSidebarUrlChangeEvents(): void {
   };
   if (historyWithFlag[HISTORY_PATCHED_KEY]) return;
 
-  const pushState = window.history.pushState;
-  const replaceState = window.history.replaceState;
+  const pushState = window.history.pushState.bind(window.history);
+  const replaceState = window.history.replaceState.bind(window.history);
 
   window.history.pushState = function pushStateWithSidebarEvent(...args) {
     const result = pushState.apply(this, args);

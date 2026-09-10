@@ -37,7 +37,7 @@ export default function Presentation() {
     return () => {
       if (document.title === nextTitle) document.title = previousTitle;
     };
-  }, [deck?.title]);
+  }, [deck]);
 
   useEffect(() => {
     if (!id || loading || contextDeck) {

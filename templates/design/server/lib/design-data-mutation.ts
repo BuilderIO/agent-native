@@ -77,11 +77,11 @@ function conflictDelay(attempt: number): Promise<void> {
 function isRetryableTransactionConflict(error: unknown): boolean {
   const code =
     error && typeof error === "object" && "code" in error
-      ? String((error as { code?: unknown }).code ?? "")
+      ? typeof (error as { code?: unknown }).code === "string"
+        ? (error as { code: string }).code
+        : ""
       : "";
   return (
-    code === "SQLITE_BUSY" ||
-    code === "SQLITE_LOCKED" ||
     code === "40001" || // Postgres serialization failure
     code === "40P01" // Postgres deadlock detected
   );
@@ -122,20 +122,17 @@ interface MutateDesignDataOptions {
 /**
  * Atomically mutate the designs.data JSON record without losing sibling keys.
  *
- * The conditional UPDATE is portable Drizzle query-builder SQL (no RETURNING,
- * dialect-specific JSON operator, or driver result-shape assumption). The
- * read, compare-and-swap, and confirmation read live in one transaction. A
+ * The conditional UPDATE uses the Postgres Drizzle query builder. The read,
+ * compare-and-swap, and confirmation read live in one transaction. A
  * post-commit read then proves the requested intent survived before success is
  * reported. Explicit property deletion performed by `mutate` is preserved
  * because the complete transformed object is the CAS candidate.
  *
- * Isolation assumptions: local better-sqlite3 transactions use the framework's
- * BEGIN IMMEDIATE + top-level queue, so no sibling writer can enter between
- * the read and CAS. Postgres may let a sibling commit after the read, but its
+ * Isolation assumptions: local PGlite transactions use the framework's
+ * top-level queue, so no sibling writer can enter between the read and CAS.
+ * Postgres may let a sibling commit after the read, but its
  * conditional UPDATE is re-evaluated after the row-lock wait; the confirmation
- * read detects a lost CAS and triggers a retry. Other supported drivers get the
- * same guarded predicate plus confirmation/post-commit verification rather
- * than relying on a driver-specific affected-row result.
+ * read detects a lost CAS and triggers a retry.
  */
 async function mutateDesignDataUnlocked({
   designId,
@@ -191,7 +188,6 @@ async function mutateDesignDataUnlocked({
           .set({ data: nextSerialized, updatedAt })
           .where(and(...revisionConditions));
 
-        // Avoid driver-specific rowsAffected/rowCount/RETURNING contracts.
         // Inside the same transaction the row remains locked after a winning
         // UPDATE, so exact equality proves this CAS attempt wrote its candidate.
         const [confirmed] = await tx
@@ -241,7 +237,7 @@ export function mutateDesignData(
   options: MutateDesignDataOptions,
 ): Promise<{ data: DesignDataRecord; updatedAt: string }> {
   // Serialize same-process calls before entering a backend transaction. This
-  // avoids overlapping libSQL/SQLite transactions on one client; the CAS
+  // avoids overlapping PGlite transactions on one client; the CAS
   // remains necessary for multi-instance and cross-process writers.
   return withDesignDataLock(options.designId, () =>
     mutateDesignDataUnlocked(options),

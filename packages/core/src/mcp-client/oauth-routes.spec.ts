@@ -17,17 +17,63 @@ vi.mock("../server/credential-provider.js", () => ({
 
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
+  bindMcpOAuthAuthorizationScope,
   clearMcpOAuthFlowCookies,
   isValidMcpOAuthFlow,
   readMcpOAuthFlowCookie,
   redirectWithStagedCookies,
   resolveMcpOAuthStartError,
   resolveMcpOAuthScope,
+  resolveTrustedMcpOAuthAuthorizationScope,
   resolveManagedMcpOAuthClient,
+  resolveMcpOAuthReturnPath,
   setMcpOAuthFlowCookie,
   stripMcpOAuthAppBasePath,
   type McpOAuthFlow,
 } from "./oauth-routes.js";
+
+describe("trusted MCP OAuth authorization scopes", () => {
+  it("pins Builder Publish to its read-only scope", () => {
+    expect(
+      resolveTrustedMcpOAuthAuthorizationScope(
+        new URL("https://mcp.builder.io/mcp/publish"),
+      ),
+    ).toBe("mcp:publish:read");
+    expect(
+      resolveTrustedMcpOAuthAuthorizationScope(
+        new URL("https://mcp.builder.io/mcp/publish/"),
+      ),
+    ).toBe("mcp:publish:read");
+    expect(
+      resolveTrustedMcpOAuthAuthorizationScope(
+        new URL("https://mcp.builder.io/mcp/fusion"),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("requires Builder Publish connections to use organization scope", () => {
+    const serverUrl = new URL("https://mcp.builder.io/mcp/publish");
+
+    expect(resolveMcpOAuthScope(serverUrl, "user")).toBeNull();
+    expect(resolveMcpOAuthScope(serverUrl, undefined)).toBeNull();
+    expect(resolveMcpOAuthScope(serverUrl, "org")).toBe("org");
+  });
+
+  it("records the trusted read scope when the token response omits scope", () => {
+    const credentials = {
+      serverUrl: "https://mcp.builder.io/mcp/publish",
+      clientInformation: { client_id: "builder-client" },
+      tokens: { access_token: "builder-token" },
+    };
+
+    expect(
+      bindMcpOAuthAuthorizationScope(
+        { authorizationScope: "mcp:publish:read" },
+        credentials,
+      ).tokens.scope,
+    ).toBe("mcp:publish:read");
+  });
+});
 
 const baseFlow: McpOAuthFlow = {
   name: "linear",
@@ -44,6 +90,18 @@ const baseFlow: McpOAuthFlow = {
 };
 
 describe("MCP OAuth callback flow validation", () => {
+  it("returns to integrations when OAuth saved credentials do not connect", () => {
+    expect(resolveMcpOAuthReturnPath(false, { ...baseFlow })).toBe(
+      "/settings/integrations",
+    );
+    expect(
+      resolveMcpOAuthReturnPath(true, {
+        ...baseFlow,
+        returnUrl: "/chat?thread=meeting-actions",
+      }),
+    ).toBe("/chat?thread=meeting-actions");
+  });
+
   it("carries staged cookies on native redirects", () => {
     const event = {
       res: { headers: new Headers() },

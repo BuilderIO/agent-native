@@ -1,4 +1,7 @@
-import { captureClientException } from "@agent-native/core/client/analytics";
+import {
+  captureClientException,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
@@ -15,27 +18,37 @@ import {
   chunkUploadParallelism,
   chunkUploadUrl,
   pickMimeType,
+  UPLOAD_SLICE_BYTES,
   type UploadMode,
 } from "@shared/recording-core";
 import {
   IconAlertTriangle,
   IconArrowLeft,
   IconCamera,
+  IconCircleCheck,
   IconDeviceDesktop,
   IconDownload,
   IconExternalLink,
   IconMicrophone,
   IconRefresh,
-  IconVideo,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 
+import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import { useRecordingLeaveGuard } from "@/hooks/use-recording-leave-guard";
+import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import {
   fetchVideoStorageStatus,
   useVideoStorageStatus,
@@ -62,6 +75,7 @@ import {
   createCountdownAudioCue,
   type CountdownAudioCue,
 } from "@/lib/countdown-audio-cue";
+import { takePendingUploadFile } from "@/lib/pending-upload-file";
 import {
   loadRecorderPreferences,
   saveRecorderPreferences,
@@ -76,6 +90,8 @@ import {
   decideRecordingVisibilityAction,
   isMobileRecorderRuntime,
 } from "@/lib/recording-visibility";
+import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
+import { uploadChunkRequest } from "@/lib/upload-request";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -99,6 +115,10 @@ import {
   parseBugReportContext,
   type BugReportContext,
 } from "@shared/bug-report";
+import {
+  parseClipIntakeParams,
+  type ClipIntakeParams,
+} from "@shared/clip-intake";
 import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
@@ -132,6 +152,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function meta() {
   return [{ title: enMessages.recordRoute.pageTitle }];
@@ -201,9 +227,17 @@ function openUrlFromUserGesture(url: string): void {
   }
 }
 
-function bugReportDonePath(recordingId: string, context: BugReportContext) {
+function bugReportDonePath(
+  recordingId: string,
+  context: BugReportContext,
+  intake: ClipIntakeParams | null,
+) {
   const params = new URLSearchParams({ recordingId });
   if (context.returnUrl) params.set("returnUrl", context.returnUrl);
+  if (intake) {
+    params.set("clip_intake_id", intake.intakeId);
+    params.set("clip_intake", intake.token);
+  }
   return `/bug-report/done?${params.toString()}`;
 }
 
@@ -462,18 +496,6 @@ function getDisplaySurfaceParam(value: string | null): DisplaySurface | null {
   return null;
 }
 
-function getRecordingErrorTitle(
-  error: string,
-  t: ReturnType<typeof useT>,
-): string {
-  if (isUploadSizeError(error)) return t("recordRoute.videoTooLarge");
-  if (isUploadFailureError(error)) return t("recordRoute.uploadFailed");
-  if (isScreenPermissionError(error)) return "Screen recording needs access";
-  if (isCameraPermissionError(error)) return "Camera needs access";
-  if (isMicrophonePermissionError(error)) return "Microphone needs access";
-  return t("recordRoute.couldNotStartRecording");
-}
-
 function isUploadSizeError(error: string): boolean {
   return /too large to upload|too large for clips|limit is \d|file is too large|file size/i.test(
     error,
@@ -539,42 +561,88 @@ interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
   abortUrl: string;
+  resetChunksUrl?: string;
   uploadMode?: UploadMode;
+}
+
+const INTAKE_CREATE_RETRY_DELAYS_MS = [250, 500, 1_000, 2_000] as const;
+
+function isRetryableIntakeCreateStatus(status: number): boolean {
+  return [408, 409, 425, 429, 500, 502, 503, 504].includes(status);
+}
+
+async function createRecordingRequest(
+  url: string,
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const isIntakeRequest =
+    typeof body.intakeId === "string" && typeof body.intakeToken === "string";
+  const request = () =>
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+  for (let attempt = 0; ; attempt += 1) {
+    let response: Response;
+    try {
+      response = await request();
+    } catch (error) {
+      if (
+        !isIntakeRequest ||
+        signal?.aborted ||
+        attempt >= INTAKE_CREATE_RETRY_DELAYS_MS.length
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) =>
+        window.setTimeout(
+          resolve,
+          INTAKE_CREATE_RETRY_DELAYS_MS[attempt] ?? 2_000,
+        ),
+      );
+      continue;
+    }
+
+    if (
+      !isIntakeRequest ||
+      !isRetryableIntakeCreateStatus(response.status) ||
+      attempt >= INTAKE_CREATE_RETRY_DELAYS_MS.length
+    ) {
+      return response;
+    }
+
+    // A transient response can mean the server already claimed the one-use
+    // intake and is still attaching its recording. Retrying the same signed
+    // request lets the idempotent action recover the attached row.
+    await new Promise((resolve) =>
+      window.setTimeout(
+        resolve,
+        INTAKE_CREATE_RETRY_DELAYS_MS[attempt] ?? 2_000,
+      ),
+    );
+  }
 }
 
 function PreRecordPanelSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-border bg-muted/20 shadow-lg">
-      <div className="space-y-4 p-6">
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-3 w-64" />
-        </div>
-        <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
-          <Skeleton className="h-11 rounded-lg" />
-          <Skeleton className="h-11 rounded-lg" />
-          <Skeleton className="h-11 rounded-lg" />
-        </div>
+    <div
+      aria-busy="true"
+      className="mx-auto w-full max-w-[420px] overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+    >
+      <div className="flex justify-center px-4 pb-3 pt-4">
+        <Skeleton className="h-11 w-[240px] rounded-full" />
       </div>
-      <div className="space-y-0 border-t border-border">
-        <div className="flex items-center gap-3 px-6 py-4">
-          <Skeleton className="h-8 w-8 rounded-lg" />
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="h-3 w-36" />
-          </div>
-        </div>
-        <div className="flex items-center gap-3 border-t border-border px-6 py-4">
-          <Skeleton className="h-8 w-8 rounded-lg" />
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-3 w-48" />
-          </div>
-        </div>
+      <div className="grid gap-2 px-5 pb-4">
+        <Skeleton className="h-9 w-full rounded-lg" />
+        <Skeleton className="h-9 w-full rounded-lg" />
+        <Skeleton className="h-9 w-full rounded-lg" />
       </div>
-      <div className="space-y-3 border-t border-border p-6">
+      <div className="border-t border-border p-3">
         <Skeleton className="h-11 w-full rounded-md" />
-        <Skeleton className="mx-auto h-8 w-48 rounded-md" />
       </div>
     </div>
   );
@@ -583,23 +651,11 @@ function PreRecordPanelSkeleton() {
 function DesktopRecorderCallout() {
   const t = useT();
   return (
-    <aside className="w-full rounded-2xl border border-border bg-card p-4 shadow-lg">
-      <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <IconDeviceDesktop className="h-4 w-4" />
-        </div>
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground">
-            {t("recordRoute.betterInDesktop")}
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {t("recordRoute.desktopAppDescription")}
-          </p>
-        </div>
-      </div>
+    <aside className="flex justify-center">
       <CaptureInstallButton
         size="sm"
-        className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
+        variant="ghost"
+        className="h-8 text-xs font-normal text-muted-foreground hover:text-foreground"
         downloadedChildren={t("captureInstall.openDesktopApp")}
       >
         {t("recordRoute.downloadDesktopApp")}
@@ -608,7 +664,75 @@ function DesktopRecorderCallout() {
   );
 }
 
-function RecordingErrorCard({
+export function RecorderRouteStatus({
+  icon,
+  label,
+  busy = false,
+  progress,
+  role = "status",
+  children,
+}: {
+  icon?: ReactNode;
+  label: ReactNode;
+  busy?: boolean;
+  progress?: number | null;
+  role?: "status" | "alert";
+  children?: ReactNode;
+}) {
+  const normalizedProgress =
+    progress === null || progress === undefined
+      ? null
+      : Math.min(100, Math.max(0, Math.round(progress * 100)));
+
+  return (
+    <section className="w-full max-w-[420px] rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <div
+        role={role}
+        aria-live={role === "alert" ? "assertive" : "polite"}
+        aria-busy={busy || undefined}
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            {busy ? <Spinner className="size-4" /> : icon}
+          </div>
+          <div className="min-w-0 flex-1 text-sm font-medium text-foreground">
+            {label}
+          </div>
+        </div>
+        {normalizedProgress !== null && (
+          <div className="mt-4 flex items-center gap-3">
+            <div
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={normalizedProgress}
+              className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+            >
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
+                style={{ width: `${normalizedProgress}%` }}
+              />
+            </div>
+            <span className="w-9 text-end text-xs tabular-nums text-muted-foreground">
+              {normalizedProgress}%
+            </span>
+          </div>
+        )}
+      </div>
+      {children && <div className="mt-4">{children}</div>}
+    </section>
+  );
+}
+
+function RecorderRouteViewport({ children }: { children: ReactNode }) {
+  return (
+    <main className="flex min-h-[100dvh] w-full flex-col overflow-x-clip px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-20 sm:px-6 sm:py-10">
+      <div className="my-auto flex w-full justify-center">{children}</div>
+    </main>
+  );
+}
+
+export function RecordingErrorCard({
   error,
   mode,
   micDeviceId,
@@ -643,70 +767,83 @@ function RecordingErrorCard({
   const directUrl = directRecorderUrl();
   const friendlyMessage = friendlyRecordingErrorMessage(error);
   const showTechnicalDetails = friendlyMessage !== error;
+  const openDirectly = policyError || embeddedScreenError;
+  const downloadIsPrimary = canDownloadRecording && !canRetryUpload;
 
   return (
-    <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
-      <div className="border-b border-border p-6">
-        <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-foreground">
-          <IconAlertTriangle className="h-5 w-5" />
+    <section className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 text-start shadow-sm">
+      <div
+        role="alert"
+        aria-live="assertive"
+        className="flex items-start gap-3"
+      >
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+          <IconAlertTriangle className="size-4" />
         </div>
-        <h2 className="text-lg font-semibold text-foreground">
-          {getRecordingErrorTitle(error, t)}
-        </h2>
-        <p className="mt-2 break-words text-sm leading-relaxed text-muted-foreground">
+        <h2 className="min-w-0 flex-1 break-words pt-1.5 text-sm font-semibold leading-snug text-foreground">
           {friendlyMessage}
-        </p>
-        {showTechnicalDetails && (
-          <details className="mt-3 text-start text-xs text-muted-foreground">
-            <summary className="cursor-pointer font-medium text-foreground">
-              {t("recordRoute.technicalDetails")}
-            </summary>
-            <p className="mt-2 max-h-28 overflow-auto break-words rounded-lg border border-border bg-muted/40 p-2 leading-relaxed">
-              {error}
-            </p>
-          </details>
-        )}
+        </h2>
       </div>
 
       {guidance && (
-        <div className="border-b border-border bg-muted/25 px-6 py-4 text-start">
-          <div className="text-xs font-medium text-foreground">
+        <details className="mt-4 text-xs text-muted-foreground">
+          <summary className="cursor-pointer font-medium text-foreground">
             {t("recordRoute.whatToCheck")}
-          </div>
-          <p className="mt-1 break-words text-xs leading-relaxed text-muted-foreground">
-            {guidance}
-          </p>
-        </div>
+          </summary>
+          <p className="mt-2 break-words leading-relaxed">{guidance}</p>
+        </details>
       )}
 
-      <div className="space-y-3 p-6">
-        {/* Offer the download whenever local recording data survives, no matter
-            why the upload failed — the user should never lose their video. They
-            can re-import the saved file later via "Upload a video file". */}
-        {canDownloadRecording && (
-          <>
-            <Button onClick={onDownloadRecording} className="w-full gap-2">
-              <IconDownload className="h-4 w-4" />
-              {t("recordRoute.downloadRecording")}
-            </Button>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Your recording is safe on this device. Download it now and upload
-              the file later from the recorder if it still won&apos;t save.
-            </p>
-          </>
-        )}
-        <Button variant="outline" onClick={onTryAgain} className="w-full gap-2">
-          <IconRefresh className="h-4 w-4" />
-          {canRetryUpload ? "Retry upload" : "Try again"}
-        </Button>
-        {(policyError || embeddedScreenError) && (
+      {showTechnicalDetails && (
+        <details className="mt-3 text-xs text-muted-foreground">
+          <summary className="cursor-pointer font-medium text-foreground">
+            {t("recordRoute.technicalDetails")}
+          </summary>
+          <p className="mt-2 max-h-24 overflow-y-auto break-words rounded-lg border border-border bg-muted/40 p-2 leading-relaxed">
+            {error}
+          </p>
+        </details>
+      )}
+
+      <div className="mt-5 grid gap-2">
+        {openDirectly && (
           <Button
             type="button"
             onClick={() => openUrlFromUserGesture(directUrl)}
             className="w-full gap-2"
           >
-            <IconExternalLink className="h-4 w-4" />
+            <IconExternalLink className="size-4" />
             {t("recordRoute.openRecorderInTab")}
+          </Button>
+        )}
+        {!openDirectly && !downloadIsPrimary && (
+          <Button onClick={onTryAgain} className="w-full gap-2">
+            <IconRefresh className="size-4" />
+            {canRetryUpload
+              ? t("recordRoute.retryUpload")
+              : t("recordRoute.tryAgain")}
+          </Button>
+        )}
+        {canDownloadRecording && (
+          <Button
+            variant={downloadIsPrimary ? "default" : "outline"}
+            onClick={onDownloadRecording}
+            className="w-full gap-2"
+          >
+            <IconDownload className="size-4" />
+            {t("recordRoute.downloadRecording")}
+          </Button>
+        )}
+        {(openDirectly || downloadIsPrimary) && (
+          <Button
+            variant="outline"
+            onClick={onTryAgain}
+            className="w-full gap-2"
+          >
+            <IconRefresh className="h-4 w-4" />
+            {canRetryUpload
+              ? t("recordRoute.retryUpload")
+              : t("recordRoute.tryAgain")}
           </Button>
         )}
         {permissionError &&
@@ -715,12 +852,12 @@ function RecordingErrorCard({
           settings.length > 0 && (
             <div
               className={cn(
-                "grid gap-2",
-                settings.length === 1
-                  ? "grid-cols-1"
-                  : settings.length === 2
-                    ? "grid-cols-2"
-                    : "grid-cols-3",
+                "grid grid-cols-1 gap-2",
+                settings.length === 2
+                  ? "sm:grid-cols-2"
+                  : settings.length === 3
+                    ? "sm:grid-cols-3"
+                    : undefined,
               )}
             >
               {settings.includes("screen") && (
@@ -730,7 +867,7 @@ function RecordingErrorCard({
                   onClick={() => {
                     openUrlFromUserGesture(MAC_SCREEN_RECORDING_PREF_URL);
                   }}
-                  className="gap-1.5 px-2 text-xs"
+                  className="w-full gap-1.5 px-2 text-xs"
                 >
                   <IconDeviceDesktop className="h-3.5 w-3.5" />
                   Screen
@@ -743,7 +880,7 @@ function RecordingErrorCard({
                   onClick={() => {
                     openUrlFromUserGesture(MAC_CAMERA_PREF_URL);
                   }}
-                  className="gap-1.5 px-2 text-xs"
+                  className="w-full gap-1.5 px-2 text-xs"
                 >
                   <IconCamera className="h-3.5 w-3.5" />
                   Camera
@@ -756,7 +893,7 @@ function RecordingErrorCard({
                   onClick={() => {
                     openUrlFromUserGesture(MAC_MICROPHONE_PREF_URL);
                   }}
-                  className="gap-1.5 px-2 text-xs"
+                  className="w-full gap-1.5 px-2 text-xs"
                 >
                   <IconMicrophone className="h-3.5 w-3.5" />
                   Mic
@@ -765,7 +902,7 @@ function RecordingErrorCard({
             </div>
           )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -773,6 +910,13 @@ export default function RecordRoute() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  const {
+    dismiss: dismissUploadToast,
+    error: failUploadToast,
+    info: infoUploadToast,
+    start: startUploadToast,
+    success: completeUploadToast,
+  } = useSonnerLifecycleToast();
   // A clipboard write can be refused (insecure origin, unfocused document, no
   // transient activation). Never let the success toast imply the link was
   // copied when it wasn't — offer a click instead, which restores the user
@@ -780,10 +924,12 @@ export default function RecordRoute() {
   const showSavedToast = useCallback(
     (message: string, copied: boolean, recordingId: string) => {
       if (copied) {
-        toast.success(message, { description: t("recordRoute.linkCopied") });
+        completeUploadToast(message, {
+          description: t("recordRoute.linkCopied"),
+        });
         return;
       }
-      toast.success(message, {
+      completeUploadToast(message, {
         action: {
           label: t("recordRoute.copyLinkAction"),
           onClick: () => {
@@ -792,13 +938,14 @@ export default function RecordRoute() {
         },
       });
     },
-    [t],
+    [completeUploadToast, t],
   );
   const [uiState, setUiState] = useState<UiState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const visibilityAutoPausedRef = useRef(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const playheadConfirmOpenRef = useRef(false);
   // Tracks whether opening the discard-confirm dialog paused the recording
   // itself (vs. the user having already paused) — so "Resume" only resumes
   // when we're the ones who paused it, and the dialog never gets captured in
@@ -836,7 +983,11 @@ export default function RecordRoute() {
 
   const queryClient = useQueryClient();
   const { isDesktopApp } = useDesktopPromo();
-  const storageQuery = useVideoStorageStatus();
+  const clipIntake = useMemo(
+    () => parseClipIntakeParams(new URLSearchParams(location.search)),
+    [location.search],
+  );
+  const storageQuery = useVideoStorageStatus(!clipIntake);
 
   // When the user clicks "Record for this space/folder", the empty-state CTA
   // appends ?spaceId or ?folderId so the new recording lands there.
@@ -848,20 +999,6 @@ export default function RecordRoute() {
     const params = new URLSearchParams(location.search);
     return params.get("folderId") || null;
   }, [location.search]);
-  const autoOpenUploadFromUrl = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    return params.get("autoUpload") === "1";
-  }, [location.search]);
-  const importLoomHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (spaceIdFromUrl) params.set("spaceId", spaceIdFromUrl);
-    if (folderIdFromUrl) params.set("folderId", folderIdFromUrl);
-    const qs = params.toString();
-    return qs ? `/import?${qs}` : "/import";
-  }, [spaceIdFromUrl, folderIdFromUrl]);
-  const storageConfigured: boolean | null = storageQuery.isLoading
-    ? null
-    : !!storageQuery.data?.configured;
   const initialRecorderOptions = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const mode = params.get("mode");
@@ -888,6 +1025,15 @@ export default function RecordRoute() {
     () => parseBugReportContext(new URLSearchParams(location.search)),
     [location.search],
   );
+  const clipIntakeRef = useRef<ClipIntakeParams | null>(null);
+  useEffect(() => {
+    clipIntakeRef.current = clipIntake;
+  }, [clipIntake]);
+  const storageConfigured: boolean | null = clipIntake
+    ? true
+    : storageQuery.isLoading
+      ? null
+      : !!storageQuery.data?.configured;
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
       queryClient.setQueryData<VideoStorageStatus>(
@@ -961,9 +1107,11 @@ export default function RecordRoute() {
   // that upload, so doCancel() can trash it directly — createdId otherwise
   // only lives in uploadFile's own closure and never reaches pendingRef.
   const fileUploadRecordingIdRef = useRef<string | null>(null);
+  const fileUploadAbortUrlRef = useRef<string | null>(null);
   const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
+  const restartInFlightRef = useRef<Promise<void> | null>(null);
 
   // Elapsed-time display now ticks inside RecordingToolbar itself (via
   // `active` + `getElapsedMs`) so the ~4x/sec poll doesn't re-render this
@@ -991,25 +1139,25 @@ export default function RecordRoute() {
         ? null
         : permissionSettingsUrl(message, pendingOpts?.mode);
       const friendlyMessage = friendlyRecordingErrorMessage(message);
-      toast.error(
-        uploadFailure
-          ? t("recordRoute.uploadFailed")
-          : t("recordRoute.couldNotStartRecording"),
-        {
-          description: guidance ?? friendlyMessage,
-          duration: guidance ? 20_000 : 10_000,
-          action: settingsUrl
-            ? {
-                label: t("recordRoute.openSettings"),
-                onClick: () => {
-                  openUrlFromUserGesture(settingsUrl);
-                },
-              }
-            : undefined,
-        },
-      );
+      const options = {
+        description: guidance ?? friendlyMessage,
+        duration: guidance ? 20_000 : 10_000,
+        action: settingsUrl
+          ? {
+              label: t("recordRoute.openSettings"),
+              onClick: () => {
+                openUrlFromUserGesture(settingsUrl);
+              },
+            }
+          : undefined,
+      };
+      if (uploadFailure) {
+        failUploadToast(t("recordRoute.uploadFailed"), options);
+      } else {
+        toast.error(t("recordRoute.couldNotStartRecording"), options);
+      }
     },
-    [t],
+    [failUploadToast, t],
   );
 
   // -------------------------------------------------------------------------
@@ -1183,17 +1331,25 @@ export default function RecordRoute() {
           liveTranscription.start();
         }
 
-        const status = await fetchVideoStorageStatus();
-        if (isStale()) {
-          await liveTranscription.stopAndWait().catch(() => "");
-          await engine.cancel().catch(() => {});
-          return;
-        }
-        markStorageConfigured(status);
-        if (!status.configured) {
-          throw new Error(
-            "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
-          );
+        const intake = clipIntakeRef.current;
+        if (!intake) {
+          const status = await fetchVideoStorageStatus();
+          if (isStale()) {
+            try {
+              await liveTranscription.stopAndWait();
+              // coercion-ok: stale recording cleanup intentionally ignores stop failure.
+            } catch {
+              // The recording is already stale; cleanup failure cannot change the outcome.
+            }
+            await engine.cancel().catch(() => {});
+            return;
+          }
+          markStorageConfigured(status);
+          if (!status.configured) {
+            throw new Error(
+              "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
+            );
+          }
         }
 
         // 2. Create the recording row server-side once permissions are granted.
@@ -1201,25 +1357,33 @@ export default function RecordRoute() {
         const reportTitle = reportContext
           ? `Bug report: ${bugReportTitle(reportContext)}`
           : null;
-        const res = await fetch(
-          agentNativePath("/_agent-native/actions/create-recording"),
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              title: reportTitle ?? captureTitle.title,
-              titleSource: reportTitle ? "context" : captureTitle.titleSource,
-              sourceAppName: captureTitle.sourceAppName,
-              sourceWindowTitle: captureTitle.sourceWindowTitle,
-              hasCamera: opts.mode !== "screen",
-              hasAudio: wantsMic,
-              visibility: reportContext ? "org" : undefined,
-              spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
-              folderId: folderIdFromUrl ?? undefined,
-              mimeType: pickMimeType() || undefined,
-              requestStreaming: canUseTimeslicedRecorderChunks(pickMimeType()),
-            }),
-          },
+        const recordingPayload = {
+          title: reportTitle ?? captureTitle.title,
+          titleSource: reportTitle ? "context" : captureTitle.titleSource,
+          sourceAppName: captureTitle.sourceAppName,
+          sourceWindowTitle: captureTitle.sourceWindowTitle,
+          hasCamera: opts.mode !== "screen",
+          hasAudio: wantsMic,
+          visibility: reportContext ? "org" : undefined,
+          spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
+          folderId: folderIdFromUrl ?? undefined,
+          mimeType: pickMimeType() || undefined,
+          requestStreaming: canUseTimeslicedRecorderChunks(pickMimeType()),
+        };
+        const res = await createRecordingRequest(
+          agentNativePath(
+            intake
+              ? "/_agent-native/actions/create-intake-recording"
+              : "/_agent-native/actions/create-recording",
+          ),
+          intake
+            ? {
+                ...recordingPayload,
+                intakeId: intake.intakeId,
+                intakeToken: intake.token,
+                bugReport: reportContext ?? undefined,
+              }
+            : recordingPayload,
         );
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) {
@@ -1237,11 +1401,13 @@ export default function RecordRoute() {
             id: string;
             uploadChunkUrl: string;
             abortUrl: string;
+            resetChunksUrl?: string;
             uploadMode?: UploadMode;
           };
           id?: string;
           uploadChunkUrl?: string;
           abortUrl?: string;
+          resetChunksUrl?: string;
           uploadMode?: UploadMode;
         };
         const info = created.result ?? (created as PendingRecording);
@@ -1251,11 +1417,18 @@ export default function RecordRoute() {
         // Cancelled mid-POST: pendingRef is still null, so trash directly.
         if (isStale()) {
           await liveTranscription.stopAndWait().catch(() => "");
-          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: info.id }),
-          }).catch(() => {});
+          if (intake) {
+            fetch(`${appBasePath()}${info.abortUrl}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+            }).catch(() => {});
+          } else {
+            fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: info.id }),
+            }).catch(() => {});
+          }
           await engine.cancel().catch(() => {});
           return;
         }
@@ -1270,9 +1443,12 @@ export default function RecordRoute() {
           recordingId: info.id,
           uploadUrl: uploadChunkUrl,
           abortUrl,
+          resetUrl: info.resetChunksUrl
+            ? `${appBasePath()}${info.resetChunksUrl}`
+            : undefined,
           uploadMode: info.uploadMode,
         });
-        await saveBugReportContextRef.current(info.id);
+        if (!intake) await saveBugReportContextRef.current(info.id);
 
         setPreviewStream(ps);
         setCameraStream(cs);
@@ -1292,11 +1468,19 @@ export default function RecordRoute() {
         // record attempts.
         const orphan = pendingRef.current;
         if (orphan?.id) {
-          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: orphan.id }),
-          }).catch(() => {});
+          const intake = clipIntakeRef.current;
+          if (intake) {
+            fetch(orphan.abortUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+            }).catch(() => {});
+          } else {
+            fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: orphan.id }),
+            }).catch(() => {});
+          }
         }
         // Release any tracks the engine grabbed before failing.
         try {
@@ -1333,7 +1517,6 @@ export default function RecordRoute() {
   // Netlify's effective binary function payload limit. Mirrors the recorder's
   // upload pipeline so finalize-recording handles it identically.
   // -------------------------------------------------------------------------
-  const UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024;
   const UPLOAD_PARALLELISM = 4;
 
   const probeVideoMetadata = useCallback(
@@ -1391,6 +1574,7 @@ export default function RecordRoute() {
       setUiState("uploading");
       setCompressionProgress(null);
       setUploadProgress(null);
+      startUploadToast(t("recordRoute.savingRecording"));
 
       const acceptedMime = new Set([
         "video/mp4",
@@ -1415,7 +1599,7 @@ export default function RecordRoute() {
         }
         setError(message);
         setUiState("error");
-        toast.error(message);
+        failUploadToast(message);
         return;
       }
 
@@ -1431,19 +1615,22 @@ export default function RecordRoute() {
         }
         setError(message);
         setUiState("error");
-        toast.error(message);
+        failUploadToast(message);
         return;
       }
 
       let createdId: string | null = null;
       try {
-        const status = await fetchVideoStorageStatus();
-        if (isStale()) return;
-        markStorageConfigured(status);
-        if (!status.configured) {
-          throw new Error(
-            "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
-          );
+        const intake = clipIntakeRef.current;
+        if (!intake) {
+          const status = await fetchVideoStorageStatus();
+          if (isStale()) return;
+          markStorageConfigured(status);
+          if (!status.configured) {
+            throw new Error(
+              "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
+            );
+          }
         }
 
         const meta = await probeVideoMetadata(file);
@@ -1460,6 +1647,7 @@ export default function RecordRoute() {
 
         if (COMPRESSION_ENABLED && file.size > COMPRESS_THRESHOLD_BYTES) {
           setUiState("compressing");
+          startUploadToast(t("recordRoute.largeClipsNeedReencode"));
           const compression = await compressBlobIfTooLarge(file, mimeType, {
             width: meta.width,
             height: meta.height,
@@ -1516,33 +1704,42 @@ export default function RecordRoute() {
           );
         }
         setUiState("uploading");
+        startUploadToast(t("recordRoute.savingRecording"));
         const reportContext = bugReportContextRef.current;
         const reportTitle = reportContext
           ? `Bug report: ${bugReportTitle(reportContext)}`
           : null;
+        const recordingPayload = {
+          title:
+            reportTitle ??
+            (file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle()),
+          titleSource: reportTitle ? "context" : "upload",
+          hasCamera: false,
+          hasAudio: true,
+          width: meta.width,
+          height: meta.height,
+          visibility: reportContext ? "org" : undefined,
+          spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
+          folderId: folderIdFromUrl ?? undefined,
+          mimeType: uploadMimeType,
+          requestStreaming: true,
+        };
 
-        const res = await fetch(
-          agentNativePath("/_agent-native/actions/create-recording"),
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            signal: abort.signal,
-            body: JSON.stringify({
-              title:
-                reportTitle ??
-                (file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle()),
-              titleSource: reportTitle ? "context" : "upload",
-              hasCamera: false,
-              hasAudio: true,
-              width: meta.width,
-              height: meta.height,
-              visibility: reportContext ? "org" : undefined,
-              spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
-              folderId: folderIdFromUrl ?? undefined,
-              mimeType: uploadMimeType,
-              requestStreaming: true,
-            }),
-          },
+        const res = await createRecordingRequest(
+          agentNativePath(
+            intake
+              ? "/_agent-native/actions/create-intake-recording"
+              : "/_agent-native/actions/create-recording",
+          ),
+          intake
+            ? {
+                ...recordingPayload,
+                intakeId: intake.intakeId,
+                intakeToken: intake.token,
+                bugReport: reportContext ?? undefined,
+              }
+            : recordingPayload,
+          abort.signal,
         );
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) {
@@ -1560,11 +1757,13 @@ export default function RecordRoute() {
             id: string;
             uploadChunkUrl: string;
             abortUrl?: string;
+            resetChunksUrl?: string;
             uploadMode?: UploadMode;
           };
           id?: string;
           uploadChunkUrl?: string;
           abortUrl?: string;
+          resetChunksUrl?: string;
           uploadMode?: UploadMode;
         };
         const info =
@@ -1580,18 +1779,31 @@ export default function RecordRoute() {
         }
         createdId = info.id;
         fileUploadRecordingIdRef.current = createdId;
-        await saveBugReportContextRef.current(info.id);
+        fileUploadAbortUrlRef.current =
+          intake && info.abortUrl ? `${appBasePath()}${info.abortUrl}` : null;
+        if (!intake) await saveBugReportContextRef.current(info.id);
+        if (isStale()) throw makeAbortError("Upload cancelled");
+        if (!intake) {
+          void uploadVideoBlobThumbnail(createdId, uploadBlob, {
+            signal: abort.signal,
+          }).catch((err) => {
+            console.warn("[recorder] local-file thumbnail upload skipped", {
+              recordingId: createdId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
         if (isStale()) throw makeAbortError("Upload cancelled");
         const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
 
         const totalChunks = Math.max(
           1,
-          Math.ceil(uploadBlob.size / UPLOAD_CHUNK_BYTES),
+          Math.ceil(uploadBlob.size / UPLOAD_SLICE_BYTES),
         );
 
         const chunkDescs = Array.from({ length: totalChunks }, (_, i) => {
-          const start = i * UPLOAD_CHUNK_BYTES;
-          const end = Math.min(start + UPLOAD_CHUNK_BYTES, uploadBlob.size);
+          const start = i * UPLOAD_SLICE_BYTES;
+          const end = Math.min(start + UPLOAD_SLICE_BYTES, uploadBlob.size);
           const isFinal = i === totalChunks - 1;
           return {
             index: i,
@@ -1637,9 +1849,9 @@ export default function RecordRoute() {
 
             let chunkRes: Response;
             try {
-              chunkRes = await fetch(url, {
-                method: "POST",
-                headers: { "Content-Type": uploadMimeType },
+              chunkRes = await uploadChunkRequest({
+                url,
+                contentType: uploadMimeType,
                 body: await slice.arrayBuffer(),
                 signal: chunkAbort.signal,
               });
@@ -1697,9 +1909,9 @@ export default function RecordRoute() {
         const { index, slice, url } = finalChunkDesc;
         let chunkRes: Response | null = null;
         try {
-          chunkRes = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": uploadMimeType },
+          chunkRes = await uploadChunkRequest({
+            url,
+            contentType: uploadMimeType,
             body: await slice.arrayBuffer(),
             signal: abort.signal,
           });
@@ -1768,7 +1980,7 @@ export default function RecordRoute() {
           finalChunk.result?.waitingForStorage === true ||
           finalChunk.result?.status === "waiting_storage";
         if (waitingForStorage) {
-          toast.info(t("recordRoute.videoReadyToUpload"), {
+          infoUploadToast(t("recordRoute.videoReadyToUpload"), {
             description: t("recordRoute.connectStorageToFinish"),
             duration: 12_000,
           });
@@ -1779,17 +1991,21 @@ export default function RecordRoute() {
             createdId,
           );
         } else {
-          toast.success(t("recordRoute.videoUploaded"));
+          completeUploadToast(t("recordRoute.videoUploaded"));
         }
         if (reportContext && createdId) {
-          const path = bugReportDonePath(createdId, reportContext);
+          const path = bugReportDonePath(
+            createdId,
+            reportContext,
+            clipIntakeRef.current,
+          );
           await writeAppState(`navigate:${getBrowserTabId()}`, {
             view: "bug-report-done",
             recordingId: createdId,
             path,
           });
           setTimeout(() => {
-            navigate(path);
+            void navigate(path);
           }, 50);
         } else {
           await writeAppState(`navigate:${getBrowserTabId()}`, {
@@ -1797,7 +2013,7 @@ export default function RecordRoute() {
             recordingId: createdId,
           });
           setTimeout(() => {
-            if (createdId) navigate(`/r/${createdId}`);
+            if (createdId) void navigate(`/r/${createdId}`);
           }, 50);
         }
       } catch (err) {
@@ -1813,17 +2029,21 @@ export default function RecordRoute() {
         const preserveBufferedChunks =
           isStoredButUnservableFinalizeError(message);
         if (createdId && !serverRejectedTooLarge && !preserveBufferedChunks) {
-          fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ reason: message }),
-          }).catch(() => {});
+          fetch(
+            fileUploadAbortUrlRef.current ??
+              `${appBasePath()}/api/uploads/${createdId}/abort`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ reason: message }),
+            },
+          ).catch(() => {});
         }
         if (aborted || isStale()) return;
         setError(message);
         setUiState("error");
         if (message !== "SESSION_EXPIRED") {
-          toast.error(
+          failUploadToast(
             isUploadSizeError(message)
               ? t("recordRoute.videoTooLarge")
               : t("recordRoute.uploadFailed"),
@@ -1841,13 +2061,30 @@ export default function RecordRoute() {
         }
         if (fileUploadRecordingIdRef.current === createdId) {
           fileUploadRecordingIdRef.current = null;
+          fileUploadAbortUrlRef.current = null;
         }
         setCompressionProgress(null);
         setUploadProgress(null);
       }
     },
-    [markStorageConfigured, navigate, probeVideoMetadata, showSavedToast],
+    [
+      completeUploadToast,
+      failUploadToast,
+      infoUploadToast,
+      markStorageConfigured,
+      navigate,
+      probeVideoMetadata,
+      showSavedToast,
+      startUploadToast,
+      t,
+    ],
   );
+
+  useEffect(() => {
+    if (storageConfigured !== true || uiState !== "idle") return;
+    const file = takePendingUploadFile();
+    if (file) void uploadFile(file);
+  }, [storageConfigured, uiState, uploadFile]);
 
   const saveBrowserDiagnostics = useCallback(
     async (recordingId: string) => {
@@ -1857,17 +2094,29 @@ export default function RecordRoute() {
         capture?.dispose();
         return;
       }
-      const localSnapshot = capture?.stop() ?? null;
-      const extensionResponse = extensionCapture
-        ? await sendClipsExtensionMessage<ClipsExtensionDiagnosticsResponse>(
-            extensionCapture.extensionId,
-            {
-              type: "CLIPS_CAPTURE_STOP",
-              sessionId: extensionCapture.sessionId,
-              recordingId,
-            },
-          )
-        : null;
+      let localSnapshot: BrowserDiagnosticsData | null = null;
+      try {
+        localSnapshot = capture?.stop() ?? null;
+      } catch (err) {
+        capture?.dispose();
+        console.warn("[recorder] browser diagnostics stop failed:", err);
+      }
+      let extensionResponse: ClipsExtensionDiagnosticsResponse | null = null;
+      if (extensionCapture) {
+        try {
+          extensionResponse =
+            await sendClipsExtensionMessage<ClipsExtensionDiagnosticsResponse>(
+              extensionCapture.extensionId,
+              {
+                type: "CLIPS_CAPTURE_STOP",
+                sessionId: extensionCapture.sessionId,
+                recordingId,
+              },
+            );
+        } catch (err) {
+          console.warn("[recorder] extension diagnostics stop failed:", err);
+        }
+      }
       const extensionSnapshot =
         extensionResponse?.ok && extensionResponse.diagnostics
           ? extensionResponse.diagnostics
@@ -1904,6 +2153,12 @@ export default function RecordRoute() {
     if (!engine) return;
     try {
       await engine.start();
+      trackEvent("app.first_action", {
+        action: "recording_start",
+        surface: "recorder",
+        resource_type: "recording",
+        resource_id: pendingRef.current?.id,
+      });
       countdownAudioCueRef.current?.cleanup();
       countdownAudioCueRef.current = null;
       browserDiagnosticsRef.current?.dispose();
@@ -1964,12 +2219,12 @@ export default function RecordRoute() {
       setUiState("complete");
       const reportContext = bugReportContextRef.current;
       if (result.waitingForStorage) {
-        toast.info(t("recordRoute.recordingReadyToUpload"), {
+        infoUploadToast(t("recordRoute.recordingReadyToUpload"), {
           description: t("recordRoute.connectStorageToFinish"),
           duration: 12_000,
         });
       } else if (reportContext) {
-        toast.success(t("recordRoute.recordingSaved"));
+        completeUploadToast(t("recordRoute.recordingSaved"));
       } else {
         showSavedToast(
           t("recordRoute.recordingSaved"),
@@ -1979,14 +2234,18 @@ export default function RecordRoute() {
       }
 
       if (reportContext) {
-        const path = bugReportDonePath(recordingId, reportContext);
+        const path = bugReportDonePath(
+          recordingId,
+          reportContext,
+          clipIntakeRef.current,
+        );
         await writeAppState(`navigate:${getBrowserTabId()}`, {
           view: "bug-report-done",
           recordingId,
           path,
         }).catch(() => {});
         setTimeout(() => {
-          navigate(path);
+          void navigate(path);
         }, 50);
         return;
       }
@@ -1996,10 +2255,10 @@ export default function RecordRoute() {
         recordingId,
       }).catch(() => {});
       setTimeout(() => {
-        navigate(`/r/${recordingId}`);
+        void navigate(`/r/${recordingId}`);
       }, 50);
     },
-    [navigate, showSavedToast],
+    [completeUploadToast, infoUploadToast, navigate, showSavedToast, t],
   );
 
   const doStop = useCallback(async () => {
@@ -2017,6 +2276,12 @@ export default function RecordRoute() {
       return;
     }
     setUiState("uploading");
+    startUploadToast(t("recordRoute.savingRecording"));
+    // End diagnostics at the stop gesture. Transcript writes and media
+    // finalization can outlive the recording and must not extend this window.
+    const diagnosticsSave = saveBrowserDiagnostics(pending.id).catch((err) => {
+      console.warn("[recorder] browser diagnostics save failed:", err);
+    });
     try {
       // Stop live transcription and save the native web transcript before the
       // engine finalizes. This gives the recording an instant transcript
@@ -2077,14 +2342,13 @@ export default function RecordRoute() {
       }
 
       const stopResult = await engine.stop();
-      // The recording is durable here; saveBrowserDiagnostics is one more
-      // round trip. Start the clipboard write first so it isn't pushed even
-      // further from the stop gesture that authorized it.
+      // Start the clipboard write once the recording is durable so it isn't
+      // pushed further from the stop gesture that authorized it.
       const pendingCopy =
         stopResult.waitingForStorage || bugReportContextRef.current
           ? undefined
           : copyRecordingShareLink(pending.id).catch(() => false);
-      await saveBrowserDiagnostics(pending.id);
+      await diagnosticsSave;
       await finishSavedRecording(pending.id, stopResult, pendingCopy);
     } catch (err) {
       const message =
@@ -2109,7 +2373,7 @@ export default function RecordRoute() {
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
-      await saveBrowserDiagnostics(pending.id);
+      await diagnosticsSave;
       if (!isStoredButUnservableFinalizeError(message)) {
         fetch(pending.abortUrl, {
           method: "POST",
@@ -2119,12 +2383,19 @@ export default function RecordRoute() {
       }
       setError(message);
       setUiState("error");
-      toast.error(t("recordRoute.uploadFailed"), {
+      failUploadToast(t("recordRoute.uploadFailed"), {
         description: message,
         duration: 12_000,
       });
     }
-  }, [finishSavedRecording, liveTranscription, saveBrowserDiagnostics]);
+  }, [
+    failUploadToast,
+    finishSavedRecording,
+    liveTranscription,
+    saveBrowserDiagnostics,
+    startUploadToast,
+    t,
+  ]);
 
   // Keep the ref current so engine callbacks always invoke the latest doStop.
   doStopRef.current = doStop;
@@ -2138,6 +2409,7 @@ export default function RecordRoute() {
     setCompressionProgress(null);
     setUploadProgress(null);
     setUiState("uploading");
+    startUploadToast(t("recordRoute.savingRecording"));
     try {
       const retryResult = await engine.retryUpload();
       await finishSavedRecording(pending.id, retryResult);
@@ -2158,12 +2430,12 @@ export default function RecordRoute() {
       setUploadProgress(null);
       setError(message);
       setUiState("error");
-      toast.error(t("recordRoute.uploadFailed"), {
+      failUploadToast(t("recordRoute.uploadFailed"), {
         description: message,
         duration: 12_000,
       });
     }
-  }, [finishSavedRecording]);
+  }, [failUploadToast, finishSavedRecording, startUploadToast, t]);
 
   const downloadBufferedRecording = useCallback(() => {
     const download = engineRef.current?.getBufferedRecordingDownload();
@@ -2185,17 +2457,23 @@ export default function RecordRoute() {
 
   const doCancel = useCallback(async () => {
     // Invalidate any in-flight startFlow().
+    dismissUploadToast();
     startSessionRef.current += 1;
     countdownAudioCueRef.current?.cleanup();
     countdownAudioCueRef.current = null;
     const uploadRecordingId = fileUploadRecordingIdRef.current;
+    const uploadAbortUrl = fileUploadAbortUrlRef.current;
     if (fileUploadAbortRef.current) {
       fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
       fileUploadAbortRef.current = null;
     }
     fileUploadRecordingIdRef.current = null;
+    fileUploadAbortUrlRef.current = null;
     const engine = engineRef.current;
     const pendingId = pendingRef.current?.id;
+    const pendingAbortUrl = pendingRef.current?.abortUrl;
+    engineRef.current = null;
+    pendingRef.current = null;
     liveTranscription.stop();
     browserDiagnosticsRef.current?.dispose();
     browserDiagnosticsRef.current = null;
@@ -2219,11 +2497,18 @@ export default function RecordRoute() {
       // atomically instead: `skipIfReady` makes the trash a conditional
       // no-op if the row is already "ready" by the time the UPDATE runs, so a
       // fully saved video is never silently discarded.
-      fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: pendingId, skipIfReady: true }),
-      }).catch(() => {});
+      if (pendingAbortUrl && clipIntakeRef.current) {
+        fetch(pendingAbortUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }).catch(() => {});
+      } else {
+        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: pendingId, skipIfReady: true }),
+        }).catch(() => {});
+      }
     }
     if (uploadRecordingId) {
       // A local file import (as opposed to a live recording) never
@@ -2231,20 +2516,25 @@ export default function RecordRoute() {
       // closure. Without this, discarding mid-upload aborts the transfer
       // but leaves the row merely marked "failed" instead of trashed, which
       // contradicts the confirmation dialog's "permanently deleted" copy.
-      fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
-      }).catch(() => {});
+      if (uploadAbortUrl) {
+        fetch(uploadAbortUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }).catch(() => {});
+      } else {
+        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
+        }).catch(() => {});
+      }
     }
     setCameraStream(null);
     setPreviewStream(null);
     setIsPaused(false);
     setUiState("idle");
     setUploadProgress(null);
-    pendingRef.current = null;
-    engineRef.current = null;
-  }, [extensionCapture, liveTranscription]);
+  }, [dismissUploadToast, extensionCapture, liveTranscription]);
 
   const playCountdownAudioCue = useCallback(() => {
     void countdownAudioCueRef.current?.play();
@@ -2371,13 +2661,68 @@ export default function RecordRoute() {
     };
   }, [cameraStream, liveTranscription, recordingMode]);
 
-  const restart = useCallback(async () => {
-    await doCancel();
-    const opts = pendingStartOptsRef.current;
-    if (opts) {
-      await startFlow(opts);
-    }
+  const restart = useCallback(() => {
+    if (restartInFlightRef.current) return restartInFlightRef.current;
+    const run = (async () => {
+      await doCancel();
+      const opts = pendingStartOptsRef.current;
+      if (opts) {
+        await startFlow(opts);
+      }
+    })();
+    restartInFlightRef.current = run;
+    void run.then(
+      () => {
+        if (restartInFlightRef.current === run) {
+          restartInFlightRef.current = null;
+        }
+      },
+      () => {
+        if (restartInFlightRef.current === run) {
+          restartInFlightRef.current = null;
+        }
+      },
+    );
+    return run;
   }, [doCancel, startFlow]);
+
+  const handlePlayheadConfirmChange = useCallback(
+    (
+      change: import("@shared/recording-playhead").RecordingPlayheadConfirmChange,
+    ) => {
+      playheadConfirmOpenRef.current = change.type === "open";
+      if (change.type === "open") {
+        if (!change.enteredPaused) {
+          const engine = engineRef.current;
+          engine?.pause();
+          liveTranscription.pause();
+          setIsPaused(true);
+        }
+        return;
+      }
+      if (change.resume || !change.enteredPaused) {
+        const engine = engineRef.current;
+        if (engine?.getState() === "paused") {
+          engine.resume();
+          liveTranscription.resume();
+          setIsPaused(false);
+        }
+      }
+    },
+    [liveTranscription],
+  );
+
+  const handlePlayheadConfirmAction = useCallback(
+    (intent: import("@shared/recording-playhead").RecordingPlayheadIntent) => {
+      playheadConfirmOpenRef.current = false;
+      if (intent === "restart") {
+        void restart();
+      } else {
+        void doCancel();
+      }
+    },
+    [doCancel, restart],
+  );
 
   const fireConfetti = useCallback(() => {
     confettiRef.current?.burst();
@@ -2388,7 +2733,7 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (discardConfirmOpen) return;
+      if (discardConfirmOpen || playheadConfirmOpenRef.current) return;
       const alt = e.altKey;
       const shift = e.shiftKey;
       const meta = e.metaKey;
@@ -2538,10 +2883,7 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   // Render.
   // -------------------------------------------------------------------------
-  const showRecordingUi =
-    uiState === "recording" ||
-    uiState === "uploading" ||
-    uiState === "compressing";
+  const showRecordingUi = uiState === "recording";
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
   const rememberedRecorderOptions = pendingStartOptsRef.current;
@@ -2562,48 +2904,47 @@ export default function RecordRoute() {
     uiState === "recording";
 
   // `/record` is a fullscreen route outside the `_app` shell, so it has no
-  // sidebar back-affordance. Surface a back arrow whenever there's nothing in
-  // flight — during recording/countdown/uploading the toolbar's stop flow is
-  // the exit path. `pickingSources` is included so users aren't trapped
-  // when the browser's permission/source dialog hangs or they want to bail
-  // out before granting access.
+  // sidebar back-affordance. Source picking gets its own explicit Cancel
+  // action; in-flight recording and saving states use their dedicated controls.
   const showBackButton =
-    uiState === "idle" || uiState === "error" || uiState === "pickingSources";
+    uiState === "idle" || uiState === "error" || uiState === "complete";
 
   return (
-    <div className="relative min-h-screen bg-background">
+    <div className="relative min-h-[100dvh] overflow-x-clip bg-background text-foreground">
       {showBackButton && (
-        <button
-          type="button"
-          aria-label={t("recordRoute.backToLibrary")}
-          onClick={async () => {
-            // If we landed in `error` after partial media acquisition, the
-            // engine may still hold live screen/camera tracks. doCancel()
-            // releases them synchronously (see RecorderEngine.cancel —
-            // hardware teardown runs before the server-abort fetch is
-            // awaited), so navigate() can fire immediately while the
-            // best-effort server abort settles in the background.
-            void doCancel();
-            navigate("/library");
-          }}
-          className="fixed start-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <IconArrowLeft className="h-5 w-5 rtl:-scale-x-100" />
-        </button>
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("recordRoute.backToLibrary")}
+                onClick={() => {
+                  // If we landed in `error` after partial media acquisition,
+                  // the engine may still hold live tracks. doCancel() releases
+                  // hardware synchronously while its server cleanup settles.
+                  void doCancel();
+                  void navigate("/library");
+                }}
+                className="absolute start-3 top-3 z-30 rounded-full text-muted-foreground sm:start-4 sm:top-4"
+              >
+                <IconArrowLeft className="size-5 rtl:-scale-x-100" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {t("recordRoute.backToLibrary")}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       )}
 
       {/* Idle / pre-record panel. `/record` sits outside the `_app` layout, so
           it renders its own standalone surface for direct visits. */}
       {uiState === "idle" && (
-        <div className="flex min-h-screen flex-col items-center justify-center px-4 py-10">
-          <div className="mb-6 flex items-center gap-2 text-primary">
-            <IconVideo className="h-6 w-6" />
-            <span className="text-sm font-medium uppercase tracking-wide">
-              {t("recordRoute.clipsRecorder")}
-            </span>
-          </div>
-          <div className="relative w-full max-w-6xl">
-            <div className="mx-auto w-full max-w-md">
+        <RecorderRouteViewport>
+          <div className="mx-auto grid w-full max-w-[420px] gap-2">
+            <div className="min-w-0">
               {storageConfigured === null ? (
                 <PreRecordPanelSkeleton />
               ) : storageConfigured ? (
@@ -2617,11 +2958,6 @@ export default function RecordRoute() {
                     rememberedRecorderOptions?.displaySurface ??
                     initialRecorderOptions.surface
                   }
-                  onUpload={uploadFile}
-                  importLoomHref={importLoomHref}
-                  cameraSize={cameraSize}
-                  onCameraSizeChange={handleCameraSizeChange}
-                  autoOpenUpload={autoOpenUploadFromUrl}
                 />
               ) : (
                 <StorageSetupCard
@@ -2631,25 +2967,31 @@ export default function RecordRoute() {
                 />
               )}
             </div>
-            {!isDesktopApp && (
-              <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:start-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
-                <DesktopRecorderCallout />
-              </div>
-            )}
+            {!isDesktopApp && <DesktopRecorderCallout />}
           </div>
-        </div>
+        </RecorderRouteViewport>
       )}
 
       {uiState === "pickingSources" && (
-        <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-muted-foreground">
-          <div className="text-sm">{t("recordRoute.preparingSources")}</div>
-          <div className="text-xs">
-            {getPreparingSourcesCopy(
+        <RecorderRouteViewport>
+          <RecorderRouteStatus
+            busy
+            label={getPreparingSourcesCopy(
               recordingMode,
               pendingStartOptsRef.current?.micDeviceId,
             )}
-          </div>
-        </div>
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => void doCancel()}
+            >
+              {t("common.cancel")}
+            </Button>
+          </RecorderRouteStatus>
+        </RecorderRouteViewport>
       )}
 
       {/* Countdown */}
@@ -2678,19 +3020,41 @@ export default function RecordRoute() {
         )}
 
       {recordingMode !== "camera" && showRecordingUi && (
-        <div className="pointer-events-none fixed inset-0 bg-gradient-to-br from-zinc-950 via-zinc-900 to-black opacity-95">
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white/70">
+        <div className="pointer-events-none fixed inset-0 bg-foreground">
+          <div
+            aria-live="polite"
+            className="absolute inset-0 flex items-center justify-center px-6 text-center text-background/70"
+          >
             <div className="flex items-center gap-2 text-sm">
-              <span className="relative inline-flex">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-30" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
-              </span>
-              {t("recordRoute.recordingScreen")}
+              <span
+                className={cn(
+                  "inline-flex size-2.5 shrink-0 rounded-full",
+                  isPaused
+                    ? "bg-muted-foreground"
+                    : "animate-pulse bg-destructive motion-reduce:animate-none",
+                )}
+              />
+              {isPaused
+                ? t("recordingToolbar.resumeRecording")
+                : t("recordRoute.recordingScreen")}
             </div>
-            <div className="text-[11px] text-white/50">
-              Press <kbd className="rounded bg-white/10 px-1.5 py-0.5">Esc</kbd>{" "}
-              to stop
-            </div>
+            {!isPaused && (
+              <div className="text-[11px] text-background/50">
+                Press{" "}
+                <Kbd className="h-auto min-w-0 rounded bg-background/10 px-1.5 py-0.5 text-background">
+                  Esc
+                </Kbd>{" "}
+                to stop
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {recordingMode === "camera" && showRecordingUi && isPaused && (
+        <div className="pointer-events-none fixed inset-0 flex items-center justify-center bg-background/60 px-6 backdrop-blur-sm">
+          <div className="rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm">
+            {t("recordingToolbar.resumeRecording")}
           </div>
         </div>
       )}
@@ -2718,10 +3082,18 @@ export default function RecordRoute() {
         <RecordingToolbar
           active={uiState === "recording"}
           getElapsedMs={() => engineRef.current?.getElapsedMs() ?? 0}
+          getMicrophoneTrack={() =>
+            engineRef.current?.getMicrophoneTrack() ?? null
+          }
+          microphoneEnabled={wantsMicrophone(
+            rememberedRecorderOptions?.micDeviceId,
+          )}
           isPaused={isPaused}
           onTogglePause={togglePause}
           onStop={() => void doStop()}
           onCancel={requestDiscard}
+          onConfirmAction={handlePlayheadConfirmAction}
+          onConfirmChange={handlePlayheadConfirmChange}
         />
       )}
 
@@ -2731,7 +3103,7 @@ export default function RecordRoute() {
           if (!open) resumeFromDiscardPrompt();
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-sm">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("recordingToolbar.discardConfirmTitle")}
@@ -2758,7 +3130,10 @@ export default function RecordRoute() {
       </AlertDialog>
 
       <AlertDialog open={leavePromptOpen} onOpenChange={onDialogOpenChange}>
-        <AlertDialogContent onCloseAutoFocus={onCloseAutoFocus}>
+        <AlertDialogContent
+          onCloseAutoFocus={onCloseAutoFocus}
+          className="max-w-sm"
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("recordRoute.leaveConfirmTitle")}
@@ -2786,62 +3161,57 @@ export default function RecordRoute() {
           for several minutes on long recordings — without a distinct copy
           users wonder if the app froze). */}
       {(uiState === "uploading" || uiState === "compressing") && (
-        <div className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-3 bg-black/70 text-white backdrop-blur">
-          {!(uiState === "uploading" && uploadProgress !== null) && (
-            <Spinner className="h-10 w-10 text-white/70" />
-          )}
-          {uiState === "compressing" ? (
-            <>
-              <div className="text-sm">
-                Compressing your recording
-                {compressionProgress !== null
-                  ? ` — ${Math.round(compressionProgress * 100)}%`
-                  : "…"}
-              </div>
-              <div className="text-[11px] text-white/50">
-                {t("recordRoute.largeClipsNeedReencode")}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="text-sm">{t("recordRoute.savingRecording")}</div>
-              {uploadProgress !== null && (
-                <div className="flex w-48 flex-col items-center gap-1">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
-                    <div
-                      className="h-full rounded-full bg-white transition-all"
-                      style={{
-                        width: `${Math.min(100, Math.max(0, Math.round(uploadProgress * 100)))}%`,
-                      }}
-                    />
-                  </div>
-                  <div className="text-[11px] text-white/50">
-                    {Math.round(uploadProgress * 100)}%
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-          <button
-            onClick={requestDiscard}
-            className="mt-1 text-xs text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
-          >
-            {t("recordingToolbar.cancel")}
-          </button>
+        <div className="fixed inset-0 z-[120] overflow-y-auto bg-background/90 backdrop-blur-sm">
+          <div className="flex min-h-full items-center justify-center p-3 sm:p-6">
+            <RecorderRouteStatus
+              busy
+              progress={
+                uiState === "compressing" ? compressionProgress : uploadProgress
+              }
+              label={
+                uiState === "compressing"
+                  ? t("recordRoute.compressingRecording")
+                  : t("recordRoute.savingRecording")
+              }
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={requestDiscard}
+                className="w-full text-muted-foreground hover:text-destructive"
+              >
+                {t("recordingToolbar.cancel")}
+              </Button>
+            </RecorderRouteStatus>
+          </div>
         </div>
+      )}
+
+      {uiState === "complete" && (
+        <RecorderRouteViewport>
+          <RecorderRouteStatus
+            icon={<IconCircleCheck className="size-4 text-primary" />}
+            label={t("recordRoute.recordingSaved")}
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => void navigate("/library")}
+            >
+              {t("recordRoute.backToLibrary")}
+            </Button>
+          </RecorderRouteStatus>
+        </RecorderRouteViewport>
       )}
 
       {/* Error state */}
       {uiState === "error" && error && (
-        <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4 text-center">
+        <RecorderRouteViewport>
           {error.includes("No video storage configured") ? (
-            <>
-              <div className="mb-2 flex items-center gap-2 text-primary">
-                <IconVideo className="h-6 w-6" />
-                <span className="text-sm font-medium uppercase tracking-wide">
-                  {t("recordRoute.clipsRecorder")}
-                </span>
-              </div>
+            <div className="w-full max-w-md">
               <StorageSetupCard
                 onConfigured={() => {
                   markStorageConfigured();
@@ -2854,25 +3224,27 @@ export default function RecordRoute() {
                     }, 0);
                   }
                 }}
-                connectedDescription="Storage connected. Reopening recorder..."
+                connectedDescription={t(
+                  "recordRoute.storageConnectedReopeningRecorder",
+                )}
                 connectSource="clips_record_storage_setup_card"
                 connectFlow="record"
               />
-            </>
-          ) : error === "SESSION_EXPIRED" ? (
-            <div className="max-w-md rounded-xl border border-border bg-card p-6">
-              <div className="mb-2 text-sm font-semibold text-foreground">
-                {t("recordRoute.sessionExpired")}
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {t("recordRoute.sessionExpiredDescription")}
-              </div>
-              <div className="mt-4 flex justify-center">
-                <Button onClick={() => window.location.reload()}>
-                  {t("recordRoute.logIn")}
-                </Button>
-              </div>
             </div>
+          ) : error === "SESSION_EXPIRED" ? (
+            <RecorderRouteStatus
+              role="alert"
+              icon={<IconAlertTriangle className="size-4" />}
+              label={t("recordRoute.sessionExpired")}
+            >
+              <Button
+                type="button"
+                className="w-full"
+                onClick={() => window.location.reload()}
+              >
+                {t("recordRoute.logIn")}
+              </Button>
+            </RecorderRouteStatus>
           ) : (
             <RecordingErrorCard
               error={error}
@@ -2894,7 +3266,7 @@ export default function RecordRoute() {
               }}
             />
           )}
-        </div>
+        </RecorderRouteViewport>
       )}
     </div>
   );

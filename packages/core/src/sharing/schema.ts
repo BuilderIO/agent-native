@@ -61,7 +61,7 @@ export function ownableColumns() {
  * Uniqueness across `(resource_id, principal_type, principal_id)` is enforced
  * at the action layer via upsert-style logic. A composite DB-level unique
  * index can be added per template if desired — omitted here to keep the
- * factory dialect-agnostic.
+ * factory uses the shared Postgres schema helpers.
  */
 export function createSharesTable(tableName: string) {
   return table(tableName, {
@@ -81,6 +81,11 @@ export function createSharesTable(tableName: string) {
     // the column without inventing an actor for those historical rows.
     createdBy: text("created_by").notNull().default(""),
     createdAt: text("created_at").notNull().default(now()),
+    // Null means nobody was ever told about this row: an implicit access
+    // grant, a suppressed address, or a send that failed. Follow-up email
+    // that claims "X shared this with you" must require a timestamp here,
+    // or it announces a share that never happened.
+    notifiedAt: text("notified_at"),
   });
 }
 

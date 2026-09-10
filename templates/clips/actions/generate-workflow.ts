@@ -66,6 +66,10 @@ export default defineAction({
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     kind: WorkflowKindSchema.describe("Workflow kind"),
+    openInChat: z
+      .boolean()
+      .optional()
+      .describe("Open the user-visible agent chat for this request"),
   }),
   run: async (args) => {
     await assertAccess("recording", args.recordingId, "viewer");
@@ -101,7 +105,9 @@ export default defineAction({
 
       const existing = await readAppState(stateKey);
       if (existing?.status === "generating") {
-        const requestedAt = Date.parse(String(existing.requestedAt ?? ""));
+        const requestedAt = Date.parse(
+          typeof existing.requestedAt === "string" ? existing.requestedAt : "",
+        );
         const isRecent =
           !Number.isFinite(requestedAt) ||
           Date.now() - requestedAt < 10 * 60_000;
@@ -146,6 +152,7 @@ export default defineAction({
         stateKey,
         instructions: KIND_PROMPTS[args.kind],
         includeFullVideoInAi,
+        openInChat: args.openInChat === true,
         message: withFullVideoAiInstructions(
           baseMessage,
           args.recordingId,

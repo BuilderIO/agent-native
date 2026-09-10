@@ -4,7 +4,7 @@ import {
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, ne, notExists } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -109,15 +109,71 @@ export default defineAction({
     }
 
     const db = getDb();
-    await db
-      .update(schema.designSystems)
-      .set({ data: reconciliation.data, updatedAt: syncedAt })
-      .where(
-        and(
-          eq(schema.designSystems.id, latestAccess.resource.id),
-          eq(schema.designSystems.data, latestAccess.resource.data),
-        ),
-      );
+    const persistedUpdate = await db.transaction(async (tx) => {
+      const targetScope = latestAccess.resource.orgId
+        ? and(
+            eq(
+              schema.designSystems.ownerEmail,
+              latestAccess.resource.ownerEmail,
+            ),
+            eq(schema.designSystems.orgId, latestAccess.resource.orgId),
+          )
+        : and(
+            eq(
+              schema.designSystems.ownerEmail,
+              latestAccess.resource.ownerEmail,
+            ),
+            isNull(schema.designSystems.orgId),
+          );
+      const [updated] = await tx
+        .update(schema.designSystems)
+        .set({ data: reconciliation.data, updatedAt: syncedAt })
+        .where(
+          and(
+            eq(schema.designSystems.id, latestAccess.resource.id),
+            eq(schema.designSystems.data, latestAccess.resource.data),
+            targetScope,
+          ),
+        )
+        .returning({ id: schema.designSystems.id });
+      if (!updated) return false;
+
+      await tx
+        .update(schema.designSystems)
+        .set({ isDefault: true, updatedAt: syncedAt })
+        .where(
+          and(
+            eq(schema.designSystems.id, latestAccess.resource.id),
+            targetScope,
+            notExists(
+              tx
+                .select({ id: schema.designSystems.id })
+                .from(schema.designSystems)
+                .where(
+                  and(
+                    targetScope,
+                    eq(schema.designSystems.isDefault, true),
+                    ne(schema.designSystems.id, latestAccess.resource.id),
+                  ),
+                ),
+            ),
+          ),
+        );
+      return true;
+    });
+
+    if (!persistedUpdate) {
+      return {
+        id,
+        synced: false,
+        status: "conflict",
+        docCount: hydrated.docCount,
+        tokenCount: reconciliation.tokenCount,
+        rejectedTokenCount: 0,
+        message:
+          "The design system changed while Builder DSI was syncing. Retry the refresh.",
+      };
+    }
 
     const persisted = await resolveAccess("design-system", id);
     if (!persistedBuilderSyncMatches(persisted?.resource?.data, syncedAt)) {

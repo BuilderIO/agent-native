@@ -55,6 +55,7 @@ vi.mock("./dispatch-store.js", () => ({
 const { listDispatchUsageMetrics } = await import("./usage-metrics-store.js");
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.clearAllMocks();
   mocks.currentOrgId.mockReturnValue(null);
   mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
@@ -79,8 +80,12 @@ describe("listDispatchUsageMetrics", () => {
   });
 
   it("returns empty metrics when usage storage bootstrap and reads fail", async () => {
-    mocks.getUsageSummary.mockRejectedValue(new Error("database is locked"));
-    mocks.execute.mockRejectedValue(new Error("no such table: token_usage"));
+    mocks.getUsageSummary.mockRejectedValue(
+      new Error("could not serialize access due to concurrent update"),
+    );
+    mocks.execute.mockRejectedValue(
+      new Error('relation "token_usage" does not exist'),
+    );
     mocks.listWorkspaceApps.mockResolvedValue([
       {
         id: "dispatch",
@@ -119,6 +124,8 @@ describe("listDispatchUsageMetrics", () => {
     });
     expect(metrics.byUser).toEqual([]);
     expect(metrics.recent).toEqual([]);
+    expect(metrics.daily).toEqual([]);
+    expect(metrics.dailyAvailable).toBe(false);
     expect(metrics.appAccess).toHaveLength(1);
   });
 
@@ -268,7 +275,436 @@ describe("listDispatchUsageMetrics", () => {
     ).toBe(true);
   });
 
+  it("lets an app owner inspect aggregate adoption for their own app", async () => {
+    const now = Date.now();
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "orders",
+        name: "Orders",
+        path: "/orders",
+        status: "ready",
+        isDispatch: false,
+        owner: "owner@example.test",
+        visibility: "org",
+      },
+      {
+        id: "support",
+        name: "Support",
+        path: "/support",
+        status: "ready",
+        isDispatch: false,
+        owner: "other@example.test",
+        visibility: "org",
+      },
+    ]);
+    mocks.execute.mockImplementation(
+      async ({ sql, args }: { sql: string; args?: unknown[] }) => {
+        if (sql.includes("SELECT role FROM org_members")) {
+          return { rows: [{ role: "member" }] };
+        }
+        if (sql.includes("SELECT email, role, joined_at")) {
+          return {
+            rows: [
+              {
+                email: "owner@example.test",
+                role: "member",
+                joined_at: null,
+              },
+              {
+                email: "member@example.test",
+                role: "member",
+                joined_at: null,
+              },
+            ],
+          };
+        }
+        if (
+          sql.includes("FROM token_usage") &&
+          sql.includes("ORDER BY created_at ASC")
+        ) {
+          const rows = [
+            {
+              created_at: now - 2 * 86_400_000,
+              owner_email: "owner@example.test",
+              app: "orders",
+              label: "customer:Acme-123",
+              cost_cents_x100: 100,
+            },
+            {
+              created_at: now - 60 * 60_000,
+              owner_email: "member@example.test",
+              app: "agent-native-orders",
+              label: "create-order",
+              cost_cents_x100: 200,
+            },
+            {
+              created_at: now - 60 * 60_000,
+              owner_email: "member@example.test",
+              app: "orders",
+              label: "approve-order",
+              cost_cents_x100: 300,
+            },
+          ];
+          return {
+            rows: sql.includes("LOWER(app) = ?")
+              ? rows.filter(
+                  (row) =>
+                    row.app.toLowerCase() ===
+                    String(args?.at(-1) ?? "").toLowerCase(),
+                )
+              : rows,
+          };
+        }
+        if (
+          sql.includes("FROM token_usage") &&
+          sql.includes("GROUP BY COALESCE(NULLIF(app, ''), 'unattributed')")
+        ) {
+          if (sql.includes("action_key")) {
+            return {
+              rows: [
+                {
+                  app: "orders",
+                  action_key: "other",
+                  calls: 2,
+                  active_users: 2,
+                  last_active_at: now - 60 * 60_000,
+                },
+              ],
+            };
+          }
+          if (sql.includes("daily_active_users")) {
+            return {
+              rows: [
+                {
+                  app: "orders",
+                  daily_active_users: 1,
+                  weekly_active_users: 2,
+                },
+              ],
+            };
+          }
+          return {
+            rows: [
+              {
+                app: "orders",
+                calls: 2,
+                cost_x100: 400,
+                chat_calls: 0,
+                active_users: 2,
+                last_active_at: now - 60 * 60_000,
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      },
+    );
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 30,
+      scope: "app",
+      appId: "orders",
+    });
+
+    expect(metrics).toMatchObject({
+      viewScope: "app",
+      selectedAppId: "orders",
+      byUser: [],
+      recent: [],
+      monthlyByUser: [],
+      availableUsers: [],
+    });
+    expect(metrics.totals.workspaceApps).toBe(2);
+    expect(metrics.appAccess[0]).toMatchObject({
+      id: "orders",
+      ownerEmail: "owner@example.test",
+      isOwnedByViewer: true,
+      canViewUsage: true,
+      usersWithUsage: 2,
+      dailyActiveUsers: 1,
+      weeklyActiveUsers: 2,
+      usageCalls: 2,
+      costCents: 4,
+    });
+    expect(metrics.appAccess[0].actionMetrics).toEqual([
+      {
+        key: "other",
+        label: "other",
+        calls: 2,
+        activeUsers: 2,
+        lastActiveAt: expect.any(Number),
+      },
+    ]);
+    expect(metrics.byLabel).toEqual([]);
+    expect(JSON.stringify(metrics)).not.toContain("Acme-123");
+    expect(
+      mocks.execute.mock.calls.some(([query]) =>
+        String((query as { sql?: string }).sql).includes("LOWER(app) = ?"),
+      ),
+    ).toBe(true);
+    expect(
+      mocks.execute.mock.calls.some(([query]) =>
+        String((query as { sql?: string }).sql).includes(
+          "GROUP BY owner_email",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      mocks.execute.mock.calls.some(([query]) => {
+        const sql = String((query as { sql?: string }).sql);
+        const args = (query as { args?: unknown[] }).args ?? [];
+        return sql.includes("org_id = ?") && args.includes("org-a");
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps weekly app adoption independent from a one-day lookback", async () => {
+    const now = Date.now();
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "orders",
+        name: "Orders",
+        path: "/orders",
+        status: "ready",
+        isDispatch: false,
+        owner: "owner@example.test",
+        visibility: "org",
+      },
+    ]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "member" }] };
+      }
+      if (sql.includes("SELECT email, role, joined_at")) {
+        return {
+          rows: [
+            { email: "owner@example.test", role: "member", joined_at: null },
+            { email: "member@example.test", role: "member", joined_at: null },
+          ],
+        };
+      }
+      if (
+        sql.includes("FROM token_usage") &&
+        sql.includes("ORDER BY created_at ASC")
+      ) {
+        return {
+          rows: [
+            {
+              created_at: now - 2 * 86_400_000,
+              owner_email: "owner@example.test",
+              app: "orders",
+              label: "create-order",
+              cost_cents_x100: 100,
+            },
+            {
+              created_at: now - 60 * 60_000,
+              owner_email: "member@example.test",
+              app: "orders",
+              label: "approve-order",
+              cost_cents_x100: 200,
+            },
+          ],
+        };
+      }
+      if (
+        sql.includes("FROM token_usage") &&
+        sql.includes("GROUP BY COALESCE(NULLIF(app, ''), 'unattributed')")
+      ) {
+        if (sql.includes("action_key")) {
+          return {
+            rows: [
+              {
+                app: "orders",
+                action_key: "other",
+                calls: 1,
+                active_users: 1,
+                last_active_at: now - 60 * 60_000,
+              },
+            ],
+          };
+        }
+        if (sql.includes("daily_active_users")) {
+          return {
+            rows: [
+              {
+                app: "orders",
+                daily_active_users: 1,
+                weekly_active_users: 2,
+              },
+            ],
+          };
+        }
+        return {
+          rows: [
+            {
+              app: "orders",
+              calls: 1,
+              cost_x100: 200,
+              chat_calls: 0,
+              active_users: 1,
+              last_active_at: now - 60 * 60_000,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 1,
+      scope: "app",
+      appId: "orders",
+    });
+
+    expect(metrics.appAccess[0]).toMatchObject({
+      usageCalls: 1,
+      dailyActiveUsers: 1,
+      weeklyActiveUsers: 2,
+    });
+    expect(metrics.appAccess[0].actionMetrics).toEqual([
+      expect.objectContaining({ key: "other", calls: 1 }),
+    ]);
+  });
+
+  it("fails closed when app-scope organization membership cannot be read", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "orders",
+        name: "Orders",
+        path: "/orders",
+        status: "ready",
+        isDispatch: false,
+        owner: "owner@example.test",
+        visibility: "org",
+      },
+    ]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT email, role, joined_at")) {
+        throw new Error("org member lookup failed");
+      }
+      return { rows: [] };
+    });
+
+    await expect(
+      listDispatchUsageMetrics({ scope: "app", appId: "orders" }),
+    ).rejects.toThrow("org member lookup failed");
+  });
+
+  it("denies app adoption metrics to a non-owner workspace member", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "orders",
+        name: "Orders",
+        path: "/orders",
+        status: "ready",
+        isDispatch: false,
+        owner: "owner@example.test",
+        visibility: "org",
+      },
+    ]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "member" }] };
+      }
+      if (sql.includes("SELECT email, role, joined_at")) {
+        return {
+          rows: [
+            { email: "owner@example.test", role: "member", joined_at: null },
+            { email: "member@example.test", role: "member", joined_at: null },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    await expect(
+      listDispatchUsageMetrics({
+        sinceDays: 30,
+        scope: "app",
+        appId: "orders",
+      }),
+    ).rejects.toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message:
+        "Only the app owner or an organization owner or admin can view app metrics.",
+    });
+    expect(mocks.getUsageSummary).not.toHaveBeenCalled();
+  });
+
+  it("redacts adoption metrics for apps the personal viewer does not own", async () => {
+    const now = Date.now();
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "orders",
+        name: "Orders",
+        path: "/orders",
+        status: "ready",
+        isDispatch: false,
+        owner: "owner@example.test",
+        visibility: "org",
+      },
+    ]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (
+        sql.includes("FROM token_usage") &&
+        sql.includes("ORDER BY created_at ASC")
+      ) {
+        return {
+          rows: [
+            {
+              created_at: now,
+              owner_email: "member@example.test",
+              app: "orders",
+              label: "create-order",
+              cost_cents_x100: 100,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({ scope: "me" });
+
+    expect(metrics.appAccess[0]).toMatchObject({
+      ownerEmail: null,
+      isOwnedByViewer: false,
+      canViewUsage: false,
+      usersWithUsage: 0,
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 0,
+      usageCalls: 0,
+      chatCalls: 0,
+      costCents: 0,
+      lastActiveAt: null,
+      actionMetrics: [],
+    });
+    expect(
+      mocks.execute.mock.calls.some(([query]) => {
+        const sql = String((query as { sql?: string }).sql);
+        return sql.includes("daily_active_users") && sql.includes("org_id = ?");
+      }),
+    ).toBe(true);
+  });
+
   it("returns monthly credits and workspace app creation rows from shared tables", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T12:00:00Z"));
     const firstUsageAt = Date.UTC(2026, 6, 1, 12);
     const secondUsageAt = Date.UTC(2026, 6, 15, 12);
     const firstCreationAt = Date.UTC(2026, 6, 2, 12);
@@ -290,34 +726,45 @@ describe("listDispatchUsageMetrics", () => {
           ],
         };
       }
-      if (
-        sql.includes("FROM token_usage") &&
-        sql.includes("ORDER BY created_at ASC")
-      ) {
-        return {
-          rows: [
-            {
-              created_at: firstUsageAt,
-              owner_email: "member@example.test",
-              label: "chat",
-              input_tokens: 10,
-              output_tokens: 20,
-              cache_read_tokens: 0,
-              cache_write_tokens: 0,
-              cost_cents_x100: 10000,
-            },
-            {
-              created_at: secondUsageAt,
-              owner_email: "member@example.test",
-              label: "tool",
-              input_tokens: 30,
-              output_tokens: 40,
-              cache_read_tokens: 5,
-              cache_write_tokens: 2,
-              cost_cents_x100: 20000,
-            },
-          ],
-        };
+      if (sql.includes("FROM token_usage") && sql.includes("day_bucket")) {
+        const rows = [
+          {
+            day_bucket: Math.floor(firstUsageAt / 86_400_000),
+            owner_email: "member@example.test",
+            cost_x100: 10000,
+            calls: 1,
+            chat_calls: 1,
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+          },
+          {
+            day_bucket: Math.floor(secondUsageAt / 86_400_000),
+            owner_email: "member@example.test",
+            cost_x100: 20000,
+            calls: 1,
+            chat_calls: 0,
+            input_tokens: 30,
+            output_tokens: 40,
+            cache_read_tokens: 5,
+            cache_write_tokens: 2,
+          },
+        ];
+        if (!sql.includes("cost_cents_x100")) {
+          rows.push({
+            day_bucket: Math.floor(Date.UTC(2026, 6, 10, 12) / 86_400_000),
+            owner_email: "other@example.test",
+            cost_x100: 0,
+            calls: 0,
+            chat_calls: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+          });
+        }
+        return { rows };
       }
       if (sql.includes("FROM dispatch_audit_events")) {
         return {
@@ -341,7 +788,7 @@ describe("listDispatchUsageMetrics", () => {
     });
 
     const metrics = await listDispatchUsageMetrics({
-      sinceDays: 365,
+      sinceDays: 60,
       scope: "workspace",
     });
 
@@ -359,6 +806,46 @@ describe("listDispatchUsageMetrics", () => {
         cacheWriteTokens: 2,
       },
     ]);
+    expect(metrics.daily).toHaveLength(61);
+    expect(metrics.daily[0]).toMatchObject({
+      date: "2026-06-21",
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 0,
+    });
+    expect(
+      metrics.daily.find((row) => row.date === "2026-07-01"),
+    ).toMatchObject({
+      date: "2026-07-01",
+      costCents: 100,
+      calls: 1,
+      chatCalls: 1,
+      activeUsers: 1,
+      dailyActiveUsers: 1,
+      weeklyActiveUsers: 1,
+    });
+    expect(
+      metrics.daily.find((row) => row.date === "2026-07-10"),
+    ).toMatchObject({
+      date: "2026-07-10",
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 1,
+    });
+    expect(
+      metrics.daily.find((row) => row.date === "2026-07-15"),
+    ).toMatchObject({
+      date: "2026-07-15",
+      costCents: 200,
+      calls: 1,
+      chatCalls: 0,
+      activeUsers: 1,
+      dailyActiveUsers: 1,
+      weeklyActiveUsers: 2,
+    });
+    expect(metrics.daily.at(-1)).toMatchObject({
+      date: "2026-08-20",
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 0,
+    });
     expect(metrics.workspaceAppCreationsByUserMonth).toEqual([
       {
         month: "2026-07",
@@ -367,5 +854,86 @@ describe("listDispatchUsageMetrics", () => {
         appIds: ["app-one", "app-two"],
       },
     ]);
+  });
+
+  it("preserves daily usage when the optional WAU lookback is unavailable", async () => {
+    const now = Date.now();
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("FROM token_usage") && sql.includes("day_bucket")) {
+        if (!sql.includes("cost_cents_x100")) {
+          throw new Error("lookback unavailable");
+        }
+        return {
+          rows: [
+            {
+              day_bucket: Math.floor(now / 86_400_000),
+              owner_email: "owner@example.test",
+              cost_x100: 100,
+              calls: 1,
+              chat_calls: 1,
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_read_tokens: 0,
+              cache_write_tokens: 0,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 7,
+      scope: "me",
+    });
+
+    expect(metrics.daily).toHaveLength(1);
+    expect(metrics.dailyAvailable).toBe(true);
+    expect(metrics.daily[0]).toMatchObject({
+      dailyActiveUsers: 1,
+      weeklyActiveUsers: null,
+    });
+  });
+
+  it("shows WAU decay when activity is only just outside the selected window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T12:00:00Z"));
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("FROM token_usage") && sql.includes("day_bucket")) {
+        if (sql.includes("cost_cents_x100")) return { rows: [] };
+        return {
+          rows: [
+            {
+              day_bucket: Math.floor(Date.UTC(2026, 7, 12, 12) / 86_400_000),
+              owner_email: "owner@example.test",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 7,
+      scope: "me",
+    });
+
+    expect(metrics.daily).toHaveLength(8);
+    expect(
+      metrics.daily.find((row) => row.date === "2026-08-13"),
+    ).toMatchObject({
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 1,
+    });
+    expect(
+      metrics.daily.find((row) => row.date === "2026-08-19"),
+    ).toMatchObject({
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 0,
+    });
   });
 });

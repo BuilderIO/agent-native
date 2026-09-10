@@ -1232,6 +1232,334 @@ describe("background-image sizing on export", () => {
     ]);
   });
 
+  it("carries a TILE's repeat and its tile size", () => {
+    // TILE is the one scale mode `background-size` alone cannot express: both
+    // importers emit it as a size plus `repeat`, and reading only the size
+    // exported a tiled fill as one stretched copy over the whole box.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "16px 16px",
+        "0% 0%",
+        "repeat",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "stretch",
+        sizePx: { width: 16, height: 16 },
+        repeat: true,
+      },
+    ]);
+  });
+
+  it("marks a TILE whose size stayed `auto` as repeating with no known tile", () => {
+    // An unresolved intrinsic size must stay distinguishable from a resolved
+    // one: the exporter reports the tile it cannot reproduce instead of
+    // silently painting a single covering image. The fit stays the honest one
+    // — claiming a `stretch` we cannot draw would be a second wrong answer.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "auto",
+        "0% 0%",
+        "repeat",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "cover",
+        repeat: true,
+      },
+    ]);
+  });
+
+  it("does not read CSS's default `repeat` as tiling intent", () => {
+    // `repeat` is the CSS INITIAL value, so getComputedStyle reports it for
+    // every background whose author never mentioned repeating. Our importers
+    // always state `no-repeat`, so no corpus case shows this — but agent
+    // HTML is full of `background-size: cover` with no repeat, and treating
+    // that as a tile exported it stretched instead of covered. What decides
+    // it is whether the image already fills the box.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "cover",
+        "50% 50%",
+        "repeat",
+      ),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "cover" },
+    ]);
+
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "100% 100%",
+        "50% 50%",
+        "repeat",
+      ),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "stretch" },
+    ]);
+  });
+
+  it("keeps a tiled background's phase from background-position", () => {
+    // On a repeating background, `background-position` is the tile PHASE, not
+    // a one-off offset — dropping it anchored every tiling at the box origin.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "16px 16px",
+        "8px 4px",
+        "repeat",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "stretch",
+        sizePx: { width: 16, height: 16 },
+        offsetPx: { x: 8, y: 4 },
+        repeat: true,
+      },
+    ]);
+  });
+
+  it("reports `round` and `space` repeats instead of dropping them", () => {
+    // An SVG pattern repeats at the tile's own size: no `round` rescaling to a
+    // whole number of tiles, no `space` distribution. Chromium keeps both
+    // verbatim in the computed value, including two-value forms.
+    for (const repeat of ["round", "space", "repeat space"]) {
+      const [layer] = buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "16px 16px",
+        "0% 0%",
+        repeat,
+      );
+      expect(layer).toMatchObject({ fit: "cover", repeatAxis: repeat });
+    }
+  });
+
+  it("reports `round` even when the size already fills the box", () => {
+    // `round` rescales the tile to a whole count even under `cover`. Deciding
+    // it "probably does not matter here" is a judgement the report should not
+    // make silently on the reader's behalf.
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "cover",
+      "50% 50%",
+      "round",
+    );
+    expect(layer).toMatchObject({ repeatAxis: "round" });
+  });
+
+  it("carries a non-pixel tile position for the emitter to resolve", () => {
+    // Chromium computes `center` to `50% 50%`, which the pixel scan cannot
+    // see. A percentage phase is a fraction of the box minus the tile, so it
+    // resolves where the box is known rather than here.
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px 16px",
+      "50% 50%",
+      "repeat",
+    );
+    expect(layer).toMatchObject({
+      sizePx: { width: 16, height: 16 },
+      positionRaw: "50% 50%",
+      repeat: true,
+    });
+  });
+
+  it("does not carry the default `0% 0%` tile position as a phase", () => {
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px 16px",
+      "0% 0%",
+      "repeat",
+    );
+    expect((layer as { positionRaw?: string }).positionRaw).toBeUndefined();
+  });
+
+  it("reports a background-size that computed to one length", () => {
+    // Chromium computes `16px auto` — and a bare `16px` — to a single value,
+    // meaning that width with a proportional height. Without the image's
+    // intrinsic ratio the size cannot be reproduced, so it is reported.
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px",
+      "0% 0%",
+      "no-repeat",
+    );
+    expect(layer).toMatchObject({ fit: "cover", singleAxisSize: "16px" });
+  });
+
+  it("catches a calc() stop position, which survives into computed styles", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "linear-gradient(90deg, rgb(255, 0, 0) calc(50% - 10px), rgb(0, 0, 255) 100%)",
+      ).map((l) => l.kind),
+    ).toEqual(["unsupported"]);
+  });
+
+  it("reads modern CSS colour functions as colours, not as hints", () => {
+    // `oklch()`, `color()` and `lab()` survive into computed values verbatim
+    // (only `hsl()` is converted to `rgb()`). Not recognising them made a
+    // valid gradient look like a standalone colour hint and rasterized it.
+    for (const color of [
+      "oklch(0.7 0.1 200)",
+      "color(display-p3 1 0 0)",
+      "lab(50 20 -30)",
+    ]) {
+      expect(
+        buildFillLayersFromComputedStyle(
+          "rgba(0, 0, 0, 0)",
+          `linear-gradient(90deg, ${color}, rgb(0, 0, 255))`,
+        ).map((l) => l.kind),
+      ).toEqual(["linear-gradient"]);
+    }
+  });
+
+  it("still catches an unreadable position on a modern colour function", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "linear-gradient(90deg, oklch(0.7 0.1 200) calc(50% - 4px), rgb(0, 0, 255))",
+      ).map((l) => l.kind),
+    ).toEqual(["unsupported"]);
+  });
+
+  it("keeps an ordinary transparent-to-colour fade readable", () => {
+    // The commonest real gradient in the corpus. Over-catching this would
+    // rasterize a large share of every design.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, rgb(0, 0, 0) 100%)",
+      ).map((l) => l.kind),
+    ).toEqual(["linear-gradient"]);
+  });
+
+  it("does not treat a one-axis repeat as a two-axis tile", () => {
+    // An SVG pattern repeats on both axes and has no one-axis form, so
+    // `repeat-x` coming back tiled vertically would cover rows the design
+    // leaves bare. Figma's TILE is always both axes; a one-axis repeat only
+    // reaches here from agent-authored HTML, and is reported, not guessed.
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px 16px",
+      "0% 0%",
+      "repeat-x",
+    );
+    expect(layers).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "cover",
+        repeatAxis: "repeat-x",
+      },
+    ]);
+  });
+
+  it("reports a two-position gradient stop instead of painting it black", () => {
+    // `<colour> 0 50%` ends in a percentage, so an "ends in %" check passes it
+    // — but the parser strips only `50%` and leaves `<colour> 0` as the
+    // colour, which is an invalid `stop-color` that renders black.
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(238, 238, 238) 0 50%, rgb(255, 255, 255) 50% 100%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["unsupported"]);
+  });
+
+  it("catches a two-position stop whose residue is also a percentage", () => {
+    // `<colour> 20% 30%` strips to `<colour> 20%`, which is still a position
+    // glued to the colour — checking only for a residual bare number or a
+    // non-percent length missed it, and the parser paints it black.
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(255, 0, 0) 20% 30%, rgb(0, 0, 255) 100%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["unsupported"]);
+  });
+
+  it("does not mistake radial geometry for an unreadable stop", () => {
+    // `90% 40% at 50% 0%` is the gradient's GEOMETRY, not a colour stop.
+    // Recognising geometry by its shape missed this form, and stripping its
+    // trailing position left `... at 50%`, which read as a colour carrying a
+    // position — the whole gradient was dropped from the export. A stop is
+    // identified by containing a colour, which geometry never does.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "radial-gradient(90% 40% at 50% 0%, rgba(129, 140, 248, 0.28), rgba(0, 0, 0, 0) 65%)",
+      ).map((l) => l.kind),
+    ).toEqual(["radial-gradient"]);
+
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "radial-gradient(ellipse 70% 55% at 78% 12%, rgba(99, 102, 241, 0.3), transparent 62%)",
+      ).map((l) => l.kind),
+    ).toEqual(["radial-gradient"]);
+  });
+
+  it("does not over-catch ordinary single-percentage stops", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(255, 0, 0) 20%, rgb(0, 0, 255) 80%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["linear-gradient"]);
+  });
+
+  it("still reads ordinary percentage-positioned gradient stops", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(238, 238, 238) 0%, rgb(255, 255, 255) 100%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["linear-gradient"]);
+  });
+
+  it("does not treat the other scale modes' `no-repeat` as a tile", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "cover",
+      "center",
+      "no-repeat",
+    );
+    expect(layers).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "cover" },
+    ]);
+  });
+
+  it("repeats a shorter repeat list across the layers, as CSS does", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      `${url}, ${url}`,
+      "8px 8px",
+      "0% 0%",
+      "repeat",
+    );
+    expect(
+      layers.map((l) => (l as { repeat?: boolean }).repeat ?? false),
+    ).toEqual([true, true]);
+  });
+
   it("still defaults to cover, which is FILL and the common case", () => {
     expect(
       buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "cover"),

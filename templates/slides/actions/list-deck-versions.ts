@@ -4,6 +4,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { parseDeckVersionChatContext } from "../server/lib/deck-versions.js";
 
 function stripHtml(html: string): string {
   return html
@@ -63,6 +64,7 @@ export default defineAction({
         title: schema.deckVersions.title,
         data: schema.deckVersions.data,
         changeLabel: schema.deckVersions.changeLabel,
+        chatContext: schema.deckVersions.chatContext,
         createdAt: schema.deckVersions.createdAt,
       })
       .from(schema.deckVersions)
@@ -78,14 +80,24 @@ export default defineAction({
     return {
       deckId,
       count: versions.length,
-      versions: versions.map((version) => ({
-        id: version.id,
-        deckId: version.deckId,
-        title: version.title,
-        label: version.changeLabel,
-        createdAt: version.createdAt,
-        ...summarizeVersionData(version.data),
-      })),
+      versions: versions.map((version) => {
+        let chatContext;
+        try {
+          chatContext = parseDeckVersionChatContext(version.chatContext);
+        } catch {
+          chatContext = undefined;
+        }
+        return {
+          id: version.id,
+          deckId: version.deckId,
+          title: version.title,
+          label: version.changeLabel,
+          createdAt: version.createdAt,
+          editable: Boolean(chatContext),
+          ...(chatContext ? { chatContext } : {}),
+          ...summarizeVersionData(version.data),
+        };
+      }),
     };
   },
 });

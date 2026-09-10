@@ -948,18 +948,34 @@ describe("route warmup config", () => {
     }
   });
 
-  it("enables safe React Router route warmup by default", () => {
+  it("uses the shared build id precedence for the client bundle", () => {
+    vi.stubEnv("DEPLOY_ID", "");
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", " agent-build-123 ");
+    vi.stubEnv("COMMIT_REF", "commit-auth-client-123");
+    vi.stubEnv("NETLIFY_COMMIT_REF", "netlify-auth-client-123");
+
+    try {
+      const config = defineConfig();
+      expect(config.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify("agent-build-123"),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("enables viewport React Router route warmup by default", () => {
     const config = defineConfig();
     const routeWarmup = JSON.parse(
       String(config.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
     );
 
     expect(routeWarmup).toEqual({
-      strategy: "intent",
+      strategy: "viewport",
       data: true,
       modules: true,
       selector: 'a[data-an-prefetch="render"][href]',
-      maxConcurrent: 4,
+      maxConcurrent: 8,
     });
   });
 
@@ -1679,6 +1695,49 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
+  it("leaves build.sourcemap off and adds no Sentry plugin without upload config", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    const config = (await configPlugin.config(
+      {},
+      { command: "build", mode: "production" },
+    )) as any;
+
+    expect(config.build.sourcemap).toBe(false);
+    expect(plugins.map((p) => p?.name)).not.toContain("sentry-vite-plugin");
+  });
+
+  it("emits hidden sourcemaps and adds the Sentry upload plugin when configured", async () => {
+    const previous = {
+      SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
+      SENTRY_ORG: process.env.SENTRY_ORG,
+      SENTRY_PROJECT: process.env.SENTRY_PROJECT,
+    };
+    try {
+      process.env.SENTRY_AUTH_TOKEN = "test-token";
+      process.env.SENTRY_ORG = "acme";
+      process.env.SENTRY_PROJECT = "web";
+
+      const plugins = flatPlugins(agentNative());
+      const configPlugin = plugins.find(
+        (p) => p?.name === "agent-native-config",
+      );
+      const config = (await configPlugin.config(
+        {},
+        { command: "build", mode: "production" },
+      )) as any;
+
+      expect(config.build.sourcemap).toBe("hidden");
+      expect(plugins.map((p) => p?.name)).toContain("sentry-vite-plugin");
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it("stops the dep optimizer from writing prebundle sourcemaps", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
@@ -1773,8 +1832,6 @@ describe("agentNative Vite plugin preset", () => {
     )) as any;
 
     expect(config.ssr.external).toContain("yjs");
-    expect(config.ssr.external).toContain("better-sqlite3");
-    expect(config.ssr.external).toContain("bindings");
     expect(config.ssr.external).toContain("custom-native-package");
   });
 
@@ -2542,6 +2599,11 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const encodeStateVector = stub;");
     expect(code).toContain("export const encodeStateAsUpdate = stub;");
     expect(code).toContain("export const mergeUpdates = stub;");
+    expect(code).toContain("export const Item = stub;");
+    expect(code).toContain("export const ContentType = stub;");
+    expect(code).toContain("export const Text = stub;");
+    expect(code).toContain("export const XmlElement = stub;");
+    expect(code).toContain("export const UndoManager = stub;");
     expect(code).toContain("export const EditorContent = stub;");
     expect(code).toContain("export const createNodeFromContent = stub;");
     expect(code).toContain("export const format = stub;");

@@ -4,6 +4,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
   BLOCKS_FIELD_OPERATION_CAPABILITIES,
@@ -165,11 +166,16 @@ function contractError(
 
 function isUniqueConstraintError(error: unknown): boolean {
   const candidate = error as { code?: unknown; message?: unknown };
-  const code = String(candidate?.code ?? "");
-  const message = String(candidate?.message ?? "");
+  const code =
+    typeof candidate?.code === "string"
+      ? candidate.code
+      : (JSON.stringify(candidate?.code) ?? "");
+  const message =
+    typeof candidate?.message === "string"
+      ? candidate.message
+      : (JSON.stringify(candidate?.message) ?? "");
   return (
     code === "23505" ||
-    code.includes("SQLITE_CONSTRAINT") ||
     /unique constraint|primary key constraint|duplicate key/i.test(message)
   );
 }
@@ -498,7 +504,11 @@ async function writeMarkdown(
   if (loaded.storageTarget === "document_body") {
     const updated = await db
       .update(schema.documents)
-      .set({ content: markdown, updatedAt: now })
+      .set({
+        content: markdown,
+        bodyRevision: bodyRevisionForContent(markdown),
+        updatedAt: now,
+      })
       .where(
         and(
           eq(schema.documents.id, target.rowDocumentId),

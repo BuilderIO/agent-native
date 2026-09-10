@@ -75,8 +75,10 @@ export interface CanvasSnapOptions {
 export type SpacingSnapOptions = CanvasSnapOptions;
 
 export interface DragSnapOptions extends CanvasSnapOptions {
-  /** Figma's "snap to pixel grid": land on whole canvas pixels. */
-  pixelGrid?: boolean;
+  /** Grid step to land on: `WHOLE_PIXEL_SNAP_STEP` for Figma's "snap to pixel
+   *  grid", the frame's layout grid size when it has one. Omitted means the
+   *  caller wants the raw snapped position and will quantize itself. */
+  snapStep?: number;
   /** How far a neighbour can be, in screen px, and still get a distance
    *  readout. Beyond this the measurement is noise stretched across empty
    *  canvas rather than something the user is positioning against. */
@@ -113,6 +115,8 @@ export interface ResizeSnapOptions extends CanvasSnapOptions {
    *  a snap near a sibling edge doesn't force-inflate a small shape. */
   minWidth?: number;
   minHeight?: number;
+  /** The resize counterpart of `DragSnapOptions.snapStep`. */
+  snapStep?: number;
 }
 
 export interface ResizeFrameOptions {
@@ -221,6 +225,18 @@ export interface RulerTickOptions {
   maxTicks?: number;
 }
 
+/** The one step the editor is built around: a new frame's layout grid, the snap
+ *  that grid enforces, and the big nudge are all this number, so a big nudge can
+ *  never walk an object off the grid it just snapped to. */
+export const DEFAULT_GRID_STEP_PX = 8;
+
+/** Snapping's floor. A frame with no layout grid still lands on whole pixels,
+ *  so "no grid" is a size-1 grid and the snap stack needs no on/off branch. */
+export const WHOLE_PIXEL_SNAP_STEP = 1;
+
+export const DEFAULT_SMALL_NUDGE_PX = 1;
+export const DEFAULT_BIG_NUDGE_PX = DEFAULT_GRID_STEP_PX;
+
 export type ArrowNudgeKey =
   | "ArrowUp"
   | "ArrowRight"
@@ -236,7 +252,7 @@ export interface NudgeModifiers {
 
 export interface NudgeOptions {
   baseStep?: number;
-  shiftMultiplier?: number;
+  bigStep?: number;
 }
 
 export interface NudgeDelta {
@@ -574,9 +590,12 @@ export function shouldShowPixelGrid(
 export function getNudgeDelta(
   key: ArrowNudgeKey,
   modifiers: NudgeModifiers = {},
-  { baseStep = 1, shiftMultiplier = 10 }: NudgeOptions = {},
+  {
+    baseStep = DEFAULT_SMALL_NUDGE_PX,
+    bigStep = DEFAULT_BIG_NUDGE_PX,
+  }: NudgeOptions = {},
 ): NudgeDelta {
-  const step = baseStep * (modifiers.shiftKey ? shiftMultiplier : 1);
+  const step = modifiers.shiftKey ? bigStep : baseStep;
   const vector = getNudgeVector(key);
   const bypass = !!(modifiers.altKey || modifiers.metaKey || modifiers.ctrlKey);
 
@@ -588,6 +607,43 @@ export function getNudgeDelta(
       bypass,
       reason: bypass ? "modifier" : null,
     },
+  };
+}
+
+/** Nearest multiple of `step`, defaulting to the whole-pixel floor. Non-finite
+ *  input passes through unrounded so an upstream NaN stays visible rather than
+ *  reading as a real coordinate. */
+export function quantizeToStep(
+  value: number,
+  step: number = WHOLE_PIXEL_SNAP_STEP,
+): number {
+  if (!Number.isFinite(value)) return value;
+  if (!Number.isFinite(step) || step <= WHOLE_PIXEL_SNAP_STEP) {
+    return Math.round(value);
+  }
+  return Math.round(value / step) * step;
+}
+
+export function quantizeCanvasPoint(
+  point: CanvasPoint,
+  step: number = WHOLE_PIXEL_SNAP_STEP,
+): CanvasPoint {
+  return {
+    x: quantizeToStep(point.x, step),
+    y: quantizeToStep(point.y, step),
+  };
+}
+
+/** Whole-pixel x/y/width/height. Size rounds alongside position because a
+ *  fractional width puts the opposite edge back on a fraction, and the next
+ *  object aligned or resized against that edge inherits it. */
+function quantizeCanvasGeometry<T extends FrameGeometry>(geometry: T): T {
+  return {
+    ...geometry,
+    x: quantizeToStep(geometry.x),
+    y: quantizeToStep(geometry.y),
+    width: quantizeToStep(geometry.width),
+    height: quantizeToStep(geometry.height),
   };
 }
 
@@ -637,23 +693,23 @@ export function getDraftGeometryFromPoints(
   if (fromCenter) {
     // `start` is the shape's center — grow outward symmetrically in both
     // directions instead of anchoring one corner at `start`.
-    return {
+    return quantizeCanvasGeometry({
       x: start.x - width / 2,
       y: start.y - height / 2,
       width,
       height,
-    };
+    });
   }
 
   const drawingLeft = end.x < start.x;
   const drawingUp = end.y < start.y;
 
-  return {
+  return quantizeCanvasGeometry({
     x: drawingLeft ? start.x - width : start.x,
     y: drawingUp ? start.y - height : start.y,
     width,
     height,
-  };
+  });
 }
 
 export function appendPolylinePoint(
@@ -884,7 +940,8 @@ export function computeDragSnap(
   let dy = alignment.dy + spacing.dy;
 
   const anchor = moving[0];
-  if (options.pixelGrid && anchor && !options.bypass) {
+  const snapStep = options.snapStep ?? 0;
+  if (snapStep > 0 && anchor && !options.bypass) {
     // Keyed on what actually moved the frame, not on what got drawn: a
     // spacing snap that produced no chrome is still a position the user
     // chose, and rounding it away undoes the snap they just felt.
@@ -897,10 +954,10 @@ export function computeDragSnap(
     // Only the anchor rounds; the rest of a multi-select rides the same
     // delta, so a group keeps its internal fractional offsets.
     if (!claimed("vertical") && !options.lockedAxes?.x) {
-      dx = Math.round(anchor.geometry.x + dx) - anchor.geometry.x;
+      dx = quantizeToStep(anchor.geometry.x + dx, snapStep) - anchor.geometry.x;
     }
     if (!claimed("horizontal") && !options.lockedAxes?.y) {
-      dy = Math.round(anchor.geometry.y + dy) - anchor.geometry.y;
+      dy = quantizeToStep(anchor.geometry.y + dy, snapStep) - anchor.geometry.y;
     }
   }
 
@@ -1782,13 +1839,17 @@ export function computeResizeSnap(
   };
 
   if (options.preserveAspectRatio) {
-    return computeAspectPreservingResizeSnap(
+    const aspect = computeAspectPreservingResizeSnap(
       frame,
       stationary,
       handle,
       threshold,
       minSize,
     );
+    return {
+      frame: applyResizeSnapStep(aspect.frame, aspect.guides, options, true),
+      guides: aspect.guides,
+    };
   }
 
   let nextFrame = frame;
@@ -1834,7 +1895,38 @@ export function computeResizeSnap(
     }
   }
 
-  return { frame: nextFrame, guides };
+  return {
+    frame: applyResizeSnapStep(nextFrame, guides, options, false),
+    guides,
+  };
+}
+
+/** Skips any axis an alignment guide claimed, which would pull the edge off the
+ *  line the user is looking at. An aspect-locked resize quantizes only its
+ *  origin: rounding both sizes is what breaks the ratio it must hold. */
+function applyResizeSnapStep(
+  frame: FrameGeometry,
+  guides: readonly AlignmentGuide[],
+  options: ResizeSnapOptions,
+  aspectLocked: boolean,
+): FrameGeometry {
+  const step = options.snapStep ?? 0;
+  if (step <= 0) return frame;
+  const claimedX = guides.some((guide) => guide.orientation === "vertical");
+  const claimedY = guides.some((guide) => guide.orientation === "horizontal");
+  return {
+    ...frame,
+    x: claimedX ? frame.x : quantizeToStep(frame.x, step),
+    y: claimedY ? frame.y : quantizeToStep(frame.y, step),
+    width:
+      claimedX || aspectLocked
+        ? frame.width
+        : quantizeToStep(frame.width, step),
+    height:
+      claimedY || aspectLocked
+        ? frame.height
+        : quantizeToStep(frame.height, step),
+  };
 }
 
 // ---------------------------------------------------------------------------

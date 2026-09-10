@@ -33,6 +33,8 @@ import {
   describeErrorWithCauses,
 } from "./error-detail.js";
 import { createFirstEventAbortController } from "./first-event-timeout.js";
+import { limitProviderTools } from "./limit-provider-tools.js";
+import { isCustomOpenAiBaseUrl } from "./openai-compatible-endpoint.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -244,7 +246,8 @@ class AISDKEngine implements AgentEngine {
     this.supportedModels = PROVIDER_SUPPORTED_MODELS[provider];
     this.preserveCustomModels =
       provider === "ollama" ||
-      (provider === "openai" && Boolean(config.baseUrl));
+      provider === "openrouter" ||
+      (provider === "openai" && isCustomOpenAiBaseUrl(config.baseUrl));
     this.capabilities = PROVIDER_CAPABILITIES[provider];
     this.apiKey =
       config.apiKey ??
@@ -311,9 +314,10 @@ class AISDKEngine implements AgentEngine {
     }
 
     const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
+    const providerTools = limitProviderTools(opts.tools);
     const aiSdkTools =
-      opts.tools.length > 0
-        ? engineToolsToAISDK(opts.tools, jsonSchema, toolNameMap)
+      providerTools.length > 0
+        ? engineToolsToAISDK(providerTools, jsonSchema, toolNameMap)
         : undefined;
     const messages = engineMessagesToAISDK(opts.messages, {
       // Vision-capable provider translators (anthropic/openai/google/
@@ -397,10 +401,10 @@ class AISDKEngine implements AgentEngine {
         // <model> in /v1/chat/completions. To use function tools, use
         // /v1/responses or set reasoning_effort to 'none'.") — a real prod
         // incident, e.g. Sentry AGENT-NATIVE-BROWSER-94 on gpt-5.6-terra.
-        // `createProviderModel` forces Chat Completions specifically when
-        // `this.baseUrl` is set (many OpenAI-compatible gateways/proxies
-        // don't implement Responses — see that comment). In that exact
-        // combination — forced Chat Completions AND tools present — send
+        // `createProviderModel` forces Chat Completions specifically for a
+        // custom `baseUrl` (many OpenAI-compatible gateways/proxies don't
+        // implement Responses — see that comment). In that exact combination
+        // — forced Chat Completions AND tools present — send
         // `"none"` rather than our resolved effort; Responses-API calls (no
         // baseUrl) are unaffected and keep full effort control.
         //
@@ -409,7 +413,7 @@ class AISDKEngine implements AgentEngine {
         // exactly the same way. Only the explicit "none" clears it — the
         // error text spells this out ("or set reasoning_effort to 'none'").
         const forcedChatCompletionsWithTools =
-          Boolean(this.baseUrl) && aiSdkTools !== undefined;
+          isCustomOpenAiBaseUrl(this.baseUrl) && aiSdkTools !== undefined;
         providerOpts.openai = {
           ...((providerOpts.openai as object) ?? {}),
           reasoningEffort: forcedChatCompletionsWithTools
@@ -644,7 +648,7 @@ class AISDKEngine implements AgentEngine {
     // GPT reasoning models get the API OpenAI recommends. If someone points
     // the OpenAI provider at an OpenAI-compatible gateway, keep using Chat
     // Completions because many gateway base URLs do not implement Responses.
-    return this.provider === "openai" && this.baseUrl
+    return this.provider === "openai" && isCustomOpenAiBaseUrl(this.baseUrl)
       ? provider.chat(model)
       : provider(model);
   }

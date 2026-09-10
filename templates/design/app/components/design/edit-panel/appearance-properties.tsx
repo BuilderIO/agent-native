@@ -34,6 +34,16 @@ import type { ElementInfo } from "../types";
 import { elementIdentityKey } from "./element-identity";
 import { FieldTrailer } from "./field-primitives";
 import { SectionIconToggle } from "./inspector-controls";
+import {
+  INSPECTOR_GRID_ACTION_GUTTER_SPAN,
+  INSPECTOR_GRID_ACTION_PAIR_SPAN,
+  INSPECTOR_GRID_ACTION_SPAN,
+  INSPECTOR_GRID_COLUMNS,
+  INSPECTOR_GRID_PAIR_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_SPAN,
+  InspectorGrid,
+  InspectorGridCell,
+} from "./inspector-grid";
 import { PanelSection } from "./panel-primitives";
 import { cssLengthNumber, fourValuesEqual } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
@@ -54,6 +64,7 @@ export function CornerRadiusControl({
   element,
   motionKeyframeContext,
   breakpointOverrideContext,
+  parentGrid = false,
 }: {
   styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
@@ -65,6 +76,7 @@ export function CornerRadiusControl({
   element?: ElementInfo;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
+  parentGrid?: boolean;
 }) {
   const t = useT();
   const independentCornersLabel = t("editPanel.labels.independentCorners");
@@ -157,120 +169,165 @@ export function CornerRadiusControl({
     setShowIndependentCorners(!showIndependentCorners);
   };
 
-  return (
-    <>
-      <div className="group/field relative min-w-0">
-        <AppearanceScrubField
-          label={t("editPanel.labels.cornerRadius")}
-          icon={IconBorderRadius}
-          value={radius}
-          onChange={commitRadius}
-          mixed={radiusMixed}
-          min={0}
-          precision={0}
+  const uniformField = (
+    <div className="group/field relative">
+      <AppearanceScrubField
+        label={t("editPanel.labels.cornerRadius")}
+        icon={IconBorderRadius}
+        value={radius}
+        onChange={commitRadius}
+        mixed={radiusMixed}
+        min={0}
+        precision={0}
+      />
+      {element ? (
+        <FieldTrailer
+          element={element}
+          motionCssProperty="border-radius"
+          motionKeyframeContext={motionKeyframeContext}
+          breakpointOverrideContext={breakpointOverrideContext}
+          className="absolute -top-3.5 right-0"
+          hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
         />
-        {element ? (
-          <FieldTrailer
-            element={element}
-            motionCssProperty="border-radius"
-            motionKeyframeContext={motionKeyframeContext}
-            breakpointOverrideContext={breakpointOverrideContext}
-            className="absolute -top-3.5 right-0"
-            hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
-          />
-        ) : null}
-      </div>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-              showIndependentCorners &&
-                "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-accent-color)]/20 hover:text-[var(--design-editor-accent-color)]",
-            )}
-            aria-label={independentCornersLabel}
-            aria-pressed={showIndependentCorners}
-            onClick={toggleIndependentCorners}
-          >
-            <IconBorderCorners className="size-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{independentCornersLabel}</TooltipContent>
-      </Tooltip>
-      {showIndependentCorners ? (
-        <>
-          <AppearanceScrubField
-            label={t("editPanel.labels.topLeft")}
-            ariaLabel="Top left"
-            icon={IconRadiusTopLeft}
-            value={corners.topLeft}
-            onChange={(value, meta) =>
-              onStyleChange(
-                "borderTopLeftRadius",
-                `${Math.max(0, Math.round(value))}px`,
-                meta,
-              )
-            }
-            mixed={cornerMixed.topLeft}
-            min={0}
-            precision={1}
-          />
-          <AppearanceScrubField
-            label={t("editPanel.labels.topRight")}
-            ariaLabel="Top right"
-            icon={IconRadiusTopRight}
-            value={corners.topRight}
-            onChange={(value, meta) =>
-              onStyleChange(
-                "borderTopRightRadius",
-                `${Math.max(0, Math.round(value))}px`,
-                meta,
-              )
-            }
-            mixed={cornerMixed.topRight}
-            min={0}
-            precision={1}
-          />
-          <span aria-hidden="true" />
-          <AppearanceScrubField
-            label={t("editPanel.labels.bottomLeft")}
-            ariaLabel="Bottom left"
-            icon={IconRadiusBottomLeft}
-            value={corners.bottomLeft}
-            onChange={(value, meta) =>
-              onStyleChange(
-                "borderBottomLeftRadius",
-                `${Math.max(0, Math.round(value))}px`,
-                meta,
-              )
-            }
-            mixed={cornerMixed.bottomLeft}
-            min={0}
-            precision={1}
-          />
-          <AppearanceScrubField
-            label={t("editPanel.labels.bottomRight")}
-            ariaLabel="Bottom right"
-            icon={IconRadiusBottomRight}
-            value={corners.bottomRight}
-            onChange={(value, meta) =>
-              onStyleChange(
-                "borderBottomRightRadius",
-                `${Math.max(0, Math.round(value))}px`,
-                meta,
-              )
-            }
-            mixed={cornerMixed.bottomRight}
-            min={0}
-            precision={1}
-          />
-          <span aria-hidden="true" />
-        </>
       ) : null}
-    </>
+    </div>
+  );
+  const independentCornersAction = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+            showIndependentCorners &&
+              "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-accent-color)]/20 hover:text-[var(--design-editor-accent-color)]",
+          )}
+          aria-label={independentCornersLabel}
+          aria-pressed={showIndependentCorners}
+          onClick={toggleIndependentCorners}
+        >
+          <IconBorderCorners className="size-3.5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{independentCornersLabel}</TooltipContent>
+    </Tooltip>
+  );
+  const independentCornersFields = showIndependentCorners ? (
+    <InspectorGrid className="items-center" layout="pair">
+      <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+        <AppearanceScrubField
+          label={t("editPanel.labels.topLeft")}
+          ariaLabel="Top left"
+          icon={IconRadiusTopLeft}
+          value={corners.topLeft}
+          onChange={(value, meta) =>
+            onStyleChange(
+              "borderTopLeftRadius",
+              `${Math.max(0, Math.round(value))}px`,
+              meta,
+            )
+          }
+          mixed={cornerMixed.topLeft}
+          min={0}
+          precision={1}
+        />
+      </InspectorGridCell>
+      <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
+      <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+        <AppearanceScrubField
+          label={t("editPanel.labels.topRight")}
+          ariaLabel="Top right"
+          icon={IconRadiusTopRight}
+          value={corners.topRight}
+          onChange={(value, meta) =>
+            onStyleChange(
+              "borderTopRightRadius",
+              `${Math.max(0, Math.round(value))}px`,
+              meta,
+            )
+          }
+          mixed={cornerMixed.topRight}
+          min={0}
+          precision={1}
+        />
+      </InspectorGridCell>
+      <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+        <AppearanceScrubField
+          label={t("editPanel.labels.bottomLeft")}
+          ariaLabel="Bottom left"
+          icon={IconRadiusBottomLeft}
+          value={corners.bottomLeft}
+          onChange={(value, meta) =>
+            onStyleChange(
+              "borderBottomLeftRadius",
+              `${Math.max(0, Math.round(value))}px`,
+              meta,
+            )
+          }
+          mixed={cornerMixed.bottomLeft}
+          min={0}
+          precision={1}
+        />
+      </InspectorGridCell>
+      <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
+      <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+        <AppearanceScrubField
+          label={t("editPanel.labels.bottomRight")}
+          ariaLabel="Bottom right"
+          icon={IconRadiusBottomRight}
+          value={corners.bottomRight}
+          onChange={(value, meta) =>
+            onStyleChange(
+              "borderBottomRightRadius",
+              `${Math.max(0, Math.round(value))}px`,
+              meta,
+            )
+          }
+          mixed={cornerMixed.bottomRight}
+          min={0}
+          precision={1}
+        />
+      </InspectorGridCell>
+    </InspectorGrid>
+  ) : null;
+
+  if (parentGrid) {
+    return (
+      <>
+        <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
+          {uniformField}
+        </InspectorGridCell>
+        <InspectorGridCell
+          span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+          ariaHidden
+        />
+        <InspectorGridCell
+          span={INSPECTOR_GRID_ACTION_SPAN}
+          className="flex justify-center"
+        >
+          {independentCornersAction}
+        </InspectorGridCell>
+        {independentCornersFields ? (
+          <InspectorGridCell span={INSPECTOR_GRID_COLUMNS}>
+            {independentCornersFields}
+          </InspectorGridCell>
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <InspectorGrid className="items-center" layout="field-action">
+        <InspectorGridCell span={24}>{uniformField}</InspectorGridCell>
+        <InspectorGridCell span={4} className="flex justify-center">
+          {independentCornersAction}
+        </InspectorGridCell>
+      </InspectorGrid>
+      {independentCornersFields}
+    </div>
   );
 }
 
@@ -315,7 +372,7 @@ export function AppearanceScrubField({
       unit={unit}
       precision={precision}
       disabled={disabled}
-      className="min-w-0 gap-0"
+      className="w-full min-w-0 gap-0"
       labelClassName="h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground [&>span]:sr-only"
       inputClassName="h-6 min-w-0 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] border-l-0 bg-[var(--design-editor-control-bg)] px-0 text-left shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
     />
@@ -464,15 +521,33 @@ export function AppearanceProperties({
         </>
       }
     >
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5">
-        <p className="min-w-0 truncate !text-[11px] font-medium text-muted-foreground">
-          {t("editPanel.labels.opacity")}
-        </p>
-        <p className="min-w-0 truncate !text-[11px] font-medium text-muted-foreground">
-          {t("editPanel.labels.cornerRadius")}
-        </p>
-        <span aria-hidden="true" />
-        <div className="group/field relative min-w-0">
+      <InspectorGrid
+        className="design-inspector-pair-fields items-center"
+        layout="label-action-rows"
+      >
+        <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
+          <p className="design-sidebar-field-label min-w-0 truncate text-muted-foreground">
+            {t("editPanel.labels.opacity")}
+          </p>
+        </InspectorGridCell>
+        <InspectorGridCell
+          span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+          ariaHidden
+        />
+        <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
+          <p className="design-sidebar-field-label min-w-0 truncate text-muted-foreground">
+            {t("editPanel.labels.cornerRadius")}
+          </p>
+        </InspectorGridCell>
+        <InspectorGridCell
+          span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+          ariaHidden
+        />
+        <InspectorGridCell span={INSPECTOR_GRID_ACTION_SPAN} ariaHidden />
+        <InspectorGridCell
+          span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+          className="group/field relative"
+        >
           <AppearanceScrubField
             label={t("editPanel.labels.opacity")}
             icon={IconGridDots}
@@ -499,7 +574,11 @@ export function AppearanceProperties({
             className="absolute -top-3.5 right-0"
             hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
           />
-        </div>
+        </InspectorGridCell>
+        <InspectorGridCell
+          span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+          ariaHidden
+        />
         {/* Selection-stable key so per-selection UI state (the independent-
             corners toggle, which ratchets open while corners differ) resets on
             selection change instead of leaking to the next element — same
@@ -511,8 +590,9 @@ export function AppearanceProperties({
           element={element}
           motionKeyframeContext={motionKeyframeContext}
           breakpointOverrideContext={breakpointOverrideContext}
+          parentGrid
         />
-      </div>
+      </InspectorGrid>
     </PanelSection>
   );
 }

@@ -1,5 +1,10 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
+import {
+  findPlainTextLinkRanges,
+  renderPlainTextLinks,
+} from "@shared/markdown";
 import type { EmailMessage, MobileActionId } from "@shared/types";
 import {
   IconArchive,
@@ -7,6 +12,8 @@ import {
   IconChevronUp,
   IconChevronDown,
   IconExternalLink,
+  IconMail,
+  IconMailOpened,
   IconMailOff,
   IconX,
   IconArrowBackUp,
@@ -17,6 +24,8 @@ import {
   IconPhoto,
   IconSearch,
   IconDots,
+  IconFilter,
+  IconInbox,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconTrash,
@@ -35,6 +44,7 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -215,6 +225,10 @@ export function EmailThread({
 
   // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
+  const [aiFilterDialog, setAiFilterDialog] = useState<{
+    action: "filter" | "keep";
+    targets: AiFilterTarget[];
+  } | null>(null);
 
   // Simple loading check: do we have the full email body yet?
   const hasFullBody = !!(email?.bodyHtml || email?.body);
@@ -369,16 +383,62 @@ export function EmailThread({
   const toggleStar = useToggleStar();
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
+  const keepUnreadThreadRef = useRef<string | undefined>(undefined);
+  const failedAutoReadThreadRef = useRef<string | undefined>(undefined);
+  const autoReadTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    keepUnreadThreadRef.current = undefined;
+    failedAutoReadThreadRef.current = undefined;
+  }, [threadId]);
+  const setCurrentEmailReadState = useCallback(
+    (isRead: boolean) => {
+      if (!email) return;
+      if (!isRead) {
+        keepUnreadThreadRef.current = threadId;
+        if (autoReadTimerRef.current !== undefined) {
+          clearTimeout(autoReadTimerRef.current);
+          autoReadTimerRef.current = undefined;
+        }
+      }
+      markRead.mutate({
+        id: email.id,
+        isRead,
+        accountEmail: email.accountEmail,
+        threadId,
+      });
+    },
+    [email, markRead, threadId],
+  );
 
   // Auto-mark all unread messages in this thread as read when viewed.
   // Defer the mutation past the commit so its optimistic emails-cache update
   // doesn't re-render the detail view we just finished mounting.
   const hasUnread = messages.some((m) => !m.isRead);
   useEffect(() => {
-    if (threadId && hasUnread) {
+    if (
+      threadId &&
+      hasUnread &&
+      keepUnreadThreadRef.current !== threadId &&
+      failedAutoReadThreadRef.current !== threadId
+    ) {
       const id = threadId;
-      const handle = setTimeout(() => markThreadRead.mutate(id), 0);
-      return () => clearTimeout(handle);
+      const handle = setTimeout(() => {
+        autoReadTimerRef.current = undefined;
+        markThreadRead.mutate(id, {
+          onError: () => {
+            failedAutoReadThreadRef.current = id;
+          },
+        });
+      }, 0);
+      autoReadTimerRef.current = handle;
+      return () => {
+        clearTimeout(handle);
+        if (autoReadTimerRef.current === handle) {
+          autoReadTimerRef.current = undefined;
+        }
+      };
     }
     // Only trigger when threadId changes or messages load with unread
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -386,7 +446,7 @@ export function EmailThread({
 
   const goBack = useCallback(() => {
     onNavigateThread?.(undefined);
-    navigate(`/${view}${routeSearchSuffix}`);
+    void navigate(`/${view}${routeSearchSuffix}`);
   }, [navigate, view, routeSearchSuffix, onNavigateThread]);
 
   // Navigate between threads (j/k) — use ref to avoid stale closure
@@ -416,7 +476,7 @@ export function EmailThread({
         nextThread?.latestMessage.accountEmail,
       ).catch(() => {});
       onNavigateThread?.(nextThreadId);
-      navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
+      void navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
     },
     [
       threadId,
@@ -451,7 +511,7 @@ export function EmailThread({
       });
 
       onNavigateThread?.(nextThreadKey);
-      navigate(`/${view}/${nextThreadKey}${routeSearchSuffix}`, {
+      void navigate(`/${view}/${nextThreadKey}${routeSearchSuffix}`, {
         replace: true,
       });
     },
@@ -495,13 +555,13 @@ export function EmailThread({
     if (idx !== -1 && idx + 1 < emailIds.length) {
       const nextId = emailIds[idx + 1];
       onNavigateThread?.(nextId);
-      navigate(`/${view}/${nextId}${routeSearchSuffix}`, {
+      void navigate(`/${view}/${nextId}${routeSearchSuffix}`, {
         replace: true,
       });
     } else if (idx !== -1 && idx - 1 >= 0) {
       const prevId = emailIds[idx - 1];
       onNavigateThread?.(prevId);
-      navigate(`/${view}/${prevId}${routeSearchSuffix}`, {
+      void navigate(`/${view}/${prevId}${routeSearchSuffix}`, {
         replace: true,
       });
     } else {
@@ -579,6 +639,41 @@ export function EmailThread({
     return [];
   }, [selectedIds, threadId]);
 
+  const openAiFilterDialog = useCallback(
+    (action: "filter" | "keep") => {
+      const targets = getActionThreadKeys().flatMap((key): AiFilterTarget[] => {
+        const thread = threads.find(
+          (candidate) =>
+            (candidate.latestMessage.threadId || candidate.latestMessage.id) ===
+            key,
+        );
+        const target =
+          thread?.latestMessage ??
+          (email && (email.threadId || email.id) === key ? email : undefined);
+        if (!target) return [];
+        return [
+          {
+            id: target.id,
+            threadId: target.threadId || target.id,
+            ...(target.accountEmail && target.accountEmail !== "local"
+              ? { accountEmail: target.accountEmail }
+              : {}),
+            sender: target.from.name
+              ? `${target.from.name} <${target.from.email}>`
+              : target.from.email,
+            subject: target.subject,
+          },
+        ];
+      });
+      if (targets.length === 0) {
+        toast.error(t("mail.toasts.noEmailSelected"));
+        return;
+      }
+      setAiFilterDialog({ action, targets });
+    },
+    [email, getActionThreadKeys, t, threads],
+  );
+
   const handleArchive = useCallback(() => {
     const threadKeys = getActionThreadKeys();
     if (threadKeys.length === 0) return;
@@ -604,7 +699,7 @@ export function EmailThread({
     const undo = () => {
       for (const key of threadKeys) unsuppressThread(key);
       for (const t of targets) unarchiveEmail.mutate(t.id);
-      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
     toast(
@@ -660,7 +755,7 @@ export function EmailThread({
     const undo = () => {
       for (const key of threadKeys) unsuppressThread(key);
       for (const t of targets) untrashEmail.mutate(t.id);
-      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
     toast(
@@ -906,38 +1001,17 @@ export function EmailThread({
       },
       {
         key: "u",
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: !email.isRead,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => email && setCurrentEmailReadState(!email.isRead),
       },
       {
         key: "I",
         shift: true,
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: true,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => setCurrentEmailReadState(true),
       },
       {
         key: "U",
         shift: true,
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: false,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => setCurrentEmailReadState(false),
       },
     ],
     !!threadId,
@@ -949,6 +1023,15 @@ export function EmailThread({
       switch (action) {
         case "archive":
           handleArchive();
+          break;
+        case "aiFilter":
+          openAiFilterDialog(
+            email?.labelIds.some(
+              (label) => label.toLowerCase() === AI_FILTER_LABEL,
+            )
+              ? "keep"
+              : "filter",
+          );
           break;
         case "trash":
           handleTrash();
@@ -966,12 +1049,7 @@ export function EmailThread({
           handleForward();
           break;
         case "markUnread":
-          if (email)
-            markRead.mutate({
-              id: email.id,
-              isRead: false,
-              accountEmail: email.accountEmail,
-            });
+          setCurrentEmailReadState(false);
           break;
         case "prev":
           goToSibling(-1);
@@ -983,13 +1061,14 @@ export function EmailThread({
     },
     [
       handleArchive,
+      openAiFilterDialog,
       handleTrash,
       handleStar,
       handleReply,
       handleReplyAll,
       handleForward,
       email,
-      markRead,
+      setCurrentEmailReadState,
       goToSibling,
     ],
   );
@@ -1077,7 +1156,7 @@ export function EmailThread({
     } finally {
       setUnsubscribing(false);
     }
-  }, [unsubscribeInfo]);
+  }, [t, unsubscribeInfo]);
 
   if (!threadId) return null;
 
@@ -1116,6 +1195,9 @@ export function EmailThread({
 
   // Strip "Re: " / "Fwd: " prefixes for thread subject
   const threadSubject = email.subject.replace(/^(Re|Fwd|Fw):\s*/i, "");
+  const isAiFiltered = email.labelIds.some(
+    (label) => label.toLowerCase() === AI_FILTER_LABEL,
+  );
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -1156,6 +1238,61 @@ export function EmailThread({
               })}
               {/* Action bar */}
               <div className="hidden sm:flex items-center gap-0.5 ml-auto shrink-0">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() =>
+                        openAiFilterDialog(isAiFiltered ? "keep" : "filter")
+                      }
+                      aria-label={
+                        isAiFiltered
+                          ? t("mail.aiFilter.keepButton")
+                          : t("mail.aiFilter.filterButton")
+                      }
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      {isAiFiltered ? (
+                        <IconInbox className="h-4 w-4" />
+                      ) : (
+                        <IconFilter className="h-4 w-4" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isAiFiltered
+                      ? t("mail.aiFilter.keepButton")
+                      : t("mail.aiFilter.filterButton")}
+                  </TooltipContent>
+                </Tooltip>
+                {email && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentEmailReadState(!email.isRead)}
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        aria-label={t(
+                          email.isRead
+                            ? "mail.actions.markUnread"
+                            : "mail.actions.markRead",
+                        )}
+                      >
+                        {email.isRead ? (
+                          <IconMail className="h-4 w-4" />
+                        ) : (
+                          <IconMailOpened className="h-4 w-4" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t(
+                        email.isRead
+                          ? "mail.actions.markUnread"
+                          : "mail.actions.markRead",
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -1380,7 +1517,7 @@ export function EmailThread({
                               label: "DELETE DRAFT",
                               onClick: () => {
                                 if (snapshot.savedDraftId) {
-                                  fetch(
+                                  void fetch(
                                     appApiPath(
                                       `/api/emails/${snapshot.savedDraftId}`,
                                     ),
@@ -1441,7 +1578,7 @@ export function EmailThread({
                           label: "DELETE DRAFT",
                           onClick: () => {
                             if (snapshot.savedDraftId) {
-                              fetch(
+                              void fetch(
                                 appApiPath(
                                   `/api/emails/${snapshot.savedDraftId}`,
                                 ),
@@ -1481,12 +1618,25 @@ export function EmailThread({
         <MobileActionBar
           actions={mobileActions}
           isStarred={email.isStarred}
+          isAiFiltered={isAiFiltered}
           onAction={handleMobileAction}
           onUpdateActions={(actions) =>
             updateSettings.mutate({ mobileActions: actions })
           }
         />
       )}
+      <AiFilterDialog
+        open={!!aiFilterDialog}
+        onOpenChange={(open) => !open && setAiFilterDialog(null)}
+        action={aiFilterDialog?.action ?? "filter"}
+        targets={aiFilterDialog?.targets ?? []}
+        onComplete={() => {
+          const shouldAdvance = aiFilterDialog?.action === "filter";
+          setAiFilterDialog(null);
+          setSelectedIds?.(new Set());
+          if (shouldAdvance) advanceOrGoBack();
+        }}
+      />
     </div>
   );
 }
@@ -2130,35 +2280,104 @@ function PlainTextBody({
 
   // Render text with search highlights
   const renderHighlighted = (text: string, globalMatchOffset: number) => {
-    if (!searchTerm) return text || "\u00a0";
+    if (!searchTerm) {
+      if (!text) return "\u00a0";
+      return (
+        <span
+          dangerouslySetInnerHTML={{ __html: renderPlainTextLinks(text) }}
+        />
+      );
+    }
     const q = searchTerm.toLowerCase();
     const lower = text.toLowerCase();
-    const nodes: React.ReactNode[] = [];
-    let matchCount = globalMatchOffset;
-    let idx = 0;
-    let pos = lower.indexOf(q);
-    while (pos !== -1) {
-      if (pos > idx) nodes.push(text.slice(idx, pos));
-      const isActive = matchCount === activeLocalIdx;
-      nodes.push(
-        <mark
-          key={`${pos}-${matchCount}`}
-          data-search={matchCount}
-          className={
-            isActive
-              ? "bg-amber-400 text-black rounded-[2px]"
-              : "bg-yellow-200/25 text-inherit rounded-[2px]"
-          }
-        >
-          {text.slice(pos, pos + searchTerm.length)}
-        </mark>,
-      );
-      matchCount++;
-      idx = pos + searchTerm.length;
-      pos = lower.indexOf(q, idx);
+    const searchMatches: Array<{ start: number; end: number; index: number }> =
+      [];
+    let matchStart = lower.indexOf(q);
+    while (matchStart !== -1) {
+      searchMatches.push({
+        start: matchStart,
+        end: matchStart + searchTerm.length,
+        index: globalMatchOffset + searchMatches.length,
+      });
+      matchStart = lower.indexOf(q, matchStart + searchTerm.length);
     }
-    if (idx < text.length) nodes.push(text.slice(idx));
-    return nodes.length > 0 ? nodes : text || "\u00a0";
+    const renderedMatchIds = new Set<number>();
+    const renderSearchText = (segment: string, segmentStart: number) => {
+      const segmentEnd = segmentStart + segment.length;
+      const matches = searchMatches.filter(
+        (match) => match.start < segmentEnd && match.end > segmentStart,
+      );
+      if (matches.length === 0) return [segment];
+
+      const nodes: React.ReactNode[] = [];
+      let cursor = 0;
+      for (const match of matches) {
+        const start = Math.max(0, match.start - segmentStart);
+        const end = Math.min(segment.length, match.end - segmentStart);
+        if (start > cursor) nodes.push(segment.slice(cursor, start));
+        if (end > start) {
+          const isFirstFragment = !renderedMatchIds.has(match.index);
+          renderedMatchIds.add(match.index);
+          nodes.push(
+            <mark
+              key={`${segmentStart}-${match.index}-${start}`}
+              data-search={isFirstFragment ? match.index : undefined}
+              className={
+                match.index === activeLocalIdx
+                  ? "bg-amber-400 text-foreground rounded-[2px]"
+                  : "bg-yellow-200/25 text-inherit rounded-[2px]"
+              }
+            >
+              {segment.slice(start, end)}
+            </mark>,
+          );
+        }
+        cursor = Math.max(cursor, end);
+      }
+      if (cursor < segment.length) nodes.push(segment.slice(cursor));
+      return nodes;
+    };
+
+    const ranges = findPlainTextLinkRanges(text);
+    if (ranges.length === 0) {
+      return renderSearchText(text || "\u00a0", 0);
+    }
+
+    const nodes: React.ReactNode[] = [];
+    let cursor = 0;
+    ranges.forEach((range, rangeIndex) => {
+      if (range.start > cursor) {
+        nodes.push(
+          ...renderSearchText(text.slice(cursor, range.start), cursor),
+        );
+      }
+
+      const isAngleBracketUrl = text[range.start] === "<";
+      const linkStart = isAngleBracketUrl ? range.start + 1 : range.start;
+      const linkEnd = linkStart + range.url.length;
+      const consumedEnd = isAngleBracketUrl
+        ? range.end
+        : linkEnd + range.trailing.length;
+      nodes.push(
+        <a
+          key={`url-${range.start}-${rangeIndex}`}
+          href={range.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {renderSearchText(range.url, linkStart)}
+        </a>,
+      );
+      if (range.trailing) {
+        nodes.push(...renderSearchText(range.trailing, linkEnd));
+      }
+      cursor = consumedEnd;
+    });
+
+    if (cursor < text.length) {
+      nodes.push(...renderSearchText(text.slice(cursor), cursor));
+    }
+    return nodes;
   };
 
   // Count matches in lines above the current one so we can track global match index per line

@@ -8,6 +8,7 @@ const listOAuthAccountsByOwner = vi.fn();
 const saveOAuthTokens = vi.fn();
 const deleteOAuthTokens = vi.fn();
 const resolveWorkspaceConnectionForApp = vi.fn();
+const resolveWorkspaceConnectionCredentialForApp = vi.fn();
 const resolveSecret = vi.fn();
 const writeWorkspaceFile = vi.fn();
 
@@ -34,6 +35,13 @@ vi.mock("../workspace-connections/store.js", async (importOriginal) => ({
   resolveWorkspaceConnectionForApp,
 }));
 
+vi.mock("../workspace-connections/credentials.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../workspace-connections/credentials.js")
+  >()),
+  resolveWorkspaceConnectionCredentialForApp,
+}));
+
 vi.mock("../server/credential-provider.js", () => ({ resolveSecret }));
 
 vi.mock("../server/request-context.js", async (importOriginal) => ({
@@ -48,6 +56,13 @@ vi.mock("../workspace-files/store.js", () => ({
   isScratchWorkspacePath: (filePath: string) => filePath.startsWith("scratch/"),
   toWorkspaceFileCard: (meta: unknown) => ({ meta }),
   writeWorkspaceFile,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 const {
@@ -77,6 +92,12 @@ describe("provider API runtime", () => {
     saveOAuthTokens.mockReset();
     deleteOAuthTokens.mockReset();
     resolveWorkspaceConnectionForApp.mockReset();
+    resolveWorkspaceConnectionCredentialForApp.mockReset();
+    resolveWorkspaceConnectionCredentialForApp.mockResolvedValue({
+      available: false,
+      value: undefined,
+      provenance: null,
+    });
     resolveSecret.mockReset();
     resolveSecret.mockResolvedValue(null);
     writeWorkspaceFile.mockReset();
@@ -192,6 +213,34 @@ describe("provider API runtime", () => {
 
     expect(result).toMatchObject({ ok: false, status: 200 });
     expect(writeWorkspaceFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to save a body-level provider failure as a durable file", async () => {
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "SLACK_BOT_TOKEN" ? "xoxb-test-token" : null,
+    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: "not_in_channel" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "dispatch",
+      providerIds: ["slack"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "slack",
+        method: "POST",
+        path: "/chat.postMessage",
+        body: { channel: "D0BPPCV7T0C", text: "summary" },
+        saveToFile: "exports/slack-response.json",
+      }),
+    ).rejects.toThrow("Refusing to save a failed provider response");
+    expect(writeWorkspaceFile).not.toHaveBeenCalled();
   });
 
   it("injects Clay's public API key with the official header", async () => {

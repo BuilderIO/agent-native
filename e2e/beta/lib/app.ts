@@ -12,6 +12,23 @@ import type { Page } from "@playwright/test";
 
 const SIGN_IN_TEXT = /sign in|sign up|continue with google|create an account/i;
 const SIGN_IN_PATH = /\/(sign-in|login)\b/;
+const VECTOR_HOST_PATTERN =
+  /(?:^|[^a-z0-9-])(?:[a-z0-9-]+\.)*vector\.co(?::\d+)?(?:[/'`)\s]|$)/i;
+
+/**
+ * The Vector pixel wraps its own cross-origin fetch in an app-bundle callback,
+ * so the stack contains both the app origin and Vector. Keep that known noise
+ * out of app failures without hiding arbitrary third-party errors.
+ */
+export function isKnownThirdPartyPageError(
+  message: string,
+  stack: string,
+): boolean {
+  return (
+    /failed to fetch|domain not allowed/i.test(message) &&
+    VECTOR_HOST_PATTERN.test(stack)
+  );
+}
 
 /**
  * Read the body text, keeping "the page rendered nothing" and "the page could
@@ -25,7 +42,12 @@ async function readBodyText(
   page: Page,
 ): Promise<{ text: string } | { unreadable: string }> {
   try {
-    return { text: await page.locator("body").innerText() };
+    return {
+      text: await page.evaluate(() => {
+        if (!document.body) throw new Error("document.body is not available");
+        return document.body.innerText;
+      }),
+    };
   } catch (error) {
     return {
       unreadable: error instanceof Error ? error.message : String(error),
@@ -196,10 +218,15 @@ export function collectAppPageErrors(
 
   page.on("pageerror", (error) => {
     const stack = error.stack ?? "";
+    const fromKnownThirdParty = isKnownThirdPartyPageError(
+      error.message,
+      stack,
+    );
     const fromApp =
-      stack.includes(appOrigin) ||
-      // A stack with no URL at all is most likely inline app code.
-      !/https?:\/\//.test(stack);
+      !fromKnownThirdParty &&
+      (stack.includes(appOrigin) ||
+        // A stack with no URL at all is most likely inline app code.
+        !/https?:\/\//.test(stack));
     if (fromApp)
       errors.push(
         `${error.message}\n${stack.split("\n").slice(0, 3).join("\n")}`,

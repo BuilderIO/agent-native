@@ -152,9 +152,16 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "toggle-ui",
     category: "view",
-    bindings: ["shift+\\"],
+    bindings: ["$mod+\\"],
     labelKey: "designEditor.keyboardShortcuts.commands.toggleUi",
     handler: "onToggleUi",
+  }),
+  shortcut({
+    id: "toggle-minimal-ui",
+    category: "view",
+    bindings: ["$mod+shift+\\"],
+    labelKey: "designEditor.keyboardShortcuts.commands.toggleUi",
+    handler: "onToggleMinimalUi",
   }),
   shortcut({
     id: "toggle-comments",
@@ -162,6 +169,15 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     bindings: ["shift+c"],
     labelKey: "designEditor.keyboardShortcuts.commands.toggleComments",
     handler: "onToggleComments",
+  }),
+  shortcut({
+    id: "toggle-layout-grids",
+    category: "view",
+    // Literal ctrl, not $mod: Figma uses Control G on Mac and Ctrl Shift 4 on
+    // Windows for this one, so Cmd must not trigger it.
+    bindings: ["ctrl+g", "ctrl+shift+4"],
+    labelKey: "designEditor.keyboardShortcuts.commands.toggleLayoutGrids",
+    handler: "onToggleLayoutGrids",
   }),
 
   shortcut({

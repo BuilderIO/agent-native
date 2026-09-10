@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+} from "../shared/test-traffic.js";
+import { runWithRequestContext } from "./request-context.js";
+import {
   fireInternalDispatch,
   resolveSelfDispatchBaseUrl,
 } from "./self-dispatch.js";
@@ -99,6 +104,32 @@ describe("fireInternalDispatch", () => {
     // The /starter base path must be stripped for the host-root function url.
     expect(calledUrl).toBe(
       "https://workspace.example.test/.netlify/functions/starter-agent-background",
+    );
+  });
+
+  it("carries the synthetic marker into a background handoff", async () => {
+    let requestHeaders: HeadersInit | undefined;
+    globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      requestHeaders = init?.headers;
+      return {
+        ok: true,
+        status: 202,
+        statusText: "Accepted",
+        text: async () => "",
+      };
+    }) as unknown as typeof fetch;
+
+    await runWithRequestContext({ isSyntheticTraffic: true }, () =>
+      fireInternalDispatch({
+        baseUrl: "https://slides.example.test",
+        path: "/.netlify/functions/server-agent-background",
+        taskId: "task-synthetic",
+        awaitResponse: true,
+      }),
+    );
+
+    expect(new Headers(requestHeaders).get(SYNTHETIC_TRAFFIC_HEADER)).toBe(
+      SYNTHETIC_TRAFFIC_BETA_E2E,
     );
   });
 

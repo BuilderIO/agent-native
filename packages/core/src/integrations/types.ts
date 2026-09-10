@@ -231,7 +231,7 @@ export interface PlatformRunProgress {
   /** Finalize the provider-native progress surface with the answer. */
   complete(
     message: OutgoingMessage,
-    opts?: { signal?: AbortSignal },
+    opts?: { signal?: AbortSignal; idempotencyKey?: string },
   ): Promise<void | PlatformDeliveryReceipt>;
   /** Mark the provider-native surface failed and leave a retryable explanation. */
   fail?(message: string, opts?: { signal?: AbortSignal }): Promise<void>;

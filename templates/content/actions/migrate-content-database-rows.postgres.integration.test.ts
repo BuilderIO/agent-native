@@ -22,6 +22,7 @@ const OWNER = "synthetic-postgres-migration-owner@example.test";
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let action: typeof import("./migrate-content-database-rows.js").default;
+let terminalAction: typeof import("./manage-content-database-migration.js").default;
 let setDocumentProperty: typeof import("./set-document-property.js").default;
 let configureDocumentProperty: typeof import("./configure-document-property.js").default;
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
@@ -45,6 +46,8 @@ beforeAll(async () => {
   getDb = database.getDb;
   schema = database.schema;
   action = (await import("./migrate-content-database-rows.js")).default;
+  terminalAction = (await import("./manage-content-database-migration.js"))
+    .default;
   setDocumentProperty = (await import("./set-document-property.js")).default;
   configureDocumentProperty = (await import("./configure-document-property.js"))
     .default;
@@ -416,7 +419,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
         operation = runWithRequestContext({ userEmail: OWNER }, () =>
           phase === "apply"
             ? action.run({ phase: "apply", plan: seed.plan })
-            : action.run({
+            : terminalAction.run({
                 phase: "rollback",
                 databaseId: seed.databaseId,
                 idempotencyKey: seed.plan.idempotencyKey,

@@ -26,7 +26,7 @@ export default defineAction({
   }),
   http: { method: "DELETE" },
   run: async (args) => {
-    const ownerEmail = await getRequestUserEmail();
+    const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {
       throw createError({
         statusCode: 401,

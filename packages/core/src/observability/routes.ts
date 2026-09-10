@@ -22,6 +22,7 @@
 
 import {
   defineEventHandler,
+  getHeader,
   getMethod,
   getQuery,
   setResponseStatus,
@@ -209,7 +210,11 @@ export function createObservabilityHandler() {
             ? JSON.stringify(rawValue)
             : String(rawValue);
       const id = nanoid();
-      await insertFeedback({
+      const idempotencyKey =
+        feedbackType === "text"
+          ? getHeader(event, "idempotency-key")?.trim() || null
+          : null;
+      const inserted = await insertFeedback({
         id,
         runId: body.runId ? String(body.runId) : null,
         threadId: body.threadId ? String(body.threadId) : null,
@@ -217,9 +222,11 @@ export function createObservabilityHandler() {
           typeof body.messageSeq === "number" ? body.messageSeq : null,
         feedbackType,
         value,
+        idempotencyKey,
         userId: owner,
         createdAt: Date.now(),
       });
+      if (!inserted) return { id };
       {
         const runId = body.runId ? String(body.runId) : null;
         const threadId = body.threadId ? String(body.threadId) : null;

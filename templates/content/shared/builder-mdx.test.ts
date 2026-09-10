@@ -522,10 +522,11 @@ describe("Builder MDX conversion", () => {
       rawHash: "legacy-hash",
     });
     expect(
-      (legacy?.data as { mappingStatus?: unknown }).mappingStatus,
+      (legacy?.data as { mappingStatus?: unknown } | undefined)?.mappingStatus,
     ).toBeUndefined();
     expect(
-      (legacy?.data as { sourceEditState?: unknown }).sourceEditState,
+      (legacy?.data as { sourceEditState?: unknown } | undefined)
+        ?.sourceEditState,
     ).toBeUndefined();
 
     const malformed = await parseRegistryBlockData(
@@ -538,16 +539,19 @@ describe("Builder MDX conversion", () => {
       rawHash: "bad-hash",
     });
     expect(
-      (malformed?.data as { mappingStatus?: unknown }).mappingStatus,
+      (malformed?.data as { mappingStatus?: unknown } | undefined)
+        ?.mappingStatus,
     ).toBeUndefined();
     expect(
-      (malformed?.data as { sourceEditState?: unknown }).sourceEditState,
+      (malformed?.data as { sourceEditState?: unknown } | undefined)
+        ?.sourceEditState,
     ).toBeUndefined();
     expect(
-      (malformed?.data as { previewStatus?: unknown }).previewStatus,
+      (malformed?.data as { previewStatus?: unknown } | undefined)
+        ?.previewStatus,
     ).toBeUndefined();
     expect(
-      (malformed?.data as { previewKind?: unknown }).previewKind,
+      (malformed?.data as { previewKind?: unknown } | undefined)?.previewKind,
     ).toBeUndefined();
   });
 

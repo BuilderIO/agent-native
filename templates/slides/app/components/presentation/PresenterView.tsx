@@ -7,7 +7,11 @@ import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 import type { DesignSystemData } from "../../../shared/api";
-import { openPresentChannel, type PresentMessage } from "./present-channel";
+import {
+  advancePresentIndex,
+  openPresentChannel,
+  type PresentMessage,
+} from "./present-channel";
 
 interface PresenterViewProps {
   slides: Slide[];
@@ -54,21 +58,36 @@ export default function PresenterView({
   }, [slides, startIndex]);
   const [index, setIndex] = useState(initialIndex);
   const [elapsed, setElapsed] = useState(0);
+  const safeSlides = useMemo(
+    () =>
+      Array.isArray(slides)
+        ? slides.filter(
+            (slide): slide is Slide => Boolean(slide) && !slide.skipped,
+          )
+        : [],
+    [slides],
+  );
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const controllerConnectedRef = useRef(false);
   const indexRef = useRef(index);
   indexRef.current = index;
 
   useEffect(() => {
     const channel = openPresentChannel(deckId);
     channelRef.current = channel;
+    controllerConnectedRef.current = false;
     if (!channel) return;
     channel.onmessage = (event: MessageEvent<PresentMessage>) => {
-      if (event.data?.type === "state") setIndex(event.data.index);
+      if (event.data?.type === "state") {
+        controllerConnectedRef.current = true;
+        setIndex(event.data.index);
+      }
     };
     channel.postMessage({ type: "hello" } satisfies PresentMessage);
     return () => {
       channel.close();
       channelRef.current = null;
+      controllerConnectedRef.current = false;
     };
   }, [deckId]);
 
@@ -77,9 +96,20 @@ export default function PresenterView({
     return () => window.clearInterval(timer);
   }, []);
 
-  const send = useCallback((message: PresentMessage) => {
-    channelRef.current?.postMessage(message);
-  }, []);
+  const send = useCallback(
+    (message: PresentMessage) => {
+      const channel = channelRef.current;
+      if (message.type === "command" && !controllerConnectedRef.current) {
+        channel?.postMessage(message);
+        setIndex((current) =>
+          advancePresentIndex(current, message.command, safeSlides.length),
+        );
+        return;
+      }
+      channel?.postMessage(message);
+    },
+    [safeSlides.length],
+  );
 
   const goNext = useCallback(
     () => send({ type: "command", command: "next" }),
@@ -109,16 +139,6 @@ export default function PresenterView({
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [goNext, goPrev]);
-
-  const safeSlides = useMemo(
-    () =>
-      Array.isArray(slides)
-        ? slides.filter(
-            (slide): slide is Slide => Boolean(slide) && !slide.skipped,
-          )
-        : [],
-    [slides],
-  );
 
   // One atomic effect handles both cases so they can't race each other:
   // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds

@@ -279,7 +279,16 @@ export async function requireActiveOrganizationId(
   event?: H3Event,
 ): Promise<string> {
   const id = await getActiveOrganizationId(event);
-  if (!id) throw new Error("No active organization");
+  // A bare Error here reaches the action layer as a generic 500 "Internal
+  // server error", which is what a first-time caller sees before their default
+  // org exists. Keep it a 4xx so the real reason survives to the user.
+  if (!id) {
+    throw new HTTPError({
+      statusCode: 409,
+      statusMessage:
+        "No active organization yet. Reload the page, then try again.",
+    });
+  }
   return id;
 }
 

@@ -326,8 +326,10 @@ async function performActionFetch<T>(
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
   let url = `${ACTION_PREFIX}/${name}`;
+  const browserTabId = getBrowserTabId();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "X-Agent-Native-Browser-Tab": browserTabId,
     // Tag browser-originated action calls so the server can set
     // `ctx.caller = "frontend"` (vs a bare programmatic `"http"` POST).
     // Mirrors the X-Agent-Native-Tool-Bridge: 1 convention. The header is
@@ -339,7 +341,7 @@ async function performActionFetch<T>(
           // The server copies this onto the emitted action sync event.
           // useDbSync can then ignore the echo in this tab while other tabs
           // still refresh.
-          "X-Request-Source": getBrowserTabId(),
+          "X-Request-Source": browserTabId,
         }
       : {}),
   };
@@ -934,7 +936,7 @@ export function useActionMutation<
       // Most mutations change app data broadly. High-volume background
       // mutations can opt out and perform narrower invalidation in onSuccess.
       if (!skipActionQueryInvalidation) {
-        queryClient.invalidateQueries({ queryKey: ["action"] });
+        void queryClient.invalidateQueries({ queryKey: ["action"] });
       }
       return (onSuccess as Function)?.(...args);
     },

@@ -33,7 +33,10 @@ export {
   AgentNativeI18nProvider,
   LanguagePicker,
   getLocaleInitScript,
+  isLocaleCode,
+  isValidLocaleCode,
   localeDirection,
+  localeMetadataFor,
   normalizeLocaleCode,
   normalizeLocalePreference,
   normalizeLocalizationPreference,
@@ -72,6 +75,7 @@ export {
   type UseAgentChatContextResult,
   type AgentNativeI18nCatalog,
   type AgentNativeI18nProviderProps,
+  type BuiltinLocaleCode,
   type LocaleCode,
   type LocaleHydrationPayload,
   type LocaleMessages,
@@ -90,6 +94,8 @@ export {
   AgentNativeWebMcpUnsupportedError,
   createAgentNativeWebMcpClient,
   createAgentNativeWebMcpRegistration,
+  createAgentNativeServerActionWebMcpRegistration,
+  initializeAgentNativeWebMcp,
   isAgentNativeWebMcpSupported,
   type AgentNativeWebMcpApprovalRequest,
   type AgentNativeWebMcpClient,
@@ -126,7 +132,9 @@ export {
   type ActionMcpAppResourceMeta,
 } from "./action.js";
 export {
+  isEmailDerivedName,
   normalizeUserProfileName,
+  resolveUserProfileName,
   USER_PROFILE_SETTING_KEY,
   type UserProfile,
 } from "./user-profile/index.js";

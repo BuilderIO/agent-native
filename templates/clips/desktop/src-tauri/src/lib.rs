@@ -16,6 +16,7 @@ mod echo_guard;
 mod eventkit;
 mod logfile;
 mod meetings_watcher;
+mod mic_attribution;
 mod native_screen;
 mod native_speech;
 mod notifications;
@@ -86,8 +87,36 @@ pub fn run() {
             // single writer, so the one report it can never deliver is its
             // own death. Any toolbar teardown restores the plain status item.
             if window.label() == "toolbar" {
-                if let tauri::WindowEvent::Destroyed = event {
-                    tray::reset_tray_recording(window.app_handle());
+                match event {
+                    tauri::WindowEvent::Moved(position) => {
+                        // Forward the platform move event directly to the
+                        // toolbar webview. The renderer's Window.onMoved
+                        // subscription can lag native macOS drag events.
+                        let _ = window.emit("clips:toolbar-native-moved", position);
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        tray::reset_tray_recording(window.app_handle());
+                    }
+                    _ => {}
+                }
+            }
+            // The popover and camera bubble are separate native windows. A
+            // native close hides the panel back to the tray instead of
+            // destroying the webview, so tray clicks and the app's second
+            // launch can show the same window again.
+            if window.label() == "popover" {
+                match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let app = window.app_handle();
+                        let _ = window.hide();
+                        clips::close_bubble_if_idle(&app);
+                        let _ = app.emit("clips:popover-visible", false);
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        clips::close_bubble_if_idle(window.app_handle());
+                    }
+                    _ => {}
                 }
             }
         })
@@ -100,7 +129,12 @@ pub fn run() {
             clips::show_finalizing,
             clips::hide_finalizing,
             clips::show_toolbar,
+            clips::toolbar_drag_start,
+            clips::toolbar_drag_move,
+            clips::toolbar_drag_end,
+            clips::toolbar_set_bounds,
             clips::toolbar_save_position,
+            clips::toolbar_get_dock_preference,
             clips::toolbar_set_visible,
             clips::set_toolbar_finishing,
             tray::tray_recording_status,
@@ -133,6 +167,7 @@ pub fn run() {
             clips::complete_voice_dictation,
             clips::paste_last_dictation,
             clips::set_recording_state,
+            clips::release_recording_state,
             clips::set_meeting_active,
             clips::get_active_meeting_id,
             clips::quit_teardown_done,
@@ -231,6 +266,7 @@ pub fn run() {
             // meetings watcher (background poller)
             meetings_watcher::meetings_watcher_set_server_url,
             meetings_watcher::meetings_watcher_set_session,
+            meetings_watcher::meetings_watcher_set_experiment_enabled,
             meetings_watcher::meetings_snooze,
             // EventKit (iCloud calendar)
             eventkit::eventkit_request_access,
@@ -324,6 +360,15 @@ pub fn run() {
                 eprintln!("[clips-tray] popover build failed: {err}");
                 err
             })?;
+
+            // Warm the native capture snapshot while the hidden popover
+            // webview is starting so the first recording skips that lookup.
+            tauri::async_runtime::spawn(async {
+                if let Err(err) = native_screen::native_fullscreen_prefetch_capture_content().await
+                {
+                    eprintln!("[clips-tray] startup capture prefetch failed: {err}");
+                }
+            });
 
             // clips:// deep-link handler — a web "Open desktop app" click
             // launches or focuses the running tray popover (same as a second
@@ -472,6 +517,7 @@ pub fn run() {
                         dlog!("[clips-tray] popover blur, elapsed_ms={}", elapsed_ms);
                         if elapsed_ms >= 1500 {
                             let _ = handle.hide();
+                            clips::close_bubble_if_idle(&app_handle);
                             let _ = app_handle.emit("clips:popover-visible", false);
                         }
                     }
@@ -573,6 +619,7 @@ pub fn run() {
                 native_speech::shutdown();
                 let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
                 native_screen::kill_active_screencapture_child(&state);
+                mic_attribution::shutdown();
             }
         });
 }

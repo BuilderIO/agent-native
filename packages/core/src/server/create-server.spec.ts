@@ -89,6 +89,37 @@ describe("createServer", () => {
     ]);
   });
 
+  it("reports a Netlify database through the effective URL status", async () => {
+    vi.stubEnv("APP_NAME", "forms");
+    vi.stubEnv("FORMS_DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    const { app } = createServer({
+      envKeys: [
+        { key: "DATABASE_URL", label: "Database URL" },
+        { key: "NETLIFY_DATABASE_URL", label: "Netlify Database URL" },
+      ],
+    });
+
+    const res = await app.request("http://localhost/_agent-native/env-status");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([
+      {
+        key: "DATABASE_URL",
+        label: "Database URL",
+        required: false,
+        configured: false,
+      },
+      {
+        key: "NETLIFY_DATABASE_URL",
+        label: "Netlify Database URL",
+        required: false,
+        configured: true,
+      },
+    ]);
+  });
+
   it("returns redacted built-in runtime diagnostics without an env-name oracle", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");

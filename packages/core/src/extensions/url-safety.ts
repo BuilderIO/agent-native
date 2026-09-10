@@ -224,7 +224,9 @@ function normalizeAllowedPrivateOriginOriginKeys(
   return keys;
 }
 
-export async function createSsrfSafeDispatcher(
+let sharedSsrfDispatcher: Promise<unknown> | undefined;
+
+async function createSsrfSafeDispatcherUncached(
   allowedPrivateOrigins: readonly string[] = [],
   destinationUrl?: string,
   options: { required?: boolean } = {},
@@ -316,6 +318,22 @@ export async function createSsrfSafeDispatcher(
       },
     },
   });
+}
+
+export async function createSsrfSafeDispatcher(
+  allowedPrivateOrigins: readonly string[] = [],
+  destinationUrl?: string,
+  options: { required?: boolean } = {},
+): Promise<unknown> {
+  if (allowedPrivateOrigins.length === 0 && !options.required) {
+    sharedSsrfDispatcher ??= createSsrfSafeDispatcherUncached();
+    return sharedSsrfDispatcher;
+  }
+  return createSsrfSafeDispatcherUncached(
+    allowedPrivateOrigins,
+    destinationUrl,
+    options,
+  );
 }
 
 /**

@@ -1,11 +1,12 @@
 import { IconArrowUpRight } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import type { MouseEventHandler, ReactNode } from "react";
 import { Link } from "react-router";
 
 interface NavLinkProps {
   href: string;
   external?: boolean;
   showArrow?: boolean;
+  onClick?: MouseEventHandler<HTMLAnchorElement>;
   children: ReactNode;
 }
 
@@ -14,7 +15,13 @@ interface NavLinkProps {
 const linkClassName =
   "inline-flex h-8 items-center gap-1 rounded-[var(--b-radius)] px-2 py-1 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] font-medium no-underline outline-none transition-[background,color] duration-150 ease-[ease] text-[var(--b-text-secondary)] hover:text-[var(--b-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]";
 
-export function NavLink({ href, external, showArrow, children }: NavLinkProps) {
+export function NavLink({
+  href,
+  external,
+  showArrow,
+  onClick,
+  children,
+}: NavLinkProps) {
   const content = (
     <>
       {children}
@@ -24,14 +31,20 @@ export function NavLink({ href, external, showArrow, children }: NavLinkProps) {
 
   if (external) {
     return (
-      <a href={href} target="_blank" rel="noreferrer" className={linkClassName}>
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className={linkClassName}
+        onClick={onClick}
+      >
         {content}
       </a>
     );
   }
 
   return (
-    <Link to={href} className={linkClassName}>
+    <Link to={href} className={linkClassName} onClick={onClick}>
       {content}
     </Link>
   );

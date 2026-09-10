@@ -317,6 +317,99 @@ describe("framework request handler", () => {
     await expect(pending).resolves.toEqual({ ok: true });
   });
 
+  it("waits for default plugin bootstrap before the root route falls through", async () => {
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      getH3App(nitroApp).use("/", () => ({ ok: true }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    let settled = false;
+    const pending = dispatch(nitroApp, "/").then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("waits for default plugin bootstrap before an app-scoped root route falls through", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      getH3App(nitroApp).use("/", () => ({ ok: true }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    let settled = false;
+    const pending = dispatch(nitroApp, "/docs").then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("waits for default plugin bootstrap before a trailing-slash app root falls through", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      getH3App(nitroApp).use("/", () => ({ ok: true }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    let settled = false;
+    const pending = dispatch(nitroApp, "/docs/").then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("does not treat an app-scoped child route as the root route", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/", () => ({ root: true }));
+
+    await expect(
+      dispatch(nitroApp, "/docs/_agent-native/resources"),
+    ).resolves.toEqual({ fellThrough: true });
+  });
+
   it("holds framework requests before already-registered middleware runs", async () => {
     let release!: () => void;
     let pluginsReady = false;
@@ -438,6 +531,64 @@ describe("framework request handler", () => {
     await expect(dispatch(nitroApp, "/_agent-native/sign-in")).resolves.toEqual(
       { ok: true },
     );
+
+    release();
+  });
+
+  it("dispatches /_agent-native/embed/start without waiting for default bootstrap", async () => {
+    // core-routes-plugin.ts registers the workspace-app handshake routes
+    // (identity, embed/start) synchronously before `awaitBootstrap`, on the
+    // same precedent as ping/health, so a cold function's first MCP App
+    // embed doesn't wait on unrelated DB-dependent init.
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+      "/_agent-native/embed/start",
+    ]);
+    getH3App(nitroApp).use("/_agent-native/embed/start", () => ({
+      ok: true,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/embed/start"),
+    ).resolves.toEqual({ ok: true });
+
+    release();
+  });
+
+  it("dispatches /_agent-native/auth/session without waiting for default bootstrap", async () => {
+    // auth-plugin.ts's non-BYOA (default, Better Auth) branch marks
+    // FRAMEWORK_AUTH_EARLY_PATHS ready and mounts Better Auth without
+    // awaiting the shared default-plugin bootstrap (agent-chat, org,
+    // integrations, ...) — a cold function's session check must not wait on
+    // an unrelated plugin's DB-dependent init. See auth-plugin.spec.ts for
+    // the plugin-level assertions of this same contract.
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
+    getH3App(nitroApp).use("/_agent-native/auth/session", () => ({
+      ok: true,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/auth/session"),
+    ).resolves.toEqual({ ok: true });
 
     release();
   });

@@ -9,6 +9,7 @@ import {
   isEffectivelyEmptyDocumentContent,
   newDocumentPageChoiceIsDisabled,
   previewBodyHydrationIsPending,
+  previewBodyHydrationTerminalError,
   previewBodyHydrationIsTerminalError,
   previewDraftConflictsWithHydratedBody,
   shouldIgnorePreviewEmptyNormalization,
@@ -274,6 +275,31 @@ describe("body hydration editing gates", () => {
         document: documentWithHydration("error"),
       }),
     ).toBe(true);
+    expect(
+      previewBodyHydrationTerminalError({
+        item,
+        document: {
+          ...documentWithHydration("error"),
+          bodyHydration: {
+            ...documentWithHydration("error").bodyHydration!,
+            hydration: {
+              status: "error",
+              attemptedAt: "2026-08-21T12:00:00.000Z",
+              error: "Builder denied access to this entry.",
+              version: "v2",
+              reason: "access_denied",
+              providerStatus: "http_403",
+              attemptCount: 1,
+              retryable: false,
+            },
+          },
+        },
+      }),
+    ).toMatchObject({
+      reason: "access_denied",
+      providerStatus: "http_403",
+      retryable: false,
+    });
   });
 
   it("keeps a non-empty draft recoverable when Builder hydrates a body over its empty baseline", () => {

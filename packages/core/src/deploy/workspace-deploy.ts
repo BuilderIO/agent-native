@@ -402,10 +402,14 @@ function copyVercelAppBuildIntoWorkspace(
     // Nitro's Vercel preset already nests assets under baseURL. The shared
     // deploy build also mirrors client assets under baseURL for other Nitro
     // presets, so mounted apps can contain a duplicate /<app>/<app> copy.
-    fs.rmSync(path.join(staticDest, app, app), {
-      recursive: true,
-      force: true,
-    });
+    // An app named "assets" collides with Vite's real default assets
+    // directory, so that path cannot be distinguished from the duplicate.
+    if (app !== "assets") {
+      fs.rmSync(path.join(staticDest, app, app), {
+        recursive: true,
+        force: true,
+      });
+    }
   }
 
   const functionSrc = path.join(src, "functions", "__server.func");
@@ -657,7 +661,7 @@ function netlifyAssetRedirectsFor(app: string, distDir: string): string[] {
   const to = `/${NETLIFY_WORKSPACE_STATIC_DIR}/${app}`;
   return [
     `${from}/assets/* ${to}/assets/:splat 200`,
-    ...netlifyPublicRootAssetPaths(
+    ...netlifyPublicAssetPaths(
       app,
       path.join(distDir, NETLIFY_WORKSPACE_STATIC_DIR, app),
     ).map((assetPath) => {
@@ -1332,22 +1336,34 @@ function netlifyFunctionExcludedPaths(
   return [
     "/.netlify/*",
     `/${app}/assets/*`,
-    ...netlifyPublicRootAssetPaths(app, staticDir),
+    ...netlifyPublicAssetPaths(app, staticDir),
   ];
 }
 
-function netlifyPublicRootAssetPaths(app: string, staticDir: string): string[] {
+function netlifyPublicAssetPaths(app: string, staticDir: string): string[] {
   if (!fs.existsSync(staticDir)) return [];
-  return fs
-    .readdirSync(staticDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .filter((name) => {
-      const ext = path.extname(name).slice(1).toLowerCase();
-      return NETLIFY_PUBLIC_ASSET_EXTENSIONS.has(ext);
-    })
+  const assetPaths: string[] = [];
+  const visit = (directory: string, relativeDirectory: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const relativePath = path.join(relativeDirectory, entry.name);
+      if (entry.isDirectory()) {
+        if (!relativeDirectory && entry.name === "assets") continue;
+        visit(path.join(directory, entry.name), relativePath);
+        continue;
+      }
+      const ext = path.extname(entry.name).slice(1).toLowerCase();
+      if (NETLIFY_PUBLIC_ASSET_EXTENSIONS.has(ext)) {
+        assetPaths.push(relativePath);
+      }
+    }
+  };
+  visit(staticDir, "");
+  return assetPaths
     .sort()
-    .map((name) => `/${app}/${encodeURI(name)}`);
+    .map(
+      (assetPath) =>
+        `/${app}/${encodeURI(assetPath.split(path.sep).join("/"))}`,
+    );
 }
 
 function netlifyFunctionsDir(workspaceRoot: string): string {

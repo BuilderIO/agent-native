@@ -9,6 +9,7 @@ import {
   applyDocSurgically,
   defaultParseValue,
   diffTopLevel,
+  reconcileDocAgainstBase,
 } from "./surgical-apply.js";
 
 /**
@@ -244,6 +245,116 @@ describe("applyDocSurgically", () => {
       applyDocSurgically(editor, target);
       expect(sawMeta).toBe(true);
       expect(sawHistoryOff).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe("reconcileDocAgainstBase", () => {
+  it("merges a server insertion between unchanged blocks with a separate local edit", () => {
+    const editor = makeEditor("Alpha\n\nBravo\n\nCharlie local");
+    try {
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha\n\nInserted\n\nBravo\n\nCharlie");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("applied");
+      expect(md(editor)).toBe("Alpha\n\nInserted\n\nBravo\n\nCharlie local");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves non-overlapping local and server changes", () => {
+    const editor = makeEditor("Alpha local\n\nBravo\n\nCharlie");
+    try {
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha\n\nBravo\n\nCharlie server");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("applied");
+      expect(md(editor)).toBe("Alpha local\n\nBravo\n\nCharlie server");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("merges separated server changes around a local change", () => {
+    const editor = makeEditor("Alpha\n\nBravo local\n\nCharlie");
+    try {
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha server\n\nBravo\n\nCharlie server");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("applied");
+      expect(md(editor)).toBe("Alpha server\n\nBravo local\n\nCharlie server");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("returns a conflict without mutating an overlapping local draft", () => {
+    const editor = makeEditor("Alpha local\n\nBravo");
+    try {
+      const before = editor.state.doc;
+      const base = parse(editor, "Alpha\n\nBravo");
+      const server = parse(editor, "Alpha server\n\nBravo");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("conflict");
+      expect(editor.state.doc).toBe(before);
+      expect(md(editor)).toBe("Alpha local\n\nBravo");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves a local insertion at the start boundary of a server replacement", () => {
+    const editor = makeEditor(
+      "Alpha\n\nLocal before Bravo\n\nBravo\n\nCharlie",
+    );
+    try {
+      const before = editor.state.doc;
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha\n\nBravo server\n\nCharlie");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("conflict");
+      expect(editor.state.doc).toBe(before);
+      expect(md(editor)).toBe(
+        "Alpha\n\nLocal before Bravo\n\nBravo\n\nCharlie",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves a local insertion at the end boundary of a server replacement", () => {
+    const editor = makeEditor("Alpha\n\nBravo\n\nLocal after Bravo\n\nCharlie");
+    try {
+      const before = editor.state.doc;
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha\n\nBravo server\n\nCharlie");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("conflict");
+      expect(editor.state.doc).toBe(before);
+      expect(md(editor)).toBe("Alpha\n\nBravo\n\nLocal after Bravo\n\nCharlie");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fails closed when repeated blocks make alignment ambiguous", () => {
+    const editor = makeEditor("Same\n\nLocal\n\nSame");
+    try {
+      const base = parse(editor, "Same\n\nMiddle\n\nSame");
+      const server = parse(editor, "Same\n\nServer\n\nSame");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(["conflict", "failed"]).toContain(result.status);
+      expect(md(editor)).toBe("Same\n\nLocal\n\nSame");
     } finally {
       editor.destroy();
     }

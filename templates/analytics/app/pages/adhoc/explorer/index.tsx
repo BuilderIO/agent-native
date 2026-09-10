@@ -72,7 +72,7 @@ export default function ExplorerPage() {
       configParam !== loadedParam &&
       configParam !== currentId
     ) {
-      loadConfig(configParam);
+      void loadConfig(configParam);
       setLoadedParam(configParam);
     }
   }, [configParam, loadedParam, currentId, loadConfig]);
@@ -96,7 +96,7 @@ export default function ExplorerPage() {
 
   const handleSave = () => {
     if (currentId) {
-      saveConfig();
+      void saveConfig();
     } else {
       setSaveName(config.name || "");
       setSaveDialogOpen(true);
@@ -111,7 +111,7 @@ export default function ExplorerPage() {
   const handleSaveConfirm = () => {
     const name = saveName.trim() || t("explorer.untitled");
     setConfig({ ...config, name });
-    saveConfig(name);
+    void saveConfig(name);
     setSaveDialogOpen(false);
   };
 
@@ -277,7 +277,7 @@ export default function ExplorerPage() {
             <AlertDialogAction
               onClick={() => {
                 if (deleteConfirm) {
-                  deleteConfig(deleteConfirm.id);
+                  void deleteConfig(deleteConfirm.id);
                   setDeleteConfirm(null);
                 }
               }}

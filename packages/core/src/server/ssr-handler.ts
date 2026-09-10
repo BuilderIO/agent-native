@@ -18,6 +18,7 @@ import { defineEventHandler } from "h3";
  */
 import { createRequestHandler } from "react-router";
 
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
@@ -33,12 +34,17 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
   withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
+import { getSsrAuthRedirectScript } from "../shared/ssr-auth-redirect.js";
 import {
   getAppBasePathFromViteEnv,
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
 import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { captureError } from "./capture-error.js";
+import {
+  frameworkSessionHintCookieName,
+  resolveAuthCookieNamespace,
+} from "./cookie-namespace.js";
 import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
@@ -426,6 +432,14 @@ async function rewriteMountedResponse(
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
+      pathname === "/"
+        ? getSsrAuthRedirectScript(
+            frameworkSessionHintCookieName(
+              resolveAuthCookieNamespace().frameworkCookieName,
+            ),
+            resolveAppHomePath(getAppConfig().app),
+          )
+        : null,
     ]
       .filter(Boolean)
       .join("") || null;
@@ -477,7 +491,7 @@ async function rewriteMountedResponse(
  * Create an h3 catch-all that hands page routes to React Router and
  * returns 404 for framework / asset paths that React Router doesn't own.
  */
-export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
+export function createH3SSRHandler(getBuild: () => unknown) {
   const handler = createRequestHandler(getBuild as any);
   return defineEventHandler(async (event) => {
     const basePath = getAppBasePath();

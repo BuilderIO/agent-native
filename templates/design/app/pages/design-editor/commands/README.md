@@ -119,6 +119,7 @@ a module breaks those — re-point the spec in the same commit.
 | `geometry-commit.ts`               | Commit a canvas frame move/resize                           |
 | `write-frame-geometry-snapshot.ts` | Write a frame-geometry snapshot into design data            |
 | `persist-frame-geometry-save.ts`   | Flush the debounced frame-geometry save to the server       |
+| `set-layout-grid.ts`               | Set, hide, or clear one frame's layout grid                 |
 
 ## Screens and view
 

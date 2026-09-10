@@ -8,6 +8,7 @@ import {
   index,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const documents = table("documents", {
   id: text("id").primaryKey(),
@@ -15,6 +16,7 @@ export const documents = table("documents", {
   parentId: text("parent_id"),
   title: text("title").notNull().default("Untitled"),
   content: text("content").notNull().default(""),
+  bodyRevision: integer("body_revision").notNull().default(0),
   // Stable semantic guidance for this page. Ancestry is computed at read time;
   // never copy a parent's description here.
   description: text("description").notNull().default(""),
@@ -86,14 +88,41 @@ export const contentSpaceCatalogItems = table(
   ],
 );
 
-export const documentVersions = table("document_versions", {
-  id: text("id").primaryKey(),
-  ownerEmail: text("owner_email").notNull().default("local@localhost"),
-  documentId: text("document_id").notNull(),
-  title: text("title").notNull(),
-  content: text("content").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
-});
+export const documentVersions = table(
+  "document_versions",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    documentId: text("document_id").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    chatContext: text("chat_context"),
+    actorEmail: text("actor_email"),
+    actorKind: text("actor_kind"),
+    origin: text("origin"),
+    groupKind: text("group_kind"),
+    groupId: text("group_id"),
+    operation: text("operation"),
+    checkpointKind: text("checkpoint_kind"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at"),
+  },
+  (version) => [
+    index("document_versions_owner_document_created_idx").on(
+      version.ownerEmail,
+      version.documentId,
+      version.createdAt,
+      version.id,
+    ),
+    index("document_versions_owner_document_group_idx").on(
+      version.ownerEmail,
+      version.documentId,
+      version.groupId,
+      version.createdAt,
+      version.id,
+    ),
+  ],
+);
 
 export const documentPreviewDrafts = table(
   "document_preview_drafts",
@@ -141,6 +170,8 @@ export const documentComments = table("document_comments", {
   mentionsJson: text("mentions_json"),
   authorEmail: text("author_email").notNull(),
   authorName: text("author_name"),
+  submissionSource: text("submission_source"),
+  submissionRunId: text("submission_run_id"),
   resolved: integer("resolved").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -259,6 +290,7 @@ export const contentDatabases = table(
       database.spaceId,
       database.systemRole,
     ),
+    index("content_databases_document_idx").on(database.documentId),
   ],
 );
 
@@ -277,6 +309,12 @@ export const contentDatabaseItems = table(
     bodyHydrationAttemptedAt: text("body_hydration_attempted_at"),
     bodyHydrationError: text("body_hydration_error"),
     bodyHydrationVersion: text("body_hydration_version"),
+    bodyHydrationReason: text("body_hydration_reason"),
+    bodyHydrationProviderStatus: text("body_hydration_provider_status"),
+    bodyHydrationAttemptCount: integer("body_hydration_attempt_count")
+      .notNull()
+      .default(0),
+    bodyHydrationRetryable: integer("body_hydration_retryable"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
@@ -331,6 +369,7 @@ export const contentDatabaseBodyHydrationQueue = table(
     attempts: integer("attempts").notNull().default(0),
     lastAttemptedAt: text("last_attempted_at"),
     lastError: text("last_error"),
+    nextAttemptAt: text("next_attempt_at"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
@@ -530,6 +569,61 @@ export const contentDatabaseRowMutationReceipts = table(
   ],
 );
 
+export const contentDatabaseSetupReceipts = table(
+  "content_database_setup_receipts",
+  {
+    id: text("id").primaryKey(),
+    actorEmail: text("actor_email").notNull(),
+    operation: text("operation").notNull(),
+    scopeId: text("scope_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    databaseId: text("database_id"),
+    resultJson: text("result_json"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (receipt) => [
+    uniqueIndex("content_database_setup_receipts_actor_operation_key").on(
+      receipt.actorEmail,
+      receipt.operation,
+      receipt.scopeId,
+      receipt.idempotencyKey,
+    ),
+  ],
+);
+
+export const documentEditReceipts = table(
+  "document_edit_receipts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    documentId: text("document_id").notNull(),
+    callerScope: text("caller_scope").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    baseRevision: integer("base_revision").notNull(),
+    resultRevision: integer("result_revision").notNull(),
+    beforeHash: text("before_hash").notNull(),
+    afterHash: text("after_hash").notNull(),
+    rangesJson: text("ranges_json").notNull().default("[]"),
+    actorJson: text("actor_json").notNull().default("{}"),
+    resultJson: text("result_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (receipt) => [
+    uniqueIndex("document_edit_receipts_document_scope_key_unique").on(
+      receipt.documentId,
+      receipt.callerScope,
+      receipt.idempotencyKey,
+    ),
+    index("document_edit_receipts_owner_document_idx").on(
+      receipt.ownerEmail,
+      receipt.documentId,
+    ),
+  ],
+);
+
 export const documentPropertyValues = table("document_property_values", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
@@ -599,9 +693,7 @@ export const documentBlocks = table(
     kind: text("kind").notNull(),
     position: integer("position").notNull(),
     sortIndex: integer("sort_index").notNull(),
-    addressable: integer("addressable", { mode: "boolean" })
-      .notNull()
-      .default(true),
+    addressable: boolean("addressable").notNull().default(true),
     contentHash: text("content_hash").notNull(),
     markdown: text("markdown").notNull().default(""),
     state: text("state").notNull().default("live"),

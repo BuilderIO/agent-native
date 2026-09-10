@@ -3,6 +3,7 @@ import type {
   EqualGapGuide,
   FrameBounds,
 } from "@shared/canvas-math";
+import type { LayoutGridById } from "@shared/layout-grid";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { ReactNode } from "react";
 
@@ -205,6 +206,13 @@ export interface MultiScreenCanvasProps {
    * element inside a screen, and this canvas still lists that screen in
    * `selectedIds`. Same veto `onDeleteSelection` uses. */
   onNudgeSelection?: (ids: string[]) => boolean | void;
+  /** The editor's configured small/big arrow-key steps. Board frames and
+   *  in-screen elements must nudge by the same amounts, so this comes from the
+   *  one preference rather than a second default living out here. */
+  nudgeAmounts?: { small: number; big: number };
+  /** Per-frame layout grids, keyed by frame id. A frame with no entry keeps the
+   *  whole-pixel floor. Absent entirely means the host has not loaded them. */
+  layoutGrids?: LayoutGridById;
   onZoomChange?: (zoom: number) => void;
   renderScreenContent?: (
     screen: ScreenFile,
@@ -239,6 +247,9 @@ export interface MultiScreenCanvasProps {
    *  the same widths, and a per-screen parameter here only ever promised
    *  scoping the action cannot deliver. */
   onAddBreakpoint?: (widthPx: number) => void;
+  /** True while an add/remove breakpoint mutation is in flight — disables the
+   *  "+" affordance and shows a brief spinner so the click is acknowledged. */
+  breakpointMutationPending?: boolean;
   /**
    * Called when the user clicks a breakpoint frame header to make it the
    * active edit scope.
@@ -326,6 +337,8 @@ export interface MultiScreenCanvasProps {
    * the screen iframes so board elements are editable through the bridge.
    */
   boardFileId?: string;
+  /** Host CSS vars do not reach the board iframe; omit this and coverage stays themed. */
+  canvasBackground?: string | null;
   /**
    * The current HTML content of the board file.
    * Passed as `content` to the board <DesignCanvas> instance.

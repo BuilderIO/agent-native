@@ -332,6 +332,7 @@ function CodeWorkbenchInner({
     });
   }, [
     state.activeUri,
+    activeBuffer,
     activeBuffer?.fileId,
     activeBuffer?.dirty,
     activeBuffer?.savedVersionHash,

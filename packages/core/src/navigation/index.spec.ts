@@ -41,6 +41,7 @@ describe("navigation kit helpers", () => {
     ["#instructions", "/settings/agent/resources/instructions"],
     ["#remote-agents", "/settings/agent/agents"],
     ["#connections", "/settings/integrations"],
+    ["#access", "/settings/mcp"],
     ["#jobs", "/settings/agent/automations"],
     ["#library", "/settings/library"],
     ["#voice", "/settings/agent/voice"],

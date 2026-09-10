@@ -1,11 +1,16 @@
 import { getDbExec } from "../db/client.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
+  assertDelegatedPolicyId,
   buildJobResourceContent,
+  isRecoveredFactoryJob,
   jobBelongsToApp,
   normalizeJobMcpTools,
   parseJobResource,
+  patchJobFrontmatterFields,
+  replaceJobResourceBody,
   type JobFrontmatter,
+  type JobFrontmatterPatch,
 } from "../jobs/frontmatter.js";
 import { deleteAutomationRuns } from "../jobs/run-history.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
@@ -16,8 +21,18 @@ import {
   resourceGetByPath,
   resourceList,
   resourcePut,
+  SHARED_OWNER,
   type Resource,
 } from "../resources/store.js";
+import {
+  deleteAutomationWebhookToken,
+  readAutomationWebhookPath,
+  saveAutomationWebhookToken,
+} from "../triggers/webhook-store.js";
+import {
+  createAutomationWebhookToken,
+  automationWebhookPath,
+} from "../triggers/webhook.js";
 
 export type AutomationScope = "personal" | "organization";
 
@@ -35,11 +50,13 @@ export interface AutomationDefinition {
   name: string;
   scope: AutomationScope;
   meta: JobFrontmatter & {
-    triggerType: "schedule" | "event";
+    triggerType: "schedule" | "event" | "webhook";
     mode: "agentic" | "deterministic";
   };
   body: string;
   canUpdate: boolean;
+  /** Returned only to an actor who can update the webhook automation. */
+  webhookPath?: string;
 }
 
 export interface AutomationDelivery {
@@ -53,7 +70,7 @@ export interface AutomationDelivery {
 export interface DefineAutomationInput {
   name: string;
   scope: AutomationScope;
-  triggerType: "schedule" | "event";
+  triggerType: "schedule" | "event" | "webhook";
   body: string;
   schedule?: string;
   timezone?: string;
@@ -158,7 +175,10 @@ async function readOrganizationMembership(
   email: string,
 ): Promise<OrganizationMembership | null> {
   const result = await getDbExec().execute({
-    sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [orgId, email.toLowerCase()],
   });
   if (!result.rows.length) return null;
@@ -226,13 +246,22 @@ export async function canUpdateAutomationResource(
   const { meta } = parseJobResource(resource.content);
   const actor = normalizeActor(actorInput);
   if (!jobBelongsToApp(meta, actor.appId)) return false;
+  if (resource.owner === SHARED_OWNER) {
+    if (meta.orgId && actor.orgId !== meta.orgId) return false;
+    if (meta.createdBy?.trim().toLowerCase() === actor.userEmail) return true;
+    const orgId = meta.orgId || actor.orgId;
+    if (!orgId || actor.orgId !== orgId) return false;
+    const membership = await readOrganizationMembership(orgId, actor.userEmail);
+    return membership ? isOrganizationAdmin(membership) : false;
+  }
   return (await mutationAccess(actor, resource, meta)).canUpdate;
 }
 
 /**
  * Factory is a shared team workspace: any current org member may queue Run now
  * for that app's Factory-domain org jobs. Mail/CRM and other automations stay
- * on creator-or-admin `canUpdate`.
+ * on creator-or-admin `canUpdate`. Recovered Factory-folder jobs that lost
+ * `domain` / `appId` stay on the same team-member exception.
  */
 export async function canQueueAutomationRunNow(
   actorInput: AutomationActor,
@@ -241,7 +270,13 @@ export async function canQueueAutomationRunNow(
 ): Promise<boolean> {
   const { meta } = parseJobResource(resource.content);
   const actor = normalizeActor(actorInput);
-  if (!jobBelongsToApp(meta, actor.appId)) return false;
+  const recoveredFactory = isRecoveredFactoryJob(
+    meta,
+    resource.path,
+    actor.appId,
+    resource.owner,
+  );
+  if (!jobBelongsToApp(meta, actor.appId) && !recoveredFactory) return false;
   const access = await mutationAccess(actor, resource, meta);
   if (access.canUpdate) return true;
   const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
@@ -250,7 +285,7 @@ export async function canQueueAutomationRunNow(
     Boolean(resourceOrgId) &&
     actor.orgId === resourceOrgId &&
     actor.appId === "factory" &&
-    meta.domain === "factory"
+    (meta.domain === "factory" || recoveredFactory)
   );
 }
 
@@ -293,11 +328,16 @@ async function readDefinition(
     throw httpError(`Automation "${automationName(path)}" not found.`, 404);
   }
   const access = await mutationAccess(actor, resource, definition.meta);
+  const webhookPath =
+    access.canUpdate && definition.meta.triggerType === "webhook"
+      ? await readAutomationWebhookPath(resource, definition.meta)
+      : undefined;
   return {
     ...definition,
     name: automationName(resource.path),
     scope,
     canUpdate: access.canUpdate,
+    webhookPath,
   };
 }
 
@@ -328,6 +368,10 @@ export async function listAutomationDefinitions(
     if (!jobBelongsToApp(parsed.meta, actor.appId)) continue;
     const isCreator =
       parsed.meta.createdBy?.trim().toLowerCase() === actor.userEmail;
+    const canUpdate =
+      scope === "personal" ||
+      isCreator ||
+      (membership ? isOrganizationAdmin(membership) : false);
     automations.push({
       resource,
       name: automationName(resource.path),
@@ -338,10 +382,11 @@ export async function listAutomationDefinitions(
         mode: parsed.meta.mode ?? "agentic",
       },
       body: parsed.body,
-      canUpdate:
-        scope === "personal" ||
-        isCreator ||
-        (membership ? isOrganizationAdmin(membership) : false),
+      canUpdate,
+      webhookPath:
+        canUpdate && parsed.classification.triggerType === "webhook"
+          ? await readAutomationWebhookPath(resource, parsed.meta)
+          : undefined,
     });
   }
 
@@ -445,13 +490,25 @@ export async function defineAutomation(
     deliveryTenantId: input.delivery?.tenantId,
   };
   const content = buildJobResourceContent(meta, body);
-  await resourcePut(owner, path, content);
+  const resource = await resourcePut(owner, path, content);
+  let webhookPath: string | undefined;
+  if (input.triggerType === "webhook") {
+    const token = createAutomationWebhookToken();
+    try {
+      await saveAutomationWebhookToken(resource, meta, token);
+    } catch (error) {
+      await resourceDelete(resource.id).catch(() => undefined);
+      throw error;
+    }
+    webhookPath = automationWebhookPath(token);
+  }
   return {
     name: automationName(path),
     scope: input.scope,
     meta: { ...meta, triggerType: input.triggerType, mode: "agentic" },
     body,
     canUpdate: true,
+    webhookPath,
   };
 }
 
@@ -467,23 +524,26 @@ export async function updateAutomation(
     );
   }
   const { meta } = definition;
+  const fields: JobFrontmatterPatch = {};
   if (input.schedule !== undefined) {
     if (meta.triggerType !== "schedule") {
-      throw httpError("Event automations do not have a cron schedule.", 400);
+      throw httpError("Only scheduled automations have a cron schedule.", 400);
     }
     if (!isValidCron(input.schedule)) {
       throw httpError(`Invalid cron expression "${input.schedule}".`, 400);
     }
     meta.schedule = input.schedule;
+    fields.schedule = input.schedule;
   }
   if (input.timezone !== undefined) {
     if (!isValidTimezone(input.timezone)) {
       throw httpError(`Unknown timezone "${input.timezone}".`, 400);
     }
     if (meta.triggerType !== "schedule") {
-      throw httpError("Event automations do not have a timezone.", 400);
+      throw httpError("Only scheduled automations have a timezone.", 400);
     }
     meta.timezone = input.timezone;
+    fields.timezone = input.timezone;
   }
   if (input.schedule !== undefined || input.timezone !== undefined) {
     meta.nextRun = nextOccurrence(
@@ -491,9 +551,11 @@ export async function updateAutomation(
       undefined,
       meta.timezone,
     ).toISOString();
+    fields.nextRun = meta.nextRun;
   }
   if (input.enabled !== undefined) {
     meta.enabled = input.enabled;
+    fields.enabled = input.enabled;
     if (
       input.enabled &&
       meta.triggerType === "schedule" &&
@@ -504,16 +566,28 @@ export async function updateAutomation(
         undefined,
         meta.timezone,
       ).toISOString();
+      fields.nextRun = meta.nextRun;
     }
   }
   if (input.condition !== undefined) {
     meta.condition = input.condition?.trim() || undefined;
+    fields.condition = meta.condition;
   }
   if (input.delegatedPolicyId !== undefined) {
     meta.delegatedPolicyId = input.delegatedPolicyId?.trim() || undefined;
+    try {
+      assertDelegatedPolicyId(meta.delegatedPolicyId);
+    } catch (error) {
+      throw httpError(
+        error instanceof Error ? error.message : String(error),
+        400,
+      );
+    }
+    fields.delegatedPolicyId = meta.delegatedPolicyId;
   }
   if (input.model !== undefined) {
     meta.model = input.model?.trim() || undefined;
+    fields.model = meta.model;
   }
   if (input.executionHostId !== undefined) {
     if (input.executionHostId && meta.triggerType !== "schedule") {
@@ -527,6 +601,7 @@ export async function updateAutomation(
       "execution_host_id",
       { opaque: true },
     );
+    fields.executionHostId = meta.executionHostId;
   }
   if (input.executionEngine !== undefined) {
     meta.executionEngine = normalizeExecutionTarget(
@@ -534,27 +609,36 @@ export async function updateAutomation(
       "execution_engine",
       { opaque: true },
     );
+    fields.executionEngine = meta.executionEngine;
   }
   if (input.executionCwd !== undefined) {
     meta.executionCwd = normalizeExecutionTarget(
       input.executionCwd,
       "execution_cwd",
     );
+    fields.executionCwd = meta.executionCwd;
   }
   if (input.mcpTools !== undefined) {
     const mcpTools = normalizeJobMcpTools(input.mcpTools);
     meta.mcpTools = mcpTools?.length ? mcpTools : undefined;
+    fields.mcpTools = meta.mcpTools;
   }
   if (input.scope === "organization") {
     meta.orgId = organizationIdFromResourceOwner(definition.resource.owner)!;
     meta.runAs = "creator";
+    fields.orgId = meta.orgId;
+    fields.runAs = meta.runAs;
   }
   const body = input.body === undefined ? definition.body : input.body.trim();
   if (!body) throw httpError("Automation body is required.", 400);
+  let content = patchJobFrontmatterFields(definition.resource.content, fields);
+  if (input.body !== undefined) {
+    content = replaceJobResourceBody(content, body);
+  }
   await resourcePut(
     definition.resource.owner,
     definition.resource.path,
-    buildJobResourceContent(meta, body),
+    content,
   );
   return { ...definition, meta, body };
 }
@@ -570,6 +654,9 @@ export async function deleteAutomation(
       "Only the automation's creator or an organization admin can delete it.",
       403,
     );
+  }
+  if (definition.meta.triggerType === "webhook") {
+    await deleteAutomationWebhookToken(definition.resource, definition.meta);
   }
   await resourceDelete(definition.resource.id);
   // Names are reusable, so leaving history behind would attach these runs to

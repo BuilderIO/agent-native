@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
 import { stopMeetingBeforeTranscriptFlush } from "../lib/meeting-stop";
+import { subscribeAutoStop } from "../lib/silence-events";
 import {
   appendFinalTranscript,
   onFinalTranscript,
@@ -27,7 +28,7 @@ import { normalizeServerUrl } from "../lib/url";
 export interface MeetingTranscriptionPayload {
   meetingId: string;
   joinUrl?: string | null;
-  reason?: "user" | "calendar-auto" | string;
+  reason?: "user" | "calendar-auto" | (string & {});
   scheduledStart?: string | null;
   includeFromMeetingStart?: boolean;
 }
@@ -44,6 +45,7 @@ interface MeetingTranscriptionSession {
   stopping: boolean;
   paused: boolean;
   engine: TranscriptionEngine;
+  audioTransitionInFlight: Promise<void> | null;
   /** Offset local live-engine timestamps onto the scheduled meeting timeline. */
   liveTimelineOffsetMs: number;
   historyInFlight: Promise<void> | null;
@@ -85,6 +87,22 @@ interface Props {
   serverUrl: string;
   selectedMicId: string | null;
   selectedMicLabel: string | null;
+  enabled: boolean;
+}
+
+const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
+// How often to poll get-meeting for a server-side actualEnd while local
+// capture is running — a backstop for the native end-of-call detector.
+const MEETING_ENDED_POLL_MS = 30_000;
+
+function unlistenAll(unlisteners: Array<() => void>): void {
+  for (const unlisten of unlisteners) {
+    try {
+      unlisten();
+    } catch {
+      continue;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +114,7 @@ export function useMeetingTranscription({
   serverUrl,
   selectedMicId,
   selectedMicLabel,
+  enabled,
 }: Props): void {
   const sessionRef = useRef<MeetingTranscriptionSession | null>(null);
   const pendingPillInitRef = useRef<{
@@ -192,18 +211,13 @@ export function useMeetingTranscription({
           window.clearTimeout(session.flushTimer);
           session.flushTimer = null;
         }
+        await session.audioTransitionInFlight?.catch(() => {});
         try {
           await stopTranscriptionEngine(session.engine);
         } catch (err) {
           console.warn("[clips-popover] meeting audio stop failed:", err);
         }
-        session.unlisten.splice(0).forEach((unlisten) => {
-          try {
-            unlisten();
-          } catch {
-            // ignore
-          }
-        });
+        unlistenAll(session.unlisten.splice(0));
         await invoke("silence_detector_stop").catch(() => {});
         await stopMeetingBeforeTranscriptFlush({
           // Stamp actualEnd as soon as capture is torn down. Transcript
@@ -212,6 +226,7 @@ export function useMeetingTranscription({
           stopRecording: async () => {
             await callClipsAction("stop-meeting-recording", {
               meetingId: session.meetingId,
+              reason,
             }).catch((err) => {
               console.warn("[clips-popover] stop meeting action failed:", err);
             });
@@ -278,12 +293,18 @@ export function useMeetingTranscription({
     [callClipsAction, flushTranscript, normalizedServerUrl],
   );
 
+  useEffect(() => {
+    if (enabled) return;
+    stopTranscription("experiment-disabled").catch(() => {});
+  }, [enabled, stopTranscription]);
+
   // -------------------------------------------------------------------------
   // Start
   // -------------------------------------------------------------------------
 
   const runStartTranscription = useCallback(
     async (payload: MeetingTranscriptionPayload) => {
+      if (!enabled) return;
       const meetingId = payload.meetingId;
       if (!meetingId) return;
 
@@ -395,6 +416,7 @@ export function useMeetingTranscription({
           stopping: false,
           paused: false,
           engine: "whisper",
+          audioTransitionInFlight: null,
           liveTimelineOffsetMs: 0,
           historyInFlight: null,
           flushInFlight: null,
@@ -403,6 +425,8 @@ export function useMeetingTranscription({
         };
         sessionRef.current = session;
         startedSession = session;
+        const sessionIsActive = () =>
+          sessionRef.current === session && !session.stopping;
 
         const scheduleFlush = () => {
           if (session.flushTimer) window.clearTimeout(session.flushTimer);
@@ -468,21 +492,19 @@ export function useMeetingTranscription({
               });
           }),
         );
-        addUnlisten(
-          listen("meetings:silence-stop", () => {
-            stopTranscription("silence").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("meetings:sleep-stop", () => {
-            stopTranscription("sleep").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("meetings:call-ended", () => {
-            stopTranscription("call-ended").catch(() => {});
-          }),
-        );
+        // Register every native auto-stop listener before starting audio. The
+        // Tauri listen calls are async; firing the detector first leaves a
+        // small but real window where a native end event can be missed.
+        const autoStopUnlisten = await subscribeAutoStop((reason) => {
+          stopTranscription(reason).catch(() => {});
+        });
+        if (sessionRef.current !== session || session.stopping) {
+          autoStopUnlisten();
+          // Route stale startup through the existing cleanup path so a
+          // replacement cannot leave a microphone or server row behind.
+          throw MEETING_START_CANCELLED;
+        }
+        session.unlisten.push(autoStopUnlisten);
 
         // Creating the row and starting the audio engine need nothing from each
         // other — only the flush needs a recording id. Kicking the engine here
@@ -517,11 +539,15 @@ export function useMeetingTranscription({
         }>("start-meeting-recording", { meetingId });
         const resolvedMeetingId = result.meetingId ?? meetingId;
         const recordingId = result.recording?.id;
+        // The action may materialize a virtual calendar meeting before the
+        // session becomes stale. Preserve the concrete IDs before aborting so
+        // the failure path closes the row it actually created.
+        session.meetingId = resolvedMeetingId;
+        session.recordingId = recordingId ?? null;
+        if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         if (!recordingId) {
           throw new Error("Could not create a transcript session.");
         }
-        session.meetingId = resolvedMeetingId;
-        session.recordingId = recordingId;
 
         const parsedScheduledEndMs = result.scheduledEnd
           ? Date.parse(result.scheduledEnd)
@@ -533,7 +559,7 @@ export function useMeetingTranscription({
         const silenceDetectorConfig = {
           silenceThreshold: 0.05,
           silenceMs: 15 * 60 * 1000,
-          callEndedMs: 2 * 60 * 1000,
+          callEndedMs: 30 * 1000,
           callAppBundleIds: callAppBundleIdsForJoinUrl(payload.joinUrl),
           scheduledEndMs,
           watchSleep: true,
@@ -544,9 +570,10 @@ export function useMeetingTranscription({
         // the engine choice was already made below). Rust prefers one combined
         // SCK stream and uses bypassed VoiceProcessingIO only for legacy/failure
         // fallback, so the transcript stays live without changing call volume.
-        const startAudio = async () => {
+        const startAudio = async (): Promise<TranscriptionEngine> => {
+          const engine = session.engine;
           await restartTranscriptionEngine(
-            session.engine,
+            engine,
             {
               deviceId: selectedMicId,
               label: selectedMicLabel,
@@ -554,6 +581,16 @@ export function useMeetingTranscription({
             true,
             false,
           );
+          return engine;
+        };
+
+        const stopStaleAudioTransition = async () => {
+          if (sessionRef.current !== session) return;
+          await stopTranscriptionEngine(session.engine).catch(() => {});
+          // The detector is global. Do not stop a newer session that took
+          // ownership while the engine stop was in flight.
+          if (sessionRef.current !== session) return;
+          await invoke("silence_detector_stop").catch(() => {});
         };
 
         // Pause/resume state machine — see app.tsx for full explanation.
@@ -565,54 +602,81 @@ export function useMeetingTranscription({
           if (sessionRef.current !== session || session.stopping) return;
           if (desiredPaused === session.paused) return;
           applyingTransition = true;
-          try {
-            if (desiredPaused) {
-              if (session.flushTimer) {
-                window.clearTimeout(session.flushTimer);
-                session.flushTimer = null;
-              }
-              await invoke("silence_detector_stop").catch(() => {});
-              try {
-                await stopTranscriptionEngine(session.engine);
-              } catch (err) {
-                console.warn(
-                  "[clips-popover] meeting audio pause failed; staying live:",
-                  err,
-                );
-                desiredPaused = false;
+          const transition = (async () => {
+            try {
+              if (desiredPaused) {
+                if (session.flushTimer) {
+                  window.clearTimeout(session.flushTimer);
+                  session.flushTimer = null;
+                }
+                await invoke("silence_detector_stop").catch(() => {});
+                if (!sessionIsActive()) return;
+                try {
+                  await stopTranscriptionEngine(session.engine);
+                } catch (err) {
+                  if (!sessionIsActive()) return;
+                  console.warn(
+                    "[clips-popover] meeting audio pause failed; staying live:",
+                    err,
+                  );
+                  desiredPaused = false;
+                  session.paused = false;
+                  await invoke("silence_detector_start", {
+                    config: silenceDetectorConfig,
+                  }).catch(() => {});
+                  if (!sessionIsActive()) await stopStaleAudioTransition();
+                  return;
+                }
+                if (!sessionIsActive()) return;
+                await flushTranscript().catch(() => {});
+                if (!sessionIsActive()) return;
+                session.paused = true;
+              } else {
+                let resumedEngine: TranscriptionEngine;
+                try {
+                  resumedEngine = await startAudio();
+                } catch (err) {
+                  console.warn(
+                    "[clips-popover] meeting audio resume failed; staying paused:",
+                    err,
+                  );
+                  if (!sessionIsActive()) return;
+                  desiredPaused = true;
+                  session.paused = true;
+                  return;
+                }
+                if (!sessionIsActive()) {
+                  // stopTranscription waits for this transition before a
+                  // replacement can claim the global audio engine. Keep the
+                  // concrete engine returned by the resume so a late start
+                  // cannot be orphaned during that handoff.
+                  await stopTranscriptionEngine(resumedEngine).catch(() => {});
+                  await stopStaleAudioTransition();
+                  return;
+                }
                 session.paused = false;
                 await invoke("silence_detector_start", {
                   config: silenceDetectorConfig,
                 }).catch(() => {});
-                return;
+                if (!sessionIsActive()) await stopStaleAudioTransition();
               }
-              await flushTranscript().catch(() => {});
-              session.paused = true;
-            } else {
-              try {
-                await startAudio();
-              } catch (err) {
-                console.warn(
-                  "[clips-popover] meeting audio resume failed; staying paused:",
-                  err,
-                );
-                desiredPaused = true;
-                session.paused = true;
-                return;
-              }
-              session.paused = false;
-              await invoke("silence_detector_start", {
-                config: silenceDetectorConfig,
-              }).catch(() => {});
+            } finally {
+              applyingTransition = false;
             }
+          })();
+          session.audioTransitionInFlight = transition;
+          try {
+            await transition;
           } finally {
-            applyingTransition = false;
-            // Re-check for any desiredPaused change queued while this
-            // transition was in flight — including the two early-return
-            // error-recovery branches above, which otherwise skipped this
-            // reconvergence and could leave a queued pause/resume request
-            // unapplied until another external event happened to fire.
-            void applyAudioState();
+            if (session.audioTransitionInFlight === transition) {
+              session.audioTransitionInFlight = null;
+              // Re-check for any desiredPaused change queued while this
+              // transition was in flight — including the two early-return
+              // error-recovery branches above, which otherwise skipped this
+              // reconvergence and could leave a queued pause/resume request
+              // unapplied until another external event happened to fire.
+              void applyAudioState();
+            }
           }
         };
 
@@ -732,7 +796,7 @@ export function useMeetingTranscription({
         // tray, indicator, and pill state below would repoint all three at the
         // meeting the user just left. Every other continuation in this function
         // guards the same way.
-        if (sessionRef.current !== session) {
+        if (!sessionIsActive()) {
           await stopTranscriptionEngine(startedEngine).catch(() => {});
           liveEngine = null;
           if (historyPreparedRef.current) {
@@ -748,6 +812,7 @@ export function useMeetingTranscription({
           if (session.recordingId) {
             await callClipsAction("stop-meeting-recording", {
               meetingId: session.meetingId,
+              reason: "superseded",
             }).catch((err) => {
               console.warn(
                 "[clips-popover] could not close a superseded meeting row:",
@@ -773,6 +838,7 @@ export function useMeetingTranscription({
             mode: "meeting",
           }),
         ]);
+        if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         if (pendingPillInitRef.current?.meetingId === resolvedMeetingId) {
           pendingPillInitRef.current = {
             ...pendingPillInitRef.current,
@@ -842,9 +908,16 @@ export function useMeetingTranscription({
           session.historyInFlight = historyPromise;
         }
 
+        if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         await invoke("silence_detector_start", {
           config: silenceDetectorConfig,
         }).catch(() => {});
+        if (!sessionIsActive()) {
+          if (sessionRef.current === session) {
+            await invoke("silence_detector_stop").catch(() => {});
+          }
+          throw MEETING_START_CANCELLED;
+        }
 
         if (payload.joinUrl && payload.reason !== "user") {
           emit("meetings:open-join-url", {
@@ -854,6 +927,10 @@ export function useMeetingTranscription({
 
         emit("meetings:hide-notification", { meetingId }).catch(() => {});
       } catch (err) {
+        if (startedSession) {
+          startedSession.stopping = true;
+          unlistenAll(startedSession.unlisten.splice(0));
+        }
         // The engine can be live even though the start failed: it runs in
         // parallel with the row creation, and startup continues for a while
         // after it comes up. Leaving it would hold the microphone for a session
@@ -887,6 +964,7 @@ export function useMeetingTranscription({
           if (failedSession?.meetingId) {
             await callClipsAction("stop-meeting-recording", {
               meetingId: failedSession.meetingId,
+              reason: "start-failed",
             }).catch(() => {});
           }
           pendingPillInitRef.current = null;
@@ -900,14 +978,17 @@ export function useMeetingTranscription({
           // belong to the newer one.
           await callClipsAction("stop-meeting-recording", {
             meetingId: startedSession.meetingId,
+            reason: "superseded",
           }).catch(() => {});
         }
-        const message =
-          err instanceof Error ? err.message : "Could not start notes.";
-        emit("meetings:transcription-error", {
-          meetingId,
-          error: message,
-        }).catch(() => {});
+        if (err !== MEETING_START_CANCELLED) {
+          const message =
+            err instanceof Error ? err.message : "Could not start notes.";
+          emit("meetings:transcription-error", {
+            meetingId,
+            error: message,
+          }).catch(() => {});
+        }
       }
     },
     [
@@ -916,6 +997,7 @@ export function useMeetingTranscription({
       selectedMicId,
       selectedMicLabel,
       stopTranscription,
+      enabled,
     ],
   );
 
@@ -937,12 +1019,11 @@ export function useMeetingTranscription({
   const startInFlightRef = useRef<Promise<void> | null>(null);
   const startTranscription = useCallback(
     async (payload: MeetingTranscriptionPayload) => {
-      const previous = startInFlightRef.current;
-      const run = (async () => {
-        // A failed start must not stop the next one from running.
-        if (previous) await previous.catch(() => {});
-        await runStartTranscription(payload);
-      })();
+      // Chain from the latest queued run, not a snapshot taken before another
+      // caller publishes its own run. This keeps B and C serialized behind A.
+      const run = (startInFlightRef.current ?? Promise.resolve())
+        .catch(() => {})
+        .then(() => runStartTranscription(payload));
       startInFlightRef.current = run;
       try {
         await run;
@@ -958,6 +1039,7 @@ export function useMeetingTranscription({
   // -------------------------------------------------------------------------
 
   useEffect(() => {
+    if (!enabled) return;
     const unlisteners: Array<() => void> = [];
     let stopped = false;
     const track = (promise: Promise<() => void>) => {
@@ -992,9 +1074,42 @@ export function useMeetingTranscription({
       });
       unlisteners.length = 0;
     };
-  }, [startTranscription]);
+  }, [enabled, startTranscription]);
+
+  // -------------------------------------------------------------------------
+  // Server-ended backstop
+  // -------------------------------------------------------------------------
+
+  // The native end-of-call detector (mic release / calendar end / silence) is
+  // macOS-only and can still miss a real hangup. Poll the meeting row so a
+  // server-side close — the stale-meeting sweeper, or finalize-recording's
+  // reconcile hook — still stops local capture instead of leaving it
+  // recording into a meeting the server already considers over.
+  useEffect(() => {
+    if (!enabled) return;
+    const timer = window.setInterval(() => {
+      const session = sessionRef.current;
+      if (!session || session.stopping) return;
+      callClipsAction<{ meeting?: { actualEnd?: string | null } }>(
+        "get-meeting",
+        { id: session.meetingId },
+        { method: "GET" },
+      )
+        .then((data) => {
+          if (sessionRef.current !== session || session.stopping) return;
+          if (!data?.meeting?.actualEnd) return;
+          stopTranscription("server-ended").catch(() => {});
+        })
+        .catch(() => {
+          // Best-effort — a failed poll just waits for the next tick or the
+          // native detector.
+        });
+    }, MEETING_ENDED_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [callClipsAction, enabled, stopTranscription]);
 
   useEffect(() => {
+    if (!enabled) return;
     let stopped = false;
     const unlistens: Array<Promise<() => void>> = [];
 
@@ -1081,5 +1196,5 @@ export function useMeetingTranscription({
           .catch(() => {}),
       );
     };
-  }, [callClipsAction, normalizedServerUrl]);
+  }, [callClipsAction, enabled, normalizedServerUrl]);
 }

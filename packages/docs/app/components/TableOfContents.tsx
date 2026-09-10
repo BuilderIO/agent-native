@@ -238,6 +238,7 @@ export default function TableOfContents({
           icon={<IconMessage aria-hidden="true" size={16} stroke={1.5} />}
           placeholder={t("agent.emptyState")}
           prompt=""
+          draftScope="docs:table-of-contents-ask"
           className="mt-4 w-full cursor-pointer border border-[var(--docs-border)] bg-transparent text-[var(--fg-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--fg)]"
         />
       </nav>

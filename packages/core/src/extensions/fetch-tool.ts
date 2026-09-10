@@ -506,6 +506,12 @@ export function createFetchToolEntry(
                   : null;
               if (!scope)
                 throw new Error("No authenticated context for saveToFile");
+              const scratchPath = isScratchWorkspacePath(saveToFilePath);
+              if (!response.ok && !scratchPath) {
+                throw new Error(
+                  `Refusing to save a failed response to durable workspace file "${saveToFilePath}" (status ${response.status}). Use a scratch/... path for diagnostics.`,
+                );
+              }
               const meta = await writeWorkspaceFile(
                 scope,
                 saveToFilePath,
@@ -529,9 +535,7 @@ export function createFetchToolEntry(
                 // A durable (non-scratch) file renders a download card the
                 // moment it's created — no separate show-workspace-file call
                 // needed to get a link.
-                ...(isScratchWorkspacePath(saveToFilePath)
-                  ? {}
-                  : { file: toWorkspaceFileCard(meta) }),
+                ...(scratchPath ? {} : { file: toWorkspaceFileCard(meta) }),
               });
             } catch (saveErr: any) {
               return `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`;

@@ -4,13 +4,12 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
@@ -25,6 +24,7 @@ import {
   IconSearch,
   IconSettings,
   IconShare3,
+  IconTemplate,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -39,8 +39,9 @@ import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 
 const baseNavItems = [
-  { icon: IconPhotoPlus, labelKey: "navigation.create", href: "/" },
+  { icon: IconPhotoPlus, labelKey: "navigation.create", href: "/home" },
   { icon: IconLayoutGrid, labelKey: "navigation.library", href: "/library" },
+  { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
 ];
 
 const bottomNavItems = [
@@ -147,7 +148,7 @@ function AssetsChatsSection({ open }: { open: boolean }) {
   );
   const displayedActiveThreadId =
     threadIdFromPath(location.pathname) ??
-    (location.pathname === "/" ? null : activeThreadId);
+    (location.pathname === "/home" ? null : activeThreadId);
   const chatItems = useMemo<ChatHistoryItem[]>(
     () =>
       visibleThreads.map((thread) => ({
@@ -187,7 +188,7 @@ function AssetsChatsSection({ open }: { open: boolean }) {
     persistActiveThreadId(threadId);
     navigateWithAgentChatViewTransition(
       navigate,
-      options?.isNew ? "/" : chatThreadPath(threadId),
+      options?.isNew ? "/home" : chatThreadPath(threadId),
     );
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
@@ -303,7 +304,7 @@ export function Sidebar() {
   const navigate = useNavigate();
   const t = useT();
   const isCreateRoute =
-    location.pathname === "/" || location.pathname.startsWith("/chat/");
+    location.pathname === "/home" || location.pathname.startsWith("/chat/");
   const { data: auditAdmin } = useActionQuery("is-audit-admin", {}, {
     refetchInterval: 30_000,
   } as any) as { data: { allowed?: boolean } | undefined };
@@ -392,21 +393,9 @@ export function Sidebar() {
       )}
       data-sidebar-brand-toggle
     >
-      <img
-        src={appPath("/agent-native-icon-light.svg")}
-        alt=""
+      <AgentNativeIcon
         aria-hidden="true"
-        width={28}
-        height={16}
-        className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-      />
-      <img
-        src={appPath("/agent-native-icon-dark.svg")}
-        alt=""
-        aria-hidden="true"
-        width={28}
-        height={16}
-        className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+        className="h-3.5 w-6 shrink-0 text-sidebar-foreground"
       />
       {!collapsed && (
         <span className="text-sm font-semibold tracking-tight">
@@ -442,7 +431,7 @@ export function Sidebar() {
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive =
-              item.href === "/"
+              item.href === "/home"
                 ? isCreateRoute
                 : item.href === "/library"
                   ? location.pathname === "/library" ||
@@ -450,14 +439,17 @@ export function Sidebar() {
                     location.pathname.startsWith("/brand-kits/") ||
                     location.pathname.startsWith("/image/") ||
                     location.pathname.startsWith("/asset/")
-                  : location.pathname.startsWith(item.href);
+                  : item.href === "/templates"
+                    ? location.pathname === "/templates" ||
+                      location.pathname.startsWith("/templates/")
+                    : location.pathname.startsWith(item.href);
             const link = (
               <Link
                 key={item.href}
                 to={item.href}
                 onClick={(event) => {
                   if (
-                    item.href === "/" &&
+                    item.href === "/home" &&
                     !event.metaKey &&
                     !event.ctrlKey &&
                     !event.shiftKey &&
@@ -465,8 +457,8 @@ export function Sidebar() {
                   ) {
                     event.preventDefault();
                     focusAgentChat();
-                    if (!isCreateRoute || location.pathname !== "/") {
-                      navigateWithAgentChatViewTransition(navigate, "/");
+                    if (!isCreateRoute || location.pathname !== "/home") {
+                      navigateWithAgentChatViewTransition(navigate, "/home");
                     }
                   }
                 }}
@@ -495,7 +487,7 @@ export function Sidebar() {
             return (
               <div key={item.href}>
                 {link}
-                {item.href === "/" ? (
+                {item.href === "/home" ? (
                   <AssetsChatsSection open={isCreateRoute} />
                 ) : null}
               </div>
@@ -543,13 +535,13 @@ export function Sidebar() {
           </nav>
 
           {!collapsed && (
-            <div className="px-3 py-2">
+            <div className="px-3 py-2 empty:hidden">
               <OrgSwitcher />
             </div>
           )}
 
           {!collapsed && (
-            <div className="px-3 py-2">
+            <div className="px-3 py-2 empty:hidden">
               <DevDatabaseLink />
             </div>
           )}

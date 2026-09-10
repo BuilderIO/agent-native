@@ -63,7 +63,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { RunsTray } from "@agent-native/core/client/progress";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
@@ -665,7 +665,7 @@ function DispatchChatsSection({
   const chatHistoryError = threadsLoadError ? (
     <button
       type="button"
-      onClick={() => void refreshThreads()}
+      onClick={() => refreshThreads()}
       className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
     >
       <span>Could not load chats</span>
@@ -1096,7 +1096,7 @@ export function NavContent({
         onNavigate?.();
       }}
       onOpenAllApps={() => {
-        navigate(dispatchNavLinkTarget("/apps"));
+        void navigate(dispatchNavLinkTarget("/apps"));
         onNavigate?.();
       }}
       createAppTrigger={chatFirstCreateAppTrigger}
@@ -1223,7 +1223,10 @@ export function NavContent({
   );
   const organizationPicker = (
     <div
-      className={cn("py-2", collapsed ? "flex justify-center px-1" : "px-3")}
+      className={cn(
+        "py-2 empty:hidden",
+        collapsed ? "flex justify-center px-1" : "px-3",
+      )}
     >
       <OrgSwitcher compact={collapsed} reserveSpace currentAppId="dispatch" />
     </div>
@@ -1254,26 +1257,11 @@ export function NavContent({
             collapsed ? "justify-center" : "gap-2",
           )}
         >
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
+          <AgentNativeIcon
             aria-hidden="true"
-            width={35}
-            height={20}
             className={cn(
-              "block shrink-0 object-contain object-center dark:hidden",
-              collapsed ? "h-4 w-7" : "h-5 w-[35px]",
-            )}
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            width={35}
-            height={20}
-            className={cn(
-              "hidden shrink-0 object-contain object-center dark:block",
-              collapsed ? "h-4 w-7" : "h-5 w-[35px]",
+              "shrink-0 text-foreground",
+              collapsed ? "h-3.5 w-6" : "h-[17px] w-[30px]",
             )}
           />
           {!collapsed && (
@@ -1301,11 +1289,11 @@ export function NavContent({
               activeTab: chatFirstActivePrimaryTab,
               onNewChat: onChatFirstNewChat,
               onOpenIntegrations: () => {
-                navigate(dispatchNavLinkTarget("/admin/integrations"));
+                void navigate(dispatchNavLinkTarget("/admin/integrations"));
                 onNavigate?.();
               },
               onOpenScheduled: () => {
-                navigate(dispatchNavLinkTarget("/admin/automations"));
+                void navigate(dispatchNavLinkTarget("/admin/automations"));
                 onNavigate?.();
               },
             }}
@@ -1528,10 +1516,9 @@ export function Layout({
           ? workspaceAppDirectHref(registration, "/")
           : null;
       if (directHref && shouldOpenWorkspaceAppInTopWindow()) {
-        navigateToWorkspaceApp(directHref);
-        return;
+        if (navigateToWorkspaceApp(directHref)) return;
       }
-      navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
+      void navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
     },
     [chatFirstAppRegistrations, navigate],
   );
@@ -1778,7 +1765,6 @@ export function Layout({
       chatFirstAppsQuery.isLoading,
       chatFirstGrantedAppsQuery.isLoading,
       chatFirstSurfaceTabsStore,
-      closeChatFirstSessionWatch,
       openChatFirstPane,
       navigate,
       persistChatFirstPane,
@@ -2051,12 +2037,25 @@ export function Layout({
       if (event.source !== frame.contentWindow) return;
 
       const open = event.data.data?.open;
+      const focus = event.data.data?.focus === true;
       if (open === true) {
-        window.dispatchEvent(new Event("agent-panel:open"));
+        window.dispatchEvent(
+          focus
+            ? new CustomEvent("agent-panel:open", {
+                detail: { focus: true },
+              })
+            : new Event("agent-panel:open"),
+        );
       } else if (open === false) {
         window.dispatchEvent(new Event("agent-panel:close"));
       } else {
-        window.dispatchEvent(new Event("agent-panel:toggle"));
+        window.dispatchEvent(
+          focus
+            ? new CustomEvent("agent-panel:toggle", {
+                detail: { focus: true },
+              })
+            : new Event("agent-panel:toggle"),
+        );
       }
     };
 
@@ -2302,7 +2301,7 @@ export function Layout({
     );
   }
   function openRunThread(threadId: string) {
-    navigate("/chat", {
+    void navigate("/chat", {
       state: {
         dispatchThread: {
           id: `${Date.now()}-${threadId}`,

@@ -7,6 +7,11 @@ import type { GoogleAuthStatus } from "@shared/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  isSharedCalendarDemo,
+  SHARED_CALENDAR_DEMO_STATUS,
+} from "@/lib/shared-calendar-demo";
+
 export interface DesktopAuthIssue {
   error?: string;
   message?: string;
@@ -47,9 +52,9 @@ const DESKTOP_AUTH_POLL_ABORT_MS = Math.max(
 
 function newDesktopOAuthVerifier(): string | null {
   const cryptoApi = globalThis.crypto;
-  const randomUuid = cryptoApi?.randomUUID;
+  const randomUuid = cryptoApi?.randomUUID?.bind(cryptoApi);
   if (typeof randomUuid === "function") {
-    return `${randomUuid.call(cryptoApi)}${randomUuid.call(cryptoApi)}`;
+    return `${randomUuid()}${randomUuid()}`;
   }
   if (typeof cryptoApi?.getRandomValues === "function") {
     const bytes = new Uint8Array(32);
@@ -149,14 +154,16 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 export function useGoogleAuthStatus() {
+  const demo = isSharedCalendarDemo();
   return useQuery<GoogleAuthStatus>({
     queryKey: ["google-status"],
     queryFn: async () => {
+      if (demo) return SHARED_CALENDAR_DEMO_STATUS;
       return fetchJson<GoogleAuthStatus>(
         agentNativePath("/_agent-native/google/status"),
       );
     },
-    staleTime: 30_000,
+    staleTime: demo ? Infinity : 30_000,
   });
 }
 
@@ -179,7 +186,7 @@ export function useGoogleAuthUrl(enabled = false) {
   // Clear cached error when disabled so next enable triggers a fresh fetch
   useEffect(() => {
     if (!enabled && query.isError) {
-      queryClient.resetQueries({ queryKey: ["google-auth-url"] });
+      void queryClient.resetQueries({ queryKey: ["google-auth-url"] });
     }
   }, [enabled, query.isError, queryClient]);
 
@@ -205,7 +212,7 @@ export function useGoogleAddAccountUrl(enabled = false) {
 
   useEffect(() => {
     if (!enabled && query.isError) {
-      queryClient.resetQueries({ queryKey: ["google-add-account-url"] });
+      void queryClient.resetQueries({ queryKey: ["google-add-account-url"] });
     }
   }, [enabled, query.isError, queryClient]);
 
@@ -431,7 +438,7 @@ export function useDisconnectGoogle() {
       );
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["google-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["google-status"] });
     },
   });
 }
@@ -445,7 +452,9 @@ export function useSyncGoogle() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-events"],
+      });
     },
   });
 }

@@ -1,9 +1,8 @@
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconLayoutGrid,
@@ -23,7 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { icon: IconLayoutGrid, labelKey: "navigation.decks", href: "/" },
+  { icon: IconLayoutGrid, labelKey: "navigation.decks", href: "/home" },
   {
     icon: IconComponents,
     labelKey: "navigation.designSystems",
@@ -47,8 +46,8 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const t = useT();
 
   const isItemActive = (href: string) =>
-    href === "/"
-      ? location.pathname === "/"
+    href === "/home"
+      ? location.pathname === "/home"
       : location.pathname.startsWith(href);
 
   const collapseButton = onToggleCollapsed ? (
@@ -106,21 +105,9 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
         collapsed ? "size-8 justify-center" : "min-w-0 flex-1",
       )}
     >
-      <img
-        src={appPath("/agent-native-icon-light.svg")}
-        alt=""
+      <AgentNativeIcon
         aria-hidden="true"
-        width={28}
-        height={16}
-        className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-      />
-      <img
-        src={appPath("/agent-native-icon-dark.svg")}
-        alt=""
-        aria-hidden="true"
-        width={28}
-        height={16}
-        className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+        className="h-3.5 w-6 shrink-0 text-sidebar-foreground"
       />
       {!collapsed && (
         <span className="truncate text-sm font-semibold tracking-tight">
@@ -273,7 +260,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             })}
           </nav>
 
-          <div className="px-3 py-2">
+          <div className="px-3 py-2 empty:hidden">
             <OrgSwitcher />
           </div>
 

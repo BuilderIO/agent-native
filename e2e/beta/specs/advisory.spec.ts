@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { originFor, productionHostFor, selectedSites } from "../lib/fleet";
 import { mustRespond, parseJson } from "../lib/http";
+import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
 
 /**
  * Findings worth surfacing that should not block a promotion.
@@ -16,6 +17,10 @@ import { mustRespond, parseJson } from "../lib/http";
  */
 
 const sites = selectedSites();
+
+test.beforeEach(async ({ page }) => {
+  await installBetaE2ETrafficMarker(page.context());
+});
 
 test.describe.configure({ mode: "parallel" });
 

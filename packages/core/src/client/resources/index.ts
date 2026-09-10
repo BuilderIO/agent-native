@@ -20,6 +20,10 @@ export {
 } from "./McpIntegrationDialog.js";
 export { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 export {
+  McpAccessSettings,
+  type McpAccessSettingsProps,
+} from "./McpAccessSettings.js";
+export {
   McpConnectionSuggestion,
   type McpConnectionSuggestionProps,
   type McpConnectionSuggestionVariant,

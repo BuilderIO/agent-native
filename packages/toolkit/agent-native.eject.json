@@ -109,7 +109,9 @@
       "sourceEntries": ["src/collab-ui"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-tooltip",
+        "@tabler/icons-react",
         "clsx",
         "react",
         "tailwind-merge",
@@ -270,6 +272,7 @@
       "dependencies": [
         "@radix-ui/react-label",
         "@radix-ui/react-popover",
+        "@radix-ui/react-select",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
         "class-variance-authority",
@@ -382,6 +385,7 @@
         }
       ],
       "dependencies": [
+        "@radix-ui/react-dropdown-menu",
         "@tabler/icons-react",
         "@radix-ui/react-popover",
         "@radix-ui/react-tooltip",
@@ -407,6 +411,7 @@
         "highlight.js",
         "lowlight",
         "react",
+        "react-dom",
         "tailwind-merge",
         "tiptap-markdown",
         "y-protocols",
@@ -443,6 +448,27 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/onboarding"],
       "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["react"],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/marketing",
+      "label": "Marketing home shell",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["marketing"],
+      "entrypoints": ["./marketing", "./marketing/*"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/marketing"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@radix-ui/react-slot",
+        "class-variance-authority",
+        "culori",
+        "clsx",
+        "react",
+        "tailwind-merge"
+      ],
+      "protectedImports": ["@agent-native/toolkit/utils"],
       "verification": ["pnpm typecheck"]
     },
     {

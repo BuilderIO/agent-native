@@ -124,7 +124,7 @@ export function BrandingEditor({
         defaultVisibility,
       });
       toast.success(t("brandingEditor.brandingUpdated"));
-      qc.invalidateQueries({
+      void qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
       });
     } catch (err) {
@@ -207,7 +207,7 @@ export function BrandingEditor({
                 e.preventDefault();
                 setDragging(false);
                 const file = e.dataTransfer.files?.[0];
-                if (file) handleFile(file);
+                if (file) void handleFile(file);
               }}
             >
               <div
@@ -249,7 +249,7 @@ export function BrandingEditor({
                     disabled={disabled || uploading}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file) handleFile(file);
+                      if (file) void handleFile(file);
                     }}
                   />
                   {brandLogoUrl ? (

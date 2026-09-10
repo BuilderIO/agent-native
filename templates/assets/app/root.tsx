@@ -16,7 +16,15 @@ import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+  useNavigate,
+} from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
@@ -121,6 +129,11 @@ function AssetsCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchPath = location.pathname.startsWith("/templates")
+    ? "/templates?focus=search"
+    : "/library?tab=generated&focus=search";
   return (
     <CommandMenu
       open={open}
@@ -129,7 +142,18 @@ function AssetsCommandMenu({
       changelogKey="assets"
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
-        <CommandMenu.Item onSelect={() => {}}>
+        {location.pathname === "/home" ? (
+          <CommandMenu.Item onSelect={() => navigate("/library")}>
+            {t("navigation.library")}
+          </CommandMenu.Item>
+        ) : null}
+        {location.pathname.startsWith("/library") ||
+        location.pathname.startsWith("/templates") ? (
+          <CommandMenu.Item onSelect={() => navigate("/home")}>
+            {t("navigation.create")}
+          </CommandMenu.Item>
+        ) : null}
+        <CommandMenu.Item onSelect={() => navigate(searchPath)}>
           {t("root.commandSearch")}
         </CommandMenu.Item>
       </CommandMenu.Group>
@@ -140,22 +164,35 @@ function AssetsCommandMenu({
   );
 }
 
-export default function Root() {
-  const [queryClient] = useState(() => createAgentNativeQueryClient());
+function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  return (
+    <>
+      <DbSyncSetup />
+      <AssetsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </>
+  );
+}
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        toaster={<Toaster richColors position="bottom-left" />}
+        isPublicPath={isMarketingPath}
+        toaster={
+          isMarketingPath ? null : <Toaster richColors position="bottom-left" />
+        }
         i18n={{ catalog: i18nCatalog }}
       >
-        <DbSyncSetup />
-        <AssetsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
-        <AppLayout>
-          <Outlet />
-        </AppLayout>
+        {isMarketingPath ? <Outlet /> : <AppContent />}
       </AppProviders>
     </AppToolkitProvider>
   );

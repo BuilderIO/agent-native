@@ -15,6 +15,7 @@ export const STANDARD_SETTINGS_TABS = {
   providers: "providers",
   connections: "connections",
   secrets: "secrets",
+  mcp: "mcp",
   team: "organization",
   usage: "usage",
   language: "language",
@@ -26,7 +27,7 @@ export type StandardSettingsTabId =
   (typeof STANDARD_SETTINGS_TABS)[keyof typeof STANDARD_SETTINGS_TABS];
 
 export interface BuildStandardAppRouteOptions {
-  settingsTab?: StandardSettingsTabId | string | null;
+  settingsTab?: string | null;
   teamInSettings?: boolean;
 }
 
@@ -109,7 +110,7 @@ function resolveOpenPathRoute(
 }
 
 export function buildSettingsRoute(
-  tab?: StandardSettingsTabId | string | null,
+  tab?: string | null,
   basePath = STANDARD_APP_ROUTES.settings,
 ): string {
   const path = normalizeLeadingPath(basePath);
@@ -137,7 +138,7 @@ export function buildLegacyAgentSettingsRoute(
           : legacyTab === "library"
             ? buildSettingsRoute("library")
             : legacyTab === "access"
-              ? buildSettingsRoute("agent")
+              ? buildSettingsRoute(STANDARD_SETTINGS_TABS.mcp)
               : LEGACY_AGENT_SETTINGS_TABS.has(legacyTab)
                 ? buildSettingsRoute(`agent:${legacyTab}`)
                 : buildSettingsRoute("agent");

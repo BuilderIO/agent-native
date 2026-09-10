@@ -2,7 +2,9 @@ import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getAppConfig } from "../../app-config/index.js";
 import { getDbExec } from "../../db/client.js";
+import { isOrgMember } from "../../org/membership.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
 import {
   emailQuote,
@@ -12,6 +14,8 @@ import {
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { isAutozQaEmail } from "../../shared/qa-test-email.js";
+import { track } from "../../tracking/registry.js";
 import { getUserProfile } from "../../user-profile/store.js";
 import { assertWorkspaceUserGroupIds } from "../../workspace-connections/groups.js";
 import { assertAccess, ForbiddenError } from "../access.js";
@@ -24,6 +28,7 @@ import {
 
 export function isSyntheticQaEmail(email: string): boolean {
   const trimmed = email.trim().toLowerCase();
+  if (isAutozQaEmail(trimmed)) return true;
   const at = trimmed.lastIndexOf("@");
   if (at <= 0) return false;
   const local = trimmed.slice(0, at);
@@ -137,11 +142,7 @@ async function isOrgMemberOrInvited(
   const lower = email.trim().toLowerCase();
   if (!lower || !orgId) return false;
   const client = getDbExec();
-  const member = await client.execute({
-    sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-    args: [orgId, lower],
-  });
-  if (member.rows.length > 0) return true;
+  if (await isOrgMember(orgId, lower)) return true;
   const invited = await client.execute({
     sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
     args: [orgId, lower],
@@ -348,12 +349,13 @@ export default defineAction({
       beforeExtensionTargets,
     );
 
-    if (
+    const shouldNotify =
       args.notify !== false &&
       args.principalType === "user" &&
       (await isEmailConfigured()) &&
-      !isSyntheticQaEmail(principalId)
-    ) {
+      !isSyntheticQaEmail(principalId);
+    let notified = false;
+    if (shouldNotify) {
       try {
         const titleCol = reg.titleColumn ?? "title";
         const [resource] = await db
@@ -488,12 +490,47 @@ export default defineAction({
           fromName,
           replyTo,
         });
+        notified = true;
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",
           err,
         );
       }
+    }
+
+    if (notified) {
+      // The provider already accepted the email, so a failed marker write must
+      // not fail the share. It costs the recipient a follow-up nudge, never a
+      // duplicate or a false one.
+      try {
+        await db
+          .update(reg.sharesTable)
+          .set({ notifiedAt: new Date().toISOString() })
+          .where(eq(reg.sharesTable.id, id));
+      } catch (err) {
+        console.error(
+          "[share-resource] share email sent but notified_at was not recorded:",
+          err,
+        );
+      }
+    }
+
+    if (args.principalType === "user") {
+      const app = getAppConfig().app.slug ?? "unknown";
+      track(
+        "share_invite_sent",
+        {
+          app,
+          template: app,
+          resource_type: args.resourceType,
+          resource_id: args.resourceId,
+          principal_type: args.principalType,
+          role: args.role,
+          notified,
+        },
+        { userId: actor },
+      );
     }
 
     return { id, updated: false };

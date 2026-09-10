@@ -237,14 +237,14 @@ and is stored locally with the desktop settings.
 
 ## Shared sign-in for workspace apps
 
-Desktop presents the parent sign-in surface inline the first time a hosted app
-needs authentication. After that sign-in completes, eligible built-in and
-custom workspace apps receive short-lived app sessions through Dispatch and
-open without another login screen.
+Desktop presents one parent sign-in surface natively in the shell before a
+hosted app needs authentication. After that sign-in completes, eligible
+built-in and custom workspace apps receive short-lived app sessions through
+Dispatch and open without another login screen.
 
 The supported flow is:
 
-1. Open an app while signed out and complete the inline Google-first sign-in
+1. Open Desktop while signed out and complete the native Google-first sign-in
    surface. Password sign-in stays inline; Google and magic-link verification
    may complete in the system browser before returning to Desktop.
 2. Desktop stores the parent session in its persistent identity partition and

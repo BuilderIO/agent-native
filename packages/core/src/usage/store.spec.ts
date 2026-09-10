@@ -1,32 +1,33 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Real in-memory sqlite behind the raw getDbExec client so recordUsage /
+import { createTestPglite } from "../a2a/test-pglite.js";
+import { runWithRequestContext } from "../server/request-context.js";
+
+// Real in-memory PGlite behind the raw getDbExec client so recordUsage /
 // getUserUsageCents / getUsageSummary exercise genuine aggregation + scoping.
 // A fresh DB per test keeps the module-level _initPromise (CREATE TABLE IF NOT
 // EXISTS) idempotent across tests.
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 const {
@@ -34,11 +35,13 @@ const {
   calculateCost,
   usageBillingForEngine,
   recordUsage,
+  resolveUsageAppKey,
   getUserUsageCents,
   getUsageSummary,
 } = await import("./store.js");
+const { listAppUsageMetrics } = await import("./metrics-store.js");
 
-beforeEach(() => {
+beforeEach(async () => {
   // recordUsage derives its primary key from Date.now()*1000 + random(0..999).
   // Under a fast loop Date.now() is constant and the 1000-value random space
   // collides, producing a UNIQUE-constraint failure. Drive Math.random from a
@@ -51,17 +54,17 @@ beforeEach(() => {
     return randomCursor / 1000;
   });
 
-  sqlite = new Database(":memory:");
+  pglite = await createTestPglite();
   // The store caches CREATE TABLE in a module-level _initPromise that only runs
   // once for the whole file, so create the table per fresh DB ourselves.
-  sqlite.exec(`CREATE TABLE IF NOT EXISTS token_usage (
-    id INTEGER PRIMARY KEY,
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS token_usage (
+    id BIGINT PRIMARY KEY,
     owner_email TEXT NOT NULL,
-    input_tokens INTEGER NOT NULL DEFAULT 0,
-    output_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-    cost_cents_x100 INTEGER NOT NULL DEFAULT 0,
+    input_tokens BIGINT NOT NULL DEFAULT 0,
+    output_tokens BIGINT NOT NULL DEFAULT 0,
+    cache_read_tokens BIGINT NOT NULL DEFAULT 0,
+    cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+    cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
     cost_source TEXT NOT NULL DEFAULT 'estimated',
     model TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT 'chat',
@@ -74,14 +77,20 @@ beforeEach(() => {
     integration_scope_id TEXT,
     source_platform TEXT,
     source_id TEXT,
-    created_at INTEGER NOT NULL
+    created_at BIGINT NOT NULL
   )`);
-  delete process.env.AGENT_APP;
-  delete process.env.APP_NAME;
+  for (const key of [
+    "AGENT_NATIVE_APP_ID",
+    "APP_ID",
+    "AGENT_APP",
+    "APP_NAME",
+  ]) {
+    delete process.env[key];
+  }
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
   vi.restoreAllMocks();
 });
 
@@ -292,15 +301,35 @@ describe("recordUsage", () => {
       taskId: "task-42",
       orgId: "org-7",
     });
-    const row = sqlite
+    const row = (await pglite
       .prepare(`SELECT run_id, thread_id, task_id, org_id FROM token_usage`)
-      .get() as Record<string, string | null>;
+      .get()) as Record<string, string | null>;
     expect(row).toEqual({
       run_id: "run-abc",
       thread_id: "thread-xyz",
       task_id: "task-42",
       org_id: "org-7",
     });
+  });
+
+  it("inherits the organization from the active request when omitted", async () => {
+    await runWithRequestContext(
+      { userEmail: "a@example.com", orgId: "org-7" },
+      () =>
+        recordUsage({
+          ownerEmail: "a@example.com",
+          inputTokens: 100,
+          outputTokens: 50,
+          model: "claude-sonnet-4-5",
+        }),
+    );
+
+    const row = (await pglite
+      .prepare(`SELECT org_id FROM token_usage`)
+      .get()) as {
+      org_id: string | null;
+    };
+    expect(row.org_id).toBe("org-7");
   });
 
   it("leaves attribution NULL rather than empty-string when the caller omits it", async () => {
@@ -310,10 +339,115 @@ describe("recordUsage", () => {
       outputTokens: 50,
       model: "claude-sonnet-4-5",
     });
-    const row = sqlite
+    const row = (await pglite
       .prepare(`SELECT run_id, thread_id, task_id FROM token_usage`)
-      .get() as Record<string, string | null>;
+      .get()) as Record<string, string | null>;
     expect(row).toEqual({ run_id: null, thread_id: null, task_id: null });
+  });
+});
+
+describe("listAppUsageMetrics app scoping", () => {
+  it("shows new and historical rows with no app identity", async () => {
+    const now = Date.now();
+    await pglite
+      .prepare(
+        `INSERT INTO token_usage
+          (id, owner_email, input_tokens, output_tokens, cost_cents_x100,
+           model, label, app, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        1,
+        "a@example.com",
+        100,
+        25,
+        500,
+        "claude-sonnet-4-5",
+        "chat",
+        "",
+        now - 1_000,
+      );
+    await pglite
+      .prepare(
+        `INSERT INTO token_usage
+          (id, owner_email, input_tokens, output_tokens, cost_cents_x100,
+           model, label, app, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        2,
+        "a@example.com",
+        900,
+        0,
+        0,
+        "claude-sonnet-4-5",
+        "chat",
+        "other-app",
+        now - 1_000,
+      );
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 200,
+      outputTokens: 50,
+      model: "claude-sonnet-4-5",
+    });
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30 },
+      { ownerEmail: "a@example.com", app: "" },
+    );
+
+    expect(metrics.totals).toMatchObject({
+      calls: 2,
+      inputTokens: 300,
+      outputTokens: 75,
+    });
+    expect(metrics.recent).toHaveLength(2);
+  });
+
+  it("includes historical legacy identities beside a stable app id", async () => {
+    process.env.AGENT_NATIVE_APP_ID = "stable-app";
+    process.env.AGENT_APP = "legacy-app";
+    process.env.APP_NAME = "Legacy App";
+    const now = Date.now();
+    for (const [id, app] of [
+      [1, "stable-app"],
+      [2, "legacy-app"],
+      [3, "Legacy App"],
+    ] as const) {
+      await pglite
+        .prepare(
+          `INSERT INTO token_usage
+            (id, owner_email, input_tokens, output_tokens, cost_cents_x100,
+             model, label, app, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          "a@example.com",
+          100,
+          25,
+          500,
+          "claude-sonnet-4-5",
+          "chat",
+          app,
+          now - 1_000,
+        );
+    }
+
+    const appKey = resolveUsageAppKey();
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30 },
+      { ownerEmail: "a@example.com", app: appKey },
+    );
+
+    expect(appKey).toBe("stable-app");
+    expect(metrics.totals).toMatchObject({
+      calls: 3,
+      inputTokens: 300,
+      outputTokens: 75,
+    });
+    expect(metrics.recent).toHaveLength(3);
   });
 });
 
@@ -410,21 +544,21 @@ describe("getUsageSummary", () => {
   it("filters by sinceMs while recent ignores the window", async () => {
     const now = Date.now();
     // Insert a stale row directly (200 days ago) and a fresh row via the API.
-    sqlite.exec(`CREATE TABLE IF NOT EXISTS token_usage (
-        id INTEGER PRIMARY KEY,
+    await pglite.exec(`CREATE TABLE IF NOT EXISTS token_usage (
+        id BIGINT PRIMARY KEY,
         owner_email TEXT NOT NULL,
-        input_tokens INTEGER NOT NULL DEFAULT 0,
-        output_tokens INTEGER NOT NULL DEFAULT 0,
-        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-        cost_cents_x100 INTEGER NOT NULL DEFAULT 0,
+        input_tokens BIGINT NOT NULL DEFAULT 0,
+        output_tokens BIGINT NOT NULL DEFAULT 0,
+        cache_read_tokens BIGINT NOT NULL DEFAULT 0,
+        cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+        cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
         model TEXT NOT NULL DEFAULT '',
         label TEXT NOT NULL DEFAULT 'chat',
         app TEXT NOT NULL DEFAULT '',
-        created_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL
       )`);
     const oldTs = now - 200 * 86_400_000;
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO token_usage
           (id, owner_email, input_tokens, output_tokens, cost_cents_x100, model, label, app, created_at)
@@ -537,13 +671,80 @@ describe("recordUsage refId + cost override", () => {
       label: "visual-recap",
       refId: "recap-1",
     });
-    const rows = sqlite
+    const rows = (await pglite
       .prepare(
         "SELECT input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'recap-1'",
       )
-      .all() as Array<{ input_tokens: number }>;
+      .all()) as Array<{ input_tokens: number }>;
     expect(rows).toHaveLength(1);
     expect(rows[0].input_tokens).toBe(200);
+  });
+
+  it("deduplicates a refId only within the same organization", async () => {
+    await runWithRequestContext(
+      { userEmail: "a@example.com", orgId: "org-a" },
+      () =>
+        recordUsage({
+          ownerEmail: "a@example.com",
+          inputTokens: 100,
+          outputTokens: 10,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "shared-recap",
+        }),
+    );
+    await runWithRequestContext(
+      { userEmail: "b@example.com", orgId: "org-b" },
+      () =>
+        recordUsage({
+          ownerEmail: "b@example.com",
+          inputTokens: 200,
+          outputTokens: 20,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "shared-recap",
+        }),
+    );
+
+    const rows = (await pglite
+      .prepare(
+        "SELECT org_id, input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'shared-recap' ORDER BY org_id",
+      )
+      .all()) as Array<{ org_id: string; input_tokens: number }>;
+    expect(rows).toEqual([
+      { org_id: "org-a", input_tokens: 100 },
+      { org_id: "org-b", input_tokens: 200 },
+    ]);
+  });
+
+  it("replaces a legacy unscoped refId when an organization is available", async () => {
+    await pglite
+      .prepare(
+        `INSERT INTO token_usage
+          (id, owner_email, input_tokens, output_tokens, model, label, ref_id, org_id, created_at)
+         VALUES (1, 'legacy@example.com', 100, 10, 'gpt-5.6-sol', 'visual-recap', 'legacy-recap', NULL, ?)`,
+      )
+      .run(Date.now());
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-a" },
+      () =>
+        recordUsage({
+          ownerEmail: "owner@example.com",
+          inputTokens: 200,
+          outputTokens: 20,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "legacy-recap",
+        }),
+    );
+
+    const rows = (await pglite
+      .prepare(
+        "SELECT org_id, input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'legacy-recap'",
+      )
+      .all()) as Array<{ org_id: string | null; input_tokens: number }>;
+    expect(rows).toEqual([{ org_id: "org-a", input_tokens: 200 }]);
   });
 
   it("stores a precomputed costCentsX100 verbatim instead of deriving from tokens", async () => {
@@ -556,11 +757,11 @@ describe("recordUsage refId + cost override", () => {
       refId: "recap-2",
       costCentsX100: 4242,
     });
-    const row = sqlite
+    const row = (await pglite
       .prepare(
         "SELECT cost_cents_x100 AS c FROM token_usage WHERE ref_id = 'recap-2'",
       )
-      .get() as { c: number };
+      .get()) as { c: number };
     // Derived cost would be 50000 centicents ($5/1M); the override wins.
     expect(row.c).toBe(4242);
   });
@@ -575,11 +776,11 @@ describe("recordUsage refId + cost override", () => {
       refId: "recap-compatible",
       costSource: "unavailable",
     });
-    const row = sqlite
+    const row = (await pglite
       .prepare(
         "SELECT cost_cents_x100 AS cost, cost_source AS source FROM token_usage WHERE ref_id = 'recap-compatible'",
       )
-      .get() as { cost: number; source: string };
+      .get()) as { cost: number; source: string };
 
     expect(row).toEqual({ cost: 0, source: "unavailable" });
   });
@@ -599,7 +800,7 @@ describe("recordUsage refId + cost override", () => {
       model: "m",
       label: "chat",
     });
-    const rows = sqlite
+    const rows = await pglite
       .prepare("SELECT id FROM token_usage WHERE label = 'chat'")
       .all();
     expect(rows).toHaveLength(2);

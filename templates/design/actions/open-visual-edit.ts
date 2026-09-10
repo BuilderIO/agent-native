@@ -33,7 +33,9 @@ import navigateAction from "./navigate.js";
 
 const connectionRouteSchema = z.object({
   id: z.string().optional(),
+  connectionId: z.string().optional(),
   path: z.string().min(1),
+  url: z.string().optional(),
   title: z.string().optional(),
   sourceFile: z.string().optional(),
   sourceKind: z.enum(["react-router", "html", "manual"]).optional(),
@@ -43,6 +45,7 @@ const connectionRouteSchema = z.object({
 
 const screenRouteSchema = z.object({
   routeId: z.string().optional(),
+  connectionId: z.string().optional(),
   path: z.string().optional(),
   url: z.string().optional(),
   title: z.string().optional(),
@@ -230,6 +233,7 @@ async function createCallerHandoff(
 
 function routeManifestFromScreens(args: {
   devServerUrl: string;
+  connectionId?: string;
   routes?: Array<z.infer<typeof screenRouteSchema>>;
   paths?: string[];
 }) {
@@ -250,9 +254,24 @@ function routeManifestFromScreens(args: {
       url: input.url,
     });
     const path = pathFromUrl(args.devServerUrl, url, input.path ?? "/");
+    const isPrimaryOrigin =
+      new URL(url).origin === new URL(args.devServerUrl).origin;
+    const isPrimaryConnection =
+      !input.connectionId ||
+      (!!args.connectionId && input.connectionId === args.connectionId);
     return {
-      id: input.routeId ?? makeLocalhostRouteId(path),
+      id:
+        input.routeId ??
+        makeLocalhostRouteId(
+          isPrimaryConnection
+            ? isPrimaryOrigin
+              ? path
+              : url
+            : `${input.connectionId}:${path}`,
+        ),
+      connectionId: input.connectionId,
       path,
+      url: input.url,
       title: input.title ?? titleFromRoutePath(path),
       sourceFile: input.sourceFile,
       sourceKind: input.sourceKind ?? ("manual" as const),
@@ -316,7 +335,7 @@ export default defineAction({
     routes: jsonArray(z.array(screenRouteSchema))
       .optional()
       .describe(
-        "Screens to place. Each route may include path, url, title, viewport width/height, and x/y/z.",
+        "Screens to place. Each route may include path, url, connectionId, title, viewport width/height, and x/y/z. Absolute URLs can target any registered loopback connection.",
       ),
     paths: jsonArray(z.array(z.string()))
       .optional()
@@ -380,6 +399,7 @@ export default defineAction({
             routes:
               routeManifestFromScreens({
                 devServerUrl,
+                connectionId: args.connectionId,
                 routes: args.routes,
                 paths: args.paths,
               }) ?? [],
@@ -429,10 +449,16 @@ export default defineAction({
         : args.paths?.length
           ? args.paths.map((path) => ({ path }))
           : viewports
-            ? routeManifest.routes.map((route) => ({
+            ? connection.routes.map((route) => ({
                 routeId: route.id,
+                connectionId: route.connectionId,
                 path: route.path,
+                url: route.url,
                 title: route.title,
+                sourceFile: route.sourceFile,
+                sourceKind: route.sourceKind,
+                screenshotUrl: route.screenshotUrl,
+                metadata: route.metadata,
               }))
             : undefined;
       if (viewports && !requestedRoutes?.length) {
@@ -441,26 +467,29 @@ export default defineAction({
         );
       }
 
-      const screens = await addLocalhostScreensAction.run({
-        designId,
-        connectionId: connection.id,
-        routes:
-          viewports && requestedRoutes
-            ? expandRoutesAcrossViewports({
-                routes: requestedRoutes,
-                viewports,
-                startX: args.startX ?? 0,
-                startY: args.startY ?? 0,
-                gap: args.gap ?? 160,
-              })
-            : args.routes,
-        paths: viewports ? undefined : args.paths,
-        defaultWidth: args.defaultWidth,
-        defaultHeight: args.defaultHeight,
-        startX: args.startX,
-        startY: args.startY,
-        gap: args.gap,
-      });
+      const screens = await addLocalhostScreensAction.run(
+        {
+          designId,
+          connectionId: connection.id,
+          routes:
+            viewports && requestedRoutes
+              ? expandRoutesAcrossViewports({
+                  routes: requestedRoutes,
+                  viewports,
+                  startX: args.startX ?? 0,
+                  startY: args.startY ?? 0,
+                  gap: args.gap ?? 160,
+                })
+              : args.routes,
+          paths: viewports ? undefined : args.paths,
+          defaultWidth: args.defaultWidth,
+          defaultHeight: args.defaultHeight,
+          startX: args.startX,
+          startY: args.startY,
+          gap: args.gap,
+        },
+        ctx,
+      );
 
       const urlPath = localVisualEditPath(designId);
       await writeAppState("visual-edit", {

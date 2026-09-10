@@ -51,6 +51,7 @@ import {
 } from "h3";
 
 import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
+import { isAutomationWebhookToken } from "../triggers/webhook.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 
 /**
@@ -180,6 +181,8 @@ function isOnAllowlist(pathname: string, frameworkPrefix: string): boolean {
   for (const protectedPrefix of CSRF_PROTECTED_PREFIXES) {
     if (sub.startsWith(protectedPrefix)) return false;
   }
+  const webhookToken = sub.match(/^\/automations\/webhook\/([^/]+)$/)?.[1];
+  if (webhookToken && isAutomationWebhookToken(webhookToken)) return true;
   for (const allowed of CSRF_ALLOWLIST_PREFIXES) {
     if (sub.startsWith(allowed)) return true;
   }

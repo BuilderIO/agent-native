@@ -1,4 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+const requestString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URL
+      ? value.toString()
+      : value instanceof Request
+        ? value.url
+        : (JSON.stringify(value) ?? "");
 
 import {
   getLogoProviderConfig,
@@ -53,8 +61,8 @@ describe("Slides media search providers", () => {
       },
     ]);
     const [url] = vi.mocked(provider.fetch).mock.calls[0]!;
-    expect(String(url)).toContain("q=launch+hero");
-    expect(String(url)).toContain("num=10");
+    expect(requestString(url)).toContain("q=launch+hero");
+    expect(requestString(url)).toContain("num=10");
   });
 
   it("fails clearly when Google image search is not configured", async () => {

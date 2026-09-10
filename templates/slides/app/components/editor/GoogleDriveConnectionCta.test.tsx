@@ -6,6 +6,14 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+const requestString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URL
+      ? value.toString()
+      : value instanceof Request
+        ? value.url
+        : (JSON.stringify(value) ?? "");
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -40,7 +48,7 @@ describe("<GoogleDriveConnectionCta>", () => {
   beforeEach(() => {
     const statusResponses = [false, true];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestString(input);
       if (url.includes("/status")) {
         return new Response(
           JSON.stringify({

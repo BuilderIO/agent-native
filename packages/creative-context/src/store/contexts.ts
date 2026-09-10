@@ -712,6 +712,7 @@ export async function listCreativeContexts(input: {
   includeArchived?: boolean;
 }) {
   await ensureDefaultCreativeContext();
+  const actor = requireActor();
   const { getDb, schema } = getCreativeContext();
   const filters: any[] = [
     accessFilter(schema.creativeContexts, schema.creativeContextShares),
@@ -770,6 +771,8 @@ export async function listCreativeContexts(input: {
         : [];
     }),
     nextCursor: rows.length > input.limit ? page.at(-1)?.id : undefined,
+    canCreateContext:
+      !actor.orgId || (await currentRequestUserIsOrgAdmin(actor.orgId)),
   };
 }
 
@@ -895,9 +898,9 @@ export async function listContextMemberships(input: {
     .limit(input.limit + 1);
   const page = rows.slice(0, input.limit) as Array<{
     membership: any;
-    pendingSubmission: any | null;
+    pendingSubmission: any;
   }>;
-  const canViewPendingSubmission = (submission: any | null) =>
+  const canViewPendingSubmission = (submission: any) =>
     Boolean(
       submission && (canReview || submission.submittedBy === actor.ownerEmail),
     );

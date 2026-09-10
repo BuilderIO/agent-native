@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-export type NetlifyDeploymentTarget = "beta" | "production";
+export type NetlifyDeploymentTarget = "beta" | "preview" | "production";
 
 export type ResolvedNetlifyPrebuiltTarget = {
   functionsDirectory: string;
@@ -10,7 +10,7 @@ export type ResolvedNetlifyPrebuiltTarget = {
   publishDirectory: string;
   siteId: string;
   siteName: string;
-  sourceRef: "beta" | "main";
+  sourceRef: "beta" | "main" | "preview";
   sourceTemplate: string;
 };
 
@@ -52,7 +52,7 @@ function canonicalSiteName(
     return site === "starter" ? "chat" : site;
   }
 
-  if (target === "production") {
+  if (target === "production" || target === "preview") {
     return site === "chat" ? "starter" : site === "www" ? "fw" : site;
   }
 
@@ -83,7 +83,7 @@ export function resolveNetlifyPrebuiltTarget(
   requestedSite: string,
   repoRoot = REPO_ROOT,
 ): ResolvedNetlifyPrebuiltTarget {
-  if (target !== "beta" && target !== "production") {
+  if (target !== "beta" && target !== "preview" && target !== "production") {
     throw new Error(`Unknown Netlify deployment target: ${target}`);
   }
 
@@ -120,7 +120,8 @@ export function resolveNetlifyPrebuiltTarget(
     publishDirectory: project.publishDirectory,
     siteId: site.siteId,
     siteName,
-    sourceRef: target === "beta" ? "beta" : "main",
+    sourceRef:
+      target === "beta" ? "beta" : target === "preview" ? "preview" : "main",
     sourceTemplate: project.filter,
   };
 }
@@ -156,7 +157,7 @@ function main(): void {
   const site = argumentValue("--site");
   if (!target || !site) {
     throw new Error(
-      "Usage: netlify-prebuilt-target.ts --target <beta|production> --site <site> [--github-output <path>]",
+      "Usage: netlify-prebuilt-target.ts --target <beta|preview|production> --site <site> [--github-output <path>]",
     );
   }
 

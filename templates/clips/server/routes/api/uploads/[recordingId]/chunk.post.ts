@@ -99,7 +99,7 @@ async function relayWithRetryOwnershipHeartbeat<T>(
     result = await relay();
   } finally {
     clearInterval(timer);
-    await pending;
+    if (pending) await Promise.resolve(pending);
   }
   return { result: result!, ownershipFailure };
 }
@@ -198,8 +198,16 @@ function trackUploadBlockingFailure(
   }
 }
 
-export default defineEventHandler(async (event: H3Event) => {
-  const recordingId = getRouterParam(event, "recordingId");
+export async function handleRecordingChunk(
+  event: H3Event,
+  override?: {
+    recordingId?: string;
+    ownerEmail?: string;
+    orgId?: string;
+  },
+) {
+  const recordingId =
+    override?.recordingId ?? getRouterParam(event, "recordingId");
   if (!recordingId) {
     throw createError({ statusCode: 400, message: "Missing recordingId" });
   }
@@ -264,13 +272,18 @@ export default defineEventHandler(async (event: H3Event) => {
 
   let ownerEmail: string;
   let orgId: string | undefined;
-  try {
-    const context = await getEventOwnerContext(event);
-    ownerEmail = context.userEmail;
-    orgId = context.orgId;
-  } catch (err) {
-    console.error("[chunk] getEventOwnerContext threw:", err);
-    throw createError({ statusCode: 401, message: "Unauthorized" });
+  if (override?.ownerEmail) {
+    ownerEmail = override.ownerEmail;
+    orgId = override.orgId;
+  } else {
+    try {
+      const context = await getEventOwnerContext(event);
+      ownerEmail = context.userEmail;
+      orgId = context.orgId;
+    } catch (err) {
+      console.error("[chunk] getEventOwnerContext threw:", err);
+      throw createError({ statusCode: 401, message: "Unauthorized" });
+    }
   }
   debugLog("[chunk] resolved owner:", ownerEmail);
 
@@ -821,7 +834,9 @@ export default defineEventHandler(async (event: H3Event) => {
 
     return { ok: true, finalized: false, index, bytes: bytes.byteLength };
   });
-});
+}
+
+export default defineEventHandler((event) => handleRecordingChunk(event));
 
 function buildFinalizeArgs(
   recordingId: string,

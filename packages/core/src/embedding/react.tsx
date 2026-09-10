@@ -75,7 +75,7 @@ export interface EmbeddedAppProps extends Omit<
     payload: unknown,
     event: MessageEvent,
     ref: EmbeddedAppRef,
-  ) => unknown | Promise<unknown>;
+  ) => unknown;
 }
 
 type PendingRequest = {

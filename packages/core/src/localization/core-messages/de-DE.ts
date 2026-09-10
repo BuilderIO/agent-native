@@ -34,6 +34,76 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Dateien, Agenten oder Ressourcen erwähnen",
   "commands.new": "Entspricht /clear",
   "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
+  "onboarding.back": "Zurück",
+  "onboarding.chooseRole": "Wähle deine Rolle",
+  "onboarding.customizeRole": "Wir passen das für dich an.",
+  "onboarding.roleQuestion":
+    "Welche Beschreibung passt am besten zu deiner Rolle?",
+  "onboarding.roleProduct": "Produkt",
+  "onboarding.roleDesign": "Design",
+  "onboarding.roleDeveloper": "Entwicklung",
+  "onboarding.roleMarketing": "Marketing",
+  "onboarding.roleSales": "Vertrieb",
+  "onboarding.roleOps": "Operations",
+  "onboarding.roleIndividual": "Einzelperson",
+  "onboarding.roleOther": "Andere",
+  "onboarding.skipForNow": "Vorerst überspringen",
+  "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
+  "onboarding.builderActivateCredits": "Builder.io-Gratiscredits aktivieren",
+  "onboarding.builderConnectCredits": "Builder.io-Gratiscredits verbinden",
+  "onboarding.builderActivateDescription":
+    "Erstelle oder verwende dein Builder.io-Konto erneut und aktiviere seine Gratiscredits mit einem Klick.",
+  "onboarding.builderActiveCredits":
+    "In aktiven Builder.io-Gratiscredits enthalten",
+  "onboarding.builderCredits": "In Builder.io-Gratiscredits enthalten",
+  "onboarding.builderActivateTitle": "Gratiscredits aktivieren",
+  "onboarding.builderAccountExistsTitle":
+    "Du hast bereits ein Builder.io-Konto",
+  "onboarding.builderAccountExistsDescription":
+    "Melde dich an, um es zu verbinden.",
+  "onboarding.builderActivationDescription":
+    "Wir erstellen dein Builder.io-Konto automatisch für dich mit einem Klick.",
+  "onboarding.builderCreateAndActivate": "Erstellen und aktivieren",
+  "onboarding.builderConsentPrefix": "Wenn du fortfährst, stimmst du den",
+  "onboarding.builderTerms": "Nutzungsbedingungen",
+  "onboarding.builderPrivacy": "Datenschutzbestimmungen",
+  "onboarding.builderConsentAnd": "und",
+  "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
+  "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
+  "onboarding.builderConnecting": "Builder.io-Gratiscredits werden verbunden",
+  "onboarding.builderProvisioningDescription":
+    "Dein Builder.io-Konto wird erstellt oder wiederverwendet. Das dauert normalerweise ein paar Sekunden.",
+  "onboarding.builderConnectionDescription":
+    "Schließe die Verbindung mit einem Klick im neuen Fenster ab.",
+  "onboarding.capability.llm.keySummary":
+    "Verbinde einen KI-Anbieter oder ein lokales Modell",
+  "onboarding.capability.fileStorage.keySummary":
+    "Builder-Speicher oder S3-kompatibler Bucket",
+  "onboarding.capability.voiceInput.label": "Spracheingabe",
+  "onboarding.capability.voiceInput.keySummary":
+    "Browser-Spracherkennung oder Sprache-zu-Text",
+  "onboarding.capability.voiceInput.why":
+    "Spracheingabe wandelt gesprochene Anfragen in Text um; Tippen funktioniert weiterhin.",
+  "onboarding.capability.assetsImageGeneration.label": "Bilderzeugung",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder-Credits oder Schlüssel eines Bildanbieters",
+  "onboarding.capability.assetsImageGeneration.why":
+    "Bilderzeugung ist der Kernworkflow für markengerechte Assets.",
+  "onboarding.capability.assetsVideoGeneration.label": "Videogenerierung",
+  "onboarding.capability.assetsVideoGeneration.keySummary":
+    "Gemini-API-Schlüssel",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "Videogenerierung ist optional; der Kernworkflow von Assets ist die Bilderzeugung.",
+  "onboarding.capability.clipsObjectStorage.label": "Objektspeicher",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder-Speicher oder S3-kompatibler Bucket",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Aufgenommene Videos benötigen dauerhaften Objektspeicher, bevor sie abgespielt oder geteilt werden können.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Schlüssel eines Sprache-zu-Text-Anbieters",
+  "onboarding.capability.about": "Über {{label}}",
+  "onboarding.capability.why": "Warum {{label}} benötigt wird",
+  "onboarding.openAiKeySettings": "KI-Schlüsseleinstellungen öffnen",
   "aboutAgentNative.title": "Über Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Umgebung",
@@ -43,6 +113,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agent",
   "agentPanel.mode": "Modus",
   "agentPanel.uiMode": "Benutzeroberfläche",
+  "agentHostNudge.sidebarTitle": "{{agent}}-Chat verwenden",
+  "agentHostNudge.sidebarDescription":
+    "Du chattest bereits mit {{agent}}. Bitte ihn, direkt mit dieser App zu arbeiten.",
+  "agentHostNudge.promptTitle": "Stattdessen {{agent}} fragen",
+  "agentHostNudge.promptDescription":
+    "Du kannst {{agent}} bitten, dies hier zu erstellen oder zu ändern.",
+  "agentHostNudge.useThisChat": "Diesen Chat verwenden",
+  "agentHostNudge.useThisPrompt": "Diese Eingabe verwenden",
   "common.cancel": "Abbrechen",
   "common.collapse": "Einklappen",
   "common.connect": "Verbinden",
@@ -158,6 +236,26 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "Der vorherige Agentenstream endete während der Wiederherstellung. Fahre fort oder versuche es erneut, um die Verbindung zum Lauf wiederherzustellen.",
   "recovery.reconnectBuilder": "Builder.io erneut verbinden",
+  "secrets.addCustomKeyNamed":
+    "„{{name}}“ als benutzerdefinierten Schlüssel hinzufügen",
+  "secrets.customKey": "Benutzerdefinierter Schlüssel",
+  "secrets.customKeyHint": "Beliebigen Schlüssel nach Namen hinzufügen",
+  "secrets.fromEnvironment":
+    "Wird von der Bereitstellungsumgebung bereitgestellt.",
+  "secrets.managedInVault":
+    "Wird im Vault des Arbeitsbereichs verwaltet. Jede App in diesem Arbeitsbereich verwendet diesen Wert.",
+  "secrets.openVault": "Vault öffnen",
+  "secrets.overridesVault":
+    "Dieser persönliche Schlüssel überschreibt den Vault-Wert des Arbeitsbereichs. Entferne ihn, um den Vault-Schlüssel zu verwenden.",
+  "secrets.overridesWorkspace":
+    "Dieser persönliche Schlüssel überschreibt den Wert des Arbeitsbereichs. Entferne ihn, um den gemeinsamen Schlüssel zu verwenden.",
+  "secrets.setForWorkspace": "Für alle in diesem Arbeitsbereich festgelegt.",
+  "secrets.sourceEnvironment": "Umgebung",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "Arbeitsbereich",
+  "secrets.statusUnavailable": "Nicht verfügbar",
+  "secrets.usePersonalKey":
+    "Stattdessen einen persönlichen Schlüssel verwenden",
   "selection.attached": "{{formattedCount}} Zeichen der Auswahl angehängt",
   "selection.clear": "Auswahlkontext entfernen",
   "setup.addOwnKeys": "Eigene Schlüssel hinzufügen",

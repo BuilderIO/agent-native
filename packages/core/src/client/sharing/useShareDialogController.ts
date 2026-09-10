@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { trackEvent } from "../analytics.js";
 import { writeClipboardText } from "../clipboard.js";
 import { useT } from "../i18n.js";
 import {
@@ -380,17 +381,25 @@ export function useShareDialogController({
       unshareMutation,
     ],
   );
-  const copy = useCallback(async (field: string, value: string) => {
-    const copied = await writeClipboardText(value);
-    if (!copied) {
-      setCopiedField(null);
-      return false;
-    }
-    setCopiedField(field);
-    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    copyResetTimer.current = setTimeout(() => setCopiedField(null), 1_400);
-    return true;
-  }, []);
+  const copy = useCallback(
+    async (field: string, value: string) => {
+      const copied = await writeClipboardText(value);
+      if (!copied) {
+        setCopiedField(null);
+        return false;
+      }
+      setCopiedField(field);
+      trackEvent("share_link_copied", {
+        resource_type: resourceType,
+        resource_id: resourceId,
+        link_type: field,
+      });
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+      copyResetTimer.current = setTimeout(() => setCopiedField(null), 1_400);
+      return true;
+    },
+    [resourceId, resourceType],
+  );
 
   const currentVisibility = visibilityOption(visibility, t);
   const people = buildPeople(data, orgMembers, t);

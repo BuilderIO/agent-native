@@ -8,6 +8,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import type { ContentDatabaseSourceTruthPolicy } from "../shared/api.js";
 import {
   isBuilderMdxSourcePath,
@@ -255,7 +256,10 @@ export default defineAction({
         )) as SourceRow[];
       const rowByPath = new Map(
         storedRows.map((row) => [
-          String(parseJson(row.sourceValuesJson).relativePath ?? ""),
+          typeof parseJson(row.sourceValuesJson).relativePath === "string"
+            ? parseJson(row.sourceValuesJson).relativePath
+            : (JSON.stringify(parseJson(row.sourceValuesJson).relativePath) ??
+              ""),
           row,
         ]),
       );
@@ -423,7 +427,12 @@ export default defineAction({
       outbound.length = 0;
       for (const row of policy === "source_primary" ? [] : missingRows) {
         const values = parseJson(row.sourceValuesJson);
-        const path = String(values.relativePath ?? row.sourceDisplayKey ?? "");
+        const path =
+          typeof values.relativePath === "string"
+            ? values.relativePath
+            : typeof row.sourceDisplayKey === "string"
+              ? row.sourceDisplayKey
+              : "";
         const document = snapshot.documentById.get(row.documentId);
         conflicts.push({
           id: row.documentId,
@@ -603,18 +612,26 @@ export default defineAction({
             plan.existing.sourcePath !== plan.file.path ||
             plan.existing.sourceRootPath !== target.source.sourceTable
           ) {
+            const versionId = opaqueId(
+              "content_document_version",
+              `${plan.id}:${plan.existing.updatedAt}:${plan.incomingHash}`,
+            );
             await tx
               .insert(schema.documentVersions)
               .values({
-                id: opaqueId(
-                  "content_document_version",
-                  `${plan.id}:${plan.existing.updatedAt}:${plan.incomingHash}`,
-                ),
+                id: versionId,
                 ownerEmail: plan.existing.ownerEmail,
                 documentId: plan.id,
                 title: plan.existing.title,
                 content: plan.existing.content,
+                groupId: versionId,
+                groupKind: "operation",
+                actorKind: "source",
+                origin: "local-folder",
+                operation: "sync-local-folder-source",
+                checkpointKind: "before",
                 createdAt: now,
+                updatedAt: now,
               })
               .onConflictDoNothing();
             const reboundDocuments = await tx
@@ -624,6 +641,7 @@ export default defineAction({
                   ? {
                       title: plan.file.title,
                       content: plan.file.content,
+                      bodyRevision: bodyRevisionForContent(plan.file.content),
                       description:
                         plan.file.description ?? plan.existing.description,
                       icon: plan.file.icon ?? plan.existing.icon,
@@ -789,9 +807,12 @@ export default defineAction({
             continue;
           }
           const values = parseJson(row.sourceValuesJson);
-          const path = String(
-            values.relativePath ?? row.sourceDisplayKey ?? row.sourceRowId,
-          );
+          const path =
+            typeof values.relativePath === "string"
+              ? values.relativePath
+              : typeof row.sourceDisplayKey === "string"
+                ? row.sourceDisplayKey
+                : row.sourceRowId;
           const changeSetId = opaqueId(
             "content_source_change",
             `${sourceId}:${row.documentId}:source-delete:${path}`,

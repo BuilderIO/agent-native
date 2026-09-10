@@ -21,6 +21,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -113,19 +114,6 @@ function DbSyncSetup() {
     queryClient: qc,
     queryKeys: [],
     ignoreSource: TAB_ID,
-    onEvent: (data: {
-      source?: string;
-      type: string;
-      key?: string;
-      requestSource?: string;
-    }) => {
-      const isOwnEvent = data.requestSource === TAB_ID;
-      if (isOwnEvent) return;
-
-      if (data.source === "app-state") {
-        qc.invalidateQueries({ queryKey: ["navigate-command"] });
-      }
-    },
   });
   return null;
 }
@@ -153,7 +141,9 @@ function MacrosCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const location = useLocation();
   const navigate = useNavigate();
+  const isAnalytics = location.pathname.startsWith("/analytics");
   return (
     <CommandMenu
       open={open}
@@ -162,8 +152,10 @@ function MacrosCommandMenu({
       changelogKey="macros"
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
-        <CommandMenu.Item onSelect={() => {}}>
-          {t("root.search")}
+        <CommandMenu.Item
+          onSelect={() => navigate(isAnalytics ? "/home" : "/analytics")}
+        >
+          {t(isAnalytics ? "navigation.entry" : "navigation.analytics")}
         </CommandMenu.Item>
         <CommandMenu.Item
           onSelect={() => navigate("/settings/agent")}
@@ -180,6 +172,20 @@ function MacrosCommandMenu({
   );
 }
 
+function AppContent() {
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  return (
+    <>
+      <DbSyncSetup />
+      <MacrosCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </>
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() =>
     createAgentNativeQueryClient({
@@ -192,23 +198,22 @@ export default function Root() {
       },
     }),
   );
-  const [cmdkOpen, setCmdkOpen] = useState(false);
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const location = useLocation();
+  const isMarketingPath = location.pathname === "/";
 
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         defaultTheme="dark"
+        isPublicPath={isMarketingPath}
         tooltipDelayDuration={300}
-        toaster={<Toaster richColors position="bottom-left" />}
+        toaster={
+          isMarketingPath ? null : <Toaster richColors position="bottom-left" />
+        }
         i18n={{ catalog: i18nCatalog }}
       >
-        <DbSyncSetup />
-        <MacrosCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
-        <AppLayout>
-          <Outlet />
-        </AppLayout>
+        {isMarketingPath ? <Outlet /> : <AppContent />}
       </AppProviders>
     </AppToolkitProvider>
   );

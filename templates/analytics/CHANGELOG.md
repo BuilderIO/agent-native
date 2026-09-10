@@ -3,6 +3,85 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-09
+
+### Improved
+
+- Collaborator avatars use a slimmer border.
+
+## 2026-09-08
+
+### Improved
+
+- Login pages use the same mouse-reactive wave background as the docs and booking experiences.
+
+### Fixed
+
+- Analytics dashboards and daily emails include current zero-activity dates.
+
+## 2026-09-04
+
+### Improved
+
+- The agent now answers data questions with explicit confidence instead of a dead end, and uses existing dashboards first
+
+## 2026-09-03
+
+### Fixed
+
+- Analytics autosaves now skip unchanged edits, keeping history focused on real changes.
+- Saved Analytics panels recover when chart fields are nested in their config
+
+## 2026-09-01
+
+### Added
+
+- Analytics admins can join read-only data from connected app databases
+
+## 2026-08-31
+
+### Improved
+
+- Per-app auth pages show a product preview and learn-more link
+
+## 2026-08-29
+
+### Added
+
+- Chat edits can be reverted to saved checkpoints
+
+### Improved
+
+- Analytics loading states now use an even more subtle whole-surface shine.
+- Dashboard certification lives in the overflow menu
+- Analytics now has a public marketing page with a direct path into the app.
+
+## 2026-08-28
+
+### Improved
+
+- Analytics loading states now use a softer whole-surface shine.
+- Analytics sidebar navigation now matches sibling sidebars with tighter horizontal spacing.
+- Sidebar branding matches the app text color with a tighter mark size.
+- Analytics loading placeholders now use a smooth whole-surface shine
+- Sidebar branding uses a monochrome Agent-Native mark.
+
+## 2026-08-27
+
+### Added
+
+- Dashboard owners can archive dashboards from the actions menu.
+- See signup, onboarding, activation, and sharing drop-off in one filterable dashboard.
+
+### Improved
+
+- Show connected Google names and profile photos in analytics
+
+### Fixed
+
+- Show Analytics's own registered flags in fleet feature flag management.
+- Analytics exports now show a direct download in chat and reject failed responses
+
 ## 2026-08-26
 
 ### Improved
@@ -27,7 +106,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
-- Fixed the Agent-Native Templates (First-party) dashboard panels failing to load on a local SQLite database
+- Fixed the Agent-Native Templates (First-party) dashboard panels failing to load on a local PGlite database
 - Org admin panels no longer report a database error as a permission denial. A failed
   organization-role lookup now surfaces as a retryable error instead of silently reading
   as "you are not an owner or admin", which had been 403-ing the usage stats panel for

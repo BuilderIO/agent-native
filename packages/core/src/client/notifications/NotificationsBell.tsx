@@ -156,7 +156,7 @@ export function NotificationsBell({
 
   useEffect(() => {
     if (!open) return;
-    loadItems();
+    void loadItems();
   }, [open, loadItems]);
 
   const markRead = async (id: string) => {
@@ -175,7 +175,7 @@ export function NotificationsBell({
             )
           : prev,
       );
-      refresh();
+      void refresh();
     } catch {
       // best-effort
     }
@@ -224,7 +224,7 @@ export function NotificationsBell({
         method: "DELETE",
       });
       setItems((prev) => (prev ? prev.filter((n) => n.id !== id) : prev));
-      refresh();
+      void refresh();
     } catch {
       // best-effort
     }

@@ -3,12 +3,13 @@ import type {
   AgentLoopFinalResponseGuard,
   ProductionAgentOptions,
 } from "../../agent/production-agent.js";
+import type { ActiveRun } from "../../agent/run-manager.js";
 import type {
   AgentChatAttachment,
   AgentChatReference,
+  AgentChatScope,
   MentionProvider,
 } from "../../agent/types.js";
-import type { FeatureFlagDefinition } from "../../feature-flags/registry.js";
 import type { FrameworkToolsConfig } from "../../framework-tools.js";
 import type { McpActionEntryOptions } from "../../mcp-client/index.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
@@ -21,6 +22,15 @@ import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
+  /**
+   * Best-effort app autosave hook. It runs after the chat thread has been
+   * persisted and only when the run completed a side effect. Errors are
+   * reported by the framework without failing the completed chat turn.
+   */
+  onAgentTurnComplete?: (
+    scope: AgentChatScope,
+    run: ActiveRun,
+  ) => void | Promise<void>;
   /** Template-specific actions (email ops, booking ops, etc.) */
   actions?:
     | Record<string, ActionEntry>
@@ -426,10 +436,17 @@ export interface AgentChatPluginOptions {
   a2aAgentDelegation?: boolean;
 
   /**
-   * Default-off app-owned rollout for binding a delegated objective to this
-   * selected receiver before it considers another cross-app delegation.
+   * @deprecated This rollout option is retained only for source compatibility
+   * and has no runtime effect. Use `selectedA2AReceiverOwnsObjective` to opt an
+   * app into stable selected-receiver behavior.
    */
-  a2aReceiverOwnershipFlag?: FeatureFlagDefinition;
+  a2aReceiverOwnershipFlag?: string;
+
+  /**
+   * Keep a delegated objective on this app when trusted A2A metadata already
+   * selected it as the receiver. This is app behavior, not rollout state.
+   */
+  selectedA2AReceiverOwnsObjective?: boolean;
 
   /**
    * Resource budget for delegated A2A/MCP agent turns. Defaults are stricter

@@ -12,17 +12,48 @@ import {
   factoryGraphSchema,
   normalizeFactoryGraph,
 } from "../server/factory-graph/contracts.js";
-import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  DEFAULT_FACTORY_ID,
+  defaultFactoryDefinition,
+} from "../server/factory-graph/store.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import { ensureFactoryAutomations } from "../server/plugins/factory-scheduler-job.js";
 import { stableId } from "../server/triage/ids.js";
+
+function chatContextFromAction(
+  context:
+    | {
+        caller?: string;
+        threadId?: unknown;
+        runId?: unknown;
+        turnId?: unknown;
+      }
+    | undefined,
+): Record<string, string> | undefined {
+  if (!context) return undefined;
+  if (
+    context.caller !== "tool" &&
+    context.caller !== "mcp" &&
+    context.caller !== "a2a"
+  ) {
+    return undefined;
+  }
+  const chatContext = Object.fromEntries(
+    ["threadId", "runId", "turnId"].flatMap((key) =>
+      typeof context[key as keyof typeof context] === "string" &&
+      (context[key as keyof typeof context] as string).trim()
+        ? [[key, context[key as keyof typeof context] as string]]
+        : [],
+    ),
+  );
+  return chatContext.runId || chatContext.turnId ? chatContext : undefined;
+}
 
 export default defineAction({
   description:
-    "Create or update a Factory's versioned visual graph. Pass expectedGraphVersion from the graph you inspected so stale edits are rejected. Use source=ai for an agent-proposed graph and source=manual for a direct editor save. This changes configuration only; it never starts provider work.",
+    "Update an existing Factory's versioned visual map. Do not use this to create a factory or an automation. Do not rename a factory from an AI save — keep the current name. Pass expectedGraphVersion from the graph you inspected so stale edits are rejected. Use source=ai for an agent-proposed graph and source=manual for a direct editor save. This changes configuration only; it never starts provider work.",
   schema: z.object({
     factoryId: z
       .string()
@@ -63,8 +94,8 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
+    const chatContext = chatContextFromAction(context);
     const db = getDb();
-    let createdNewFactory = false;
 
     const result = await db.transaction(async (tx) => {
       const existing = (
@@ -79,17 +110,34 @@ export default defineAction({
           )
           .limit(1)
       )[0];
-      if ((existing?.graphVersion ?? 0) !== expectedGraphVersion) {
+      if (!existing && factoryId !== DEFAULT_FACTORY_ID) {
+        throw new Error(
+          "Factory not found. Use create-factory to create a named Factory, then save the map.",
+        );
+      }
+      const fallback = defaultFactoryDefinition();
+      // Virtual default is advertised as graphVersion 1 before the first row.
+      // Other missing IDs stay 0 so a stale create cannot slip through as v1.
+      const currentVersion =
+        existing?.graphVersion ??
+        (factoryId === DEFAULT_FACTORY_ID ? fallback.graphVersion : 0);
+      if (currentVersion !== expectedGraphVersion) {
         throw new Error(
           "Factory changed while saving. Refresh the Factory and try again.",
         );
       }
-      const nextVersion = (existing?.graphVersion ?? 0) + 1;
+      const nextName =
+        source === "ai" ? (existing?.name ?? fallback.name) : name;
+      const nextDescription =
+        source === "ai"
+          ? (existing?.description ?? fallback.description)
+          : description;
+      const nextVersion = currentVersion + 1;
       const normalizedGraph = normalizeFactoryGraph({
         ...graph,
         version: nextVersion,
-        name,
-        description,
+        name: nextName,
+        description: nextDescription,
       });
       const now = new Date().toISOString();
       const versionId = stableId(
@@ -103,8 +151,8 @@ export default defineAction({
         const updated = await tx
           .update(factoryDefinitions)
           .set({
-            name,
-            description,
+            name: nextName,
+            description: nextDescription,
             prompt,
             graphVersion: nextVersion,
             graphJson: JSON.stringify(normalizedGraph),
@@ -125,11 +173,10 @@ export default defineAction({
           );
         }
       } else {
-        createdNewFactory = true;
         await tx.insert(factoryDefinitions).values({
           id: factoryId,
-          name,
-          description,
+          name: nextName,
+          description: nextDescription,
           prompt,
           graphVersion: nextVersion,
           graphJson: JSON.stringify(normalizedGraph),
@@ -149,6 +196,7 @@ export default defineAction({
         changeSummary,
         createdAt: now,
         createdBy: userEmail,
+        ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
         ownerEmail: userEmail,
         orgId,
       });
@@ -156,16 +204,11 @@ export default defineAction({
       return {
         ok: true,
         factoryId,
-        name,
+        name: nextName,
         graphVersion: nextVersion,
         source,
       };
     });
-    if (createdNewFactory) {
-      await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-        enabled: false,
-      });
-    }
     return result;
   },
 });

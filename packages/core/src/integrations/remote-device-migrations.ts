@@ -33,28 +33,6 @@ export const REMOTE_DEVICE_MIGRATIONS: MigrationEntry[] = [
         CREATE INDEX IF NOT EXISTS idx_remote_devices_owner
           ON integration_remote_devices (owner_email, org_id);
       `,
-      sqlite: `
-        CREATE TABLE IF NOT EXISTS integration_remote_devices (
-          id TEXT PRIMARY KEY,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          label TEXT NOT NULL,
-          platform TEXT,
-          app_version TEXT,
-          host_name TEXT,
-          metadata_json TEXT,
-          device_token_hash TEXT NOT NULL,
-          last_seen_at INTEGER,
-          status TEXT NOT NULL,
-          revoked_at INTEGER,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_devices_token_hash
-          ON integration_remote_devices (device_token_hash);
-        CREATE INDEX IF NOT EXISTS idx_remote_devices_owner
-          ON integration_remote_devices (owner_email, org_id);
-      `,
     },
   },
 ];

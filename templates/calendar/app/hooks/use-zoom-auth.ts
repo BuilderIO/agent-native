@@ -135,7 +135,7 @@ export function useConnectZoom() {
       return { opened: "popup" as const };
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["zoom-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["zoom-status"] });
 
       const startedAt = Date.now();
       let inFlight = false;

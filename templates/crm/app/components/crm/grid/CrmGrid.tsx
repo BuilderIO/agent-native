@@ -210,7 +210,10 @@ export function CrmGrid(props: CrmGridProps) {
       const { attribute } = target;
       let value: CrmCellValue;
       if (isRawText) {
-        const parsed = parseCell(attribute, String(raw ?? ""));
+        const parsed = parseCell(
+          attribute,
+          typeof raw === "string" ? raw : (JSON.stringify(raw) ?? ""),
+        );
         if (!parsed.ok) {
           toast.error(
             t(`grid.parse.${parsed.reason}`, {

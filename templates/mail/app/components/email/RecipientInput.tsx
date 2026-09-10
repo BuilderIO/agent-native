@@ -176,7 +176,7 @@ function AliasPopover({
   }, [anchorEl, onClose]);
 
   const handleEdit = () => {
-    navigate(`/settings?alias=${alias.id}`);
+    void navigate(`/settings?alias=${alias.id}`);
     onClose();
   };
 
@@ -287,7 +287,7 @@ function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleSave();
+            if (e.key === "Enter") void handleSave();
             e.stopPropagation();
           }}
           placeholder={t("mail.recipients.aliasName")}

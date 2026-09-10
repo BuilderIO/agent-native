@@ -58,6 +58,7 @@ import listVaultRequests from "./list-vault-requests.js";
 import listVaultSecretOptions from "./list-vault-secret-options.js";
 import listVaultSecrets from "./list-vault-secrets.js";
 import listWorkspaceApps from "./list-workspace-apps.js";
+import listWorkspaceConnections from "./list-workspace-connections.js";
 import listWorkspaceResourceGrants from "./list-workspace-resource-grants.js";
 import listWorkspaceResourceOptions from "./list-workspace-resource-options.js";
 import listWorkspaceResourcesForApp from "./list-workspace-resources-for-app.js";
@@ -163,6 +164,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-vault-secret-options": listVaultSecretOptions,
   "list-vault-secrets": listVaultSecrets,
   "list-workspace-apps": listWorkspaceApps,
+  "list-workspace-connections": listWorkspaceConnections,
   "list-workspace-resource-options": listWorkspaceResourceOptions,
   "list-workspace-resource-grants": listWorkspaceResourceGrants,
   "list-workspace-resources-for-app": listWorkspaceResourcesForApp,

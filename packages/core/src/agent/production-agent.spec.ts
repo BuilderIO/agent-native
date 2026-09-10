@@ -63,13 +63,16 @@ import {
   resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   permanentPreconditionRemedy,
+  normalizeToolErrorForBreaker,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
   shouldChainBackgroundContinuation,
+  toolCallCacheKey,
   MAX_IDENTICAL_TOOL_CALLS,
   MAX_SAME_ERROR_ACROSS_ARGUMENTS,
   shouldGuardRepeatedSourceSweep,
+  resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
   type ActionEntry,
@@ -79,6 +82,24 @@ import {
 import type { ActiveRun } from "./run-manager.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
+
+const mockTryClaimRunSlot = vi.hoisted(() =>
+  vi.fn(async () => ({ claimed: true, activeRunId: null })),
+);
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("./run-manager.js", async () => ({
+  ...(await vi.importActual<typeof import("./run-manager.js")>(
+    "./run-manager.js",
+  )),
+  tryClaimRunSlot: mockTryClaimRunSlot,
+}));
 
 describe("runCompletionCallbackWithDatabaseRetry", () => {
   it("retries transient database failures before giving up the completion boundary", async () => {
@@ -146,6 +167,20 @@ function actionEntry(opts: {
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
 }
+
+describe("toolCallCacheKey", () => {
+  it("deduplicates equivalent docs-search queries without merging distinct queries", () => {
+    expect(
+      toolCallCacheKey("docs-search", { query: "  Slides   generation " }),
+    ).toBe(toolCallCacheKey("docs-search", { query: "slides generation" }));
+    expect(
+      toolCallCacheKey("docs-search", { query: "slides generation" }),
+    ).not.toBe(toolCallCacheKey("docs-search", { query: "slides export" }));
+    expect(
+      toolCallCacheKey("read-file", { query: "  Slides   generation " }),
+    ).not.toBe(toolCallCacheKey("read-file", { query: "slides generation" }));
+  });
+});
 
 describe("resolveAgentRequestReasoningEffort", () => {
   it("narrates a retry the user waited through, and stays silent on a blip", async () => {
@@ -494,6 +529,29 @@ describe("resolveSkillReferenceContent", () => {
 });
 
 describe("buildUserContentWithAttachments", () => {
+  it("does not send display-only chat attachments to the model", () => {
+    expect(
+      buildUserContentWithAttachments({
+        text: "make a deck from the reference",
+        attachments: [
+          {
+            type: "file",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            displayOnly: true,
+          },
+          {
+            type: "file",
+            name: "pasted-text-1.txt",
+            contentType: "text/plain",
+            displayOnly: true,
+            text: "outline",
+          },
+        ],
+      }),
+    ).toEqual([{ type: "text", text: "make a deck from the reference" }]);
+  });
+
   it("preserves the prompt text when there are no attachments", () => {
     expect(buildUserContentWithAttachments({ text: "Hello" })).toEqual([
       { type: "text", text: "Hello" },
@@ -593,6 +651,39 @@ describe("buildUserContentWithAttachments", () => {
       { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
       { type: "text", text: "Embed this image" },
     ]);
+  });
+
+  it("uses inline bytes for vision while retaining URL-only references as text", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Use these image references",
+      attachments: [
+        {
+          type: "image",
+          name: "with-bytes.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,aW1hZ2U=",
+          url: "https://cdn.example.com/with-bytes.png",
+        } as any,
+        {
+          type: "image",
+          name: "url-only.png",
+          contentType: "image/png",
+          url: "https://cdn.example.com/url-only.png",
+        } as any,
+      ],
+    });
+
+    expect(parts).toContainEqual({
+      type: "image",
+      mediaType: "image/png",
+      data: "aW1hZ2U=",
+    });
+    const text = parts
+      .filter((part: any) => part.type === "text")
+      .map((part: any) => part.text)
+      .join("\n");
+    expect(text).toContain("https://cdn.example.com/url-only.png");
+    expect(text).toContain("not sent as a vision image");
   });
 
   it("includes text and file attachments in the text sent to the engine", () => {
@@ -1185,6 +1276,39 @@ describe("buildUserContentWithAttachments", () => {
       (tool: any) => tool.name === "write",
     );
     expect(writeTool.description).toContain("Plan mode blocked");
+  });
+
+  it("keeps object-only union actions available to the in-app agent", () => {
+    const anyOf = [
+      {
+        type: "object",
+        properties: { operation: { const: "create" } },
+        required: ["operation"],
+      },
+      {
+        type: "object",
+        properties: { operation: { const: "update" } },
+        required: ["operation"],
+      },
+    ];
+    const tools = actionsToEngineTools({
+      setup: {
+        tool: {
+          description: "Configure a database",
+          parameters: { anyOf } as any,
+        },
+        run: async () => ({}),
+      },
+      scalar: {
+        tool: {
+          description: "Invalid tool",
+          parameters: { type: "string" } as any,
+        },
+        run: async () => ({}),
+      },
+    });
+    expect(tools.map((tool) => tool.name)).toEqual(["setup"]);
+    expect(tools[0].inputSchema).toMatchObject({ type: "object", anyOf });
   });
 
   it("keeps the default initial catalog to discovery/runtime tools", () => {
@@ -2323,6 +2447,88 @@ describe("runAgentLoop", () => {
     expect(seenTools[2]).toContain("hidden-tool");
   });
 
+  it("prioritizes tool-search matches before the provider tool cap", async () => {
+    const actions = attachToolSearch(
+      Object.fromEntries([
+        ...Array.from({ length: 128 }, (_, index) => [
+          `starter-${index}`,
+          actionEntry({
+            description: `Starter tool ${index}`,
+            readOnly: true,
+          }),
+        ]),
+        [
+          "late-tool",
+          actionEntry({
+            description: "The late tool that search should load",
+            readOnly: true,
+          }),
+        ],
+      ] as const),
+    );
+    const allTools = actionsToEngineTools(actions);
+    const initialTools = allTools.filter(
+      (tool) =>
+        tool.name === "tool-search" ||
+        (tool.name.startsWith("starter-") && Number(tool.name.slice(8)) < 127),
+    );
+    const seenTools: string[][] = [];
+    let streamCalls = 0;
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-search-late-tool",
+                name: "tool-search",
+                input: { query: "late tool" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: initialTools,
+      availableTools: allTools,
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(seenTools[0]?.indexOf("late-tool")).toBe(-1);
+    expect(seenTools[1]?.indexOf("late-tool")).toBeLessThan(127);
+  });
+
   it("expands the full authorized tool surface for a guarded corrective retry", async () => {
     const actions = attachToolSearch({
       starter: actionEntry({
@@ -3390,6 +3596,174 @@ describe("runAgentLoop", () => {
     // Retryable, but 2s+ of backoff plus the minimum continuation budget does
     // not fit in a 1s run budget — burning it here leaves nothing to resume with.
     expect(streamCalls).toBe(1);
+  });
+
+  it("honors a classified Retry-After wait longer than the fixed backoff", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new EngineError("Too many requests", {
+            errorCode: "http_429",
+            statusCode: 429,
+            retryAfterMs: 5_000,
+          });
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // The fixed exponential backoff for attempt 0 (~2.2s incl. jitter) is
+      // well under the classified 5s Retry-After — the retry must not have
+      // fired yet at 2.5s.
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(streamCalls).toBe(1);
+
+      // Past the 5s Retry-After, the retry fires.
+      await vi.advanceTimersByTimeAsync(2_600);
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(streamCalls).toBe(2);
+    expect(JSON.stringify(events)).toContain("recovered");
+  });
+
+  it("does not retry when the classified Retry-After alone exceeds the remaining run budget", async () => {
+    vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "15000");
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        throw new EngineError("Too many requests", {
+          errorCode: "http_429",
+          statusCode: 429,
+          // The fixed backoff alone (~2.2s) would fit a 15s budget; only the
+          // 12s Retry-After pushes the estimate past what's left, and the
+          // wait must not be silently truncated to fit.
+          retryAfterMs: 12_000,
+        });
+      },
+    };
+
+    try {
+      await expect(
+        runAgentLoop({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow("Too many requests");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(streamCalls).toBe(1);
+  });
+
+  it("keeps the plain exponential backoff when no Retry-After was classified", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new EngineError("Connection error.", {
+            errorCode: "provider_network_error",
+          });
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // Below the ~1.8s-2.2s backoff window (2s base ± 10% jitter): no retry yet.
+      await vi.advanceTimersByTimeAsync(1_700);
+      expect(streamCalls).toBe(1);
+
+      // Comfortably past the max of that window.
+      await vi.advanceTimersByTimeAsync(1_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(streamCalls).toBe(2);
+    expect(JSON.stringify(events)).toContain("recovered");
   });
 
   // End-to-end shape of the Analytics outage: the gateway answered 200, emitted
@@ -5957,6 +6331,12 @@ describe("runAgentLoop", () => {
       "Plan mode blocked `update-extension`. Switch to Act mode after the user approves the plan, then retry the action.",
       "no authenticated user",
       "Error running call-agent: Error: The Analytics agent call failed. (SSRF blocked: refusing to fetch private/internal address (http://localhost:8088/a2a))",
+      // A nested A2A/ask_app delegation embedding the callee's OWN
+      // `formatA2ATerminalError` text verbatim (2026-08-26 Slides incident).
+      "Error running generate-image-api: Assets could not generate this image (failed): I stopped because generate-image-batch needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. Retrying would not have changed it, and anything completed before this is saved.\ncode: permanent_precondition",
+      // `fail(message, { errorCode: "permanent_precondition" })`, rendered by
+      // this module's own non-AgentActionStopError catch branch.
+      "Error running stage-dataset: Staged dataset byte cap exceeded (errorCode: permanent_precondition)",
     ]) {
       expect(permanentPreconditionRemedy(permanent)).not.toBeNull();
     }
@@ -5980,9 +6360,54 @@ describe("runAgentLoop", () => {
       // Retention windows, fixed by narrowing the range and asking again.
       "Error running list-session-recordings: Data is only available from the last 90 days",
       "Error running gong-calls: transcripts are only available in the last 12 months",
+      // The precondition SENTENCE with no marker line: a closest-match tool
+      // echoing another candidate's content (an extension or slide whose own
+      // text happens to contain this exact sentence) must not be misread as
+      // this framework's own stop. Only the `code: permanent_precondition` /
+      // `errorCode: permanent_precondition` marker is diagnostic; every real
+      // emitter of the sentence also sends that marker.
+      'Error running find-closest-match: closest candidate: "...needs a setup step outside this turn before it can run..." (no code line, not this run\'s own stop)',
+      // The marker text itself, but on an INDENTED echoed candidate line, not
+      // this framework's own column-0 framing — a retryable patch miss from
+      // an edit tool, not a stop.
+      "Error running find-closest-match: Closest matches in the current extension:\n  line 12: code: permanent_precondition",
     ]) {
       expect(permanentPreconditionRemedy(recoverable)).toBeNull();
     }
+  });
+
+  // Echoed candidate/ambiguous-match text an edit tool quotes back from the
+  // user's own content is fenced with `<<<diagnostic-snippet` /
+  // `>>>end-diagnostic-snippet` (diagnostic-snippet.ts) precisely so it can
+  // never be read as this framework's own signal, no matter what phrases it
+  // happens to contain.
+  it("never classifies precondition markers quoted inside a diagnostic-snippet fence, but still classifies them outside it", () => {
+    const fenced =
+      "Error running find-closest-match: Closest matches:\n" +
+      "<<<diagnostic-snippet\n" +
+      "    no authenticated user\n" +
+      "    code: permanent_precondition\n" +
+      ">>>end-diagnostic-snippet";
+    expect(permanentPreconditionRemedy(fenced)).toBeNull();
+
+    // Same markers, outside the fence: still classify.
+    const unfenced =
+      "Error running find-closest-match: no authenticated user\ncode: permanent_precondition";
+    expect(permanentPreconditionRemedy(unfenced)).not.toBeNull();
+  });
+
+  // The identical-error breaker keys on this normalized text (see
+  // `normalizeToolErrorForBreaker`'s own doc comment). A fenced candidate
+  // snippet that varies attempt to attempt must not defeat it, the same way
+  // a varying argument echo must not.
+  it("normalizes two tool errors that differ only in fenced candidate text to the same breaker key", () => {
+    const a =
+      "No exact match for the requested text.\n<<<diagnostic-snippet\n    candidate A text here\n>>>end-diagnostic-snippet";
+    const b =
+      "No exact match for the requested text.\n<<<diagnostic-snippet\n    completely different candidate B\n>>>end-diagnostic-snippet";
+    expect(normalizeToolErrorForBreaker(a)).toBe(
+      normalizeToolErrorForBreaker(b),
+    );
   });
 
   it("stops on the FIRST permanently-failing precondition instead of retrying it", async () => {
@@ -6052,6 +6477,84 @@ describe("runAgentLoop", () => {
     expect((stop as { error: string }).error).not.toContain("GEMINI_API_KEY");
     expect((stop as { error: string }).error).toContain(
       "needs a setup step outside this turn",
+    );
+  });
+
+  // 2026-08-26 Slides incident: an A2A/ask_app delegation (Assets) already
+  // classified its own failure as a permanent precondition and stopped, but
+  // its terminal-stop text only reaches the caller as a plain Error message
+  // once wrapped (`Assets could not generate this image (failed): …`). The
+  // outer run must recognize the callee's embedded marker on the FIRST
+  // failure rather than retrying an error the callee already proved
+  // unrecoverable.
+  it("stops on the FIRST failure when a tool error embeds a nested permanent-precondition marker", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      throw new Error(
+        "Assets could not generate this image (failed): I stopped because " +
+          "generate-image-batch needs a setup step outside this turn — a " +
+          "credential, a role, a connected account, or an approval — before " +
+          "it can run. Retrying would not have changed it, and anything " +
+          "completed before this is saved.\ncode: permanent_precondition",
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `gen-image-${streamCalls}`,
+              name: "generate-image-api",
+              input: { prompt: `attempt ${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "generate-image-api": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // Not 3: the identical-error breaker never gets a chance to count this.
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "needs a setup step outside this turn",
+    );
+    // Not the scarier, less specific repeated-failure message the incident
+    // actually produced.
+    expect((stop as { error: string }).error).not.toContain(
+      "failed 3 times in a row",
     );
   });
 
@@ -6165,10 +6668,12 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // 12 real calls exhaust the convergence budget; the declines that follow
-    // are bounded by the existing error breaker instead of running to
-    // maxIterations.
-    expect(streamCalls).toBeLessThan(25);
+    // The threshold's worth of real calls exhausts the convergence budget; the
+    // declines that follow are bounded by the existing error breaker instead of
+    // running to maxIterations.
+    expect(streamCalls).toBeLessThan(
+      resolveSourceSweepToolCallThreshold() + 13,
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -6181,7 +6686,8 @@ describe("runAgentLoop", () => {
   });
 
   it("detects repeated read-only source sweeps but ignores ordinary helpers", () => {
-    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+    const threshold = resolveSourceSweepToolCallThreshold();
+    const priorToolCalls = Array.from({ length: threshold }, (_, i) => ({
       name: "gong-calls",
       input: { company: `Account ${i + 1}` },
     }));
@@ -6194,7 +6700,7 @@ describe("runAgentLoop", () => {
       }),
     ).toMatchObject({
       toolName: "gong-calls",
-      priorCalls: 12,
+      priorCalls: threshold,
       message: expect.stringContaining("change strategy"),
     });
 
@@ -6209,7 +6715,7 @@ describe("runAgentLoop", () => {
       }),
     ).toMatchObject({
       toolName: "hubspot-records",
-      priorCalls: 12,
+      priorCalls: threshold,
     });
 
     expect(
@@ -6243,7 +6749,8 @@ describe("runAgentLoop", () => {
       "read-source-file": actionEntry({ readOnly: true }),
       "search-docs": actionEntry({ readOnly: true }),
     };
-    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+    const threshold = resolveSourceSweepToolCallThreshold();
+    const priorToolCalls = Array.from({ length: threshold }, (_, i) => ({
       name: Object.keys(actions)[i % Object.keys(actions).length],
       input: { query: `term-${i + 1}` },
     }));
@@ -6261,14 +6768,14 @@ describe("runAgentLoop", () => {
       shouldGuardRepeatedSourceSweep({
         toolName: "search-docs",
         entry: actions["search-docs"],
-        priorToolCalls: Array.from({ length: 12 }, () => ({
+        priorToolCalls: Array.from({ length: threshold }, () => ({
           name: "search-docs",
           input: {},
         })),
       }),
     ).toMatchObject({
       toolName: "search-docs",
-      priorCalls: 12,
+      priorCalls: threshold,
     });
   });
 
@@ -6394,7 +6901,9 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(gongCalls).toHaveBeenCalledTimes(12);
+    expect(gongCalls).toHaveBeenCalledTimes(
+      resolveSourceSweepToolCallThreshold(),
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -6464,35 +6973,38 @@ describe("runAgentLoop", () => {
     };
     const gongCalls = vi.fn(async () => "should not run");
     const events: any[] = [];
-    const priorToolMessages = Array.from({ length: 12 }, (_, i) => {
-      const input = { company: `Account ${i + 1}` };
-      const toolCallId = `gong-prior-${i + 1}`;
-      return [
-        {
-          role: "assistant" as const,
-          content: [
-            {
-              type: "tool-call" as const,
-              id: toolCallId,
-              name: "gong-calls",
-              input,
-            },
-          ],
-        },
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "tool-result" as const,
-              toolCallId,
-              toolName: "gong-calls",
-              toolInput: JSON.stringify(input),
-              content: "no Figma MCP hits",
-            },
-          ],
-        },
-      ];
-    }).flat();
+    const priorToolMessages = Array.from(
+      { length: resolveSourceSweepToolCallThreshold() },
+      (_, i) => {
+        const input = { company: `Account ${i + 1}` };
+        const toolCallId = `gong-prior-${i + 1}`;
+        return [
+          {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "tool-call" as const,
+                id: toolCallId,
+                name: "gong-calls",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user" as const,
+            content: [
+              {
+                type: "tool-result" as const,
+                toolCallId,
+                toolName: "gong-calls",
+                toolInput: JSON.stringify(input),
+                content: "no Figma MCP hits",
+              },
+            ],
+          },
+        ];
+      },
+    ).flat();
 
     await runAgentLoop({
       engine,
@@ -7926,6 +8438,148 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("names the output-token cap when a tool call is cut off mid-arguments, and raises the ceiling for the retry", async () => {
+    let streamCalls = 0;
+    const seenMaxOutputTokens: (number | undefined)[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMaxOutputTokens.push(opts.maxOutputTokens);
+        if (streamCalls === 1) {
+          // What a truncated call looks like on the wire: a tool-call part is
+          // present (so the `toolCallParts.length === 0` truncation branch
+          // never sees it) and the arguments stop mid-object.
+          yield {
+            type: "tool-call-error",
+            id: "cut-off",
+            name: "add-slide",
+            input: { deckId: "deck-1", content: "<div>the long pro" },
+            error: "input must have required property 'position'",
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "max_tokens" };
+          return;
+        }
+
+        yield { type: "text-delta", text: "Split across two calls." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Split across two calls." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "claude-sonnet-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "add-slide": {
+          ...actionEntry({ readOnly: false }),
+          run: vi.fn(async () => "should not execute"),
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const toolDone = events.find(
+      (event) => event.type === "tool_done" && event.tool === "add-slide",
+    );
+    expect(toolDone?.result).toContain("output-token cap");
+    expect(toolDone?.result).toContain("truncated, not wrong");
+    // Telling the model to match the schema is what made it re-send the same
+    // oversized payload until the identical-error breaker fired.
+    expect(toolDone?.result).not.toContain(
+      "retry with arguments that match the tool schema",
+    );
+
+    expect(streamCalls).toBe(2);
+    expect(seenMaxOutputTokens[0]).toBe(8192);
+    expect(seenMaxOutputTokens[1]).toBe(128_000);
+  });
+
+  it("drops back to the configured ceiling once truncated-call retries are spent", async () => {
+    let streamCalls = 0;
+    const seenMaxOutputTokens: (number | undefined)[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMaxOutputTokens.push(opts.maxOutputTokens);
+        // Three consecutive truncated tool calls: one more than the retry
+        // limit. Distinct payloads so the identical-error breaker is not what
+        // ends the run.
+        if (streamCalls <= 3) {
+          yield {
+            type: "tool-call-error",
+            id: `cut-off-${streamCalls}`,
+            name: "add-slide",
+            input: { deckId: `deck-${streamCalls}`, content: "<div>the long" },
+            error: `input must have required property 'position' (${streamCalls})`,
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "max_tokens" };
+          return;
+        }
+
+        yield { type: "text-delta", text: "Done." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "claude-sonnet-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "add-slide": {
+          ...actionEntry({ readOnly: false }),
+          run: vi.fn(async () => "should not execute"),
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    // Raised for the two allowed retries, then back to the engine's own
+    // ceiling — the elevated cap belonged to those retries, not to the run.
+    expect(seenMaxOutputTokens.slice(0, 4)).toEqual([
+      8192, 128_000, 128_000, 8192,
+    ]);
+  });
+
   it("recovers schema-invalid empty placeholders in optional tool fields", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -8103,6 +8757,101 @@ describe("runAgentLoop", () => {
         isError: true,
       }),
     );
+  });
+
+  it("reports the item defect, not 'must be array', for a JSON-encoded array whose items are invalid", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "stringified-items-call",
+            name: "show-questions",
+            input: {
+              questions:
+                '[{"id":"page-type","options":[{"label":"Landing page"}]}]',
+            },
+            error: "input/questions must be array",
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "shown");
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "show-questions": {
+          tool: {
+            description: "Show questions",
+            parameters: {
+              type: "object",
+              properties: {
+                questions: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      id: { type: "string" },
+                      options: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            label: { type: "string" },
+                            value: { type: "string" },
+                          },
+                          required: ["label", "value"],
+                        },
+                      },
+                    },
+                    required: ["id", "options"],
+                  },
+                },
+              },
+              required: ["questions"],
+            },
+          },
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const toolDone = events.find(
+      (event) => event.type === "tool_done" && event.tool === "show-questions",
+    ) as Extract<AgentChatEvent, { type: "tool_done" }> | undefined;
+    expect(toolDone?.isError).toBe(true);
+    expect(toolDone?.result).toContain("required property 'value'");
+    expect(toolDone?.result).not.toContain("questions must be array");
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("marks MCP isError results as errored tool results for the next model turn", async () => {
@@ -8575,6 +9324,117 @@ describe("runAgentLoop", () => {
       { type: "done" },
     ]);
     expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("prepends exhaustedDraftPrefix to the draft instead of the fallback when retries are exhausted", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const text = streamCalls === 1 ? "fake answer" : "still fake";
+        yield { type: "text-delta", text };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: () => ({
+        retryMessage: "Query a real source before answering.",
+        fallbackMessage: "I stopped because no real data-source query ran.",
+        exhaustedDraftPrefix: "Unverified — here is what I tried:",
+      }),
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(events).toContainEqual({
+      type: "text",
+      text: "Unverified — here is what I tried:\n\nstill fake",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        text: "I stopped because no real data-source query ran.",
+      }),
+    );
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("falls back to fallbackMessage when exhaustedDraftPrefix is set but the draft is empty", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        // Streamed live as UI feedback, but the structured assistant-content
+        // carries only a thinking part — the draft the guard/exhaustion path
+        // actually evaluates is empty, so there is nothing to prefix.
+        yield { type: "text-delta", text: "still fake" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "thinking" as const, text: "reasoning only" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: () => ({
+        retryMessage: "Query a real source before answering.",
+        fallbackMessage: "I stopped because no real data-source query ran.",
+        exhaustedDraftPrefix: "Unverified — here is what I tried:",
+        maxRetries: 0,
+      }),
+    });
+
+    expect(visibleEvents(events)).toEqual([
+      { type: "text", text: "still fake" },
+      { type: "clear" },
+      {
+        type: "text",
+        text: "I stopped because no real data-source query ran.",
+      },
+      { type: "done" },
+    ]);
   });
 
   it("allows a final-response guard to request additional corrective retries", async () => {
@@ -10830,6 +11690,39 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         input: { fileId: "f1" },
         result: '{"ok":true}',
         completedSideEffect: true,
+      },
+      { type: "done" },
+    ]);
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(backgroundContinuationReasonForRun(run)).toBe("stream_ended");
+  });
+
+  it("CHAINS a background run that stopped during action preparation", () => {
+    const run = makeRun([
+      { type: "text", text: "I will build the design now." },
+      {
+        type: "activity",
+        label: "Preparing generate-design action",
+        tool: "generate-design",
+        id: "call-generate-design",
+      },
+      {
+        type: "tool_input_start",
+        tool: "generate-design",
+        id: "call-generate-design",
+      },
+      {
+        type: "tool_input_delta",
+        tool: "generate-design",
+        id: "call-generate-design",
+        text: '{"files":',
       },
       { type: "done" },
     ]);

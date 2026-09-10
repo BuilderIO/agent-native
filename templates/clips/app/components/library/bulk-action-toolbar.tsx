@@ -16,7 +16,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 
 export interface BulkMoveTarget {
   id: string | null;
@@ -56,18 +55,17 @@ export function BulkActionToolbar({
 
   return (
     <div
-      className={cn(
-        "flex w-fit max-w-full items-center gap-1 rounded-xl bg-foreground px-3 py-2 text-background shadow-2xl ring-1 ring-black/10 dark:ring-white/10",
-      )}
+      aria-live="polite"
+      className="flex w-fit max-w-full items-center gap-0.5 rounded-lg bg-foreground/95 px-2 py-1.5 text-background shadow-2xl ring-1 ring-background/15 backdrop-blur-md dark:bg-background/95 dark:text-foreground dark:ring-foreground/15"
     >
-      <span className="pe-2 text-xs font-medium">
+      <span className="whitespace-nowrap px-2 text-xs font-semibold tabular-nums">
         {t("clipsFinalRaw.selectedCount", { count })}
       </span>
       {onSelectAll && (
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-1.5 text-background hover:bg-background/15 hover:text-background"
+          className="h-8 gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
           onClick={onSelectAll}
           disabled={isPending}
         >
@@ -76,11 +74,11 @@ export function BulkActionToolbar({
             : t("clipsFinalRaw.selectAll")}
         </Button>
       )}
-      <div className="h-4 w-px bg-background/20" />
+      <div className="mx-1 h-5 w-px bg-background/20 dark:bg-foreground/20" />
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 gap-1.5 text-background hover:bg-background/15 hover:text-background"
+        className="h-8 gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
         onClick={onArchive}
         disabled={isPending}
       >
@@ -92,7 +90,7 @@ export function BulkActionToolbar({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 gap-1.5 text-background hover:bg-background/15 hover:text-background"
+              className="h-8 gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
               disabled={isPending}
             >
               <IconFolder className="h-3.5 w-3.5" /> {t("clipsFinalRaw.move")}
@@ -138,21 +136,23 @@ export function BulkActionToolbar({
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 gap-1.5 text-red-400 hover:bg-background/15 hover:text-red-400"
+        className="h-8 gap-1.5 px-2.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
         onClick={onTrash}
         disabled={isPending}
       >
         <IconTrash className="h-3.5 w-3.5" /> {t("navigation.trash")}
       </Button>
-      <div className="mx-1 h-4 w-px bg-background/20" />
-      <button
+      <div className="mx-1 h-5 w-px bg-background/20 dark:bg-foreground/20" />
+      <Button
         type="button"
+        variant="ghost"
+        size="icon"
         onClick={onClear}
-        className="rounded p-1 text-background/70 hover:bg-background/15 hover:text-background"
+        className="size-8 text-background/70 hover:bg-background/15 hover:text-background dark:text-foreground/70 dark:hover:bg-foreground/10 dark:hover:text-foreground"
         aria-label={t("clipsFinalRaw.clearSelection")}
       >
         <IconX className="h-3.5 w-3.5" />
-      </button>
+      </Button>
     </div>
   );
 }

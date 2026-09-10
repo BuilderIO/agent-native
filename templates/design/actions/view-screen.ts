@@ -23,6 +23,7 @@ import {
   type ReviewResourceContext,
 } from "@agent-native/core/review";
 import * as reviewRuntime from "@agent-native/core/review";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -40,6 +41,7 @@ import {
   isNodeRewriteProposal,
   isPendingDesignReprompt,
 } from "../shared/node-rewrite.js";
+import getDesignSystem from "./get-design-system.js";
 
 interface ReviewThreadSummary {
   openCount: number;
@@ -325,9 +327,25 @@ export default defineAction({
           navigation,
           designSelection,
         );
+        const linkedDesignSystem = await loadAgentDesignSystemContext(
+          typeof (access.resource as { designSystemId?: unknown })
+            .designSystemId === "string"
+            ? (access.resource as { designSystemId: string }).designSystemId
+            : null,
+          getDesignSystem,
+        );
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
+          // The design's own linked system, not the template's. Picking one on
+          // an empty design writes it here and nowhere else, so leaving it out
+          // meant the first read after the choice could not see it.
+          designSystemId:
+            typeof (access.resource as { designSystemId?: unknown })
+              .designSystemId === "string"
+              ? (access.resource as { designSystemId: string }).designSystemId
+              : null,
+          designSystem: linkedDesignSystem,
           screens: files,
           activeScreen,
           activeCodeFile: resolveActiveCodeFile(files, designSelection),

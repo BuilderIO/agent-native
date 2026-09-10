@@ -22,6 +22,8 @@ const getIntegrationConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ configData: { enabled: false } })),
 );
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
+const startGoogleDocsPollerMock = vi.hoisted(() => vi.fn());
+const stopGoogleDocsPollerMock = vi.hoisted(() => vi.fn(async () => {}));
 const handlePushNotificationMock = vi.hoisted(() => vi.fn());
 const verifyGoogleDocsPushNotificationMock = vi.hoisted(() =>
   vi.fn(async () => true),
@@ -51,6 +53,7 @@ const getNextPendingTaskForThreadMock = vi.hoisted(() =>
   vi.fn(async () => null),
 );
 const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const dispatchAutomationWebhookTaskMock = vi.hoisted(() => vi.fn());
 const recoverDueIntegrationCampaignsMock = vi.hoisted(() =>
   vi.fn(async () => ({ selected: 0, dispatched: 0, skipped: 0, failed: 0 })),
 );
@@ -114,6 +117,7 @@ vi.mock("../org/context.js", () => ({
 }));
 
 vi.mock("../server/request-context.js", () => ({
+  getRequestContext: vi.fn(() => undefined),
   hasRequestContext: vi.fn(() => false),
   markRequestBoundaryInstalled: vi.fn(),
   runWithRequestContext: runWithRequestContextMock,
@@ -181,9 +185,14 @@ vi.mock("./integration-durable-dispatch.js", async () => {
 });
 
 vi.mock("./google-docs-poller.js", () => ({
-  startGoogleDocsPoller: vi.fn(),
+  startGoogleDocsPoller: startGoogleDocsPollerMock,
+  stopGoogleDocsPoller: stopGoogleDocsPollerMock,
   handlePushNotification: handlePushNotificationMock,
   verifyGoogleDocsPushNotification: verifyGoogleDocsPushNotificationMock,
+}));
+
+vi.mock("../triggers/dispatcher.js", () => ({
+  dispatchAutomationWebhookTask: dispatchAutomationWebhookTaskMock,
 }));
 
 vi.mock("../resources/store.js", () => ({
@@ -393,6 +402,7 @@ describe("integrations plugin routes", () => {
     resolveSecretMock.mockReset();
     resolveSecretMock.mockReturnValue(null);
     handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    dispatchAutomationWebhookTaskMock.mockResolvedValue("completed");
     handlePushNotificationMock.mockReset();
     handlePushNotificationMock.mockResolvedValue(undefined);
     verifyGoogleDocsPushNotificationMock.mockReset();
@@ -616,6 +626,96 @@ describe("integrations plugin routes", () => {
     expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
   });
 
+  it("stops and restarts the Google Docs poller when toggling the integration", async () => {
+    getSessionMock.mockResolvedValue({ email: "owner@example.test" });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/disable",
+      "POST",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      ok: true,
+      platform: "google-docs",
+      enabled: false,
+    });
+    expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
+      "google-docs",
+      { enabled: false },
+      "default",
+      "owner@example.test",
+    );
+    expect(stopGoogleDocsPollerMock).toHaveBeenCalledTimes(1);
+
+    const enableResult = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/enable",
+      "POST",
+    );
+
+    expect(enableResult.status).toBe(200);
+    expect(enableResult.body).toEqual({
+      ok: true,
+      platform: "google-docs",
+      enabled: true,
+    });
+    expect(startGoogleDocsPollerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "integration@google-docs",
+        webhookUrl:
+          "https://app.test/_agent-native/integrations/google-docs/webhook",
+      }),
+    );
+  });
+
+  it("serializes concurrent Google Docs enable and disable transitions", async () => {
+    getSessionMock.mockResolvedValue({ email: "owner@example.test" });
+    let resolveStart!: () => void;
+    const startPending = new Promise<void>((resolve) => {
+      resolveStart = resolve;
+    });
+    startGoogleDocsPollerMock.mockReturnValueOnce(startPending);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+
+    const enablePromise = dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/enable",
+      "POST",
+    );
+    await vi.waitFor(() =>
+      expect(startGoogleDocsPollerMock).toHaveBeenCalledTimes(1),
+    );
+
+    const disablePromise = dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/disable",
+      "POST",
+    );
+    await vi.waitFor(() =>
+      expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
+        "google-docs",
+        { enabled: false },
+        "default",
+        "owner@example.test",
+      ),
+    );
+    expect(stopGoogleDocsPollerMock).not.toHaveBeenCalled();
+
+    resolveStart();
+    await expect(enablePromise).resolves.toMatchObject({ status: 200 });
+    await expect(disablePromise).resolves.toMatchObject({ status: 200 });
+    expect(stopGoogleDocsPollerMock).toHaveBeenCalledTimes(1);
+  });
+
   it("registers the Telegram webhook and returns the provider result", async () => {
     getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
     resolveSecretMock.mockImplementation((key: string) =>
@@ -783,6 +883,7 @@ describe("integrations plugin routes", () => {
     expect(rejected.status).toBe(401);
     expect(handlePushNotificationMock).not.toHaveBeenCalled();
 
+    verifyGoogleDocsPushNotificationMock.mockResolvedValueOnce(true);
     const accepted = await dispatch(
       nitroApp,
       "/_agent-native/integrations/google-docs/webhook",
@@ -794,8 +895,29 @@ describe("integrations plugin routes", () => {
         "x-goog-resource-id": "resource-1",
       },
     );
-    expect(accepted.status).toBe(200);
-    expect(accepted.body).toBe("ok");
+    expect(accepted.status).toBe(404);
+    expect(accepted.body).toEqual({
+      ok: false,
+      error: "Integration google-docs is not enabled",
+    });
+    expect(handlePushNotificationMock).not.toHaveBeenCalled();
+
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const enabled = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/webhook",
+      "POST",
+      undefined,
+      {
+        "x-goog-channel-id": "channel-1",
+        "x-goog-channel-token": "token-1",
+        "x-goog-resource-id": "resource-1",
+      },
+    );
+    expect(enabled.status).toBe(200);
+    expect(enabled.body).toBe("ok");
     expect(verifyGoogleDocsPushNotificationMock).toHaveBeenLastCalledWith({
       channelId: "channel-1",
       channelToken: "token-1",
@@ -902,6 +1024,55 @@ describe("integrations plugin routes", () => {
     expect(claimPendingTaskMock).toHaveBeenCalledWith("background-task", {
       dispatchOutcome: "background-acknowledged",
     });
+  });
+
+  it("keeps webhook deliveries retryable while their automation is active", async () => {
+    process.env.NODE_ENV = "development";
+    const task = {
+      id: "automation-webhook-task",
+      platform: "automation-webhook",
+      externalThreadId: "owner+qa@example.com:jobs/webhook.md",
+      payload: JSON.stringify({
+        kind: "automation-webhook",
+        automationId: "automation-1",
+        owner: "owner+qa@example.com",
+        path: "jobs/webhook.md",
+        eventId: "event-1",
+        payload: { ok: true },
+      }),
+      ownerEmail: "owner+qa@example.com",
+      orgId: null,
+      status: "processing",
+      attempts: 3,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    dispatchAutomationWebhookTaskMock.mockResolvedValueOnce("retry");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual({
+      ok: true,
+      taskId: task.id,
+      retrying: "automation-active",
+    });
+    expect(markTaskRetryableMock).toHaveBeenCalledWith(
+      task.id,
+      "Automation is already running.",
+      { resetAttempts: true },
+    );
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
   });
 
   it("finishes a checkpointed campaign delivery without rerunning the agent", async () => {
@@ -1627,6 +1798,8 @@ describe("integrations plugin routes", () => {
       kind: "response-delivery",
       incoming,
       message: { text: "Updated /page/request_123", platformContext: {} },
+      placeholderRef: "stream-qa",
+      strictTargetRef: true,
     });
     claimPendingTaskMock.mockResolvedValueOnce(task);
     const nitroApp = createNitroApp();
@@ -1643,7 +1816,12 @@ describe("integrations plugin routes", () => {
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Updated /page/request_123" }),
       expect.objectContaining({ externalThreadId: "fake-thread" }),
-      {},
+      {
+        placeholderRef: "stream-qa",
+        strictTargetRef: true,
+        idempotencyKey: `integration-response:${task.id}`,
+        reconcileAfter: task.createdAt,
+      },
     );
     expect(processIntegrationTaskMock).not.toHaveBeenCalled();
     expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);

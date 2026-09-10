@@ -23,6 +23,34 @@
 
 @source "./**/*.{ts,tsx}";
 
+.skeleton-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    hsl(var(--ui-foreground) / 0.043) 50%,
+    transparent 70%
+  );
+  background-position: 150% 0;
+  background-repeat: repeat;
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s linear infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer {
+    animation: none;
+  }
+}
+
 /**
  * The parts of preflight a Tailwind-era surface cannot live without, scoped to
  * subtrees marked `data-tw-surface` so the hand-written tray surfaces keep the
@@ -63,6 +91,7 @@
     border-color: hsl(var(--ui-border));
   }
 
+  [data-tw-surface]:is(button, input, optgroup, select, textarea),
   [data-tw-surface] :is(button, input, optgroup, select, textarea) {
     appearance: none;
     margin: 0;
@@ -75,14 +104,17 @@
     letter-spacing: inherit;
   }
 
+  [data-tw-surface]:is(button, [role="button"]),
   [data-tw-surface] :is(button, [role="button"]) {
     cursor: pointer;
   }
 
+  [data-tw-surface]:is(button, input, select, textarea):disabled,
   [data-tw-surface] :is(button, input, select, textarea):disabled {
     cursor: not-allowed;
   }
 
+  [data-tw-surface]:is(input, textarea)::placeholder,
   [data-tw-surface] :is(input, textarea)::placeholder {
     color: hsl(var(--ui-muted-foreground));
     opacity: 1;
@@ -173,6 +205,11 @@
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-collapse: cubic-bezier(0.2, 0, 0, 1);
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --recorder-mode-option-radius: 14px;
+  --recorder-mode-toggle-inset: 4px;
+  --recorder-mode-toggle-radius: calc(
+    var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)
+  );
 
   /* Layered rather than one soft blur: a hairline for the edge, a tight
      contact shadow for the lift, a wide ambient one for depth. A single
@@ -208,7 +245,8 @@
   --ui-ring: 0 0% 40%;
   /* macOS convention for an engaged switch, and the one accent the tray uses. */
   --ui-success: 142 71% 45%;
-  /* Reserved for "there is something new here" — the Settings dot, nothing else. */
+  --ui-success-foreground: 0 0% 100%;
+  /* Reserved for explicit "there is something new here" alerts and notices. */
   --ui-info: 217 91% 55%;
 }
 
@@ -234,6 +272,7 @@
     --ui-input: 0 0% 32%;
     --ui-ring: 0 0% 60%;
     --ui-success: 142 60% 52%;
+    --ui-success-foreground: 0 0% 100%;
     --ui-info: 217 91% 65%;
   }
 }
@@ -296,6 +335,7 @@
   --color-card-foreground: hsl(var(--ui-card-foreground));
 
   --color-success: hsl(var(--ui-success));
+  --color-success-foreground: hsl(var(--ui-success-foreground));
   --color-info: hsl(var(--ui-info));
 
   --radius-lg: var(--radius);
@@ -352,18 +392,15 @@
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
-/* Collapsible pill segment: measured at natural width and animated between 0
-   and exact pixels (never max-width — a guessed value wastes the easing tail
-   and lands segments out of sync). Content is right-anchored so it slides as
-   a solid block instead of being wiped by the clip edge. */
-.record-pill-seg {
-  display: flex;
+.record-pill-audio-warning {
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  overflow: hidden;
-  flex: none;
-  width: 0;
-  opacity: 0;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--status-warn);
+  color: var(--pill-chrome);
 }
 
 .record-pill-card-in {

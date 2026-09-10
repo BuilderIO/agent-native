@@ -4139,6 +4139,47 @@ const googleServiceTokenCache = new Map<
   { token: string; expiresAt: number }
 >();
 
+const DEFAULT_GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
+const ALLOWED_GOOGLE_TOKEN_URI_HOSTS = new Set([
+  "oauth2.googleapis.com",
+  "accounts.google.com",
+  "www.googleapis.com",
+]);
+
+/**
+ * Service-account JSON may carry an attacker-controlled `token_uri`. Only
+ * allow HTTPS Google OAuth hosts (and reject anything the shared SSRF guard
+ * blocks) before using the URI as JWT `aud` or as a fetch target.
+ */
+async function resolveGoogleServiceAccountTokenUri(
+  tokenUri: string | undefined,
+): Promise<string> {
+  const aud = tokenUri?.trim() || DEFAULT_GOOGLE_TOKEN_URI;
+  let parsed: URL;
+  try {
+    parsed = new URL(aud);
+  } catch {
+    throw new Error(
+      "Invalid or untrusted token_uri in service account credentials",
+    );
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(
+      "Invalid or untrusted token_uri in service account credentials",
+    );
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (
+    !ALLOWED_GOOGLE_TOKEN_URI_HOSTS.has(host) ||
+    (await isBlockedExtensionUrlWithDns(aud))
+  ) {
+    throw new Error(
+      "Invalid or untrusted token_uri in service account credentials",
+    );
+  }
+  return aud;
+}
+
 async function getGoogleServiceAccountToken(
   scopes: readonly string[],
   runtime: ProviderApiRuntimeOptions,
@@ -4182,7 +4223,7 @@ async function getGoogleServiceAccountToken(
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const aud = creds.token_uri || "https://oauth2.googleapis.com/token";
+  const aud = await resolveGoogleServiceAccountTokenUri(creds.token_uri);
   const jwt = await signRs256Jwt(
     {
       iss: creds.client_email,
@@ -5578,6 +5619,13 @@ async function handleSaveToFile(
     );
   }
 
+  const scratchPath = isScratchWorkspacePath(filePath);
+  if (!ok && !scratchPath) {
+    throw new Error(
+      `Refusing to save a failed provider response to durable workspace file "${filePath}" (status ${status}). Use a scratch/... path for diagnostics.`,
+    );
+  }
+
   const mimeType = contentType?.split(";")[0].trim() ?? "text/plain";
   const meta = await writeWorkspaceFile(
     scope,
@@ -5600,9 +5648,7 @@ async function handleSaveToFile(
     preview: preview.length < responseText.length ? `${preview}…` : preview,
     // A durable (non-scratch) file renders a download card the moment it's
     // created — no separate show-workspace-file call needed to get a link.
-    ...(isScratchWorkspacePath(filePath)
-      ? {}
-      : { file: toWorkspaceFileCard(meta) }),
+    ...(scratchPath ? {} : { file: toWorkspaceFileCard(meta) }),
   };
 }
 

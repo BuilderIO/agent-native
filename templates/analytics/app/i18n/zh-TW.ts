@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     whatsNew: "最新消息",
   },
@@ -857,7 +860,6 @@ const messages = {
     connectionAppId: "應用程式 ID",
     connectionAppUrl: "應用程式 URL",
     connectionDatabaseUrl: "資料庫 URL",
-    connectionAuthToken: "驗證權杖（選填）",
     saveConnection: "儲存連線",
     deleteConnection: "刪除連線",
     deleteConnectionTitle: "刪除資料庫連線？",
@@ -982,6 +984,10 @@ const messages = {
     unhideFailed: "無法取消隱藏儀表板",
     addPanel: "新增面板",
     dashboardActions: "儀表板詳細資訊和操作",
+    certifyForAi: "核准 AI 查詢使用",
+    certifiedForAi: "已核准 AI 查詢使用",
+    certificationSaved: "已核准此儀表板供 AI 查詢使用",
+    certificationFailed: "無法核准儀表板：{{message}}",
     details: "Details",
     updated: "已於 {{date}} 更新",
     public: "Public",

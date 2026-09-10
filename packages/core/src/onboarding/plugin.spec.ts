@@ -1,15 +1,26 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSessionMock = vi.hoisted(() => vi.fn());
 const appStateGetMock = vi.hoisted(() => vi.fn());
 const appStatePutMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
+const updateUserOnboardingRoleMock = vi.hoisted(() => vi.fn());
+const trackMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
 }));
 
 vi.mock("../server/auth.js", () => ({
+  cookieDomainAttrs: () => {
+    const domain = process.env.COOKIE_DOMAIN;
+    return domain ? { domain } : {};
+  },
+  crossSiteCookieAttrs: () => ({
+    sameSite: "none",
+    secure: true,
+    partitioned: true,
+  }),
   getSession: (...args: any[]) => getSessionMock(...args),
 }));
 
@@ -20,6 +31,15 @@ vi.mock("../application-state/store.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: (...args: any[]) => getOrgContextMock(...args),
+}));
+
+vi.mock("../user-profile/store.js", () => ({
+  updateUserOnboardingRole: (...args: any[]) =>
+    updateUserOnboardingRoleMock(...args),
+}));
+
+vi.mock("../tracking/index.js", () => ({
+  track: (...args: any[]) => trackMock(...args),
 }));
 
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
@@ -47,6 +67,7 @@ async function dispatch(
   pathname: string,
   method = "GET",
   headers: HeadersInit = {},
+  requestBody?: unknown,
 ) {
   const url = `https://app.test${pathname}`;
   const event = {
@@ -54,7 +75,11 @@ async function dispatch(
     url: new URL(url),
     path: pathname,
     context: {},
-    req: new Request(url, { method, headers }),
+    req: new Request(url, {
+      method,
+      headers,
+      body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
+    }),
     res: {
       status: 200,
       headers: new Headers(),
@@ -80,8 +105,12 @@ async function dispatch(
     if (!middleware) return { fellThrough: true };
     return middleware(event, next);
   };
-  const body = await next();
-  return { body, status: event.res.status, headers: event.res.headers };
+  const responseBody = await next();
+  return {
+    body: responseBody,
+    status: event.res.status,
+    headers: event.res.headers,
+  };
 }
 
 function registerRequestContextProbeStep() {
@@ -99,6 +128,10 @@ function registerRequestContextProbeStep() {
 }
 
 describe("onboarding plugin routes", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   beforeEach(() => {
     __resetOnboardingRegistry();
     vi.clearAllMocks();
@@ -114,6 +147,8 @@ describe("onboarding plugin routes", () => {
     });
     appStateGetMock.mockResolvedValue(null);
     appStatePutMock.mockResolvedValue(undefined);
+    updateUserOnboardingRoleMock.mockResolvedValue("developer");
+    trackMock.mockReset();
   });
 
   it("runs step completion resolvers inside the authenticated request context", async () => {
@@ -226,6 +261,7 @@ describe("onboarding plugin routes", () => {
   });
 
   it("keeps first-run onboarding tied to the signup cookie and completion state", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
     const nitroApp = createNitroApp();
     await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
 
@@ -272,9 +308,14 @@ describe("onboarding plugin routes", () => {
     expect(finish.headers.get("set-cookie")).toContain(
       `${FIRST_RUN_ONBOARDING_COOKIE}=`,
     );
+    expect(finish.headers.get("set-cookie")).toContain("Domain=.example.com");
+    expect(finish.headers.get("set-cookie")).toContain("SameSite=None");
+    expect(finish.headers.get("set-cookie")).toContain("Secure");
+    expect(finish.headers.get("set-cookie")).toContain("Partitioned");
   });
 
   it("does not show first-run onboarding to a member of an existing organization", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
     getOrgContextMock.mockResolvedValue({
       email: "alice@example.com",
       orgId: "org-existing",
@@ -296,6 +337,7 @@ describe("onboarding plugin routes", () => {
     expect(result.headers.get("set-cookie")).toContain(
       `${FIRST_RUN_ONBOARDING_COOKIE}=`,
     );
+    expect(result.headers.get("set-cookie")).toContain("Domain=.example.com");
   });
 
   it("requires an authenticated user to complete first-run onboarding", async () => {
@@ -313,5 +355,48 @@ describe("onboarding plugin routes", () => {
     expect(result.status).toBe(401);
     expect(result.body).toEqual({ error: "Authentication required" });
     expect(appStatePutMock).not.toHaveBeenCalled();
+  });
+
+  it("saves and tracks an authenticated user's onboarding role", async () => {
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/role",
+      "POST",
+      { "content-type": "application/json" },
+      { role: "developer" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ok: true, role: "developer" });
+    expect(updateUserOnboardingRoleMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "developer",
+    );
+    expect(trackMock).toHaveBeenCalledWith(
+      "onboarding.role_selected",
+      { role: "developer" },
+      { userId: "alice@example.com" },
+    );
+  });
+
+  it("rejects invalid onboarding roles before writing or tracking", async () => {
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/role",
+      "POST",
+      { "content-type": "application/json" },
+      { role: "pirate" },
+    );
+
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: "Invalid onboarding role" });
+    expect(updateUserOnboardingRoleMock).not.toHaveBeenCalled();
+    expect(trackMock).not.toHaveBeenCalled();
   });
 });

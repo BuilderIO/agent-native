@@ -471,6 +471,7 @@ interface KeyboardMessagesSource {
     sections: {
       layout: string;
       autoLayout: string;
+      layoutGrid: string;
       fill: string;
       stroke: string;
       codeConfidence: string;
@@ -611,8 +612,9 @@ export function attachLocalizedKeyboardShortcuts<
           previousSibling: `← ${labels.selection}`,
           nextScreen: `${layers.screens} →`,
           previousScreen: `← ${layers.screens}`,
+          toggleLayoutGrids: `${edit.sections.layoutGrid}: ${d.view}`,
           nudge: d.tools.move,
-          nudgeLarge: `${d.tools.move} 10`,
+          nudgeLarge: labels.nudgeAmountBig,
           copy: layers.copy,
           copyPng: `${layers.copy} PNG`,
           cut: layers.delete,

@@ -10,7 +10,7 @@ import type {
 const BLOCKED_METADATA_KEY =
   /(?:authorization|token|secret|password|cookie|storageKey|blobRef|rawSnapshot|downloadUrl|providerUrl|leaseToken|leaseOwner|handle|cloneReference|privateMetadata|nativeClone)/i;
 const CAPABILITY_VALUE =
-  /(?:creative-context-blob:|private-blob:|https?:\/\/)[^\s<>{}\[\]"']*/gi;
+  /(?:creative-context-blob:|private-blob:|https?:\/\/)[^\s<>{}[\]"']*/gi;
 
 export function sanitizePublicMetadata(value: unknown): unknown {
   if (typeof value === "string") {

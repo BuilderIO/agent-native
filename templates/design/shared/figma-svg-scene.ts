@@ -96,6 +96,23 @@ export type FigmaSvgFillLayer =
       sizePx?: { width: number; height: number };
       /** The matching `background-position` in px, when the size is explicit. */
       offsetPx?: { x: number; y: number };
+      /**
+       * `background-repeat` asked for tiling, i.e. a Figma TILE fill. The tile
+       * is `sizePx` when the importer resolved the image's intrinsic size; a
+       * repeating fill WITHOUT one cannot be tiled correctly and is reported
+       * rather than drawn as a single stretched copy.
+       */
+      repeat?: boolean;
+      /** `repeat-x` / `repeat-y` / `round` / `space`: a repetition an SVG
+       *  pattern cannot express — reported rather than silently dropped. */
+      repeatAxis?: string;
+      /** A `background-size` that computed to a single length, i.e. that width
+       *  with a proportional height. Reported: the ratio is not known here. */
+      singleAxisSize?: string;
+      /** The computed `background-position` of a tiled fill when it is not
+       *  plain pixels. A percentage phase is a fraction of the box minus the
+       *  tile, so it can only be resolved where the box is known. */
+      positionRaw?: string;
     }
   /** A background-image layer with no SVG equivalent (conic, repeating, …). */
   | { kind: "unsupported"; css: string };
@@ -980,10 +997,6 @@ function isTopLeftObjectPosition(position: string | undefined): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Shadow filter defs
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Node renderer
 // ---------------------------------------------------------------------------
 
@@ -1115,6 +1128,81 @@ function resolveFillPaint(
   }
   const id = ctx.nextId("img-fill");
   const par = objectFitToPreserveAspectRatio(fill.fit);
+  // A Figma TILE fill: the image is drawn at its own size and repeated, which
+  // is exactly an SVG pattern whose tile IS that size. Pattern content is
+  // tile-relative under `userSpaceOnUse`, so the image sits at the tile origin
+  // while the tile itself is anchored to the box. This must precede the CROP
+  // branch below, which would otherwise claim the same explicit pixel size and
+  // draw one copy.
+  if (fill.repeatAxis) {
+    // An SVG pattern repeats on both axes at the tile's own size: there is no
+    // one-axis form, no `round` rescaling and no `space` distribution. Saying
+    // so beats emitting a tiling that covers rows the design leaves bare.
+    ctx.report.approximated.push({
+      node: node.name || node.id,
+      note:
+        `Image fill uses background-repeat: ${fill.repeatAxis}, which an SVG ` +
+        `pattern cannot express; exported as a single non-repeating image.`,
+    });
+  }
+  if (fill.singleAxisSize) {
+    ctx.report.approximated.push({
+      node: node.name || node.id,
+      note:
+        `Image fill has a one-dimensional background-size (${fill.singleAxisSize}), ` +
+        `meaning that width with a proportional height; the image's intrinsic ` +
+        `ratio is not known at export time, so it was fitted to the box instead.`,
+    });
+  }
+  if (fill.repeat) {
+    if (!fill.sizePx) {
+      // `background-size: auto` leaves the tile size unknown here. Falling
+      // through to `cover` draws one stretched copy over the node's whole
+      // fill area; an unknown tile size and a full-bleed image are not the
+      // same fact, so say so rather than paint a confident wrong answer.
+      ctx.report.approximated.push({
+        node: node.name || node.id,
+        note:
+          "Tiled (TILE) image fill exported as a single covering image: the " +
+          "computed background-size was `auto`, so the tile's intrinsic size " +
+          "is unknown at export time and the repeat could not be reproduced.",
+      });
+    } else {
+      // `background-position` on a repeating background sets the tile phase, so
+      // it shifts the pattern's ORIGIN rather than the image inside the tile.
+      // A percentage phase is a fraction of the FREE space (box minus tile),
+      // which is why it can only be resolved here, with the box in hand.
+      let phase = fill.offsetPx ?? { x: 0, y: 0 };
+      if (!fill.offsetPx && fill.positionRaw) {
+        const pcts = Array.from(fill.positionRaw.matchAll(/(-?[\d.]+)%/g)).map(
+          (m) => Number(m[1]) / 100,
+        );
+        if (pcts.length === 2 && !/calc\(/i.test(fill.positionRaw)) {
+          phase = {
+            x: pcts[0]! * (node.rect.width - fill.sizePx.width),
+            y: pcts[1]! * (node.rect.height - fill.sizePx.height),
+          };
+        } else {
+          ctx.report.approximated.push({
+            node: node.name || node.id,
+            note:
+              `Tiled image fill has a background-position this export cannot ` +
+              `resolve (${fill.positionRaw}); the tiling was anchored at the ` +
+              `box origin, so its phase may differ.`,
+          });
+        }
+      }
+      ctx.defs.push(
+        `<pattern id="${id}" patternUnits="userSpaceOnUse" x="${n(node.rect.x + phase.x)}" y="${n(node.rect.y + phase.y)}" width="${n(fill.sizePx.width)}" height="${n(fill.sizePx.height)}">` +
+          `<image href="${escapeXmlAttr(fill.href)}" x="0" y="0" width="${n(fill.sizePx.width)}" height="${n(fill.sizePx.height)}" preserveAspectRatio="none"${
+            node.imageRendering
+              ? ` image-rendering="${node.imageRendering}"`
+              : ""
+          }/></pattern>`,
+      );
+      return `url(#${id})`;
+    }
+  }
   // An explicit pixel size is Figma's CROP: the image is drawn at that size at
   // that offset, not fitted to the box. `objectBoundingBox` cannot express it,
   // so place the image in user space instead — exactly, with no approximation
@@ -1810,6 +1898,13 @@ export interface RawFigmaSvgNode {
    */
   backgroundSize?: string;
   backgroundPosition?: string;
+  /**
+   * Computed `background-repeat`, one entry per layer. TILE is the one scale
+   * mode `background-size` alone cannot express: both importers emit it as
+   * `auto` + `repeat`, and `auto` is indistinguishable from an absent size, so
+   * reading only the size exported a tiled fill as a single stretched copy.
+   */
+  backgroundRepeat?: string;
   /** Computed `box-shadow`, e.g. "none" or a Chromium-normalized shadow list. */
   boxShadow: string;
   /**
@@ -1888,27 +1983,108 @@ function objectFitFromRaw(raw?: string): "cover" | "contain" | "stretch" {
 function imageFitFromSize(
   size: string | undefined,
   position: string | undefined,
+  repeat?: string,
 ): {
   fit: "cover" | "contain" | "stretch";
   sizePx?: { width: number; height: number };
   offsetPx?: { x: number; y: number };
+  repeat?: boolean;
+  repeatAxis?: string;
+  singleAxisSize?: string;
+  positionRaw?: string;
 } {
   const value = (size ?? "").trim();
+  // `background-repeat` cannot be read as intent: `repeat` is the CSS INITIAL
+  // value, so getComputedStyle reports it for every background whose author
+  // never mentioned repeating. Our importers always state `no-repeat` for the
+  // four non-TILE scale modes, which is why no corpus case exposed this — but
+  // agent-authored HTML is full of `background-size: cover` with no repeat,
+  // and treating that as a tile exported it stretched instead of covered.
+  //
+  // What actually decides it is whether the image already FILLS the box.
+  // `cover` and `100% 100%` always do, so repetition is invisible there and
+  // the fit is the whole answer. Only a size that can leave the box uncovered
+  // — an explicit tile size, `auto`, or `contain` — can show repetition.
+  const repeatValue = (repeat ?? "").trim();
+  const oneAxisRepeat =
+    repeatValue === "repeat-x" || repeatValue === "repeat-y";
+  // `round` rescales tiles to fit a whole number of them and `space`
+  // distributes them with gaps; an SVG pattern does neither, and Chromium
+  // keeps both verbatim in the computed value (including two-value forms like
+  // `repeat space`). Neither was recognised, so they exported non-tiled with
+  // nothing said about it.
+  const unsupportedRepeat =
+    /\b(round|space)\b/.test(repeatValue) && repeatValue !== "";
+  const px = Array.from(value.matchAll(/(-?[\d.]+)px/g)).map((m) =>
+    Number(m[1]),
+  );
+  const explicitPx =
+    px.length === 2 && px[0]! > 0 && px[1]! > 0
+      ? { width: px[0]!, height: px[1]! }
+      : undefined;
+  // Chromium computes `background-size: 16px auto` — and a bare `16px` — down
+  // to a SINGLE value, meaning that width with a proportional height. There is
+  // no second number to read, so the size cannot be reproduced without the
+  // image's intrinsic ratio; it is reported rather than silently covered.
+  const singleAxisPx = px.length === 1 && px[0]! > 0;
+  const fillsBox = value === "cover" || /^100%\s+100%$/.test(value);
+  // An empty value means the collector read no background-size at all, which
+  // is not the same fact as `auto`; it cannot be shown to repeat.
+  const canShowRepeat = !fillsBox && value !== "";
+  if (repeatValue === "repeat" && canShowRepeat) {
+    // The tile size is known, so an SVG pattern reproduces it exactly. Its
+    // `background-position` is the tile PHASE, not a one-off offset — dropping
+    // it anchored every tiling at the box origin.
+    if (explicitPx) {
+      const offsets = Array.from(
+        (position ?? "").matchAll(/(-?[\d.]+)px/g),
+      ).map((m) => Number(m[1]));
+      const raw = (position ?? "").trim();
+      return {
+        fit: "stretch",
+        sizePx: explicitPx,
+        offsetPx:
+          offsets.length === 2 ? { x: offsets[0]!, y: offsets[1]! } : undefined,
+        // Chromium computes `center` to `50% 50%` and an edge offset to
+        // `calc(100% - 10px)`, neither of which the px scan above sees. A
+        // percentage phase resolves against the box, which only the emitter
+        // knows, so the raw value travels with the layer. `0% 0%` is the CSS
+        // default and means no phase, so it is not worth carrying.
+        positionRaw:
+          raw && offsets.length !== 2 && !/^0%\s+0%$/.test(raw)
+            ? raw
+            : undefined,
+        repeat: true,
+      };
+    }
+    // A real TILE whose size could not be resolved, or a tiled `contain`.
+    // Neither is reproducible without the intrinsic size, so keep the honest
+    // fit and let `imageFillMarkup` report the tiling it could not draw.
+    return { fit: value === "contain" ? "contain" : "cover", repeat: true };
+  }
+  // `round` and `space` are reported whether or not the size could show
+  // repetition: `round` rescales the tile to a whole count even under `cover`,
+  // and deciding it "probably does not matter here" is a judgement the report
+  // should not make silently on the reader's behalf.
+  if (unsupportedRepeat || (oneAxisRepeat && canShowRepeat)) {
+    return {
+      fit: value === "contain" ? "contain" : "cover",
+      repeatAxis: repeatValue,
+    };
+  }
+  if (singleAxisPx) return { fit: "cover", singleAxisSize: value };
   if (value === "contain") return { fit: "contain" };
   if (value === "cover" || value === "" || value === "auto") {
     return { fit: "cover" };
   }
   if (/^100%\s+100%$/.test(value)) return { fit: "stretch" };
-  const px = Array.from(value.matchAll(/(-?[\d.]+)px/g)).map((m) =>
-    Number(m[1]),
-  );
-  if (px.length === 2 && px[0]! > 0 && px[1]! > 0) {
+  if (explicitPx) {
     const offsets = Array.from((position ?? "").matchAll(/(-?[\d.]+)px/g)).map(
       (m) => Number(m[1]),
     );
     return {
       fit: "stretch",
-      sizePx: { width: px[0]!, height: px[1]! },
+      sizePx: explicitPx,
       offsetPx:
         offsets.length === 2 ? { x: offsets[0]!, y: offsets[1]! } : undefined,
     };
@@ -1916,15 +2092,63 @@ function imageFitFromSize(
   return { fit: "cover" };
 }
 
+/**
+ * Server-side twin of the in-page `gradientHasUnreadableStop`, for ONE layer.
+ * The walk's copy must live inside `collectRawFigmaSvgScene` (it is serialized
+ * into the page); this one runs where the fill layers are built. Both answer
+ * the same question: after stripping the single trailing percentage that
+ * `parseColorStop` strips, is a number still glued to the colour?
+ */
+function gradientLayerHasUnreadableStop(layer: string): boolean {
+  const open = layer.indexOf("(");
+  if (open < 0) return false;
+  const inner = layer.slice(open + 1, layer.lastIndexOf(")"));
+  const parts = splitTopLevelCommas(inner);
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i]!.trim();
+    if (!part) continue;
+    // A stop contains a colour; radial geometry like `90% 40% at 50% 0%` does
+    // not, and matching geometry by shape missed exactly that form.
+    const hasColor =
+      /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\(/i.test(
+        part,
+      ) ||
+      /(^|\s)(transparent|currentcolor)(\s|$)/i.test(part) ||
+      /#[0-9a-f]{3,8}(\s|$)/i.test(part);
+    if (!hasColor) {
+      if (i === 0) continue;
+      return true;
+    }
+    // Take the COLOUR out and see what is left. `parseColorStop` keeps one
+    // trailing percentage and treats everything before it as the colour, so
+    // whatever still stands once the colour and that one percentage are
+    // removed is a position it will glue onto `stop-color` and paint black.
+    // Asking it this way round covers forms an enumerated list misses:
+    // `calc(50% - 10px)` survives into computed styles, and so does a
+    // second position.
+    const residue = part
+      .replace(
+        /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\([^()]*(?:\([^()]*\)[^()]*)*\)|#[0-9a-f]{3,8}\b|\b(?:transparent|currentcolor)\b/gi,
+        "",
+      )
+      .replace(/\s*(-?[\d.]+)%\s*$/, "")
+      .trim();
+    if (residue) return true;
+  }
+  return false;
+}
+
 export function buildFillLayersFromComputedStyle(
   backgroundColor: string,
   backgroundImage: string,
   backgroundSize?: string,
   backgroundPosition?: string,
+  backgroundRepeat?: string,
 ): FigmaSvgFillLayer[] {
   const layers: FigmaSvgFillLayer[] = [];
   const sizes = splitTopLevelCommas(backgroundSize ?? "");
   const positions = splitTopLevelCommas(backgroundPosition ?? "");
+  const repeats = splitTopLevelCommas(backgroundRepeat ?? "");
 
   if (backgroundImage && backgroundImage !== "none") {
     let layerIndex = -1;
@@ -1936,6 +2160,16 @@ export function buildFillLayersFromComputedStyle(
       // background export with a phantom omission and a phantom `fill="none"`
       // shape. Only the WHOLE value being "none" short-circuits above.
       if (part === "none") continue;
+      // A stop whose position is not a percentage leaves the length glued to
+      // the colour, and `stop-color` given that is invalid and renders BLACK.
+      // The leaf case is rasterized in the DOM walk, which preserves the
+      // appearance; a container cannot be (it would flatten real children), so
+      // the layer is marked unsupported here and reported. An unpainted layer
+      // and a black one are both wrong, but only one of them is traceable.
+      if (/gradient\(/i.test(part) && gradientLayerHasUnreadableStop(part)) {
+        layers.push({ kind: "unsupported", css: part.trim() });
+        continue;
+      }
       if (part.startsWith("linear-gradient")) {
         const parsed = parseComputedLinearGradient(part);
         if (parsed) {
@@ -1967,6 +2201,7 @@ export function buildFillLayersFromComputedStyle(
               positions.length
                 ? positions[layerIndex % positions.length]
                 : undefined,
+              repeats.length ? repeats[layerIndex % repeats.length] : undefined,
             ),
           });
       } else {
@@ -2097,6 +2332,7 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
       raw.backgroundImage,
       raw.backgroundSize,
       raw.backgroundPosition,
+      raw.backgroundRepeat,
     );
     const textBoxShadows = parseComputedBoxShadow(raw.boxShadow);
     return {
@@ -2174,6 +2410,7 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
     raw.backgroundImage,
     raw.backgroundSize,
     raw.backgroundPosition,
+    raw.backgroundRepeat,
   );
   const shadows = [
     ...parseComputedBoxShadow(raw.boxShadow),
@@ -2397,6 +2634,83 @@ export function collectRawFigmaSvgScene(
     return { residual, mirror: a! * d! - c! * b! < 0 };
   }
 
+  /**
+   * Does any stop in a computed gradient carry a position the exporter's
+   * parser cannot read? `parseColorStop` understands percentages only and
+   * otherwise returns the whole unsplit token as the COLOUR, which becomes an
+   * invalid `stop-color` and paints BLACK. The universal hard-stop idiom
+   * `<colour> 0 50%, <colour> 50% 100%` computes with a bare `0` and hits it.
+   *
+   * Self-contained on purpose: this function is serialized into the page with
+   * the rest of the walk, so it cannot call the module-level helpers — they do
+   * not exist in that context.
+   */
+  function gradientHasUnreadableStop(backgroundImage: string): boolean {
+    const splitTop = (value: string): string[] => {
+      const out: string[] = [];
+      let depth = 0;
+      let current = "";
+      for (const ch of value) {
+        if (ch === "(") depth += 1;
+        else if (ch === ")") depth -= 1;
+        if (ch === "," && depth === 0) {
+          out.push(current);
+          current = "";
+          continue;
+        }
+        current += ch;
+      }
+      if (current.trim()) out.push(current);
+      return out;
+    };
+    for (const layer of splitTop(backgroundImage)) {
+      if (!/gradient\(/i.test(layer)) continue;
+      const open = layer.indexOf("(");
+      if (open < 0) continue;
+      const inner = layer.slice(open + 1, layer.lastIndexOf(")"));
+      const parts = splitTop(inner);
+      for (let i = 0; i < parts.length; i += 1) {
+        const part = parts[i]!.trim();
+        if (!part) continue;
+        // A STOP contains a colour; the leading geometry argument does not.
+        // Matching geometry by shape instead missed `90% 40% at 50% 0%`, and
+        // stripping its trailing position left `... at 50%`, which then read
+        // as a colour with a position glued on — the whole gradient was
+        // dropped. Computed styles always spell a colour as a function or
+        // hex, never as a bare number, which is what makes this test reliable.
+        const hasColor =
+          /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\(/i.test(
+            part,
+          ) ||
+          /(^|\s)(transparent|currentcolor)(\s|$)/i.test(part) ||
+          /#[0-9a-f]{3,8}(\s|$)/i.test(part);
+        if (!hasColor) {
+          // Position 0 is the angle / `to <side>` / radial geometry.
+          if (i === 0) continue;
+          // Anywhere else it is a standalone colour hint, which has no SVG
+          // equivalent — the raster fallback preserves it exactly.
+          return true;
+        }
+        // Take the COLOUR out and see what is left. `parseColorStop` keeps one
+        // trailing percentage and treats everything before it as the colour, so
+        // whatever still stands once the colour and that one percentage are
+        // removed is a position it will glue onto `stop-color` and paint black.
+        // Asking it this way round covers forms an enumerated list misses:
+        // `calc(50% - 10px)` survives into computed styles, and so does a
+        // second position.
+        const residue = part
+          .replace(
+            /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\([^()]*(?:\([^()]*\)[^()]*)*\)|#[0-9a-f]{3,8}\b|\b(?:transparent|currentcolor)\b/gi,
+            "",
+          )
+          .replace(/\s*(-?[\d.]+)%\s*$/, "")
+          .trim();
+        if (residue) return true;
+      }
+    }
+    return false;
+  }
+
   function rotationFromTransform(transform: string): number {
     if (!transform || transform === "none") return 0;
     const m = transform.match(/matrix\(([^)]+)\)/);
@@ -2446,7 +2760,19 @@ export function collectRawFigmaSvgScene(
     if (style.display === "none" || style.visibility === "hidden") return false;
     if (el.getAttribute("data-agent-native-hidden") === "true") return false;
     const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
+    if (rect.width > 0 && rect.height > 0) return true;
+    // A zero-THICKNESS node still paints: the importer gives a flat vector an
+    // absolutely-positioned `overflow: visible` <svg> child, so a 1332x0 rule
+    // has all its ink in a descendant. Rejecting the wrapper on its own rect
+    // deleted that child before the walk ever recursed into it — four
+    // horizontal rules vanished from interior-product-comparison, recorded in
+    // neither `vectorized` nor `omitted`. Ask whether anything BELOW paints,
+    // rather than widening the test into "keep every empty box": a genuine
+    // zero-size spacer has no painting descendant and still drops.
+    return Array.from(el.children).some((child) => {
+      const box = child.getBoundingClientRect();
+      return box.width > 0 && box.height > 0;
+    });
   }
 
   /**
@@ -2689,13 +3015,7 @@ export function collectRawFigmaSvgScene(
     const style = view.getComputedStyle(el);
     const textAlign = style.textAlign;
     const elRect = el.getBoundingClientRect();
-    // Vertical centers use the ELEMENT's own CSS line-height box, not the
-    // Range's tight glyph-metrics rect: Chromium's getClientRects() height
-    // reflects font ascent/descent, which is usually shorter than the
-    // line-height the surrounding layout actually reserves, so
-    // `dominant-baseline="central"` measured against the tight rect lands a
-    // few px off from where the line visually centers (this was the global
-    // baseline-offset bug).
+
     // Emit the true alphabetic baseline instead of a line centre plus
     // `dominant-baseline="central"`. Figma's SVG importer ignores
     // dominant-baseline and reads `y` as the baseline, which lifted every
@@ -3045,6 +3365,7 @@ export function collectRawFigmaSvgScene(
       backgroundImage: style.backgroundImage,
       backgroundSize: style.backgroundSize,
       backgroundPosition: style.backgroundPosition,
+      backgroundRepeat: style.backgroundRepeat,
       boxShadow: style.boxShadow,
       // `el.style`, not the computed value: a custom property INHERITS, so
       // `getComputedStyle` hands every descendant its ancestor's shadow. The
@@ -3204,6 +3525,28 @@ export function collectRawFigmaSvgScene(
         ...rasterGeometry,
         rasterReason:
           "tiled gradient background (per-layer background-size) has no SVG equivalent — rasterized this element's region via screenshot.",
+      };
+    }
+
+    // `parseColorStop` reads a stop's position only when it is a PERCENTAGE:
+    // anything else — `40px`, a bare `0`, or a mid-ramp colour hint — leaves
+    // the length glued to the colour, and `stop-color` given a colour with a
+    // length still glued to it is an invalid paint that renders BLACK. The universal hard-stop idiom
+    // `<colour> 0 50%, <colour> 50% 100%` computes with a bare `0`, so an
+    // ordinary authored gradient exported as a black wedge, unreported.
+    // Resolving a length needs box geometry this parser does not have, so
+    // hand the leaf to the raster fallback that already sits beside conic and
+    // tiled gradients. Rasterized is lossy; a silent black box is wrong.
+    if (
+      el.children.length === 0 &&
+      /gradient\(/i.test(base.backgroundImage || "") &&
+      gradientHasUnreadableStop(base.backgroundImage || "")
+    ) {
+      return {
+        ...base,
+        ...rasterGeometry,
+        rasterReason:
+          "gradient has a stop position this exporter cannot resolve (a length or colour hint rather than a percentage) — rasterized this element's region via screenshot.",
       };
     }
 

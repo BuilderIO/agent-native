@@ -94,7 +94,7 @@ export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
           ? t("inviteDialog.sentWithFailures", { sent: ok, failed: fail })
           : t("inviteDialog.sent", { count: ok }),
       );
-      qc.invalidateQueries({
+      void qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
       });
     }

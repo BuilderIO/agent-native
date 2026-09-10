@@ -20,9 +20,7 @@ import { randomBytes } from "node:crypto";
 
 import {
   getDbExec,
-  intType,
   isConnectionError,
-  isPostgres,
   isProductionServerlessFunctionRuntime,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
@@ -170,6 +168,10 @@ export function isCanonicalIdentitySsoClientOrigin(
   return Boolean(origin && CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS.has(origin));
 }
 
+export function isCanonicalIdentitySsoClientConfigured(): boolean {
+  return isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
+}
+
 export function isCanonicalAgentNativeAppRequest(
   host: string | undefined,
   forwardedProtocol: string | undefined,
@@ -187,27 +189,30 @@ export function isCanonicalIdentitySsoClientRequest(
 }
 
 /**
- * The conditional login entry is the only browser UI this feature adds. It
- * stays byte-for-byte absent on canonical hosted apps, even though those
- * origins may use the backend flow for packaged Desktop. Explicitly
- * configured noncanonical deployments may opt in to the browser entry.
+ * Return whether the silent federation flow is available for this request.
+ * The browser entry is intentionally not rendered: local Google/email auth is
+ * the only sign-in UI, and federation happens after that local session exists.
  */
-export function identitySsoLoginButtonHtml(): string {
-  if (
-    isCanonicalIdentitySsoClientOrigin(configuredAppOrigin()) ||
-    !isIdentitySsoExplicitlyEnabled()
-  ) {
-    return "";
-  }
-  return (
-    `\n  <a class="btn-identity-sso" id="identity-sso-btn" ` +
-    `href="/_agent-native/identity/login" ` +
-    `style="display:flex;align-items:center;justify-content:center;gap:0.5rem;` +
-    `width:100%;padding:0.7rem 1rem;margin-bottom:0.75rem;border-radius:8px;` +
-    `border:1px solid rgba(255,255,255,0.18);background:transparent;` +
-    `color:inherit;font:inherit;font-weight:600;text-decoration:none;` +
-    `cursor:pointer">Sign in with Agent-Native</a>\n`
-  );
+export function isIdentitySsoAvailableForRequest(
+  options: {
+    requestHost?: string;
+    requestProtocol?: string;
+  } = {},
+): boolean {
+  const canonicalRequest = options.requestHost
+    ? isCanonicalIdentitySsoClientRequest(
+        options.requestHost,
+        options.requestProtocol ?? "https",
+      )
+    : isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
+  return canonicalRequest || isIdentitySsoExplicitlyEnabled();
+}
+
+/** @deprecated Browser sign-in with Agent-Native was removed. */
+export function identitySsoLoginButtonHtml(
+  _options: { requestHost?: string } = {},
+): string {
+  return "";
 }
 
 export interface CreateSsoStateInput {
@@ -242,9 +247,9 @@ function buildIdentitySsoFlowStateCreateSql(): string {
           redirect_uri TEXT NOT NULL,
           authority TEXT NOT NULL,
           code_challenge TEXT NOT NULL,
-          created_at ${intType()},
-          expires_at ${intType()},
-          consumed_at ${intType()}
+          created_at BIGINT,
+          expires_at BIGINT,
+          consumed_at BIGINT
         )
       `;
 }
@@ -253,7 +258,7 @@ function buildIdentitySsoJtiCreateSql(): string {
   return `
         CREATE TABLE IF NOT EXISTS identity_sso_jti (
           jti TEXT PRIMARY KEY,
-          seen_at ${intType()}
+          seen_at BIGINT
         )
       `;
 }
@@ -266,7 +271,7 @@ export async function ensureTable(): Promise<void> {
     _initPromise = (async () => {
       const flowStateSql = buildIdentitySsoFlowStateCreateSql();
       const jtiSql = buildIdentitySsoJtiCreateSql();
-      if (isPostgres()) {
+      {
         await ensureTableExists("identity_sso_flow_state", flowStateSql);
         await ensureTableExists("identity_sso_jti", jtiSql);
         return;

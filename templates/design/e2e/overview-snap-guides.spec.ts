@@ -6,7 +6,8 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { appPath, enterDirectMode } from "./helpers";
+import { e2eBaseURL } from "./base-url";
+import { appPath, enterDirectMode, expandAllLayers } from "./helpers";
 
 /**
  * Figma-parity smart guides on the two surfaces that move an object: dragging
@@ -15,9 +16,7 @@ import { appPath, enterDirectMode } from "./helpers";
  * before asserting the guide chrome, so a drag that silently no-ops fails.
  */
 
-const BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
+const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_W = 1280;
 const SCREEN_H = 900;
 
@@ -464,15 +463,9 @@ async function openScreenEditor(page: Page, designId: string) {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  for (let index = 0; index < 4; index += 1) {
-    await page
-      .getByRole("button", { name: "Expand layer" })
-      .first()
-      .click()
-      .catch(() => {});
-    await page.waitForTimeout(250);
-  }
+  // No blind settle: expandAllLayers waits for the first layer row, which
+  // the editor cannot render before it has parsed the document.
+  await expandAllLayers(page);
   await screenFrameWithNode(page, "box-a");
   await page.getByRole("treeitem").filter({ hasText: "Box A" }).first().click();
   await page.waitForTimeout(1600);

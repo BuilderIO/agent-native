@@ -46,11 +46,11 @@ describe("visual style controls", () => {
     );
     expect(trigger?.textContent).toContain("Mixed colors");
     expect(trigger?.querySelector("span")?.style.background).toContain(
-      "linear-gradient",
+      "conic-gradient",
     );
   });
 
-  it("uses a soft gray base for transparent checkerboards", () => {
+  it("uses opaque white and soft gray for transparent checkerboards", () => {
     act(() => {
       root.render(
         <VisualColorPicker
@@ -64,9 +64,12 @@ describe("visual style controls", () => {
     const trigger = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Color"]',
     );
-    expect(trigger?.querySelector("span")?.style.backgroundColor).toBe(
-      "#f5f5f5",
-    );
+    const checker = trigger?.querySelector("span");
+    expect(checker?.style.backgroundColor).toBe("#ffffff");
+    expect(checker?.style.background).toContain("conic-gradient");
+    expect(checker?.style.background).toContain("#e5e5e5");
+    expect(checker?.style.background).toContain("#ffffff");
+    expect(checker?.style.background).not.toContain("transparent");
   });
 
   it("renders the filled color trigger without an outer border", () => {

@@ -13,40 +13,40 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionContentSignature,
+} from "../server/lib/deck-versions.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
 import {
+  createLayoutFitRevision,
+  deckFitRenderFieldsChanged,
+  slideFitRenderFieldsChanged,
+} from "../shared/slide-fit.js";
+import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
+import { getDeckUrl } from "./_app-url.js";
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
+  assertDeckWriteApplied,
   deckDesignSystemId,
   deckHttpError,
   deckTitle,
+  deckRevisionWhere,
+  nextDeckRevision,
   type DeckPayload,
 } from "./_deck-write.js";
 import { withDeckLock } from "./patch-deck.js";
-
-function comparableDeckData(raw: unknown): string {
-  try {
-    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-    const clone = JSON.parse(JSON.stringify(data ?? {}));
-    delete clone.updatedAt;
-    return JSON.stringify(clone);
-  } catch {
-    return String(raw ?? "");
-  }
-}
 
 function shouldSnapshotDeckWrite(
   current: { title?: string | null; data?: string | null },
@@ -55,7 +55,8 @@ function shouldSnapshotDeckWrite(
 ): boolean {
   return (
     (current.title ?? "Untitled") !== nextTitle ||
-    comparableDeckData(current.data ?? "") !== comparableDeckData(nextDeck)
+    deckVersionContentSignature(current.data ?? "") !==
+      deckVersionContentSignature(nextDeck)
   );
 }
 
@@ -96,12 +97,12 @@ export default defineAction({
       deck.id = deckId;
       deck.updatedAt = now;
       const requestedTitle = deckTitle(deck);
-      const nextDesignSystemId = deckDesignSystemId(deck);
 
       // Resolve access first — this loads the row AND tells us the caller's
       // effective role in one pass, so we never run an unscoped existence
       // SELECT that would leak "this id exists" to non-owners.
       const access = await resolveAccess("deck", deckId);
+      stampChangedSlideRevisions(access?.resource.data, deck);
 
       if (!access) {
         // Either the deck does not exist OR the caller cannot see it. In both
@@ -117,13 +118,13 @@ export default defineAction({
           requestedTitle;
         assertHumanReadableDeckTitle(title);
         deck.title = title;
-        await assertDesignSystemReadable(nextDesignSystemId);
+        await assertDesignSystemReadable(deckDesignSystemId(deck));
         try {
           await db.insert(schema.decks).values({
             id: deckId,
             title,
             data: JSON.stringify(deck),
-            designSystemId: nextDesignSystemId,
+            designSystemId: deckDesignSystemId(deck),
             ownerEmail,
             orgId: getRequestOrgId() ?? null,
             createdAt: now,
@@ -147,36 +148,52 @@ export default defineAction({
           ) ?? requestedTitle;
         assertHumanReadableDeckTitle(title);
         deck.title = title;
+        const updatedAt = nextDeckRevision(access.resource.updatedAt);
+        deck.updatedAt = updatedAt;
+        const nextDesignSystemId = Object.hasOwn(deck, "designSystemId")
+          ? deckDesignSystemId(deck)
+          : (access.resource.designSystemId ?? null);
         await assertDesignSystemReadable(nextDesignSystemId);
-        if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
-          await createDeckVersionSnapshot(
-            {
-              id: access.resource.id,
-              title: access.resource.title,
-              data: access.resource.data,
-              ownerEmail: access.resource.ownerEmail as string,
-            },
-            { label: "Before editor save" },
-          );
+        if (!shouldSnapshotDeckWrite(access.resource, title, deck)) {
+          return { ...deck, updatedAt: access.resource.updatedAt };
         }
-        await db
-          .update(schema.decks)
-          .set({
-            title,
-            data: JSON.stringify(deck),
-            designSystemId:
-              nextDesignSystemId ?? access.resource.designSystemId,
-            updatedAt: now,
-          })
-          .where(eq(schema.decks.id, deckId));
+        await db.transaction(async (tx: any) => {
+          if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
+            await createDeckVersionSnapshot(
+              {
+                id: access.resource.id,
+                title: access.resource.title,
+                data: access.resource.data,
+                ownerEmail: access.resource.ownerEmail as string,
+              },
+              { label: "Before editor save", db: tx },
+            );
+          }
+          const updateResult = await tx
+            .update(schema.decks)
+            .set({
+              title,
+              data: JSON.stringify(deck),
+              designSystemId: nextDesignSystemId,
+              updatedAt,
+            })
+            .where(
+              deckRevisionWhere(
+                schema.decks,
+                deckId,
+                access.resource.updatedAt,
+              ),
+            );
+          assertDeckWriteApplied(updateResult, deckId, "deck save");
+        });
       } else {
         // Viewer-only access — same 404 as no-access so we don't leak that the
         // deck exists with restricted permissions.
         throw deckHttpError(404, "Deck not found");
       }
 
-      notifyClients(deckId);
-      return deck;
+      await notifyClients(deckId);
+      return { ...deck, appUrl: getDeckUrl(deckId) };
     }),
 });
 
@@ -184,4 +201,39 @@ function firstSlideContent(deck: DeckPayload): string | null {
   const slides = Array.isArray(deck.slides) ? deck.slides : [];
   const content = slides[0] && (slides[0] as Record<string, unknown>).content;
   return typeof content === "string" ? content : null;
+}
+
+export function stampChangedSlideRevisions(
+  previousData: string | null | undefined,
+  nextDeck: DeckPayload,
+): void {
+  const previous = previousData
+    ? (JSON.parse(previousData) as {
+        aspectRatio?: unknown;
+        designSystemId?: unknown;
+        slides?: unknown;
+      })
+    : {};
+  const deckFitFieldsChanged = deckFitRenderFieldsChanged(previous, nextDeck);
+  const previousSlides = (
+    Array.isArray(previous.slides) ? previous.slides : []
+  ) as Array<Record<string, unknown>>;
+  const nextSlides = Array.isArray(nextDeck.slides)
+    ? (nextDeck.slides as Array<Record<string, unknown>>)
+    : [];
+
+  for (const slide of nextSlides) {
+    const prior = previousSlides.find((candidate) => candidate.id === slide.id);
+    if (
+      deckFitFieldsChanged ||
+      !prior ||
+      slideFitRenderFieldsChanged(prior, slide)
+    ) {
+      slide.layoutFitRevision = createLayoutFitRevision();
+    } else if (typeof prior.layoutFitRevision === "string") {
+      slide.layoutFitRevision = prior.layoutFitRevision;
+    } else {
+      delete slide.layoutFitRevision;
+    }
+  }
 }

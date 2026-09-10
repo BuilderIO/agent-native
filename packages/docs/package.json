@@ -36,6 +36,7 @@
     "@tabler/icons-react": "^3.40.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query": "^5.99.2",
+    "@vgpu/wgsl": "0.3.1",
     "gray-matter": "^4.0.3",
     "h3": "catalog:",
     "isbot": "^5.1.27",
@@ -49,6 +50,7 @@
     "shiki": "^4.0.2",
     "tailwindcss": "^4.1.18",
     "unified": "^11.0.5",
+    "vgpu": "0.3.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -58,6 +60,7 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@webgpu/types": "0.1.72",
     "jsdom": "^29.0.2",
     "tsx": "^4.21.0",
     "typescript-7": "catalog:",

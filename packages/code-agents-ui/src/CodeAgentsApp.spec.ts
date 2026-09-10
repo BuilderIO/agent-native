@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findRunsThatBecameUnread,
+  getCodeAgentExternalStreamingMessageId,
   getCodeAgentPickerOptions,
   getCodeAgentSelection,
   getCodeAgentWorktreeRecoveryState,
@@ -205,6 +206,99 @@ describe("CodeAgentsApp chat-first rail scrolling", () => {
 });
 
 describe("CodeAgentsApp transcript selection", () => {
+  it("does not replay the prior assistant before a follow-up assistant arrives", () => {
+    const previousEvents: CodeAgentTranscriptEvent[] = [
+      {
+        id: "user-1",
+        runId: "run-1",
+        type: "user",
+        text: "first",
+        createdAt: "2026-08-27T20:00:00.000Z",
+      },
+      {
+        id: "assistant-1",
+        runId: "run-1",
+        type: "system",
+        text: "first answer",
+        createdAt: "2026-08-27T20:00:01.000Z",
+        metadata: { role: "assistant" },
+      },
+    ];
+    const baselineEventIds = new Set(previousEvents.map((event) => event.id));
+    const followUpEvents: CodeAgentTranscriptEvent[] = [
+      ...previousEvents,
+      {
+        id: "user-2",
+        runId: "run-1",
+        type: "user",
+        text: "follow up",
+        createdAt: "2026-08-27T20:01:00.000Z",
+      },
+    ];
+    expect(
+      getCodeAgentExternalStreamingMessageId(
+        followUpEvents,
+        "run-1",
+        baselineEventIds,
+      ),
+    ).toBeNull();
+
+    const liveEvents: CodeAgentTranscriptEvent[] = [
+      ...followUpEvents,
+      {
+        id: "assistant-2",
+        runId: "run-1",
+        type: "system",
+        text: "second answer",
+        createdAt: "2026-08-27T20:01:01.000Z",
+        metadata: { role: "assistant" },
+      },
+    ];
+    expect(
+      getCodeAgentExternalStreamingMessageId(
+        liveEvents,
+        "run-1",
+        baselineEventIds,
+      ),
+    ).toBe("code-assistant-1-assistant-2");
+  });
+
+  it("propagates an external stop into the shared chat footer state", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+
+    expect(source).toContain(
+      "const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);",
+    );
+    expect(source).toContain("if (!wasRunActiveRef.current) {");
+    expect(source).toContain("setUserStoppedRunId(runId);");
+    expect(source).toContain(
+      "externalUserStopped={userStoppedRunId === run.id}",
+    );
+    expect(source).toContain("externalUserStopped={externalUserStopped}");
+    expect(source).toContain("const stopInFlightRef = useRef(false);");
+    expect(source).toContain(
+      "if (!runId || stopInFlightRef.current) return false;",
+    );
+    expect(source).toContain("const stopSucceeded = await onStop();");
+    expect(source).toContain("stopSucceededRef.current = true;");
+    expect(source).toContain("else if (!stopSucceededRef.current) {");
+    expect(source).toContain("return result.ok;");
+    expect(source).toContain("externalStreamingBaselineEventIdsRef");
+    expect(source).toContain("externalStreamingBaselineInitializedRef");
+    expect(source).toContain("!runIsActive || !transcriptLoading");
+    expect(source).toContain(
+      "!externalStreamingBaselineInitializedRef.current",
+    );
+    expect(source).toContain("externalStreamingMessageId");
+    expect(source).toContain(
+      "externalStreamingMessageId={externalStreamingMessageId}",
+    );
+    expect(source).toContain(
+      "externalStreaming={Boolean(externalStreamingMessageId)}",
+    );
+    expect(source).toContain("onStop={onStop}");
+  });
+
   it("does not let an older transcript read replace a newly selected chat", () => {
     const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
     const loadTranscriptStart = source.indexOf("const loadTranscript =");

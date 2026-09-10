@@ -20,8 +20,9 @@ const DASHBOARD_CONTEXT_KEYS = new Set([
 
 export default function AskPage() {
   const t = useT();
-  const { items: chatContextItems, remove: removeChatContextItem } =
-    useAgentChatContext();
+  const chatContext = useAgentChatContext();
+  const chatContextItems = chatContext.items;
+  const removeChatContextItem = chatContext.remove.bind(chatContext);
   const staleDashboardContextKey = useMemo(
     () =>
       chatContextItems.find((item) => DASHBOARD_CONTEXT_KEYS.has(item.key))

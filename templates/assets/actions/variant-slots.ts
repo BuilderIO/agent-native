@@ -218,13 +218,13 @@ async function readVariantStateUnlocked(
   scopeId?: string | null,
 ): Promise<AssetVariantState | null> {
   const key = variantStateKey(scopeId);
-  const current = (await readAppState(key)) as unknown | null;
+  const current = (await readAppState(key)) as unknown;
   if (current) return current as AssetVariantState;
 
   if (scopeId) {
-    const globalCurrent = (await readAppState(GLOBAL_VARIANT_STATE_KEY)) as
-      | unknown
-      | null;
+    const globalCurrent = (await readAppState(
+      GLOBAL_VARIANT_STATE_KEY,
+    )) as unknown;
     const globalState = (globalCurrent ?? null) as AssetVariantState | null;
     return globalState?.threadId === scopeId ||
       globalState?.variantScopeId === scopeId
@@ -234,9 +234,9 @@ async function readVariantStateUnlocked(
 
   const legacyCurrent =
     current ??
-    ((await readAppState(LEGACY_VARIANT_STATE_KEY).catch(() => null)) as
-      | unknown
-      | null);
+    ((await readAppState(LEGACY_VARIANT_STATE_KEY).catch(
+      () => null,
+    )) as unknown);
   return (legacyCurrent ?? null) as AssetVariantState | null;
 }
 
@@ -259,9 +259,9 @@ async function deleteVariantStateUnlocked(scopeId?: string | null) {
   const key = variantStateKey(scopeId);
   await deleteAppState(key);
   if (key !== GLOBAL_VARIANT_STATE_KEY) {
-    const globalCurrent = (await readAppState(GLOBAL_VARIANT_STATE_KEY)) as
-      | unknown
-      | null;
+    const globalCurrent = (await readAppState(
+      GLOBAL_VARIANT_STATE_KEY,
+    )) as unknown;
     const globalState = (globalCurrent ?? null) as AssetVariantState | null;
     if (
       globalState?.threadId === scopeId ||

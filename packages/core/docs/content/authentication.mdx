@@ -179,8 +179,9 @@ exchange validation, exact origin and callback allowlists, authenticated-session
 requirements, session isolation, and revocation remain unconditional in every
 flag state. Custom and third-party apps are excluded.
 Canonical hosted apps recognize packaged Desktop requests without per-app
-identity-hub environment configuration. Ordinary browsers and self-hosted apps
-still require `AGENT_NATIVE_IDENTITY_HUB_URL` to opt in.
+identity-hub environment configuration. Ordinary browsers stay on normal
+per-app sign-in. Self-hosted apps need `AGENT_NATIVE_IDENTITY_HUB_URL` only for
+the remaining explicit Desktop or server-side federation path.
 Every Desktop build may initialize the broker when the per-device
 `desktopSsoEnabled` preference is true (the default); an explicit persisted
 `false` remains an opt-out. The `desktop.workspace-sso` Dispatch flag must also
@@ -209,8 +210,8 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 
 When this flag is set, password fallback signup does not require email
 verification and the signup verification email is not sent. It does not change
-magic-link delivery. Use it only for QA or preview environments, and name test accounts with a `+qa` address
-(`name+qa@example.com`) so they are easy to identify.
+magic-link delivery. Use it only for QA or preview environments, and name test accounts with a `+autoz` address
+(`name+autoz@example.com`) so they are easy to identify.
 
 ## Email Verification Policy {#email-verification-policy}
 

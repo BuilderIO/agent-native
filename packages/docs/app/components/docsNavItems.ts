@@ -2,6 +2,7 @@ import enUS from "../i18n/en-US";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
+  docsLocaleFromSegment,
   type DocsLocale,
 } from "./docs-locale";
 
@@ -124,6 +125,42 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       {
+        id: "database-providers",
+        labelKey: "databaseProviders",
+        children: [
+          {
+            id: "database-neon",
+            labelKey: "databaseNeon",
+            slug: "neon",
+          },
+          {
+            id: "database-supabase",
+            labelKey: "databaseSupabase",
+            slug: "supabase",
+          },
+          {
+            id: "database-aws-rds",
+            labelKey: "databaseAwsRds",
+            slug: "aws-rds",
+          },
+          {
+            id: "database-cloud-sql",
+            labelKey: "databaseCloudSql",
+            slug: "cloud-sql",
+          },
+          {
+            id: "database-azure-postgres",
+            labelKey: "databaseAzurePostgres",
+            slug: "azure-postgresql",
+          },
+          {
+            id: "database-postgres",
+            labelKey: "databasePostgres",
+            slug: "postgres",
+          },
+        ],
+      },
+      {
         id: "deployment-production",
         labelKey: "deploymentProduction",
         children: [
@@ -153,6 +190,16 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "cloneable-saas",
         labelKey: "templatesOverview",
         slug: "cloneable-saas",
+      },
+      {
+        id: "creating-templates",
+        labelKey: "creatingTemplates",
+        slug: "creating-templates",
+      },
+      {
+        id: "syncing-template-changes",
+        labelKey: "syncingTemplateChanges",
+        slug: "syncing-template-changes",
       },
       {
         id: "pure-agent-apps",
@@ -520,14 +567,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-forms",
           },
           {
-            id: "template-forms-building-publishing",
-            labelKey: "formsBuildingPublishing",
-            slug: "template-forms-building-publishing",
+            id: "template-forms-features",
+            labelKey: "formsFeatures",
+            slug: "template-forms-features",
           },
           {
-            id: "template-forms-responses",
-            labelKey: "formsResponses",
-            slug: "template-forms-responses",
+            id: "template-forms-agent",
+            labelKey: "formsAgent",
+            slug: "template-forms-agent",
+          },
+          {
+            id: "template-forms-integrations",
+            labelKey: "formsIntegrations",
+            slug: "template-forms-integrations",
           },
           {
             id: "template-forms-developers",
@@ -752,6 +804,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "generative-ui",
       },
       {
+        id: "embedding-sdk",
+        labelKey: "embeddingSdk",
+        slug: "embedding-sdk",
+      },
+      {
         id: "real-time-collaboration",
         labelKey: "realTimeCollaboration",
         slug: "real-time-collaboration",
@@ -766,6 +823,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "agent-resources-overview",
         labelKey: "agentResourcesOverview",
         slug: "agent-resources",
+      },
+      {
+        id: "writing-agent-instructions",
+        labelKey: "writingAgentInstructions",
+        slug: "writing-agent-instructions",
       },
       { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
       {
@@ -865,29 +927,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     ],
   },
   {
-    id: "build-apps",
-    titleKey: "buildApps",
-    items: [
-      {
-        id: "creating-templates",
-        labelKey: "creatingTemplates",
-        slug: "creating-templates",
-      },
-      {
-        id: "syncing-template-changes",
-        labelKey: "syncingTemplateChanges",
-        slug: "syncing-template-changes",
-      },
-      {
-        id: "writing-agent-instructions",
-        labelKey: "writingAgentInstructions",
-        slug: "writing-agent-instructions",
-      },
-      { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
-      { id: "frames", labelKey: "frames", slug: "frames" },
-    ],
-  },
-  {
     id: "toolkits",
     titleKey: "agentNativeToolkit",
     items: [
@@ -900,11 +939,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "toolkit-ui",
         labelKey: "toolkitUiPrimitives",
         slug: "toolkit-ui",
-      },
-      {
-        id: "custom-design-system",
-        labelKey: "customDesignSystem",
-        slug: "custom-design-system",
       },
       {
         id: "toolkit-editors-canvases",
@@ -1060,20 +1094,26 @@ function navLabel(t: Translate, key: keyof typeof enUS.nav): string {
 
 const SHOW_DRAFTS = import.meta.env.VITE_SHOW_DRAFTS === "true";
 
-// Keep the public template catalog after the framework/toolkit guidance so
-// readers encounter architecture and reusable primitives before app examples.
+// Keep Toolkit directly after deployment, and the public template catalog
+// after the framework guidance so readers encounter architecture and reusable
+// primitives before app examples.
 const NAV_SECTION_CONFIG_IN_DISPLAY_ORDER = (() => {
   const appsSection = NAV_SECTION_CONFIG.find(
     (section) => section.id === "apps",
   );
-  if (!appsSection) return NAV_SECTION_CONFIG;
+  const toolkitsSection = NAV_SECTION_CONFIG.find(
+    (section) => section.id === "toolkits",
+  );
+  if (!appsSection || !toolkitsSection) return NAV_SECTION_CONFIG;
 
   return NAV_SECTION_CONFIG.flatMap((section) =>
-    section.id === "apps"
+    section.id === "apps" || section.id === "toolkits"
       ? []
-      : section.id === "toolkits"
-        ? [section, appsSection]
-        : [section],
+      : section.id === "deployment"
+        ? [section, toolkitsSection]
+        : section.id === "core-architecture"
+          ? [section, appsSection]
+          : [section],
   );
 })();
 
@@ -1097,14 +1137,15 @@ function toNavItem(
 }
 
 export function getDocsNavSections(
-  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
   t: Translate = enMessage,
 ): NavSection[] {
+  const docsLocale = docsLocaleFromSegment(locale) ?? DEFAULT_DOCS_LOCALE;
   return NAV_SECTION_CONFIG_IN_DISPLAY_ORDER.map((section) => ({
     id: section.id,
     title: navLabel(t, section.titleKey),
     items: section.items
-      .map((item) => toNavItem(item, locale, t))
+      .map((item) => toNavItem(item, docsLocale, t))
       .filter((item): item is NavItem => item !== null),
   })).filter((section) => section.items.length > 0);
 }
@@ -1125,7 +1166,7 @@ function flattenItems(items: NavItem[]): NavItem[] {
 }
 
 export function getDocsNavItems(
-  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
   t: Translate = enMessage,
 ): (NavItem & { to: string })[] {
   return getDocsNavSections(locale, t)

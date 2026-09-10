@@ -176,7 +176,9 @@ export function estimateAttachmentBodyBytes(dataUrls: string[]): number {
   return dataUrls.reduce((sum, url) => sum + url.length, 0) * 1.15;
 }
 
-export type QueuedAttachment = CompleteAttachment;
+export type QueuedAttachment = CompleteAttachment & {
+  metadata?: Record<string, unknown>;
+};
 
 export class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
   public accept = IMAGE_ATTACHMENT_ACCEPT;
@@ -352,11 +354,31 @@ export async function serializeQueuedAttachments(
 ): Promise<QueuedAttachment[] | undefined> {
   const queued: QueuedAttachment[] = [];
   for (const raw of attachments ?? []) {
-    const attachment = raw as Partial<Attachment> & { file?: File };
+    const attachment = raw as Partial<Attachment> & {
+      displayOnly?: boolean;
+      file?: File;
+      text?: string;
+    };
     const name = attachment.name || attachment.file?.name || "attachment";
     const id = attachment.id || name;
     const type = attachment.type || "file";
     const contentType = attachment.contentType || attachment.file?.type;
+
+    if (attachment.displayOnly === true) {
+      queued.push({
+        id,
+        type,
+        name,
+        contentType,
+        status: { type: "complete" },
+        content:
+          typeof attachment.text === "string"
+            ? [{ type: "text", text: attachment.text }]
+            : [],
+        metadata: { displayOnly: true },
+      });
+      continue;
+    }
 
     if (Array.isArray(attachment.content) && attachment.content.length > 0) {
       const content = attachment.content

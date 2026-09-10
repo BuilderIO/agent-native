@@ -7,13 +7,15 @@
  *
  * Cost is stored as "centicents" (1/100th of a cent) for integer precision.
  */
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getAppConfig } from "../app-config/index.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { getRequestOrgId } from "../server/request-context.js";
 
 /**
  * Per-million-token pricing in cents. Cache read is typically ~10% of
@@ -195,7 +197,7 @@ export interface UsageRecord {
   model: string;
   /** Category for this call — e.g. "chat", "automation", "job", "custom-agent". */
   label?: string;
-  /** Optional template/app name (e.g. "mail"). Falls back to AGENT_APP / APP_NAME env. */
+  /** Optional template/app name (e.g. "mail"). Falls back to app config identity. */
   app?: string;
   /**
    * Stable id of the thing this usage belongs to (e.g. a recap plan id). When
@@ -211,6 +213,7 @@ export interface UsageRecord {
   costCentsX100?: number;
   /** Whether cost is provider-reported, estimated, or unavailable. */
   costSource?: UsageCostSource;
+  /** Defaults to the active request organization when omitted. */
   orgId?: string;
   runId?: string;
   threadId?: string;
@@ -222,21 +225,26 @@ export interface UsageRecord {
 
 export type UsageCostSource = "reported" | "estimated" | "unavailable";
 
+export function resolveUsageAppKey(app?: string | null): string {
+  if (app !== null && app !== undefined) return app.trim();
+  const config = getAppConfig();
+  return (config.app.id ?? config.app.name ?? "").trim();
+}
+
 let _initPromise: Promise<void> | undefined;
 
 export async function ensureUsageTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS token_usage (
-          id ${intType()} PRIMARY KEY,
+          id BIGINT PRIMARY KEY,
           owner_email TEXT NOT NULL,
-          input_tokens ${intType()} NOT NULL DEFAULT 0,
-          output_tokens ${intType()} NOT NULL DEFAULT 0,
-          cache_read_tokens ${intType()} NOT NULL DEFAULT 0,
-          cache_write_tokens ${intType()} NOT NULL DEFAULT 0,
-          cost_cents_x100 ${intType()} NOT NULL DEFAULT 0,
+          input_tokens BIGINT NOT NULL DEFAULT 0,
+          output_tokens BIGINT NOT NULL DEFAULT 0,
+          cache_read_tokens BIGINT NOT NULL DEFAULT 0,
+          cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+          cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
           cost_source TEXT NOT NULL DEFAULT 'estimated',
           model TEXT NOT NULL DEFAULT '',
           label TEXT NOT NULL DEFAULT 'chat',
@@ -249,14 +257,14 @@ export async function ensureUsageTable(): Promise<void> {
           integration_scope_id TEXT,
           source_platform TEXT,
           source_id TEXT,
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
         )
       `;
 
       // Additive columns for older deployments that pre-date the label/cache fields.
       const additions: Array<[string, string]> = [
-        ["cache_read_tokens", `${intType()} NOT NULL DEFAULT 0`],
-        ["cache_write_tokens", `${intType()} NOT NULL DEFAULT 0`],
+        ["cache_read_tokens", `BIGINT NOT NULL DEFAULT 0`],
+        ["cache_write_tokens", `BIGINT NOT NULL DEFAULT 0`],
         ["cost_source", `TEXT NOT NULL DEFAULT 'estimated'`],
         ["label", `TEXT NOT NULL DEFAULT 'chat'`],
         ["app", `TEXT NOT NULL DEFAULT ''`],
@@ -270,7 +278,7 @@ export async function ensureUsageTable(): Promise<void> {
         ["source_id", "TEXT"],
       ];
 
-      if (isPostgres()) {
+      {
         // Hot path: the `token_usage` table and its index are virtually always
         // already present in production. Issuing `CREATE TABLE`/`ALTER TABLE`/
         // `CREATE INDEX` still takes a lock that, in a fresh background-worker
@@ -315,38 +323,11 @@ export async function ensureUsageTable(): Promise<void> {
           "idx_token_usage_lower_owner_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
         );
+        await ensureIndexExists(
+          "idx_token_usage_org_app_created",
+          `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`,
+        );
         return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // Add columns on older deployments that pre-date the label/cache
-      // fields. Each ALTER is wrapped so a dialect without IF NOT EXISTS
-      // (SQLite) still makes progress if only some columns are missing.
-      for (const [col, def] of additions) {
-        try {
-          await client.execute(
-            `ALTER TABLE token_usage ADD COLUMN ${col} ${def}`,
-          );
-        } catch {
-          // Column already exists — ignore
-        }
-      }
-      // Older deployments created `created_at` as 32-bit `INTEGER`; on Postgres
-      // the `Date.now()` written per run by recordUsage() overflows int4. Widen
-      // it in place (no-op once done / on fresh BIGINT databases).
-      await widenIntColumnsToBigInt("token_usage", ["created_at"]);
-      for (const ddl of [
-        `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
-      ]) {
-        try {
-          await client.execute(ddl);
-        } catch {
-          // coercion-ok: index already exists, or this dialect rejected the
-          // duplicate. Local-dev SQLite only — the hosted path creates these
-          // through the Postgres branch above, which probes before creating.
-        }
       }
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
@@ -452,18 +433,20 @@ export async function recordUsage(
 
   await ensureUsageTable();
   const client = getDbExec();
-  const resolvedApp =
-    app ?? process.env.AGENT_APP ?? process.env.APP_NAME ?? "";
+  const resolvedApp = resolveUsageAppKey(app);
   const resolvedLabel = label ?? "chat";
   const resolvedRef = refId ?? "";
+  const resolvedOrgId = orgId ?? getRequestOrgId() ?? null;
 
-  // Replace any prior usage for this (label, refId) so re-recording the same
-  // run — e.g. a recap regenerated on a PR re-push — overwrites instead of
-  // double-counting. No-op when refId is unset (the common per-call path).
+  // Replace any prior usage for this (org, label, refId) so re-recording the
+  // same run — e.g. a recap regenerated on a PR re-push — overwrites instead
+  // of double-counting. No-op when refId is unset (the common per-call path).
   if (resolvedRef) {
     await client.execute({
-      sql: `DELETE FROM token_usage WHERE label = ? AND ref_id = ?`,
-      args: [resolvedLabel, resolvedRef],
+      sql: `DELETE FROM token_usage
+        WHERE label = ? AND ref_id = ?
+          AND (org_id IS NULL OR org_id = ?)`,
+      args: [resolvedLabel, resolvedRef, resolvedOrgId],
     });
   }
 
@@ -500,7 +483,7 @@ export async function recordUsage(
       resolvedLabel,
       resolvedApp,
       resolvedRef,
-      orgId ?? null,
+      resolvedOrgId,
       runId ?? null,
       threadId ?? null,
       taskId ?? null,
@@ -516,7 +499,10 @@ export async function recordUsage(
   // evaluator serializes its own work so the hot path stays one insert.
   void import("./alerts-store.js")
     .then(({ enqueueUsageAlertEvaluation }) => {
-      return enqueueUsageAlertEvaluation(record);
+      return enqueueUsageAlertEvaluation({
+        ...record,
+        orgId: resolvedOrgId,
+      });
     })
     .catch((error) => {
       console.error("[usage-alerts] could not enqueue evaluation:", error);
@@ -665,9 +651,7 @@ export async function getUsageSummary(
     client.execute(bucketSql("app")),
   ]);
 
-  // By-day aggregation — done in JS so we don't depend on dialect-specific
-  // date functions (SQLite `strftime`, Postgres `to_char`). Cheap enough
-  // for a 30-day window; if this grows, swap for a dialect-aware query.
+  // By-day aggregation stays in JS to avoid database-specific date functions.
   const dayRows = await client.execute({
     sql: `SELECT created_at, cost_cents_x100, cost_source FROM token_usage
       WHERE owner_email = ? AND created_at >= ?`,

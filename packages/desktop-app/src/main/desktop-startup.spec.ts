@@ -6,6 +6,7 @@ import {
   resolveDesktopSsoBrokerStatePath,
   resolveStableUserDataPath,
   runDesktopStartupStep,
+  type DesktopStartupDependencies,
 } from "./desktop-startup.js";
 
 describe("desktopRequestedUserDataPath", () => {
@@ -27,7 +28,7 @@ describe("desktopRequestedUserDataPath", () => {
 
 function createDependencies(
   overrides: Partial<Parameters<typeof initializeDesktopStartup>[0]> = {},
-) {
+): { events: string[]; dependencies: DesktopStartupDependencies } {
   const events: string[] = [];
   return {
     events,
@@ -170,6 +171,46 @@ describe("initializeDesktopStartup", () => {
 
     expect(dependencies.setUserDataPath).toHaveBeenCalledWith(
       "/application-support/Agent Native", // agent-native-brand-ok: preserve the legacy Electron profile directory.
+    );
+  });
+
+  it("reuses the legacy stable profile for packaged Nightly", () => {
+    const { dependencies, events } = createDependencies({
+      version: "0.1.150-nightly.296",
+      defaultUserDataPath: "/application-support/Agent-Native Nightly",
+      pathExists: vi.fn(
+        (directoryPath) =>
+          directoryPath === "/application-support/Agent Native", // agent-native-brand-ok: preserve the legacy Electron profile directory.
+      ),
+    });
+
+    initializeDesktopStartup(dependencies);
+
+    expect(dependencies.createDirectory).toHaveBeenCalledWith(
+      "/application-support/Agent Native", // agent-native-brand-ok: preserve the legacy Electron profile directory.
+    );
+    expect(dependencies.setUserDataPath).toHaveBeenCalledWith(
+      "/application-support/Agent Native", // agent-native-brand-ok: preserve the legacy Electron profile directory.
+    );
+    expect(events).toEqual([
+      "create-directory",
+      "set-user-data",
+      "sentry",
+      "logger",
+    ]);
+  });
+
+  it("keeps a packaged Nightly install on its default profile when no legacy profile exists", () => {
+    const { dependencies } = createDependencies({
+      version: "0.1.150-nightly.296",
+      defaultUserDataPath: "/application-support/Agent-Native Nightly",
+      pathExists: vi.fn(() => false),
+    });
+
+    initializeDesktopStartup(dependencies);
+
+    expect(dependencies.setUserDataPath).toHaveBeenCalledWith(
+      "/application-support/Agent-Native Nightly",
     );
   });
 

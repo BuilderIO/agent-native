@@ -115,7 +115,7 @@ export function useOptimisticLogRows<K extends LogKind>(
       });
 
       if (resultRow) {
-        queryClient.invalidateQueries({ queryKey: ["action"] });
+        void queryClient.invalidateQueries({ queryKey: ["action"] });
       }
     };
 
@@ -217,7 +217,7 @@ function buildOptimisticRow(
   if (kind === "meal") {
     const row = {
       ...base,
-      name: String(input.name || "Meal"),
+      name: typeof input.name === "string" ? input.name : "Meal",
       calories: numberOrDefault(input.calories, 0),
       protein: optionalNumber(input.protein),
       carbs: optionalNumber(input.carbs),
@@ -234,7 +234,7 @@ function buildOptimisticRow(
   if (kind === "exercise") {
     const row = {
       ...base,
-      name: String(input.name || "Exercise"),
+      name: typeof input.name === "string" ? input.name : "Exercise",
       calories_burned: numberOrDefault(
         input.calories_burned ?? input.calories,
         0,
@@ -251,7 +251,12 @@ function buildOptimisticRow(
   const row = {
     ...base,
     weight: numberOrDefault(input.weight, 0),
-    notes: input.notes == null ? null : String(input.notes),
+    notes:
+      input.notes == null
+        ? null
+        : typeof input.notes === "string"
+          ? input.notes
+          : (JSON.stringify(input.notes) ?? ""),
   };
   return {
     ...row,
@@ -370,7 +375,7 @@ function normalizeDate(value: unknown): string {
 }
 
 function normalizeText(value: unknown): string {
-  return String(value ?? "")
+  return (typeof value === "string" ? value : (JSON.stringify(value) ?? ""))
     .trim()
     .toLowerCase();
 }

@@ -54,6 +54,26 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
+  /**
+   * A search field that draws its own clear button must drop WebKit's cancel
+   * widget or it shows two "x" controls. The selector must stay scoped to the
+   * opt-in class: a bare `input[type="search"]` rule would also strip the only
+   * pointer-accessible clear from the fields that render no button of their
+   * own. `guard:single-search-clear` keeps the class and the button paired.
+   */
+  it("suppresses the native search widgets only for fields that own their clear button", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-native-search-input::-webkit-search-cancel-button,\s*\.agent-native-search-input::-webkit-search-decoration,\s*\.agent-native-search-input::-webkit-search-results-button,\s*\.agent-native-search-input::-webkit-search-results-decoration\s*\{[^}]*-webkit-appearance: none;[^}]*appearance: none;/s,
+    );
+    expect(css).not.toMatch(
+      /(^|[\s,])input\[type="search"\]::-webkit-search-cancel-button/m,
+    );
+  });
+
   it("removes shell transitions while the agent sidebar is being resized", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
@@ -112,10 +132,29 @@ describe("agent-native shell surface tokens", () => {
     });
 
     expect(css).toContain(".agent-running-shimmer");
+    expect(css).toContain(".agent-loading-label");
+    expect(css).toContain("transition: width 220ms var(--ease-out-strong);");
     expect(css).toContain("background-clip: text;");
     expect(css).not.toContain(
       '.agent-tool-call[data-active-tail="true"]::after',
     );
+  });
+
+  it("uses a shared linear whole-surface shimmer for skeletons", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.skeleton-shimmer,[\s\S]*?background-image: linear-gradient\([\s\S]*?animation: skeleton-shimmer 1\.6s linear infinite;/s,
+    );
+    expect(css).toMatch(
+      /@keyframes skeleton-shimmer[\s\S]*?background-position: 150% 0;[\s\S]*?background-position: -50% 0;/s,
+    );
+    expect(css).toContain(
+      "hsl(var(--foreground, var(--ui-foreground)) / 0.043)",
+    );
+    expect(css).not.toContain("skeleton-pulse");
   });
 
   it("uses a surface-independent mask for the scrolled chat fade", () => {

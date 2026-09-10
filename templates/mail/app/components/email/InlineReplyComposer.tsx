@@ -268,7 +268,7 @@ export const InlineReplyComposer = forwardRef<
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      handleSend();
+      void handleSend();
     }
     if (e.key === "Escape") {
       e.preventDefault();
@@ -408,8 +408,12 @@ export const InlineReplyComposer = forwardRef<
       const attachments = await uploadFiles(files);
       const existing = draft.attachments ?? [];
       onUpdate(draft.id, { attachments: [...existing, ...attachments] });
-    } catch {
-      toast.error(t("mail.toasts.failedToAttachFile"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("mail.toasts.failedToAttachFile"),
+      );
     }
   };
 
@@ -676,7 +680,7 @@ export const InlineReplyComposer = forwardRef<
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
-                        handleGenerate();
+                        void handleGenerate();
                       }
                       if (e.key === "Escape") {
                         e.stopPropagation();

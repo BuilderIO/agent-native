@@ -31,7 +31,7 @@ function viewFromPath(pathname: string): string {
 }
 
 function pathFromView(view: string | undefined): string {
-  if (!view || view === "home") return "/";
+  if (!view || view === "home") return "/home";
   return `/${view.replace(/^\/+/, "")}`;
 }
 

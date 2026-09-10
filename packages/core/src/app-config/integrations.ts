@@ -9,6 +9,14 @@ export const integrationsConfig = z.object({
       env: ["AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS"],
       doc: "Skip inbound webhook signature verification. Development only — every adapter that reads this treats it as a bypass of sender authentication.",
     }),
+  webhookBaseUrl: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["WEBHOOK_BASE_URL"],
+      doc: "Optional public base URL for self-callback and webhook targets.",
+    }),
   // Blank counts as unset everywhere in the env layer, so this cannot express
   // "mount no platforms" — refuse the whole slot with `plugins.disabled`
   // instead.

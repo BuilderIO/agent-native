@@ -9,8 +9,6 @@ description: "استخدم نظام تصميم React الخاص بشركتك ع�
 
 لا يتطلب عقد المحول Tailwind أو shadcn أو Radix أو `className` أو أي بيئة تشغيل تنسيق بعينها. يمكن للمكوّن استخدام موفر سمات أو CSS-in-JS أو CSS Modules أو React Aria أو CSS العادي. إن `className` و`style` خطافان اختياريان للتشغيل البيني، وليسا متطلبات للتنسيق.
 
-راجع [مثال Material UI Chat القابل للتشغيل](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) و[مثال Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) للاطلاع على محولات كاملة وتوصيل موفر السمات والوضع الداكن والفجوات الموثقة في الإصدار 1.
-
 ## اختر أصغر مستوى للتخصيص
 
 | المستوى               | استخدمه من أجل                                                                        | ما يبقى مشتركًا                                |
@@ -84,8 +82,6 @@ export function AppToolkitProvider({
 ```
 
 المحولات الجزئية مدعومة. أي مكوّن تحذفه يستخدم محول Agent-Native الافتراضي. إذا طرح مكوّن مخصص خطأً أثناء العرض، فسيسجل حدّ خطأ لكل مكوّن الفشل ويعرض المكوّن الافتراضي لذلك العنصر؛ وتبقى بقية النظام المخصص نشطة.
-
-يحافظ تطبيقان كاملان للدردشة على صحة هذا العقد أمام أنظمة تصميم حقيقية: [مثال Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) يستخدم Emotion و`ThemeProvider` ومكدس تراكبات MUI، بينما [مثال Ant Design](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) يستخدم `ConfigProvider` وبدائيات النماذج والتراكبات في Ant Design. ملفات `app/design-system.tsx` فيهما هي مراجع الدمج الأساسية؛ أما مثال Acme أعلاه فمقصود أن يبقى صغيرًا ويُستخدم لاختبارات الوحدة.
 
 تبقى واجهة موفر API القديمة `components={{ Button }}` متوافقة، وتُعامل كمحول `ActionButton` ذي أقل أولوية. إذا تم توفير الاثنين، يفوز `designSystem.components.ActionButton` وتسجل إصدارات التطوير تحذيرًا.
 
@@ -223,8 +219,6 @@ describe("Acme Agent-Native adapter", () => {
 
 ### أنظمة موفر السمات بنمط MUI
 
-إن [مثال Chat + Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) هو المرجع العملي الأساسي. تصدّر وحدة `app/design-system.tsx` الوحيدة فيها المحول الدلالي وقيم `createTheme` الفاتحة والداكنة في MUI ومصدر رموز `defineTheme`. يبقي `AppToolkitProvider` في التطبيق موفر `ThemeProvider` الخاص بـMUI فوق أسطح Toolkit المشتركة، بينما يستورد `vite.config.ts` قيمة `theme` نفسها لتوليد CSS وقت البناء. يحافظ ذلك على أنماط Emotion وبوابات MUI ورموز Agent-Native من مصدر حقيقة واحد.
-
 أبقِ موفر سمات الشركة فوق `AppToolkitProvider`، وكيّف الخصائص الدلالية عند حدود الحزمة. اربط `intent` و`emphasis` و`size` بمفردات نظامك داخل المحول، لا داخل كود ميزات Agent-Native. بالنسبة إلى التراكبات، مرّر `portalContainer` إلى حاوية نظام التصميم أو خاصية البوابة، ونفّذ `initialFocusRef`/`restoreFocusRef` باستخدام مدير التركيز فيه.
 
 ```tsx
@@ -249,8 +243,6 @@ export const ActionButton: DesignSystemComponents["ActionButton"] = ({
 ```
 
 لا تنسخ موفر سمات الميزة إلى كل مكوّن محول. ثبّته مرة واحدة عند حد التطبيق كي ترث البوابات والتراكبات السياق نفسه.
-
-إن [محول Chat MUI](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx) هو المثال العملي: يصدّر قيمة `defineTheme` واحدة، ويستوردها في `defineDesignSystem`، ويستورد الوحدة نفسها من `vite.config.ts`. يحافظ مصدر الحقيقة الواحد هذا على اتساق رموز موفر MUI الفاتحة/الداكنة ورموز CSS الدلالية وقت البناء من دون توليد سمة وقت التشغيل.
 
 ### أنظمة مبنية على React Aria
 
@@ -317,9 +309,3 @@ export const ActionButton: DesignSystemComponents["ActionButton"] = ({
 - [**بدائيات Toolkit UI**](/docs/toolkit-ui) — محولات محلية وتوصيل الموفر واستيرادات البدائيات المشتركة.
 - [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — ملكية الميزات القابلة لإعادة الاستخدام وحدود الحزم.
 - [**حزمة الإعدادات**](/docs/toolkit-settings) و[**حزمة المشاركة**](/docs/toolkit-sharing) — وحدات تحكم ميزات مشتركة تحافظ على إجراءات التطبيق وعقود الوصول.
-
-## تغطية أمثلة Chat
-
-تسجّل أمثلة [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) و[Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) القابلة للتشغيل مكونات العقد السبعة عشر كلها، وتعرض 16/17 منها عبر المحولات. يظل `Menu` الفجوة الصريحة، لأن رأس agent-panel يحتوي على قائمة فرعية مركبة حية لا يستطيع عقد v1 المعتمد على البيانات وحدها التعبير عنها. ويظل مؤلف/عارض الرسائل في assistant-ui، وداخليات cmdk، ومحرر Tiptap خارج أهداف v1.
-
-يبقى زر مشاركة Chat اليومي هو popover القديم. يجعل المسار المشحون `/design-system-proof` مكوّن Core `ShareDialog` الكامل قابلًا للوصول من دون تقديم ذلك الـpopover على أنه حوار نظام التصميم.

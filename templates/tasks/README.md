@@ -1,6 +1,8 @@
 # agent-native-tasks
 
-Task-list-first agent-native app. Default home is `/tasks`; chat handles capture and agent operations.
+Task-list-first agent-native app. The public root is a marketing page; private
+app entry `/home` opens the task list at `/tasks`, while chat handles capture
+and agent operations.
 
 ## TODO
 

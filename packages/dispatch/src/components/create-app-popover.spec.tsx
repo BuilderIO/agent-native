@@ -36,6 +36,7 @@ vi.mock("@agent-native/core/client/settings/useBuilderStatus", () => ({
     configured: false,
     connecting: builderConnectFlowState.connecting,
     error: null,
+    statusResolved: true,
     start: builderConnectFlowState.start,
   }),
 }));

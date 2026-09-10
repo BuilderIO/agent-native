@@ -13,6 +13,8 @@ import {
 import { forwardRef, useImperativeHandle, useRef } from "react";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
+import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
   TemplateCapabilityGrid,
@@ -64,17 +66,23 @@ const template = templates.find((t) => t.slug === "plan")!;
 const PLAN_VIDEO_PREVIEWS = [
   {
     title: "Triggering code to diagram itself",
-    href: "https://clips.agent-native.com/share/F5l6RppFaQDF?ref=clip_share",
+    href: firstPartyAppUrl(
+      "https://clips.agent-native.com/share/F5l6RppFaQDF?ref=clip_share",
+    ),
     thumbnail: "https://clips.agent-native.com/api/thumbnail/F5l6RppFaQDF",
   },
   {
     title: "Better, more visual plans for Claude Code",
-    href: "https://clips.agent-native.com/share/F6SlN9TdlK30?ref=clip_share",
+    href: firstPartyAppUrl(
+      "https://clips.agent-native.com/share/F6SlN9TdlK30?ref=clip_share",
+    ),
     thumbnail: "https://clips.agent-native.com/api/thumbnail/F6SlN9TdlK30",
   },
   {
     title: "Visual MDX Plans for APIs, UIs, and Flows",
-    href: "https://clips.agent-native.com/share/YuM1nM1pcX3e?ref=clip_share",
+    href: firstPartyAppUrl(
+      "https://clips.agent-native.com/share/YuM1nM1pcX3e?ref=clip_share",
+    ),
     thumbnail: "https://clips.agent-native.com/api/thumbnail/YuM1nM1pcX3e",
   },
 ];
@@ -213,7 +221,7 @@ export default function PlanTemplate() {
     <TemplateLandingShell>
       <TemplateHero
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("common.freeAndOpenSource")}
           </span>
         }
@@ -227,7 +235,25 @@ export default function PlanTemplate() {
             </span>
           </>
         }
+        customizeTemplate={template}
         description={<p className="m-0">{t("templateLanding.plan.s016")}</p>}
+        headingAction={
+          <a
+            href={firstPartyAppUrl(template.demoUrl)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="primary-button"
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: template.slug,
+                location: "landing_page_hero",
+              });
+            }}
+          >
+            {t("common.getStarted")}
+          </a>
+        }
         media={
           <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffbe161e4e98a4d5780baeb156a3eddff"
@@ -251,10 +277,7 @@ export default function PlanTemplate() {
             { number: "AI", label: t("templateLanding.plan.s005") },
           ].map((stat) => (
             <TemplateStatOrStepsGridItem key={stat.label}>
-              <div
-                className="text-3xl font-medium tracking-tight sm:text-4xl"
-                style={{ color: template.color }}
-              >
+              <div className="text-3xl font-medium tracking-tight sm:text-4xl text-[var(--fg-secondary)]">
                 {stat.number}
               </div>
               <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
@@ -284,10 +307,7 @@ export default function PlanTemplate() {
             key={title}
             className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(5)]:border-b-0 sm:[&:nth-child(6)]:border-b-0"
           >
-            <div
-              className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
-              style={{ color: template.color }}
-            >
+            <div className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)]">
               <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
             </div>
             <div className="flex flex-col gap-2">
@@ -301,10 +321,7 @@ export default function PlanTemplate() {
           </div>
         ))}
         <div className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(5)]:border-b-0 sm:[&:nth-child(6)]:border-b-0">
-          <div
-            className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
-            style={{ color: template.color }}
-          >
+          <div className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)]">
             <IconBrandVisualStudio
               aria-hidden="true"
               className="size-[18px]"
@@ -352,10 +369,7 @@ export default function PlanTemplate() {
                 index > 0 ? "lg:!border-s" : "lg:!border-s-0"
               } lg:!border-t-0`}
             >
-              <div
-                className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
-                style={{ color: template.color }}
-              >
+              <div className="font-mono text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
                 {item.step}
               </div>
               <h3 className="m-0 text-xl font-medium leading-[1.15] text-[var(--fg)]">
@@ -394,9 +408,8 @@ export default function PlanTemplate() {
                 <li key={key} className="flex items-start gap-3 py-2">
                   <IconCheck
                     aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
+                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
                     stroke={2}
-                    style={{ color: template.color }}
                   />
                   {t(`templateLanding.plan.${key}`)}
                 </li>
@@ -412,26 +425,28 @@ export default function PlanTemplate() {
               </div>
               <div className="grid min-w-[24rem] gap-3 text-[var(--fg)]">
                 <div>
-                  <span style={{ color: template.color }}>type:</span>{" "}
+                  <span className="text-[var(--fg-secondary)]">type:</span>{" "}
                   {t("templateLanding.plan.s035")}
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>file:</span>{" "}
+                  <span className="text-[var(--fg-secondary)]">file:</span>{" "}
                   src/actions/create-post.ts
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>annotations:</span>
+                  <span className="text-[var(--fg-secondary)]">
+                    annotations:
+                  </span>
                 </div>
                 <div className="ps-4">
-                  <span style={{ color: template.color }}>line 12:</span>{" "}
+                  <span className="text-[var(--fg-secondary)]">line 12:</span>{" "}
                   {t("templateLanding.plan.s036")}
                 </div>
                 <div className="ps-4">
-                  <span style={{ color: template.color }}>line 24:</span>{" "}
+                  <span className="text-[var(--fg-secondary)]">line 24:</span>{" "}
                   {t("templateLanding.plan.s037")}
                 </div>
                 <div>
-                  <span style={{ color: template.color }}>change:</span>{" "}
+                  <span className="text-[var(--fg-secondary)]">change:</span>{" "}
                   {t("templateLanding.plan.s038")}
                 </div>
               </div>
@@ -463,7 +478,7 @@ export default function PlanTemplate() {
             {
               id: "agent-native",
               emphasized: true,
-              agentNative: { color: template.color, name: template.name },
+              agentNative: { name: template.name },
             },
           ]}
           rows={[
@@ -559,10 +574,7 @@ export default function PlanTemplate() {
 
       <TemplateFinalCta
         eyebrow={
-          <span
-            className="font-mono text-sm font-semibold tracking-[0.14em]"
-            style={{ color: template.color }}
-          >
+          <span className="font-mono text-sm font-semibold tracking-[0.14em] text-[var(--fg-secondary)]">
             {t("common.freeAndOpenSource")}
           </span>
         }
@@ -577,7 +589,7 @@ export default function PlanTemplate() {
       <TemplateLandingFaq
         idPrefix="plan-faq"
         eyebrow={
-          <span style={{ color: template.color }}>
+          <span className="text-[var(--fg-secondary)]">
             {t("templateLanding.faq.eyebrow")}
           </span>
         }

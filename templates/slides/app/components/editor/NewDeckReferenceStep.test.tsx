@@ -91,6 +91,7 @@ describe("<NewDeckReferenceStep>", () => {
       id: "deck-pptx",
       title: "Reference PPT",
       source: "pptx",
+      referenceFilePaths: ["/uploads/reference.pptx"],
     };
     const { onSelect, onImport } = renderStep();
     onImport.mockResolvedValue(imported);
@@ -127,6 +128,7 @@ describe("<NewDeckReferenceStep>", () => {
       designSystemId: null,
       referenceDeckId: "deck-pptx",
       referenceSource: null,
+      referenceFilePaths: ["/uploads/reference.pptx"],
     });
   });
 
@@ -157,6 +159,73 @@ describe("<NewDeckReferenceStep>", () => {
     expect(
       screen.getByRole("combobox", { name: "Reference deck" }).textContent,
     ).toContain("Reference PDF");
+  });
+
+  it("only labels the selected file option while importing", async () => {
+    let resolveImport!: (reference: ImportedReference) => void;
+    const { onImport } = renderStep({ importing: true });
+    onImport.mockReturnValue(
+      new Promise((resolve) => {
+        resolveImport = resolve;
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.change(document.querySelector('input[accept=".pdf"]')!, {
+        target: {
+          files: [
+            new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+          ],
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      document.querySelector('label[aria-label="PDF - Importing..."]')
+        ?.textContent,
+    ).toContain("Importing...");
+    expect(
+      document.querySelector('label[aria-label="PPT"]')?.textContent,
+    ).toContain("PPT");
+    expect(
+      document.querySelector('label[aria-label="DOCX"]')?.textContent,
+    ).toContain("DOCX");
+
+    await act(async () => {
+      resolveImport({ id: "deck-pdf", title: "Reference PDF", source: "pdf" });
+    });
+  });
+
+  it("confirms a DOCX import as the selected reference deck", async () => {
+    const imported: ImportedReference = {
+      id: "deck-docx",
+      title: "Reference DOCX",
+      source: "docx",
+    };
+    const { onImport } = renderStep();
+    onImport.mockResolvedValue(imported);
+
+    const input = document.querySelector('input[accept=".docx"]');
+    expect(input).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.change(input!, {
+        target: {
+          files: [
+            new File(["docx"], "reference.docx", {
+              type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            }),
+          ],
+        },
+      });
+    });
+
+    expect(screen.getByRole("status").textContent).toContain("Reference DOCX");
+    expect(screen.getByLabelText("DOCX - Imported")).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+    ).toContain("Reference DOCX");
   });
 
   it("imports a Google Slides URL before showing the success state", async () => {
@@ -283,20 +352,37 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Last used deck");
   });
 
-  it("lists files attached to the prompt so the upload is visibly kept", () => {
-    renderStep({
-      promptSummary: "Some prompt",
-      promptFiles: [
-        {
-          path: "uploads/article-setup.pdf",
-          originalName: "Article Setup Requirements.pdf",
-          filename: "article-setup.pdf",
-          type: "application/pdf",
-          size: 1024,
-        },
-      ],
+  it("keeps the reference step locked until selection handling finishes", async () => {
+    let resolveSelection!: () => void;
+    const selection = new Promise<void>((resolve) => {
+      resolveSelection = resolve;
+    });
+    renderStep({ onSelect: () => selection });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     });
 
-    expect(screen.getByText("Article Setup Requirements.pdf")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "New presentation" }),
+    ).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    await act(async () => {
+      resolveSelection();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "New presentation" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("does not render an Attached section on the reference step", () => {
+    renderStep({ promptSummary: "Some prompt" });
+
+    expect(screen.queryByText("Attached")).toBeNull();
   });
 });

@@ -527,7 +527,7 @@ test.describe("nav / routing — plan you don't own", () => {
 
     const otherCtx = await browser.newContext();
     const otherPage = await otherCtx.newPage();
-    const email = `other-${Date.now()}-${Math.random()
+    const email = `other+autoz-${Date.now()}-${Math.random()
       .toString(16)
       .slice(2, 8)}@plan.test`;
     const password = makeE2ePassword("other-user");

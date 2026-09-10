@@ -10,7 +10,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema } from "@tiptap/core";
 import { NodeSelection, type Transaction } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
-import { act, createElement } from "react";
+import {
+  act,
+  createElement,
+  type ComponentProps,
+  type ComponentType,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { Markdown } from "tiptap-markdown";
@@ -19,6 +24,13 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+
+type TooltipProviderProps = Omit<
+  ComponentProps<typeof TooltipProvider>,
+  "children"
+>;
+const TooltipProviderWithoutChildren =
+  TooltipProvider as ComponentType<TooltipProviderProps>;
 
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
@@ -42,10 +54,12 @@ import {
   shouldPersistEffectivelyEmptyEditorUpdate,
   shouldPersistCollaborativeEditorUpdate,
   shouldPersistLocalFileEditorUpdate,
+  shouldFlushVisualEditorDraft,
   shouldSkipMediaDraftPersistence,
   shouldSeedCollaborativeContent,
   serializeEditorDraftForPersistence,
   VisualEditor,
+  type VisualEditorHistoryController,
 } from "./VisualEditor";
 
 function createMarkdownEditor(content: string) {
@@ -171,6 +185,27 @@ describe("collaborative update persistence", () => {
         userInitiated: false,
       }),
     ).toBe(true);
+  });
+
+  it("flushes only an editable editor with local user intent", () => {
+    expect(
+      shouldFlushVisualEditorDraft({
+        editable: true,
+        hasUserEditIntent: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldFlushVisualEditorDraft({
+        editable: false,
+        hasUserEditIntent: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldFlushVisualEditorDraft({
+        editable: true,
+        hasUserEditIntent: false,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -343,16 +378,17 @@ describe("media draft persistence", () => {
     (type, src) => {
       const editor = createFullEditor();
       const persisted: string[] = [];
-      const querySelectorAll = Element.prototype.querySelectorAll;
+      const querySelectorAll = (element: Element, selector: string) =>
+        Element.prototype.querySelectorAll.call(element, selector);
       const querySelectorAllSpy = vi
         .spyOn(Element.prototype, "querySelectorAll")
         .mockImplementation(function (this: Element, selector: string) {
           try {
-            return querySelectorAll.call(this, selector);
+            return querySelectorAll(this, selector);
           } catch {
             const matches = selector.split(",").flatMap((part) => {
               try {
-                return Array.from(querySelectorAll.call(this, part));
+                return Array.from(querySelectorAll(this, part));
               } catch {
                 return [];
               }
@@ -1098,9 +1134,10 @@ describe("VisualEditor markdown round-tripping", () => {
       createElement(
         MemoryRouter,
         null,
-        createElement(TooltipProvider, {
-          delayDuration: 0,
-          children: createElement(
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
             QueryClientProvider,
             { client: queryClient },
             createElement(VisualEditor, {
@@ -1112,7 +1149,7 @@ describe("VisualEditor markdown round-tripping", () => {
               editable: true,
             }),
           ),
-        }),
+        ),
       );
 
     try {
@@ -1142,6 +1179,219 @@ describe("VisualEditor markdown round-tripping", () => {
       warning.mockRestore();
       queryClient.clear();
       ydoc.destroy();
+      container.remove();
+    }
+  });
+
+  it("keeps exact A restored after a recent A-to-B edit with a trailing empty block", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const ydoc = new Y.Doc();
+    const nextDocumentYdoc = new Y.Doc();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const onChange = vi.fn();
+    const draftBWithTrailingEmpty = "Draft B body\n<empty-block/>";
+    let controller: VisualEditorHistoryController | null = null;
+
+    const renderEditor = (
+      documentId: string,
+      content: string,
+      contentUpdatedAt: string,
+      contentRevision: string,
+      activeYdoc = ydoc,
+    ) =>
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(VisualEditor, {
+              key: documentId,
+              documentId,
+              content,
+              contentUpdatedAt,
+              contentRevision,
+              onChange,
+              ydoc: activeYdoc,
+              collabSynced: true,
+              editable: true,
+              onHistoryControllerChange: (next) => {
+                controller = next;
+              },
+            }),
+          ),
+        ),
+      );
+
+    try {
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            "Draft A body",
+            "2026-09-08T14:00:00.000Z",
+            "revision-a",
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(controller).not.toBeNull();
+        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+          "Draft A body",
+        );
+      });
+      onChange.mockClear();
+
+      const editorElement =
+        container.querySelector<HTMLElement>(".notion-editor");
+      const mountedEditor = (editorElement as HTMLElement & { editor?: Editor })
+        .editor;
+      expect(mountedEditor).toBeDefined();
+      editorElement!.focus();
+      editorElement!.dispatchEvent(
+        new InputEvent("beforeinput", {
+          bubbles: true,
+          cancelable: true,
+          data: "Draft B body",
+          inputType: "insertText",
+        }),
+      );
+      act(() => {
+        const to = mountedEditor!.state.doc.content.size - 1;
+        mountedEditor!.view.dispatch(
+          mountedEditor!.state.tr.insertText("Draft B body", 1, to),
+        );
+        const paragraph = mountedEditor!.schema.nodes.paragraph.create();
+        mountedEditor!.view.dispatch(
+          mountedEditor!.state.tr.insert(
+            mountedEditor!.state.doc.content.size,
+            paragraph,
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(onChange).toHaveBeenLastCalledWith(draftBWithTrailingEmpty);
+      });
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            draftBWithTrailingEmpty,
+            "2026-09-08T14:00:01.000Z",
+            "revision-b",
+          ),
+        );
+      });
+      onChange.mockClear();
+
+      let applied = false;
+      act(() => {
+        applied = controller!.replaceWithAuthoritativeContent({
+          content: "Draft A body",
+          contentUpdatedAt: "2026-09-08T14:00:02.000Z",
+          contentRevision: "revision-restored-a",
+        });
+        root.render(
+          renderEditor(
+            "page-a",
+            "Draft A body",
+            "2026-09-08T14:00:02.000Z",
+            "revision-restored-a",
+          ),
+        );
+      });
+
+      expect(applied).toBe(true);
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Draft A body",
+      );
+      expect(docToNfm(mountedEditor!.getJSON() as any)).toBe("Draft A body");
+
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            draftBWithTrailingEmpty,
+            "2026-09-08T14:00:01.000Z",
+            "revision-b",
+          ),
+        );
+      });
+      await act(() => waitForDeferredCallback());
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Draft A body",
+      );
+      expect(onChange).not.toHaveBeenCalled();
+
+      editorElement!.blur();
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            "Newer C body",
+            "2026-09-08T14:00:03.000Z",
+            "revision-c",
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+          "Newer C body",
+        );
+      });
+
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            draftBWithTrailingEmpty,
+            "2026-09-08T14:00:01.000Z",
+            "revision-b",
+          ),
+        );
+      });
+      await act(() => waitForDeferredCallback());
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Newer C body",
+      );
+      expect(onChange).not.toHaveBeenCalled();
+
+      act(() => {
+        controller!.undo();
+      });
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Newer C body",
+      );
+      expect(onChange).not.toHaveBeenCalled();
+
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-b",
+            "Older Page B body",
+            "2026-09-08T13:00:00.000Z",
+            "revision-page-b",
+            nextDocumentYdoc,
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+          "Older Page B body",
+        );
+      });
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      ydoc.destroy();
+      nextDocumentYdoc.destroy();
       container.remove();
     }
   });
@@ -1200,9 +1450,10 @@ describe("VisualEditor markdown round-tripping", () => {
       createElement(
         MemoryRouter,
         null,
-        createElement(TooltipProvider, {
-          delayDuration: 0,
-          children: createElement(
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
             QueryClientProvider,
             { client: queryClient },
             createElement(VisualEditor, {
@@ -1214,7 +1465,7 @@ describe("VisualEditor markdown round-tripping", () => {
               editable: true,
             }),
           ),
-        }),
+        ),
       );
 
     const editorParagraphs = () =>
@@ -1301,8 +1552,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1314,7 +1567,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });
@@ -1347,8 +1600,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1360,7 +1615,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });
@@ -1401,8 +1656,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1416,7 +1673,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });

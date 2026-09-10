@@ -247,14 +247,12 @@ export async function loadDocRespectingDraftVisibility(
   const visibleDoc =
     isDraft === Boolean(doc.draft) ? doc : { ...doc, draft: isDraft };
 
-  // Route loaders run before both SSR and client-side navigations render. Keep
-  // the optional block module out of ordinary docs requests, but resolve it
-  // before a block page can paint the Markdown fallback and then reflow.
-  if (hasDocBlockSyntax(visibleDoc.body)) {
-    await preloadDocBlocksContent();
-  }
+  return preloadDocBlocksForDoc(visibleDoc);
+}
 
-  return visibleDoc;
+export async function preloadDocBlocksForDoc(doc: DocEntry): Promise<DocEntry> {
+  if (hasDocBlockSyntax(doc.body)) await preloadDocBlocksContent();
+  return doc;
 }
 
 export function hasLocalizedDoc(locale: unknown, slug: string): boolean {

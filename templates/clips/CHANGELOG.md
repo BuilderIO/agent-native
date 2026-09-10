@@ -3,6 +3,53 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-09
+
+### Improved
+
+- Attendee and viewer avatars use a slimmer border.
+
+## 2026-09-04
+
+### Fixed
+
+- Clips desktop shows its real version again in About and Get Info, and nightly builds resume.
+- Meeting notes now stop within about 15 seconds of a Zoom, Teams, or Meet call ending, even while music or a video keeps playing afterward.
+
+## 2026-09-01
+
+### Improved
+
+- The recorder playhead now docks automatically when dragged near a screen edge, returns to floating mode when pulled away, remembers its screen position, and transitions more smoothly into Restart and Delete confirmations.
+
+### Fixed
+
+- Calendar reconnects wait for Google to finish before refreshing meetings.
+
+## 2026-09-01
+
+### Improved
+
+- Clip editing uses a text-only Edit button for a cleaner toolbar.
+
+### Fixed
+
+- Clips camera bubbles now close reliably when the popover is dismissed.
+
+## 2026-08-29
+
+### Improved
+
+- Clips loading states now use an even more subtle whole-surface shine.
+
+## 2026-08-28
+
+### Improved
+
+- The Chrome extension download option keeps a concise browser-log explanation and links to setup docs.
+- Clips loading placeholders now use a softer whole-surface shine.
+- The shared comment composer now has a cleaner borderless presentation.
+
 ## 2026-08-26
 
 ### Fixed

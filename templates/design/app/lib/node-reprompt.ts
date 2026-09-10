@@ -81,7 +81,7 @@ export function formatNodeRepromptSubmission(
   args: NodeRepromptSubmissionArgs,
 ): { message: string; context: string } {
   return {
-    message: args.instruction.trim(),
+    message: args.instruction,
     context: formatNodeRepromptContext(args),
   };
 }
@@ -91,7 +91,7 @@ export function formatNodeSelectionQuestion(args: NodeSelectionQuestionArgs): {
   context: string;
 } {
   return {
-    message: args.instruction.trim(),
+    message: args.instruction,
     context: [
       "[Selection question]",
       `designId: ${args.designId}`,

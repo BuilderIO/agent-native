@@ -20,3 +20,14 @@ export function getResolvedTheme(fallback?: string): ResolvedTheme {
 
   return "light";
 }
+
+export function getNextTheme(
+  theme: string | undefined,
+  resolvedTheme?: string,
+): ResolvedTheme {
+  const current =
+    theme === "light" || theme === "dark"
+      ? theme
+      : getResolvedTheme(resolvedTheme);
+  return current === "dark" ? "light" : "dark";
+}

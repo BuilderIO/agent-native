@@ -36,6 +36,8 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
+      "actions/database-setup.db.test.ts",
+      "actions/database-setup-mcp.db.test.ts",
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
@@ -101,7 +103,7 @@ export const parityMatrix: ParityRow[] = [
     surface: "workspace",
     label:
       "Resolve the app root to the caller's last authorized page or a private welcome page",
-    uiEntrypoints: ["app/routes/_app._index.tsx", "app/lib/content-landing.ts"],
+    uiEntrypoints: ["app/routes/_app.home.tsx", "app/lib/content-landing.ts"],
     durableEffect:
       "The root route restores the most recent authorized page when possible and otherwise converges on one private personal welcome page while preserving last-location state.",
     uiImplementation:
@@ -169,6 +171,27 @@ export const parityMatrix: ParityRow[] = [
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
+  },
+  {
+    id: "editor.blocks-field-word-count",
+    surface: "editor",
+    label: "Inspect per-field word counts",
+    uiEntrypoints: ["app/components/editor/DocumentInfoPanel.tsx"],
+    durableEffect:
+      "Authorized Blocks-field word counts read the current field without combining sibling fields.",
+    uiImplementation:
+      "Page Info projects live per-field counts; agents request the same exact field through a read-only action.",
+    status: "action-backed",
+    actions: ["get-blocks-field-word-count"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/get-blocks-field-word-count.test.ts",
+      "app/components/editor/DocumentInfoPanel.test.ts",
+    ],
   },
   {
     id: "editor.client-formatting-and-insertions",
@@ -359,7 +382,9 @@ export const parityMatrix: ParityRow[] = [
       "remove-database-items",
       "duplicate-database-items",
       "duplicate-database-item",
+      "update-database-items",
       "migrate-content-database-rows",
+      "manage-content-database-migration",
       "move-database-item",
       "set-document-property",
     ],
@@ -431,6 +456,7 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: [
+      "actions/database-setup-mcp.db.test.ts",
       "actions/bind-content-database-source-field.db.test.ts",
       "actions/content-database-source-actions.test.ts",
       "actions/resync-content-database-source.db.test.ts",
@@ -778,7 +804,13 @@ export const parityMatrix: ParityRow[] = [
     uiImplementation:
       "Version panel reads and restores through document version actions.",
     status: "action-backed",
-    actions: ["list-document-versions", "restore-document-version"],
+    actions: [
+      "list-document-versions",
+      "list-document-history",
+      "list-document-history-checkpoints",
+      "get-document-history-checkpoint",
+      "restore-document-version",
+    ],
     exception: null,
     reliabilityRisk: "none",
     spinePriority: "P0",

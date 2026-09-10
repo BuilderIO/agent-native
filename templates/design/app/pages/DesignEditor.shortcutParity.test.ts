@@ -27,10 +27,10 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
 
   it("routes panel shortcuts through the same state as the visible rail", () => {
     expect(editorSource).toContain(
-      'const handleShowLayersPanel = useCallback(() => {\n    setUiHidden(false);\n    setActiveLeftPanel("file");',
+      'const handleShowLayersPanel = useCallback(() => {\n    setMinimalUi(false);\n    setUiHidden(false);\n    setActiveLeftPanel("file");',
     );
     expect(editorSource).toContain(
-      'const handleShowAssetsPanel = useCallback(() => {\n    setUiHidden(false);\n    setActiveLeftPanel("assets");',
+      'const handleShowAssetsPanel = useCallback(() => {\n    setMinimalUi(false);\n    setUiHidden(false);\n    setActiveLeftPanel("assets");',
     );
     expect(editorSource).toContain(
       "onShowLayersPanel: initialGenerationChromeLimited\n      ? undefined\n      : handleShowLayersPanel",
@@ -77,5 +77,14 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
     expect(editorSource).not.toContain(
       "setOverviewSelectedScreenIds(files.map((file) => file.id))",
     );
+  });
+
+  it("selects an overview frame before allowing its embedded layers to receive clicks", () => {
+    const pickHandler = editorSource.slice(
+      editorSource.indexOf("const handleOverviewScreenPick"),
+      editorSource.indexOf("/** The one add-breakpoint path"),
+    );
+    expect(pickHandler).toContain("setOverviewSelectedScreenIds([pickedId]);");
+    expect(pickHandler).toContain("setSelectedLayerIdsState((current)");
   });
 });

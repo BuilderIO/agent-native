@@ -288,7 +288,7 @@ export function runApplyLocalContentUpdate(
   }
   if (ydoc && isSynced) {
     const ytext = ydoc.getText("content");
-    if (ytext.toString() !== nextContent) {
+    if (ytext.toJSON() !== nextContent) {
       if (!yjsHistoryAvailable) {
         // Untracked write (recordHistory:false callers such as the
         // code-layer id-stamping effect, or history-suppressed replays) —

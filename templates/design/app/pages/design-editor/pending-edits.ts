@@ -1411,7 +1411,7 @@ function removeExactBreakpointDeclarations(
   const markerPattern =
     args.minWidthPx != null && args.maxWidthPx != null
       ? escapeRegExp(marker)
-      : `${escapeRegExp(marker)}::[^\"]+`;
+      : `${escapeRegExp(marker)}::[^"]+`;
   const styleRe = new RegExp(
     `<style\\b[^>]*\\b${EXACT_BREAKPOINT_ATTR}="${markerPattern}"[^>]*>.*?<\\/style>\\n?`,
     "gis",

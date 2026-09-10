@@ -8,6 +8,7 @@ import {
   createSharesTable,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 // Feature-owned schema modules. Re-exported so their tables join this app's
 // Drizzle schema namespace (schema.<table>). Each file is owned by a single
@@ -30,6 +31,8 @@ export const dashboards = table("dashboards", {
   title: text("title").notNull().default("Untitled"),
   /** Full dashboard config (SqlDashboardConfig or Explorer state) as JSON. */
   config: text("config").notNull(),
+  /** Server-owned AI trust metadata; never accepted from dashboard config writes. */
+  certification: text("certification"),
   createdAt: text("created_at").notNull().default(now()),
   /** Original authenticated creator. Null when historical provenance is unknown. */
   createdBy: text("created_by"),
@@ -85,6 +88,7 @@ export const dashboardRevisions = table(
     config: text("config").notNull(),
     createdAt: text("created_at").notNull().default(now()),
     createdBy: text("created_by"),
+    chatContext: text("chat_context"),
     ownerEmail: text("owner_email").notNull().default("local@localhost"),
     orgId: text("org_id"),
   },
@@ -132,7 +136,7 @@ export const dashboardReportSubscriptions = table(
       .default("daily"),
     timeOfDay: text("time_of_day").notNull().default("09:00"),
     timezone: text("timezone").notNull().default("UTC"),
-    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    enabled: boolean("enabled").notNull().default(true),
     nextRunAt: text("next_run_at"),
     lastRunAt: text("last_run_at"),
     lastStatus: text("last_status", {
@@ -193,6 +197,7 @@ export const analysisRevisions = table(
     resultData: text("result_data"),
     createdAt: text("created_at").notNull().default(now()),
     createdBy: text("created_by"),
+    chatContext: text("chat_context"),
     ownerEmail: text("owner_email").notNull().default("local@localhost"),
     orgId: text("org_id"),
   },
@@ -258,7 +263,7 @@ export const analyticsPublicKeys = table("analytics_public_keys", {
 /**
  * First-party product analytics events recorded via /track.
  * Common dimensions are mirrored as columns so dashboards can group/filter
- * without dialect-specific JSON operators.
+ * using those columns directly.
  */
 export const analyticsEvents = table("analytics_events", {
   id: text("id").primaryKey(),
@@ -388,7 +393,7 @@ export const analyticsAlertRules = table("analytics_alert_rules", {
   slackWebhookUrl: text("slack_webhook_url"),
   /** Optional per-rule generic webhook URL (overrides workspace env). */
   webhookUrl: text("webhook_url"),
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  enabled: boolean("enabled").notNull().default(true),
   lastEvaluatedAt: text("last_evaluated_at"),
   lastTriggeredAt: text("last_triggered_at"),
   lastStatus: text("last_status", {
@@ -432,7 +437,6 @@ export const analyticsDbAdminConnections = table(
     appId: text("app_id"),
     appUrl: text("app_url"),
     databaseUrlSecretKey: text("database_url_secret_key").notNull(),
-    databaseAuthTokenSecretKey: text("database_auth_token_secret_key"),
     createdBy: text("created_by").notNull(),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),

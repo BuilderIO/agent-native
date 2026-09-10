@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { asc, eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `update-document-cas-${process.pid}-${Date.now()}.sqlite`,
+  `update-document-cas-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -21,7 +21,7 @@ const EDITOR = "editor@example.com";
 const VIEWER = "viewer@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -31,9 +31,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;
@@ -77,6 +75,22 @@ async function documentRow(documentId: string) {
 }
 
 describe("update-document compare-and-swap", () => {
+  it("rejects external full-body writes outside the revisioned edit protocol", async () => {
+    const documentId = await createDocument({ content: "original" });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(
+          { id: documentId, content: "blind external rewrite" },
+          { caller: "mcp", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
+    });
+    expect((await documentRow(documentId)).content).toBe("original");
+  });
+
   it("uses a canonical Files database rename as the workspace name", async () => {
     const { provisionContentSpaces, systemIdsForContentSpace } =
       await import("./_content-spaces.js");
@@ -130,6 +144,99 @@ describe("update-document compare-and-swap", () => {
     expect("conflict" in result && result.conflict).not.toBe(true);
     expect((result as any).content).toBe("rewritten");
     expect((await documentRow(documentId)).content).toBe("rewritten");
+  });
+
+  it("derives an unguarded body save from the row locked after a racing writer", async () => {
+    const documentId = await createDocument({ content: "initial body" });
+    const initial = await documentRow(documentId);
+    const db = getDb();
+    const originalTransaction = db.transaction.bind(db);
+    const racingUpdatedAt = new Date(
+      new Date(initial.updatedAt).getTime() + 1_000,
+    ).toISOString();
+    const transaction = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce(async (callback: any, config?: any) => {
+        await db
+          .update(schema.documents)
+          .set({
+            content: "racing writer body",
+            bodyRevision: 7,
+            updatedAt: racingUpdatedAt,
+          })
+          .where(eq(schema.documents.id, documentId));
+        return originalTransaction(callback, config);
+      });
+    try {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({
+          id: documentId,
+          content: "requested body",
+          historySessionId: "unguarded-race",
+        }),
+      );
+    } finally {
+      transaction.mockRestore();
+    }
+
+    expect(await documentRow(documentId)).toMatchObject({
+      content: "requested body",
+      bodyRevision: 8,
+      updatedAt: new Date(
+        new Date(racingUpdatedAt).getTime() + 1,
+      ).toISOString(),
+    });
+    const checkpoints = await db
+      .select({ content: schema.documentVersions.content })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId))
+      .orderBy(asc(schema.documentVersions.createdAt));
+    expect(checkpoints.map((checkpoint: any) => checkpoint.content)).toEqual([
+      "racing writer body",
+      "requested body",
+    ]);
+  });
+
+  it("CAS-rejects a body that only becomes stale before the row lock", async () => {
+    const documentId = await createDocument({
+      title: "Initial title",
+      content: "initial body",
+    });
+    const initial = await documentRow(documentId);
+    const db = getDb();
+    const originalTransaction = db.transaction.bind(db);
+    const racingUpdatedAt = new Date(
+      new Date(initial.updatedAt).getTime() + 1_000,
+    ).toISOString();
+    const transaction = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce(async (callback: any, config?: any) => {
+        await db
+          .update(schema.documents)
+          .set({ content: "racing writer body", updatedAt: racingUpdatedAt })
+          .where(eq(schema.documents.id, documentId));
+        return originalTransaction(callback, config);
+      });
+    let result: Awaited<ReturnType<typeof updateDocumentAction.run>>;
+    try {
+      result = await runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({
+          id: documentId,
+          title: "Requested title",
+          content: "initial body",
+          baseUpdatedAt: initial.updatedAt,
+        }),
+      );
+    } finally {
+      transaction.mockRestore();
+    }
+
+    expect("conflict" in result && result.conflict).toBe(true);
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Initial title",
+      content: "racing writer body",
+      updatedAt: racingUpdatedAt,
+    });
   });
 
   it("applies a content save when baseUpdatedAt matches the current row", async () => {
@@ -191,6 +298,28 @@ describe("update-document compare-and-swap", () => {
     expect(current.updatedAt).toBe(remoteUpdatedAt);
   });
 
+  it("rejects a stale draft title even when its body matches the current Page", async () => {
+    const documentId = await createDocument({ content: "same body" });
+    const stale = await documentRow(documentId);
+    const newer = new Date(
+      new Date(stale.updatedAt).getTime() + 1000,
+    ).toISOString();
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Newer title", updatedAt: newer })
+      .where(eq(schema.documents.id, documentId));
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        title: "Stale draft title",
+        content: "same body",
+        baseUpdatedAt: stale.updatedAt,
+      }),
+    );
+    expect("conflict" in result && result.conflict).toBe(true);
+    expect((await documentRow(documentId)).title).toBe("Newer title");
+  });
+
   it("does not CAS-guard title/icon-only saves even when baseUpdatedAt is stale", async () => {
     const documentId = await createDocument({ content: "original" });
     const staleSnapshot = await documentRow(documentId);
@@ -247,7 +376,7 @@ describe("update-document compare-and-swap", () => {
         "second body within the snapshot interval",
       ]),
     );
-    expect(versions).toHaveLength(2);
+    expect(versions).toHaveLength(3);
   });
 
   it("targets a shared editor's update audit event to the document owner", async () => {

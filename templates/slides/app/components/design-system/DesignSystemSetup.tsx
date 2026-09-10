@@ -410,11 +410,11 @@ export function DesignSystemSetup({
         }
         newFiles.push(file);
       });
-      Promise.all(promises).then(() => {
+      void Promise.all(promises).then(() => {
         setter((prev) => [...prev, ...newFiles]);
       });
     },
-    [t],
+    [],
   );
 
   const processBuilderIndexFile = useCallback(

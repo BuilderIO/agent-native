@@ -1,6 +1,6 @@
 ---
 title: "Extending Clips"
-description: "Data model, action reference, and setup steps for customizing, self-hosting, or extending the Clips template — recordings, transcripts, meetings, organizations, and the Chrome extension/bug-report embed."
+description: "Data model, action reference, and setup steps for customizing, self-hosting, or extending the Clips template. Covers recordings, transcripts, meetings, organizations, the Chrome extension, and embedded bug reports."
 search: "Clips developers data model actions schema self-host Chrome extension bug report embed"
 ---
 
@@ -60,11 +60,15 @@ For local development, run the web app with `pnpm dev` and point the desktop tra
 
 **Slack playable unfurls.** Public share links can render a Slack `video` block that points at the existing `/embed/:id` player. This is a workspace Slack app install, not a global crawler behavior: normal Open Graph/Twitter metadata is the fallback when the app is not installed.
 
-## Chrome extension and embedded bug reports {#chrome-extension-and-embedded-bug-reports}
+<a id="chrome-extension-and-embedded-bug-reports"></a>
 
-**Chrome extension.** The Agent-Native Clips Chrome extension listing is `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`. If you host your own Clips server, keep the Chrome extension option hidden until your Web Store listing is live. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` after approval to show the extension beside desktop-app download prompts. Set `VITE_CLIPS_CHROME_EXTENSION_URL` only if you need to override the default listing URL. See [Capturing Everywhere](/docs/template-clips-capture-everywhere#browser-logs-with-the-chrome-extension) for what the extension captures.
+## Chrome extension
 
-**Embedded bug reports.** Clips can be embedded into an existing product as a lightweight bug-report launcher. The embedded page collects issue metadata, opens the real recorder in a top-level browser window (browser media capture requires a top-level user gesture), and relays a completion message back to the host product when the recording is saved.
+The Agent-Native Clips Chrome extension listing is `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`. If you host your own Clips server, keep the Chrome extension option hidden until your Web Store listing is live. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` after approval to show the extension beside desktop-app download prompts. Set `VITE_CLIPS_CHROME_EXTENSION_URL` only if you need to override the default listing URL. See [Capturing Everywhere](/docs/template-clips-capture-everywhere#browser-logs-with-the-chrome-extension) for what the extension captures.
+
+## Embedded bug reports {#embedded-bug-reports}
+
+Clips can be embedded into an existing product as a lightweight bug-report launcher. The embedded page collects issue metadata, opens the real recorder in a top-level browser window (browser media capture requires a top-level user gesture), and relays a completion message back to the host product when the recording is saved.
 
 Use `/bug-report` as the iframe URL. The page accepts either plain query parameters or the `bugReport*`-prefixed parameters that the recorder stores:
 
@@ -90,11 +94,11 @@ window.addEventListener("message", (event) => {
 });
 ```
 
-Always validate both `event.origin` and `event.source` in the host. The completion payload includes `recordingId`, `recordingUrl`, `embedUrl`, `agentShareUrl`, `agentContextUrl`, `agentAccessExpiresAt`, and an explicit `agentAccessStatus` of `ready` or `unavailable`. When access is ready, `agentContextUrl` is a temporary, scoped URL that lets an agent read recording metadata, timestamped transcript segments, recommended frames and frame URLs, and browser diagnostics without receiving the user's workspace session. Normal agent links expire after two hours; embedded bug-report completions use a seven-day scoped link so asynchronous support tickets can be triaged. Treat an unavailable or expired link as an access failure, not an empty recording. `embedUrl` remains subject to the recording's normal viewer access.
+Always validate both `event.origin` and `event.source` in the host. The completion payload includes `recordingId`, `recordingUrl`, `embedUrl`, `agentShareUrl`, `agentContextUrl`, `agentAccessExpiresAt`, and an explicit `agentAccessStatus` of `ready` or `unavailable`. When access is ready, `agentContextUrl` is a temporary, scoped URL that lets an agent read recording metadata, timestamped transcript segments, recommended frames and frame URLs, and browser diagnostics without receiving the user's workspace session. Normal agent links expire after two hours; authenticated embedded bug-report completions use a seven-day scoped link so asynchronous support tickets can be triaged. Anonymous intake completions intentionally report `agentAccessStatus: "unavailable"` until the trusted host exchanges the retained intake id and completed recording id through the authenticated `create-intake-agent-link` action. Treat an unavailable or expired link as an access failure, not an empty recording. `embedUrl` remains subject to the recording's normal viewer access.
 
 Bug-report recordings default to workspace visibility instead of public visibility. The saved `recording_bug_reports` sidecar includes the redacted host metadata, while the recording itself remains the canonical media/transcript resource. URLs have credentials, fragments, and query values removed before storage, and the browser-diagnostics pipeline still omits request/response bodies, headers, and cookies. A popup recording only sees diagnostics emitted inside the Clips window. Use the Chrome extension or attach diagnostics from the host product separately when the agent needs console and network context from the source tab.
 
-This pilot requires the reporter to already have an active session in the Clips workspace that owns the recording. The current cross-origin popup cannot preserve its completion channel through a first-time sign-in redirect, so users should sign in to Clips in a separate tab before launching it. A fully anonymous customer-support intake should add a signed intake token that can create, upload, and finalize a recording without granting broad recording access; do not expose the existing owner-scoped upload endpoints directly to anonymous users.
+This embedded flow requires the reporter to already have an active session in the Clips workspace that owns the recording. The current cross-origin popup cannot preserve its completion channel through a first-time sign-in redirect, so users should sign in to Clips in a separate tab before launching it. For a no-login customer-support flow, use [Anonymous Clips intake](/docs/template-clips-anonymous-intake). It creates a one-recording, write-only capability and keeps the normal owner-scoped upload endpoints protected.
 
 ## Data model
 
@@ -269,6 +273,7 @@ Two things live outside this schema on purpose: organization/member/invitation r
 | `recording_ctas`                                | Call-to-action buttons (label, url, color, placement) overlaid on a recording                                                                                                 |
 | `recording_comments`                            | Threaded, timestamped comments with emoji-reaction map and resolved flag                                                                                                      |
 | `recording_bug_reports`                         | Redacted host-product bug report metadata keyed by `recording_id`                                                                                                             |
+| `clips_intake_sessions`                          | One-use anonymous intake capabilities bound to an owner, organization, and recording                                                                                           |
 | `recording_reactions`                           | Emoji reactions pinned to a video timestamp (anonymous viewers allowed)                                                                                                       |
 | `recording_viewers` / `recording_events`        | View analytics: per-viewer watch time and completion, plus granular events (view-start, watch-progress, seek, pause, cta-click, reaction)                                     |
 | `recording_views`                               | Append-only per-view log (who viewed, when) — backs the owner-facing "Viewed by" popover, kept separate from the aggregate counters above                                     |
@@ -340,7 +345,7 @@ Recordings and transcripts are intentionally separate tables so the library and 
 Every agent-callable operation is a TypeScript file in `templates/clips/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. There are roughly 110 actions, grouped here by purpose:
 
 - **Recording lifecycle** — `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`, `reprocess-recording`, `import-loom-recording`.
-- **Bug reports** — `save-bug-report-context` stores redacted host-product context for recordings launched from `/bug-report`; `get-recording-player-data` returns the sidecar to editors.
+- **Bug reports** — `save-bug-report-context` stores redacted host-product context for recordings launched from `/bug-report`; `create-recording-intake-link` mints a one-use anonymous intake URL; `create-intake-recording` is the anonymous write step and `create-intake-agent-link` is the authenticated host-side exchange; `get-recording-player-data` returns the sidecar to editors. See [Anonymous Clips intake](/docs/template-clips-anonymous-intake) for the complete flow.
 - **Transcript & AI** — `request-transcript`, `cleanup-transcript`, `save-browser-transcript`, `regenerate-title` / `regenerate-summary` / `regenerate-chapters`, `set-chapters`, `generate-workflow`, `get-clips-ai-prefs` / `update-clips-ai-prefs`, `get-builder-credit-status`. (`cleanup-transcript` and `finalize-meeting` are server-side media-pipeline calls; most other AI features delegate to the agent chat.)
 - **Editing** — non-destructive `trim-recording`, `split-recording`, `remove-filler-words`, `remove-silences`, plus `stitch-recordings`, `undo-edit`, `clear-edits`. Edits accumulate in `edits_json`; the client concatenates/exports via ffmpeg.wasm.
 - **Meetings** — `create-meeting`, `start-meeting-recording` / `stop-meeting-recording`, `finalize-meeting`, `update-meeting`, `get-meeting`, `list-meetings`, `delete-meeting`, plus calendar wiring `connect-calendar` / `disconnect-calendar` / `sync-calendars` / `list-calendar-accounts`.

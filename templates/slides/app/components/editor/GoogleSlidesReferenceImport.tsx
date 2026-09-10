@@ -313,7 +313,7 @@ export function GoogleSlidesReferenceImport({
           {needsConnect && (
             <button
               type="button"
-              onClick={() => void connect()}
+              onClick={() => connect()}
               disabled={connecting || !configured}
               className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-foreground hover:bg-accent disabled:cursor-default disabled:opacity-60"
             >

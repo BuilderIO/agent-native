@@ -104,7 +104,7 @@ export function AgentTaskCard({
         }
       }
     };
-    poll();
+    void poll();
     return () => {
       stopped = true;
     };

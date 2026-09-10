@@ -20,11 +20,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
+import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
 import { DesignColorPicker, imageFillToBackgroundStyles } from "../inspector";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
 import { selectionColorValues } from "./document-colors";
-import { isTextElement } from "./element-classification";
+import { isTextElement, isVectorShapeElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import {
@@ -46,6 +47,7 @@ import {
   SectionIconButton,
   useRowDragReorder,
 } from "./inspector-controls";
+import { InspectorGridCell, InspectorPaintRow } from "./inspector-grid";
 import { ColorInput, PanelSection } from "./panel-primitives";
 import {
   colorHasVisibleAlpha,
@@ -133,7 +135,15 @@ export function FillProperties({
   const t = useT();
   const styles = element.computedStyles;
   const isTextFillElement = isTextElement(element);
-  const fillProperty = isTextFillElement ? "color" : "backgroundColor";
+  const isVectorFillElement = isVectorShapeElement(element);
+  // Text glyphs and SVG shapes both take a single solid paint — neither can
+  // host the background layer stack (gradient / image / shader).
+  const isSolidFillElement = isTextFillElement || isVectorFillElement;
+  const fillProperty = isTextFillElement
+    ? "color"
+    : isVectorFillElement
+      ? "fill"
+      : "backgroundColor";
   // Stash for a hidden layer's real pre-hide backgroundSize (e.g. a custom
   // cover/contain/percentage) so re-showing it restores that value instead
   // of permanently discarding it for "auto" — the same React-state stash
@@ -146,22 +156,24 @@ export function FillProperties({
   const fillStashKey = elementStableKey(element);
   const fillValue = isTextFillElement
     ? styles.color || ""
-    : styles.backgroundColor || "";
-  const backgroundLayers = isTextFillElement
+    : isVectorFillElement
+      ? styles.fill || ""
+      : styles.backgroundColor || "";
+  const backgroundLayers = isSolidFillElement
     ? []
     : splitCssLayers(styles.backgroundImage || "");
-  const backgroundSizeLayers = isTextFillElement
+  const backgroundSizeLayers = isSolidFillElement
     ? []
     : splitCssLayers(styles.backgroundSize || "");
-  const backgroundRepeatLayers = isTextFillElement
+  const backgroundRepeatLayers = isSolidFillElement
     ? []
     : splitCssLayers(styles.backgroundRepeat || "");
-  const backgroundPositionLayers = isTextFillElement
+  const backgroundPositionLayers = isSolidFillElement
     ? []
     : splitCssLayers(styles.backgroundPosition || "");
   const baseFillLayerProps = baseFillLayerSourceProps(
     styles,
-    isTextFillElement,
+    isSolidFillElement,
   );
   const fillIsMixed =
     isMixedValue(fillValue) ||
@@ -169,7 +181,7 @@ export function FillProperties({
     isMixedValue(styles.backgroundSize) ||
     isMixedValue(styles.backgroundRepeat) ||
     isMixedValue(styles.backgroundPosition);
-  const hasBackgroundLayer = !isTextFillElement && backgroundLayers.length > 0;
+  const hasBackgroundLayer = !isSolidFillElement && backgroundLayers.length > 0;
   const hasVisibleFill =
     isTextFillElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
 
@@ -191,7 +203,10 @@ export function FillProperties({
         ? rgbaToCss(withColorOpacity(parsed, 100))
         : isTextFillElement
           ? "#000000"
-          : "#ffffff";
+          : isVectorFillElement
+            ? DEFAULT_SHAPE_FILL
+            : // guard:allow-raw-color — restores an authored fill, not editor chrome.
+              "#ffffff";
       onStyleChange(fillProperty, restored);
     } else if (parsed) {
       onStyleChange(fillProperty, rgbaToCss(withColorOpacity(parsed, 0)));
@@ -300,6 +315,13 @@ export function FillProperties({
                 );
                 return;
               }
+              if (isVectorFillElement) {
+                onStyleChange(
+                  "fill",
+                  cssColorOrFallback(styles.fill, DEFAULT_SHAPE_FILL),
+                );
+                return;
+              }
               commitStylePatch(
                 addFillLayerPatch({
                   backgroundColor: styles.backgroundColor,
@@ -325,11 +347,11 @@ export function FillProperties({
           }
         </p>
       ) : hasVisibleFill ? (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {isTextFillElement || colorHasVisibleAlpha(fillValue) ? (
             /* design row: [swatch+hex trigger (flex-1)] [eye] [remove] */
-            <div className="group flex items-center gap-1.5">
-              <div className="min-w-0 flex-1">
+            <InspectorPaintRow>
+              <InspectorGridCell span={20}>
                 <ColorInput
                   label=""
                   value={fillValue}
@@ -345,12 +367,12 @@ export function FillProperties({
                   // why all four are sourced together.
                   {...baseFillLayerProps}
                   blendMode={
-                    isTextFillElement
+                    isSolidFillElement
                       ? undefined
                       : styles.backgroundBlendMode || "normal"
                   }
                   onBlendModeChange={
-                    isTextFillElement
+                    isSolidFillElement
                       ? undefined
                       : (v) => onStyleChange("backgroundBlendMode", v)
                   }
@@ -364,9 +386,9 @@ export function FillProperties({
                   // other element the base fill is a real backgroundImage
                   // layer stack, so wire the same layered-fill handlers the
                   // page background row uses (see PageProperties above).
-                  supportsLayeredFills={!isTextFillElement}
+                  supportsLayeredFills={!isSolidFillElement}
                   onBackgroundImageChange={
-                    isTextFillElement
+                    isSolidFillElement
                       ? undefined
                       : (v) => onStyleChange("backgroundImage", v)
                   }
@@ -379,7 +401,7 @@ export function FillProperties({
                   // rebuilding a single-layer patch that would silently wipe
                   // those siblings.
                   onImageFillLayerChange={
-                    isTextFillElement
+                    isSolidFillElement
                       ? undefined
                       : (patch) =>
                           commitStylePatch(patch, onStyleChange, onStylesChange)
@@ -395,49 +417,55 @@ export function FillProperties({
                   // Code-backed GLSL Shader paint type — text fills can't
                   // host a shader canvas, so only container fills get it.
                   glslShaderContext={
-                    isTextFillElement ? undefined : glslShaderContext
+                    isSolidFillElement ? undefined : glslShaderContext
                   }
                 />
-              </div>
-              <SectionIconButton
-                label={
-                  isHidden
-                    ? t("editPanel.labels.showLayer")
-                    : t("editPanel.labels.hideLayer")
-                }
-                onClick={handleFillVisibilityToggle}
-                activateOnPointerDown
-              >
-                {isHidden ? (
-                  <IconEyeOff className="size-3.5" />
-                ) : (
-                  <IconEye className="size-3.5" />
-                )}
-              </SectionIconButton>
-              <SectionIconButton
-                label={t("editPanel.labels.removeLayer")}
-                onClick={() =>
-                  commitStylePatch(
-                    removeBaseFillPatch(fillProperty),
-                    onStyleChange,
-                    onStylesChange,
-                  )
-                }
-              >
-                <IconMinus className="size-3.5" />
-              </SectionIconButton>
-              {!isTextFillElement ? (
-                <FieldTrailer
-                  element={element}
-                  motionCssProperty="background-color"
-                  motionKeyframeContext={motionKeyframeContext}
-                  breakpointOverrideContext={breakpointOverrideContext}
-                  hoverRevealClassName="opacity-0 group-hover:opacity-100"
-                />
+              </InspectorGridCell>
+              <InspectorGridCell span={4} className="flex justify-center">
+                <SectionIconButton
+                  label={
+                    isHidden
+                      ? t("editPanel.labels.showLayer")
+                      : t("editPanel.labels.hideLayer")
+                  }
+                  onClick={handleFillVisibilityToggle}
+                  activateOnPointerDown
+                >
+                  {isHidden ? (
+                    <IconEyeOff className="size-3.5" />
+                  ) : (
+                    <IconEye className="size-3.5" />
+                  )}
+                </SectionIconButton>
+              </InspectorGridCell>
+              <InspectorGridCell span={4} className="flex justify-center">
+                <SectionIconButton
+                  label={t("editPanel.labels.removeLayer")}
+                  onClick={() =>
+                    commitStylePatch(
+                      removeBaseFillPatch(fillProperty),
+                      onStyleChange,
+                      onStylesChange,
+                    )
+                  }
+                >
+                  <IconMinus className="size-3.5" />
+                </SectionIconButton>
+              </InspectorGridCell>
+              {!isSolidFillElement ? (
+                <InspectorGridCell span={1} className="flex justify-center">
+                  <FieldTrailer
+                    element={element}
+                    motionCssProperty="background-color"
+                    motionKeyframeContext={motionKeyframeContext}
+                    breakpointOverrideContext={breakpointOverrideContext}
+                    hoverRevealClassName="opacity-0 group-hover:opacity-100"
+                  />
+                </InspectorGridCell>
               ) : null}
-            </div>
+            </InspectorPaintRow>
           ) : null}
-          {!isTextFillElement
+          {!isSolidFillElement
             ? backgroundLayers.map((layer, index) => {
                 const gradient = parseGradientLayer(layer);
                 // Hidden state itself lives in the real, persisted
@@ -541,142 +569,151 @@ export function FillProperties({
 
                 return (
                   /* design row: [grip] [swatch+label+opacity% trigger (flex-1)] [eye] [remove] */
-                  <div
+                  <InspectorPaintRow
                     key={`${layer}-${index}`}
-                    className="group relative flex items-center gap-1.5"
+                    draggable
                     {...fillDrag.getRowProps(index)}
                   >
-                    <RowDragHandle
-                      label={t("editPanel.labels.reorderLayer")}
-                      dropIndicator={
-                        fillDrag.dragIndex != null &&
-                        fillDrag.overIndex === index
-                          ? fillDrag.overIndex > fillDrag.dragIndex
-                            ? "after"
-                            : "before"
-                          : null
-                      }
-                      {...fillDrag.getHandleProps(index)}
-                    />
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                    <InspectorGridCell span={3}>
+                      <RowDragHandle
+                        label={t("editPanel.labels.reorderLayer")}
+                        dropIndicator={
+                          fillDrag.dragIndex != null &&
+                          fillDrag.overIndex === index
+                            ? fillDrag.overIndex > fillDrag.dragIndex
+                              ? "after"
+                              : "before"
+                            : null
+                        }
+                        {...fillDrag.getHandleProps(index)}
+                      />
+                    </InspectorGridCell>
+                    <InspectorGridCell span={20}>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 pl-8 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                          >
+                            <span
+                              className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
+                              style={swatchStyle(layer)}
+                            />
+                            <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                              {label}
+                            </span>
+                            <span className="shrink-0 tabular-nums text-muted-foreground">
+                              {hidden ? 0 : opacity}%
+                            </span>
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          side="left"
+                          align="start"
+                          sideOffset={8}
+                          className="w-80 p-0"
                         >
-                          <span
-                            className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
-                            style={swatchStyle(layer)}
+                          <DesignColorPicker
+                            value={layer}
+                            onPaintValueChange={replaceLayer}
+                            onChange={(nextColor) => {
+                              if (!gradient) return;
+                              const firstStop = gradient.stops[0];
+                              if (!firstStop) return;
+                              replaceLayer(
+                                buildGradientLayer(
+                                  gradient.type,
+                                  [
+                                    { ...firstStop, color: nextColor },
+                                    ...gradient.stops.slice(1),
+                                  ],
+                                  gradient.prefix,
+                                ),
+                              );
+                            }}
+                            // Editing an existing image layer's URL/fit
+                            // through its own row popover previously had no
+                            // `onImageFillChange` wired at all, so it fell
+                            // through to `emitPaintValue(imageFillToCss(...))`
+                            // — a single-property `background` SHORTHAND
+                            // string (e.g. `url(...) center / cover no-repeat`)
+                            // written into `backgroundImage` alone, which is
+                            // invalid CSS for that longhand and left
+                            // backgroundSize/backgroundRepeat/backgroundPosition
+                            // untouched. Merge into this layer's own index
+                            // across all four parallel arrays instead (same
+                            // helper the base-row fix uses — see
+                            // `imageFillChangePatch` in panel-primitives.tsx).
+                            onImageFillChange={(value) =>
+                              commitStylePatch(
+                                setImageFillLayerPatch(
+                                  {
+                                    backgroundImage: backgroundLayers,
+                                    backgroundSize: backgroundSizeLayers,
+                                    backgroundRepeat: backgroundRepeatLayers,
+                                    backgroundPosition:
+                                      backgroundPositionLayers,
+                                  },
+                                  index,
+                                  imageFillToBackgroundStyles(value),
+                                ),
+                                onStyleChange,
+                                onStylesChange,
+                              )
+                            }
+                            paintType={gradient?.type ?? "image"}
+                            backgroundImage={layer}
+                            backgroundSize={backgroundSizeLayers[index]}
+                            backgroundRepeat={backgroundRepeatLayers[index]}
+                            backgroundPosition={backgroundPositionLayers[index]}
+                            gradientType={gradient?.type}
+                            onGradientTypeChange={(type) => {
+                              if (!gradient) return;
+                              replaceLayer(
+                                buildGradientLayer(type, gradient.stops),
+                              );
+                            }}
+                            fillRows={[
+                              {
+                                id: `layer-${index}`,
+                                label,
+                                value: layer,
+                                type: gradient ? "gradient" : "image",
+                                selected: true,
+                                swatch: layer,
+                              },
+                            ]}
+                            selectedFillId={`layer-${index}`}
                           />
-                          <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                            {label}
-                          </span>
-                          <span className="shrink-0 tabular-nums text-muted-foreground">
-                            {hidden ? 0 : opacity}%
-                          </span>
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        side="left"
-                        align="start"
-                        sideOffset={8}
-                        className="w-80 p-0"
+                        </PopoverContent>
+                      </Popover>
+                    </InspectorGridCell>
+                    <InspectorGridCell span={4} className="flex justify-center">
+                      <SectionIconButton
+                        label={
+                          hidden
+                            ? t("editPanel.labels.showLayer")
+                            : t("editPanel.labels.hideLayer")
+                        }
+                        onClick={() => setLayerHidden(!hidden)}
+                        activateOnPointerDown
                       >
-                        <DesignColorPicker
-                          value={layer}
-                          onPaintValueChange={replaceLayer}
-                          onChange={(nextColor) => {
-                            if (!gradient) return;
-                            const firstStop = gradient.stops[0];
-                            if (!firstStop) return;
-                            replaceLayer(
-                              buildGradientLayer(
-                                gradient.type,
-                                [
-                                  { ...firstStop, color: nextColor },
-                                  ...gradient.stops.slice(1),
-                                ],
-                                gradient.prefix,
-                              ),
-                            );
-                          }}
-                          // Editing an existing image layer's URL/fit
-                          // through its own row popover previously had no
-                          // `onImageFillChange` wired at all, so it fell
-                          // through to `emitPaintValue(imageFillToCss(...))`
-                          // — a single-property `background` SHORTHAND
-                          // string (e.g. `url(...) center / cover no-repeat`)
-                          // written into `backgroundImage` alone, which is
-                          // invalid CSS for that longhand and left
-                          // backgroundSize/backgroundRepeat/backgroundPosition
-                          // untouched. Merge into this layer's own index
-                          // across all four parallel arrays instead (same
-                          // helper the base-row fix uses — see
-                          // `imageFillChangePatch` in panel-primitives.tsx).
-                          onImageFillChange={(value) =>
-                            commitStylePatch(
-                              setImageFillLayerPatch(
-                                {
-                                  backgroundImage: backgroundLayers,
-                                  backgroundSize: backgroundSizeLayers,
-                                  backgroundRepeat: backgroundRepeatLayers,
-                                  backgroundPosition: backgroundPositionLayers,
-                                },
-                                index,
-                                imageFillToBackgroundStyles(value),
-                              ),
-                              onStyleChange,
-                              onStylesChange,
-                            )
-                          }
-                          paintType={gradient?.type ?? "image"}
-                          backgroundImage={layer}
-                          backgroundSize={backgroundSizeLayers[index]}
-                          backgroundRepeat={backgroundRepeatLayers[index]}
-                          backgroundPosition={backgroundPositionLayers[index]}
-                          gradientType={gradient?.type}
-                          onGradientTypeChange={(type) => {
-                            if (!gradient) return;
-                            replaceLayer(
-                              buildGradientLayer(type, gradient.stops),
-                            );
-                          }}
-                          fillRows={[
-                            {
-                              id: `layer-${index}`,
-                              label,
-                              value: layer,
-                              type: gradient ? "gradient" : "image",
-                              selected: true,
-                              swatch: layer,
-                            },
-                          ]}
-                          selectedFillId={`layer-${index}`}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <SectionIconButton
-                      label={
-                        hidden
-                          ? t("editPanel.labels.showLayer")
-                          : t("editPanel.labels.hideLayer")
-                      }
-                      onClick={() => setLayerHidden(!hidden)}
-                      activateOnPointerDown
-                    >
-                      {hidden ? (
-                        <IconEyeOff className="size-3.5" />
-                      ) : (
-                        <IconEye className="size-3.5" />
-                      )}
-                    </SectionIconButton>
-                    <SectionIconButton
-                      label={t("editPanel.labels.removeLayer")}
-                      onClick={removeLayer}
-                    >
-                      <IconMinus className="size-3.5" />
-                    </SectionIconButton>
-                  </div>
+                        {hidden ? (
+                          <IconEyeOff className="size-3.5" />
+                        ) : (
+                          <IconEye className="size-3.5" />
+                        )}
+                      </SectionIconButton>
+                    </InspectorGridCell>
+                    <InspectorGridCell span={4} className="flex justify-center">
+                      <SectionIconButton
+                        label={t("editPanel.labels.removeLayer")}
+                        onClick={removeLayer}
+                      >
+                        <IconMinus className="size-3.5" />
+                      </SectionIconButton>
+                    </InspectorGridCell>
+                  </InspectorPaintRow>
                 );
               })
             : null}

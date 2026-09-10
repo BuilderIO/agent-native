@@ -85,7 +85,9 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   }
   if (/^INSERT INTO identity_sso_jti/i.test(sql)) {
     if (jtis.has(args[0])) {
-      throw new Error("UNIQUE constraint failed: identity_sso_jti.jti");
+      throw new Error(
+        "duplicate key value violates unique constraint identity_sso_jti_pkey",
+      );
     }
     jtis.add(args[0]);
     return { rows: [], rowsAffected: 1 };
@@ -95,10 +97,12 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: exec }),
-  intType: () => "INTEGER",
   isConnectionError: () => false,
-  isPostgres: () => false,
   isProductionServerlessFunctionRuntime: () => false,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 const store = await import("./identity-sso-store.js");
@@ -153,6 +157,12 @@ describe("identity SSO feature switch and request classifiers", () => {
     expect(store.getIdentityHubUrl()).toBe("https://dispatch.agent-native.com");
     expect(store.isIdentitySsoEnabled()).toBe(true);
     expect(store.identitySsoLoginButtonHtml()).toBe("");
+    expect(
+      store.isIdentitySsoAvailableForRequest({
+        requestHost: "mail.agent-native.com",
+        requestProtocol: "https",
+      }),
+    ).toBe(true);
 
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL =
       "https://dispatch.agent-native.com";
@@ -167,14 +177,18 @@ describe("identity SSO feature switch and request classifiers", () => {
     expect(store.getIdentityHubUrl()).toBeUndefined();
   });
 
-  it("keeps the browser entry available for explicitly configured self-hosted apps", () => {
+  it("keeps silent federation available for explicitly configured self-hosted apps", () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL =
       "https://dispatch.agent-native.com";
 
-    expect(store.identitySsoLoginButtonHtml()).toContain(
-      'id="identity-sso-btn"',
-    );
+    expect(store.identitySsoLoginButtonHtml()).toBe("");
+    expect(store.isIdentitySsoAvailableForRequest()).toBe(true);
+    expect(
+      store.identitySsoLoginButtonHtml({
+        requestHost: "mail.agent-native.com",
+      }),
+    ).toBe("");
   });
 
   it("normalizes a configured hub without accepting credentials or queries", () => {

@@ -34,10 +34,59 @@ describe("editor side panels", () => {
     expect(pageSource).toContain(`useEffect(() => {
     setAnimationTarget(null);
   }, [activeSlideId]);`);
-    expect(pageSource).toContain(`const toggleAnimations = useCallback(() => {
-    setAnimationTarget(null);
-    setAnimationsOpen((open) => !open);
-  }, []);`);
+    const toggleAnimationsStart = pageSource.indexOf(
+      "const toggleAnimations = useCallback(() => {",
+    );
+    const toggleLayersStart = pageSource.indexOf(
+      "const toggleLayers = useCallback",
+      toggleAnimationsStart,
+    );
+    const toggleAnimationsSource = pageSource.slice(
+      toggleAnimationsStart,
+      toggleLayersStart,
+    );
+    expect(toggleAnimationsSource).toContain("setLayersOpen(false);");
+    expect(toggleAnimationsSource).toContain("setAnimationTarget(null);");
+    expect(toggleAnimationsSource).toContain(
+      "setAnimationsOpen((open) => !open);",
+    );
+  });
+
+  it("rounds the canvas edge consistently for either right-side panel", () => {
+    expect(editorSource).toContain(
+      'animationsOpen || layersOpen ? "rounded-r-lg" : ""',
+    );
+  });
+
+  it("mounts Layers beside the canvas shell like Transitions", () => {
+    expect(editorSource).toContain(
+      "createPortal(layersPanel, layersPanelSlot)",
+    );
+    expect(pageSource).toContain('data-layers-panel-host="true"');
+    expect(pageSource).toContain("layersPanelSlot={layersPanelSlot}");
+    const workspaceStart = pageSource.indexOf(
+      'className="deck-editor-workspace relative flex',
+    );
+    const layersHost = pageSource.indexOf(
+      'data-layers-panel-host="true"',
+      workspaceStart,
+    );
+    const workspaceEnd = pageSource.indexOf(
+      "\n      </div>\n\n      {/* Hidden upload input */}",
+      workspaceStart,
+    );
+    expect(layersHost).toBeGreaterThan(workspaceStart);
+    expect(layersHost).toBeLessThan(workspaceEnd);
+  });
+
+  it("uses the same element context menu from every layer row", () => {
+    expect(editorSource).toContain(
+      "contextMenuContent={readOnly ? undefined : slideElementContextMenuContent}",
+    );
+    expect(editorSource).toContain(
+      "onContextMenuLayer={readOnly ? undefined : handleLayerContextMenu}",
+    );
+    expect(editorSource).toContain("{slideElementContextMenuContent}");
   });
 });
 
@@ -87,6 +136,18 @@ describe("slide context toolbar", () => {
   it("cancels native image dragging on the editable canvas", () => {
     expect(editorSource).toContain(
       "onDragStart={(event) => event.preventDefault()}",
+    );
+  });
+
+  it("keeps the comment target mounted for Excalidraw slides", () => {
+    expect(editorSource).toContain(
+      'data-main-slide-canvas="true"\n              data-slide-canvas-focus="true"',
+    );
+    expect(editorSource).toContain(
+      '<div className="slide-content relative h-full">',
+    );
+    expect(editorSource).toContain(
+      "canvasSelector=\"[data-main-slide-canvas='true']\"",
     );
   });
 });

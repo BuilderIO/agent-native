@@ -19,7 +19,7 @@
     "setup": "Start with Native SQL without an external connection, or connect HubSpot or Salesforce through workspace Connections. CRM never accepts or stores provider credentials."
   },
   "surfaces": [
-    { "id": "crm-workspace", "action": "get-crm-workspace", "path": "/" },
+    { "id": "crm-workspace", "action": "get-crm-workspace", "path": "/home" },
     { "id": "crm-records", "action": "list-crm-records", "path": "/records" },
     { "id": "crm-lists", "action": "list-crm-lists", "path": "/lists" },
     {

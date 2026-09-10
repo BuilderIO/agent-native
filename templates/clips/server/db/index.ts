@@ -2,6 +2,7 @@ import { createGetDb, getDbExec } from "@agent-native/core/db";
 import { organizations } from "@agent-native/core/org";
 import { registerShareableResource } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
+import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
   CLIPS_MEETING_AGENT_CONTEXT_ENDPOINT,
@@ -14,7 +15,9 @@ import {
 } from "../lib/share-email-hero.js";
 import * as schema from "./schema.js";
 
-export const getDb = createGetDb(schema);
+type ClipsDatabase = PgDatabase<PgQueryResultHKT, typeof schema>;
+
+export const getDb = createGetDb(schema) as () => ClipsDatabase;
 export { schema, getDbExec };
 
 /**

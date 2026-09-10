@@ -32,6 +32,7 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../db/index.js";
+import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
@@ -258,12 +259,14 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       const { recording } = loaded;
-      if (recording.expiresAt) {
-        const expires = new Date(recording.expiresAt).getTime();
-        if (Number.isFinite(expires) && expires < Date.now()) {
-          setResponseStatus(event, 410);
-          return { error: "Recording has expired" };
-        }
+      if (
+        isRecordingExpiredForViewer({
+          expiresAt: recording.expiresAt,
+          viewerIsOwner: loaded.role === "owner",
+        })
+      ) {
+        setResponseStatus(event, 410);
+        return { error: "Recording has expired" };
       }
 
       const query = getQuery(event) as {

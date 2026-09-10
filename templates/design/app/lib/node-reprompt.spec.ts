@@ -1,4 +1,3 @@
-import { appendAgentChatContextToMessage } from "@agent-native/core/client/agent-chat";
 import { isNodeRewriteProposal } from "@shared/node-rewrite";
 import { describe, expect, it } from "vitest";
 
@@ -20,18 +19,11 @@ describe("formatNodeRepromptSubmission", () => {
       subtreeHtml: '<section data-node-id="hero">Hero</section>',
     });
 
-    expect(submission.message).toBe("Give this a better background");
+    expect(submission.message).toBe("  Give this a better background  ");
     expect(submission.message).not.toContain("repromptId");
     expect(submission.context).toContain("[Reprompt selection]");
     expect(submission.context).toContain("repromptId: reprompt-1");
     expect(submission.context).toContain("baseVersionHash: 123:abc");
-
-    const transported = appendAgentChatContextToMessage(
-      submission.message,
-      submission.context,
-    );
-    expect(transported).toMatch(/^Give this a better background\n\n<context>/);
-    expect(transported).toContain("[Reprompt selection]");
   });
 });
 

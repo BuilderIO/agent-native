@@ -151,7 +151,7 @@ export function ReadinessPanel({
   );
 
   useEffect(() => {
-    if (open && !statuses && mac) checkStatuses();
+    if (open && !statuses && mac) void checkStatuses();
   }, [open, statuses, mac, checkStatuses]);
 
   return (

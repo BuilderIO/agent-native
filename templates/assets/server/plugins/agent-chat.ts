@@ -4,11 +4,12 @@ import {
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, asc, desc, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, isNull } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { accessibleTemplateFilter } from "../../actions/_template-access.js";
 import { getDb, schema } from "../db/index.js";
-import { preparePresetChatContext } from "../lib/preset-chat-context.js";
+import { prepareTemplateChatContext } from "../lib/template-chat-context.js";
 import "../register-secrets.js";
 
 const ASSETS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -50,10 +51,10 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
-  // When a user tags an @preset, embed its aesthetics/philosophy into the
+  // When a user tags an @template, embed its aesthetics/philosophy into the
   // model-facing message so the agent internalizes the brief before generating.
   prepareRequest: ({ message, references }) =>
-    preparePresetChatContext({ message, references }),
+    prepareTemplateChatContext({ message, references }),
   mentionProviders: {
     mediaTypes: {
       label: "Media type",
@@ -89,8 +90,8 @@ export default createAgentChatPlugin({
         );
       },
     },
-    presets: {
-      label: "Presets",
+    templates: {
+      label: "Templates",
       icon: "document",
       search: async (query: string) => {
         try {
@@ -108,89 +109,96 @@ export default createAgentChatPlugin({
               ),
             )
             .orderBy(desc(schema.assetLibraries.updatedAt));
-          const libraryIds = libraryRows.map((library) => library.id);
-          if (!libraryIds.length) return [];
           const libraryTitleById = new Map(
             libraryRows.map((library) => [library.id, library.title]),
           );
           const rows = await db
             .select({
-              id: schema.assetGenerationPresets.id,
-              libraryId: schema.assetGenerationPresets.libraryId,
-              title: schema.assetGenerationPresets.title,
-              description: schema.assetGenerationPresets.description,
-              aspectRatio: schema.assetGenerationPresets.aspectRatio,
-              imageSize: schema.assetGenerationPresets.imageSize,
-              model: schema.assetGenerationPresets.model,
-              mediaType: schema.assetGenerationPresets.mediaType,
-              sortOrder: schema.assetGenerationPresets.sortOrder,
+              id: schema.assetTemplates.id,
+              libraryId: schema.assetTemplates.libraryId,
+              title: schema.assetTemplates.title,
+              description: schema.assetTemplates.description,
+              aspectRatio: schema.assetTemplates.aspectRatio,
+              imageSize: schema.assetTemplates.imageSize,
+              model: schema.assetTemplates.model,
+              mediaType: schema.assetTemplates.mediaType,
+              sortOrder: schema.assetTemplates.sortOrder,
             })
-            .from(schema.assetGenerationPresets)
-            .where(inArray(schema.assetGenerationPresets.libraryId, libraryIds))
+            .from(schema.assetTemplates)
+            .where(await accessibleTemplateFilter())
             .orderBy(
-              asc(schema.assetGenerationPresets.sortOrder),
-              asc(schema.assetGenerationPresets.title),
+              asc(schema.assetTemplates.sortOrder),
+              asc(schema.assetTemplates.title),
             );
           const q = query.trim().toLowerCase();
           return rows
-            .filter((preset) => {
+            .filter((template) => {
               if (!q) return true;
-              const libraryTitle = libraryTitleById.get(preset.libraryId) ?? "";
+              const libraryTitle = template.libraryId
+                ? (libraryTitleById.get(template.libraryId) ?? "")
+                : "Global";
               return [
-                preset.id,
-                preset.title,
-                preset.description ?? "",
+                template.id,
+                template.title,
+                template.description ?? "",
                 libraryTitle,
-                preset.aspectRatio,
-                preset.imageSize,
-                preset.model,
-                preset.mediaType,
+                template.aspectRatio,
+                template.imageSize,
+                template.model,
+                template.mediaType,
               ]
                 .join(" ")
                 .toLowerCase()
                 .includes(q);
             })
             .slice(0, 20)
-            .map((preset) => {
-              const libraryTitle =
-                libraryTitleById.get(preset.libraryId) ?? "Brand kit";
+            .map((template) => {
+              const libraryTitle = template.libraryId
+                ? (libraryTitleById.get(template.libraryId) ?? "Brand kit")
+                : null;
               return {
-                id: `preset:${preset.id}`,
-                label: preset.title,
-                description: `${libraryTitle} · ${preset.aspectRatio} · ${preset.imageSize} · ${preset.model}`,
+                id: `template:${template.id}`,
+                label: template.title,
+                description: `${libraryTitle ?? "Global"} · ${template.aspectRatio} · ${template.imageSize} · ${template.model}`,
                 icon: "document",
-                refType: "preset",
-                refId: preset.id,
-                refPath: `/library/${preset.libraryId}`,
-                slotKey: "preset",
-                slotLabel: "Preset",
+                refType: "template",
+                refId: template.id,
+                refPath: `/templates/${template.id}`,
+                slotKey: "template",
+                slotLabel: "Template",
                 metadata: {
-                  libraryId: preset.libraryId,
-                  libraryTitle,
-                  requiredSlotKey: "brand-kit",
-                  requiredRefId: preset.libraryId,
-                  mediaType: preset.mediaType,
+                  ...(template.libraryId
+                    ? {
+                        libraryId: template.libraryId,
+                        libraryTitle,
+                        requiredSlotKey: "brand-kit",
+                        requiredRefId: template.libraryId,
+                      }
+                    : {}),
+                  mediaType: template.mediaType,
                 },
-                relatedReferences: [
-                  {
-                    label: libraryTitle,
-                    icon: "folder",
-                    source: "brandKits",
-                    refType: "brand-kit",
-                    refId: preset.libraryId,
-                    refPath: `/library/${preset.libraryId}`,
-                    slotKey: "brand-kit",
-                    slotLabel: "Brand kit",
-                    clearsSlots: ["preset"],
-                    metadata: {
-                      libraryId: preset.libraryId,
-                    },
-                  },
-                ],
+                relatedReferences: template.libraryId
+                  ? [
+                      {
+                        label: libraryTitle ?? "Brand kit",
+                        icon: "folder",
+                        source: "brandKits",
+                        refType: "brand-kit",
+                        refId: template.libraryId,
+                        refPath: `/library/${template.libraryId}`,
+                        slotKey: "brand-kit",
+                        slotLabel: "Brand kit",
+                        clearsSlots: ["template"],
+                        metadata: {
+                          libraryId: template.libraryId,
+                        },
+                      },
+                    ]
+                  : [],
               };
             });
         } catch (err) {
-          console.error("[assets] Preset mention provider failed:", err);
+          console.error("[assets] Template mention provider failed:", err);
           return [];
         }
       },
@@ -235,7 +243,7 @@ export default createAgentChatPlugin({
               refPath: `/library/${library.id}`,
               slotKey: "brand-kit",
               slotLabel: "Brand kit",
-              clearsSlots: ["preset"],
+              clearsSlots: ["template"],
               metadata: {
                 libraryId: library.id,
               },

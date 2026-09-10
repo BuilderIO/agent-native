@@ -53,6 +53,7 @@ import {
 } from "@/lib/local-folder-live-sync";
 import {
   hasInterruptedNativeFolderPickerAttempt,
+  isUserCancelledFolderPickerError,
   runNativeFolderPickerWithCrashSentinel,
 } from "@/lib/local-folder-picker-safety";
 import { isUnsafeNativeFolderPickerHost } from "@/lib/local-folder-picker-support";
@@ -809,10 +810,10 @@ export default function LocalFilesRoute() {
       } as never,
     )
       .then((result) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-content-spaces"],
         });
         setStatus(
@@ -825,7 +826,9 @@ export default function LocalFilesRoute() {
               },
         );
         if (result.requestedDocumentId) {
-          navigate(`/page/${result.requestedDocumentId}`, { replace: true });
+          void navigate(`/page/${result.requestedDocumentId}`, {
+            replace: true,
+          });
         }
       })
       .catch((err) => {
@@ -886,7 +889,7 @@ export default function LocalFilesRoute() {
             queryKey: ["action", "get-content-database"],
           }),
         ]);
-        navigate(`/page/${firstDocument.id}`, { replace: true });
+        void navigate(`/page/${firstDocument.id}`, { replace: true });
       })
       .catch((err) => {
         workingCopyBootstrapRef.current = null;
@@ -1045,7 +1048,7 @@ export default function LocalFilesRoute() {
         files: controlResources,
       });
       if (synced.count > 0) {
-        queryClient.invalidateQueries({ queryKey: ["resources"] });
+        void queryClient.invalidateQueries({ queryKey: ["resources"] });
       }
     }
     const connection = await ensureDirectoryConnection(
@@ -1098,11 +1101,13 @@ export default function LocalFilesRoute() {
       } as never,
     );
     if (!dryRun) {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-content-spaces"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
     }
@@ -1159,6 +1164,10 @@ export default function LocalFilesRoute() {
       toast.success(t("localFiles.pulledLocalFiles"));
       await connectLocalComponentWorkspaces([selected]);
     } catch (err) {
+      if (isUserCancelledFolderPickerError(err)) {
+        // Backing out of the native picker isn't a failure worth surfacing.
+        return;
+      }
       setStatus({
         kind: "error",
         title: t("localFiles.folderAddFailed"),
@@ -1311,10 +1320,10 @@ export default function LocalFilesRoute() {
         await persistSourceDirectories(nextDirectories);
       }
       setDirectories(nextDirectories);
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-content-spaces"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
       setStatus({
@@ -1344,7 +1353,9 @@ export default function LocalFilesRoute() {
           sourceRootPath: directory.sourceRootPath,
         } as never,
       );
-      queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
       setStatus({
         kind: "success",
         title: t("localFiles.folderRemoved"),

@@ -34,6 +34,11 @@ import {
   solidToGradientPatch,
   splitCssLayers,
 } from "./fill-gradient-helpers";
+import {
+  InspectorActionRail,
+  InspectorGrid,
+  InspectorGridCell,
+} from "./inspector-grid";
 import { colorHasVisibleAlpha, cssColorOrFallback } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
 
@@ -147,60 +152,64 @@ export function PropInput({
   };
 
   return (
-    <div className="flex items-center gap-1.5">
-      <FieldLabel>{label}</FieldLabel>
-      <Input
-        type={type}
-        value={draft}
-        onFocus={(e) => {
-          focusedRef.current = true;
-          if (mixed) e.currentTarget.select();
-        }}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          // For length fields, defer the live update until blur/Enter so that
-          // invalid intermediate strings ("3", "32", "32p") don't get applied
-          // and discarded by the browser. Free-text fields (without
-          // defaultUnit) keep the responsive live-update behavior.
-          if (defaultUnit === undefined) onChange(e.target.value);
-        }}
-        onBlur={() => {
-          focusedRef.current = false;
-          if (skipNextBlurCommitRef.current) {
-            skipNextBlurCommitRef.current = false;
-            return;
-          }
-          commit();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
+    <InspectorGrid>
+      <InspectorGridCell span={10} className="flex items-center">
+        <FieldLabel>{label}</FieldLabel>
+      </InspectorGridCell>
+      <InspectorGridCell span={18}>
+        <Input
+          type={type}
+          value={draft}
+          onFocus={(e) => {
+            focusedRef.current = true;
+            if (mixed) e.currentTarget.select();
+          }}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            // For length fields, defer the live update until blur/Enter so that
+            // invalid intermediate strings ("3", "32", "32p") don't get applied
+            // and discarded by the browser. Free-text fields (without
+            // defaultUnit) keep the responsive live-update behavior.
+            if (defaultUnit === undefined) onChange(e.target.value);
+          }}
+          onBlur={() => {
+            focusedRef.current = false;
+            if (skipNextBlurCommitRef.current) {
+              skipNextBlurCommitRef.current = false;
+              return;
+            }
             commit();
-            // See propInputKeyRequiresBlurGuard: without this, the blur
-            // triggered below re-enters commit() a second time in the same
-            // synchronous tick, double-invoking onChange with the identical
-            // value.
-            skipNextBlurCommitRef.current = propInputKeyRequiresBlurGuard(
-              e.key,
-            );
-            (e.currentTarget as HTMLInputElement).blur();
-            return;
-          }
-          if (e.key === "Escape") {
-            e.preventDefault();
-            // Revert the draft to the last committed value and blur, matching
-            // ScrubInput's Escape behavior.
-            setDraft(value);
-            skipNextBlurCommitRef.current = propInputKeyRequiresBlurGuard(
-              e.key,
-            );
-            (e.currentTarget as HTMLInputElement).blur();
-          }
-        }}
-        placeholder={placeholder}
-        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
-      />
-    </div>
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+              // See propInputKeyRequiresBlurGuard: without this, the blur
+              // triggered below re-enters commit() a second time in the same
+              // synchronous tick, double-invoking onChange with the identical
+              // value.
+              skipNextBlurCommitRef.current = propInputKeyRequiresBlurGuard(
+                e.key,
+              );
+              (e.currentTarget as HTMLInputElement).blur();
+              return;
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              // Revert the draft to the last committed value and blur, matching
+              // ScrubInput's Escape behavior.
+              setDraft(value);
+              skipNextBlurCommitRef.current = propInputKeyRequiresBlurGuard(
+                e.key,
+              );
+              (e.currentTarget as HTMLInputElement).blur();
+            }
+          }}
+          placeholder={placeholder}
+          className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
+        />
+      </InspectorGridCell>
+    </InspectorGrid>
   );
 }
 
@@ -219,6 +228,7 @@ export function ColorInput({
   blendMode,
   onBlendModeChange,
   supportsLayeredFills = false,
+  allowDesignHistoryHotkeys = false,
   documentColors,
   supportedPaintTypes,
   pickerKey,
@@ -263,6 +273,7 @@ export function ColorInput({
   blendMode?: string;
   onBlendModeChange?: (value: string) => void;
   supportsLayeredFills?: boolean;
+  allowDesignHistoryHotkeys?: boolean;
   /** Hex strings already in use on the page — forwarded to the color picker swatch grid. */
   documentColors?: string[];
   /**
@@ -571,6 +582,7 @@ export function ColorInput({
       documentColors={documentColors}
       supportedPaintTypes={supportedPaintTypes}
       glslShaderContext={glslShaderContext}
+      allowDesignHistoryHotkeys={allowDesignHistoryHotkeys}
     />
   );
 }
@@ -588,25 +600,29 @@ export function PropSelect({
   options: { value: string; label: string }[];
 }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <FieldLabel>{label}</FieldLabel>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((opt) => (
-            <SelectItem
-              key={opt.value}
-              value={opt.value}
-              className="!text-[11px]"
-            >
-              {opt.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+    <InspectorGrid>
+      <InspectorGridCell span={10} className="flex items-center">
+        <FieldLabel>{label}</FieldLabel>
+      </InspectorGridCell>
+      <InspectorGridCell span={18}>
+        <Select value={value} onValueChange={onChange}>
+          <SelectTrigger className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((opt) => (
+              <SelectItem
+                key={opt.value}
+                value={opt.value}
+                className="!text-[11px]"
+              >
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </InspectorGridCell>
+    </InspectorGrid>
   );
 }
 
@@ -629,23 +645,44 @@ export function PropSlider({
   unit?: string;
 }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <FieldLabel>{label}</FieldLabel>
-      <Slider
-        value={[value]}
-        onValueChange={([v]) => onChange(v)}
-        min={min}
-        max={max}
-        step={step}
-        className="flex-1"
-      />
-      <span className="w-12 text-right !text-[11px] tabular-nums text-muted-foreground">
-        {value}
-        {unit}
-      </span>
-    </div>
+    <InspectorGrid>
+      <InspectorGridCell span={10} className="flex items-center">
+        <FieldLabel>{label}</FieldLabel>
+      </InspectorGridCell>
+      <InspectorGridCell span={14} className="flex items-center">
+        <Slider
+          value={[value]}
+          onValueChange={([v]) => onChange(v)}
+          min={min}
+          max={max}
+          step={step}
+          className="w-full"
+        />
+      </InspectorGridCell>
+      <InspectorGridCell span={4} className="flex items-center justify-center">
+        <span className="text-right !text-[11px] tabular-nums text-muted-foreground">
+          {value}
+          {unit}
+        </span>
+      </InspectorGridCell>
+    </InspectorGrid>
   );
 }
+
+export {
+  INSPECTOR_GRID_COLUMNS,
+  INSPECTOR_GRID_ACTION_GUTTER_SPAN,
+  INSPECTOR_GRID_ACTION_PAIR_SPAN,
+  INSPECTOR_GRID_ACTION_SPAN,
+  INSPECTOR_GRID_PAIR_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_SPAN,
+  INSPECTOR_GRID_ROW_PX,
+  INSPECTOR_GRID_UNIT_PX,
+  InspectorActionPairGrid,
+  InspectorActionRail,
+  InspectorGrid,
+  InspectorGridCell,
+} from "./inspector-grid";
 
 /**
  * design-editor inspector section: divider above, title left, actions right.
@@ -667,44 +704,51 @@ export function PanelSection({
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const hasContent = Children.toArray(children).length > 0;
   const heading = (
-    <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
+    <h3 className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground">
       {title}
     </h3>
   );
 
   return (
-    <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
-      <div className="flex min-h-9 items-center gap-2 px-3">
-        {hasContent ? (
-          <button
-            type="button"
-            className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 bg-transparent text-left"
-            onClick={() => setCollapsed((c) => !c)}
-            aria-expanded={!collapsed}
-          >
-            {collapsed ? (
-              <IconChevronRight className="size-3 shrink-0 text-muted-foreground/50 rtl:-scale-x-100" />
+    <section className="design-sidebar-section shrink-0">
+      <div className="px-2">
+        <InspectorGrid
+          className="min-h-[var(--design-section-height)] items-center"
+          layout={actions ? "header-actions" : "columns"}
+        >
+          <InspectorGridCell span={actions ? 20 : 28}>
+            {hasContent ? (
+              <button
+                type="button"
+                className="flex w-full min-w-0 cursor-pointer items-center gap-1 bg-transparent text-left"
+                onClick={() => setCollapsed((c) => !c)}
+                aria-expanded={!collapsed}
+              >
+                {collapsed ? (
+                  <IconChevronRight className="size-3 shrink-0 text-muted-foreground/50 rtl:-scale-x-100" />
+                ) : (
+                  <IconChevronDown className="size-3 shrink-0 text-muted-foreground/50" />
+                )}
+                {heading}
+              </button>
             ) : (
-              <IconChevronDown className="size-3 shrink-0 text-muted-foreground/50" />
+              <div className="flex min-w-0 items-center pl-4">{heading}</div>
             )}
-            {heading}
-          </button>
-        ) : (
-          <div className="flex min-w-0 flex-1 items-center gap-1 pl-4">
-            {heading}
-          </div>
-        )}
-        {actions ? (
-          <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
-        ) : null}
+          </InspectorGridCell>
+          {actions ? (
+            <InspectorGridCell span={8}>
+              <InspectorActionRail>{actions}</InspectorActionRail>
+            </InspectorGridCell>
+          ) : null}
+        </InspectorGrid>
       </div>
       {hasContent ? (
         <div
-          className="grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none"
+          className="grid transition-[grid-template-rows] duration-200 ease-[var(--ease-collapse)] motion-reduce:transition-none"
           style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
         >
           <div className="overflow-hidden">
-            <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
+            <div className="design-sidebar-control-text design-sidebar-section-content">
               {children}
             </div>
           </div>
@@ -716,7 +760,7 @@ export function PanelSection({
 
 export function FieldLabel({ children }: { children: ReactNode }) {
   return (
-    <Label className="w-[64px] shrink-0 !text-[11px] font-medium text-muted-foreground">
+    <Label className="design-sidebar-field-label min-w-0 truncate text-muted-foreground">
       {children}
     </Label>
   );
@@ -724,6 +768,8 @@ export function FieldLabel({ children }: { children: ReactNode }) {
 
 export function SubsectionLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="!text-[11px] font-medium text-muted-foreground">{children}</p>
+    <p className="design-sidebar-field-label text-muted-foreground">
+      {children}
+    </p>
   );
 }

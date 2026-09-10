@@ -102,19 +102,27 @@ function safeUrl(u: string | undefined): string {
   }
 }
 
-function extractMeetingLink(event: CalendarEvent): string | null {
+function extractMeetingLink(event: CalendarEvent): {
+  url: string;
+  type: "meet" | "other";
+} | null {
   const videoEntry = event.conferenceData?.entryPoints?.find(
     (entry) => entry.entryPointType === "video",
   );
-  if (videoEntry?.uri) return videoEntry.uri;
-  if (event.hangoutLink) return event.hangoutLink;
+  if (videoEntry?.uri)
+    return {
+      url: videoEntry.uri,
+      type: videoEntry.uri.includes("meet.google.com") ? "meet" : "other",
+    };
+  if (event.hangoutLink) return { url: event.hangoutLink, type: "meet" };
   const text = `${event.location || ""} ${event.description || ""}`;
-  return (
+  const url =
     text.match(/https?:\/\/[^\s]*zoom\.us\/j\/[^\s)"]*/i)?.[0] ||
     text.match(/https?:\/\/meet\.google\.com\/[^\s)"]*/i)?.[0] ||
-    text.match(/https?:\/\/teams\.microsoft\.com\/[^\s)"]*/i)?.[0] ||
-    null
-  );
+    text.match(/https?:\/\/teams\.microsoft\.com\/[^\s)"]*/i)?.[0];
+  return url
+    ? { url, type: url.includes("meet.google.com") ? "meet" : "other" }
+    : null;
 }
 
 export function EventDetailPanel({
@@ -142,7 +150,10 @@ export function EventDetailPanel({
   );
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
-  const isOverlay = !!event?.overlayEmail;
+  const isOverlay =
+    !!event?.overlayEmail ||
+    event?.calendarPrimary === false ||
+    event?.calendarReadOnly === true;
   const isWorkingLocation = event ? isWorkingLocationEvent(event) : false;
   const isOutOfOffice = event ? isOutOfOfficeEvent(event) : false;
   const isRecurringEvent = !!(
@@ -150,7 +161,22 @@ export function EventDetailPanel({
   );
   const lastSavedDescriptionRef = useRef(event?.description || "");
   const meetingLink = event ? extractMeetingLink(event) : null;
-  const ownerLabel = event?.ownerName || event?.overlayEmail;
+  const canRemoveGoogleMeet =
+    !isOverlay &&
+    meetingLink?.type === "meet" &&
+    (!!event?.hangoutLink ||
+      event?.conferenceData?.entryPoints?.some(
+        (entryPoint) =>
+          entryPoint.entryPointType === "video" &&
+          entryPoint.uri.includes("meet.google.com"),
+      ));
+  const ownerLabel =
+    event?.ownerName ||
+    event?.overlayEmail ||
+    ((event?.calendarPrimary === false || event?.calendarReadOnly) &&
+    event?.calendarName
+      ? `${event.calendarName} · ${event.accountEmail ?? "Google"}`
+      : undefined);
   const eventDetailSlotContext = useMemo(
     () => (event ? buildEventDetailSlotContext(event) : null),
     [event],
@@ -280,6 +306,33 @@ export function EventDetailPanel({
     })();
   }, [event, promptGuestNotification, updateEvent]);
 
+  const handleRemoveGoogleMeet = useCallback(() => {
+    if (!event || updateEvent.isPending) return;
+    void (async () => {
+      const updates = { removeGoogleMeet: true };
+      const guestNotification = await promptGuestNotification({
+        event,
+        action: "update",
+        updates,
+        recurrenceScope: isRecurringEvent
+          ? { enabled: true, defaultScope: "single" }
+          : undefined,
+      });
+      if (!guestNotification) return;
+      updateEvent.mutate(
+        {
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        },
+        {
+          onError: () => toast.error(t("eventForm.updateFailed")),
+        },
+      );
+    })();
+  }, [event, isRecurringEvent, promptGuestNotification, t, updateEvent]);
+
   const handleToggleAttendeeOptional = useCallback(
     (email: string, optional: boolean) => {
       if (!event || updateEvent.isPending) return;
@@ -382,7 +435,7 @@ export function EventDetailPanel({
               {/* Content */}
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                 {/* Title — click to edit */}
-                {isEditingTitle && !isWorkingLocation ? (
+                {isEditingTitle && !isWorkingLocation && !isOverlay ? (
                   <input
                     ref={titleInputRef}
                     value={editingTitle}
@@ -418,10 +471,12 @@ export function EventDetailPanel({
                   <h2
                     className={cn(
                       "-mx-0.5 rounded px-0.5 text-lg font-semibold leading-tight text-foreground",
-                      !isWorkingLocation && "cursor-text hover:bg-muted/50",
+                      !isWorkingLocation &&
+                        !isOverlay &&
+                        "cursor-text hover:bg-muted/50",
                     )}
                     onClick={() => {
-                      if (isWorkingLocation) return;
+                      if (isWorkingLocation || isOverlay) return;
                       setEditingTitle(getEditableEventTitle(event));
                       setIsEditingTitle(true);
                     }}
@@ -504,32 +559,51 @@ export function EventDetailPanel({
                   </div>
                 ) : null}
 
-                {event.overlayEmail && ownerLabel && (
-                  <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
-                    <span
-                      aria-hidden="true"
-                      className="ml-0.5 size-2 shrink-0 rounded-full ring-1 ring-border"
-                      style={{ backgroundColor: event.ownerColor }}
-                    />
-                    <span>
-                      {t("eventForm.viewingOwnerCalendar", {
-                        owner: ownerLabel,
-                      })}
-                    </span>
-                  </div>
-                )}
+                {(event.overlayEmail ||
+                  event.calendarPrimary === false ||
+                  event.calendarReadOnly) &&
+                  ownerLabel && (
+                    <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                      <span
+                        aria-hidden="true"
+                        className="ml-0.5 size-2 shrink-0 rounded-full ring-1 ring-border"
+                        style={{ backgroundColor: event.ownerColor }}
+                      />
+                      <span>
+                        {t("eventForm.viewingOwnerCalendar", {
+                          owner: ownerLabel,
+                        })}
+                      </span>
+                    </div>
+                  )}
 
                 {!isWorkingLocation &&
                   (meetingLink ? (
-                    <a
-                      href={safeUrl(meetingLink)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center rounded-lg bg-[#4965E0] px-3 py-2 text-sm font-semibold text-white hover:bg-[#5A75F0]"
-                    >
-                      <IconVideo className="mr-2 h-4 w-4 opacity-80" />
-                      {t("eventForm.joinMeeting")}
-                    </a>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={safeUrl(meetingLink.url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex min-w-0 flex-1 items-center justify-center rounded-lg bg-conference px-3 py-2 text-sm font-semibold text-conference-foreground hover:bg-conference/90"
+                      >
+                        <IconVideo className="mr-2 h-4 w-4 opacity-80" />
+                        {t("eventForm.joinMeeting")}
+                      </a>
+                      {canRemoveGoogleMeet && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="size-9 shrink-0"
+                          aria-label={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
+                          title={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
+                          disabled={updateEvent.isPending}
+                          onClick={handleRemoveGoogleMeet}
+                        >
+                          <IconX className="size-4" />
+                        </Button>
+                      )}
+                    </div>
                   ) : !isOverlay ? (
                     <Button
                       type="button"

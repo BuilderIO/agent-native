@@ -35,7 +35,8 @@
     "beta.mail.agent-native.com",
     "beta.plan.agent-native.com",
     "beta.slides.agent-native.com",
-    "beta.chat.agent-native.com"
+    "beta.chat.agent-native.com",
+    "beta.agent-native.com"
   ],
   "workspace": ["agent-workspace.builder.io", "beta.agent-workspace.builder.io"]
 }

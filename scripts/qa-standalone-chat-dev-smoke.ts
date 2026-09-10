@@ -16,8 +16,8 @@
  *
  * CI flake strategy (do not fight Vite first-load dep optimization):
  * 1. Poll the unauthenticated JSON API from process launch until it returns 401.
- * 2. One page.goto to `/` so auto-login runs in the browser.
- * 3. Poll for Home / auth — never re-goto during active Vite reloads.
+ * 2. One page.goto to `/home` so local auto-login runs before the public shell.
+ * 3. Navigate to `/` and verify the authenticated client handoff to `/home`.
  * 4. waitForViteDepsQuiet(server logs) before strict assertions.
  * 5. Retry goto/evaluate only for transient Playwright navigation errors.
  */
@@ -105,7 +105,6 @@ interface RunningDev {
   closed: Promise<void>;
   isClosed: () => boolean;
   logs: string[];
-  dbPath: string;
   viteReload: ViteReloadTracker;
 }
 
@@ -217,11 +216,11 @@ function prepareIsolatedDataDir(): string {
   const dataDir = path.join(appDir, ".data");
   fs.rmSync(dataDir, { recursive: true, force: true });
   fs.mkdirSync(dataDir, { recursive: true });
-  return path.join(dataDir, "smoke.db");
+  return dataDir;
 }
 
-function devEnv(baseUrl: string, dbPath: string): NodeJS.ProcessEnv {
-  const databaseUrl = `file:${dbPath}`;
+function devEnv(baseUrl: string, dataDir: string): NodeJS.ProcessEnv {
+  const databaseUrl = `pglite:${dataDir}`;
   return {
     ...process.env,
     NODE_ENV: "development",
@@ -229,7 +228,6 @@ function devEnv(baseUrl: string, dbPath: string): NodeJS.ProcessEnv {
     BETTER_AUTH_URL: baseUrl,
     BETTER_AUTH_SECRET: "standalone-chat-dev-smoke-secret",
     DATABASE_URL: databaseUrl,
-    DATABASE_AUTH_TOKEN: "",
     AUTH_SKIP_EMAIL_VERIFICATION: "1",
     NETLIFY: "",
     VERCEL: "",
@@ -254,11 +252,6 @@ function hasAuthLockFailure(logs: string[]): boolean {
   return logTail(logs).includes(
     "Auth guard registered despite init failure — app is locked.",
   );
-}
-
-function hasRecentDatabaseLock(logs: string[]): boolean {
-  const tail = logTail(logs, 40);
-  return tail.includes("database is locked") || tail.includes("SQLITE_BUSY");
 }
 
 /**
@@ -352,12 +345,6 @@ async function waitForDevStable(
       continue;
     }
 
-    if (hasRecentDatabaseLock(logs)) {
-      lastError = "database is locked (startup race)";
-      await sleep(2_000);
-      continue;
-    }
-
     // Do not fetch `/` here — Node fetch would consume the one-time auto-login
     // cookie before Playwright opens. Let the browser be the first client.
     await sleep(2_000);
@@ -433,8 +420,8 @@ async function waitForUnauthenticatedPollReady(
 async function startDevOnce(): Promise<RunningDev> {
   tryFreePort(port);
   const baseUrl = `http://127.0.0.1:${port}`;
-  const dbPath = prepareIsolatedDataDir();
-  log(`database: file:${dbPath}`);
+  const dataDir = prepareIsolatedDataDir();
+  log(`database: pglite:${dataDir}`);
   const logs: string[] = [];
   const viteReload: ViteReloadTracker = { lastReloadAt: 0 };
   const child = spawn(
@@ -451,7 +438,7 @@ async function startDevOnce(): Promise<RunningDev> {
     ],
     {
       cwd: appDir,
-      env: devEnv(baseUrl, dbPath),
+      env: devEnv(baseUrl, dataDir),
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
     },
@@ -484,7 +471,6 @@ async function startDevOnce(): Promise<RunningDev> {
     closed: closePromise,
     isClosed: () => closed,
     logs,
-    dbPath,
     viteReload,
   };
   try {
@@ -513,9 +499,7 @@ async function startDev(): Promise<RunningDev> {
       const authLocked = message.includes("app locked");
       const retryable =
         !authLocked &&
-        (message.includes("database is locked") ||
-          message.includes("SQLITE_BUSY") ||
-          message.includes("The database connection is not open") ||
+        (message.includes("The database connection is not open") ||
           message.includes("database connection is not open") ||
           message.includes("socket hang up"));
       if (!retryable || attempt === devStartAttempts - 1) throw err;
@@ -956,8 +940,8 @@ async function waitForAuthenticatedShell(
 ): Promise<string> {
   const serverLogs = running.logs;
 
-  log(`navigating to ${baseUrl}/ (auto-login path)`);
-  await gotoCommitted(page, `${baseUrl}/`);
+  log(`navigating to ${baseUrl}/home (auto-login path)`);
+  await gotoCommitted(page, `${baseUrl}/home`);
 
   const homeLink = page.getByRole("link", { name: /^(Home|Chat)$/ });
   const shellDeadline = Date.now() + shellTimeoutMs;
@@ -994,6 +978,19 @@ async function waitForAuthenticatedShell(
 
   const sessionEmail = await readAuthenticatedSessionEmail(page, baseUrl);
   log(`authenticated session: ${sessionEmail}`);
+
+  log(`navigating to ${baseUrl}/ (public shell handoff)`);
+  await gotoCommitted(page, `${baseUrl}/`);
+  await waitForHomeLink(page, shellTimeoutMs, {
+    baseUrl,
+    renavigateOnTimeout: true,
+  });
+  assert.equal(
+    new URL(page.url()).pathname,
+    "/home",
+    "authenticated public root should hand off to /home",
+  );
+
   return sessionEmail;
 }
 
@@ -1127,7 +1124,7 @@ async function main(): Promise<void> {
     console.log(`  url:      ${running.baseUrl}`);
     console.log(`  app:      ${appDir}`);
     console.log(
-      "  checked:  scaffold → install → dev server → auto-login → /agent → / (Chat)",
+      "  checked:  scaffold → install → dev server → /home auth → / handoff → Chat",
     );
     console.log(
       "  checked:  unauthenticated startup poll recovers to HTTP 401",

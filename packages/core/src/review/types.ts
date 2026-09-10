@@ -69,7 +69,7 @@ export interface ReviewComment {
   targetId: string | null;
   kind: ReviewCommentKind;
   status: ReviewCommentStatus;
-  anchor: unknown | null;
+  anchor: unknown;
   body: string;
   authorEmail: string | null;
   authorName: string | null;

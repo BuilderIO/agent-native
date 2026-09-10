@@ -45,6 +45,27 @@ describe("AutoLayoutMatrix", () => {
     expect(markup).not.toContain("Clip content");
   });
 
+  it("does not offer resize to fit for an unmeasurable shape", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value,
+        availableChildSizing: {
+          horizontal: ["fixed"],
+          vertical: ["fixed"],
+        },
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+
+    expect(markup).not.toContain("Resize to fit");
+  });
+
   it("shows a Mixed placeholder for gap instead of a misleading 0 when the multi-selection's gap values differ", () => {
     const markup = renderToStaticMarkup(
       createElement(AutoLayoutMatrix, {

@@ -179,7 +179,7 @@ function PendingCommentInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
           if (e.key === "Escape") onCancel();
         }}
         placeholder={t("comments.addCommentPlaceholder")}
@@ -264,7 +264,7 @@ function ReplyInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
           if (e.key === "Escape") onDone();
         }}
         placeholder={t("comments.replyPlaceholder")}

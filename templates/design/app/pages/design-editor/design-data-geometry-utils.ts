@@ -3,6 +3,7 @@ import {
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
+import { parseLayoutGridById, type LayoutGridById } from "@shared/layout-grid";
 import { type TweakSelections } from "@shared/resolve-tweaks";
 
 import { viewportSizeFromFrameGeometry } from "./data-operations";
@@ -73,6 +74,10 @@ export function getCanvasFrameGeometry(
   data: Record<string, unknown>,
 ): CanvasFrameGeometryById {
   return parseCanvasFrameGeometryById(data.canvasFrames);
+}
+
+export function getLayoutGrids(data: Record<string, unknown>): LayoutGridById {
+  return parseLayoutGridById(data.layoutGrids);
 }
 
 export function cloneCanvasFrameGeometry(

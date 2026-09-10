@@ -1,11 +1,5 @@
 import type { AgentNativeWebMcpTool } from "../client/webmcp.js";
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-  safeJsonParse,
-} from "../db/client.js";
+import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type {
   AgentNativeBrowserSession,
@@ -41,7 +35,6 @@ function sleep(ms: number): Promise<void> {
 export async function ensureTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
-      const client = getDbExec();
       const createSessionsSql = `
           CREATE TABLE IF NOT EXISTS ${SESSION_TABLE} (
             owner_email TEXT NOT NULL,
@@ -51,9 +44,9 @@ export async function ensureTables(): Promise<void> {
             session_json TEXT NOT NULL,
             context_json TEXT,
             actions_json TEXT,
-            connected_at ${intType()} NOT NULL,
-            last_seen_at ${intType()} NOT NULL,
-            expires_at ${intType()} NOT NULL,
+            connected_at BIGINT NOT NULL,
+            last_seen_at BIGINT NOT NULL,
+            expires_at BIGINT NOT NULL,
             PRIMARY KEY (owner_email, session_id)
           )
         `;
@@ -67,17 +60,17 @@ export async function ensureTables(): Promise<void> {
             command TEXT,
             payload_json TEXT,
             status TEXT NOT NULL,
-            created_at ${intType()} NOT NULL,
-            claimed_at ${intType()},
-            completed_at ${intType()},
-            expires_at ${intType()} NOT NULL,
+            created_at BIGINT NOT NULL,
+            claimed_at BIGINT,
+            completed_at BIGINT,
+            expires_at BIGINT NOT NULL,
             result_json TEXT,
             error TEXT,
             PRIMARY KEY (owner_email, request_id)
           )
         `;
 
-      if (isPostgres()) {
+      {
         // PG-guard: probe information_schema / pg_indexes first (no lock) and
         // only issue DDL when the table/index is actually missing, wrapped in
         // a transaction-scoped lock_timeout so a contended lock fails fast.
@@ -93,23 +86,6 @@ export async function ensureTables(): Promise<void> {
         );
         return;
       }
-
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
-      // retryOnDdlRace behaviour.
-      await retryOnDdlRace(() => client.execute(createSessionsSql));
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE INDEX IF NOT EXISTS agent_native_browser_sessions_owner_seen_idx
-          ON ${SESSION_TABLE} (owner_email, last_seen_at)
-        `),
-      );
-      await retryOnDdlRace(() => client.execute(createRequestsSql));
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE INDEX IF NOT EXISTS agent_native_browser_session_requests_pending_idx
-          ON ${REQUEST_TABLE} (owner_email, session_id, status, created_at)
-        `),
-      );
     })().catch((err) => {
       // Don't cache a transient init failure — otherwise every browser-session
       // call re-awaits the same rejected promise until the process restarts.
@@ -319,7 +295,7 @@ function rowToSession(
   row: Record<string, unknown>,
   now = nowMs(),
 ): AgentNativeBrowserSessionRecord {
-  const sessionId = String(row.session_id ?? "");
+  const sessionId = stringifyValue(row.session_id ?? "");
   const expiresAt = Number(row.expires_at ?? 0);
   const parsedActions = parseActions(row.actions_json);
   return {
@@ -346,8 +322,8 @@ function rowToRequest(
   const payload = safeJsonParse<unknown>(row.payload_json, undefined);
   const result = safeJsonParse<unknown>(row.result_json, undefined);
   const request: AgentNativeBrowserSessionRequest = {
-    id: String(row.request_id ?? ""),
-    sessionId: String(row.session_id ?? ""),
+    id: stringifyValue(row.request_id ?? ""),
+    sessionId: stringifyValue(row.session_id ?? ""),
     type,
     status: String(
       row.status ?? "pending",
@@ -362,7 +338,11 @@ function rowToRequest(
     ...(row.completed_at != null
       ? { completedAt: Number(row.completed_at) }
       : {}),
-    ...(row.error ? { error: String(row.error) } : {}),
+    ...(row.error
+      ? {
+          error: stringifyValue(row.error),
+        }
+      : {}),
     ...(row.result_json != null ? { result } : {}),
   };
   if (type === "run-action") request.args = payload;
@@ -417,8 +397,7 @@ export async function registerBrowserSession(
   const expiresAt = now + normalized.ttlMs;
 
   await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO ${SESSION_TABLE}
+    sql: `INSERT INTO ${SESSION_TABLE}
           (owner_email, session_id, label, url, session_json, context_json, actions_json, connected_at, last_seen_at, expires_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (owner_email, session_id) DO UPDATE SET
@@ -428,10 +407,7 @@ export async function registerBrowserSession(
           context_json = EXCLUDED.context_json,
           actions_json = EXCLUDED.actions_json,
           last_seen_at = EXCLUDED.last_seen_at,
-          expires_at = EXCLUDED.expires_at`
-      : `INSERT OR REPLACE INTO ${SESSION_TABLE}
-          (owner_email, session_id, label, url, session_json, context_json, actions_json, connected_at, last_seen_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          expires_at = EXCLUDED.expires_at`,
     args: [
       ownerEmail,
       normalized.sessionId,
@@ -592,14 +568,10 @@ export async function createBrowserSessionRequest(
   const requestId = generateId("browser-request");
   const expiresAt = createdAt + normalized.timeoutMs + 15_000;
   await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO ${REQUEST_TABLE}
+    sql: `INSERT INTO ${REQUEST_TABLE}
           (owner_email, session_id, request_id, type, name, command, payload_json, status, created_at, expires_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-         ON CONFLICT (owner_email, request_id) DO NOTHING`
-      : `INSERT OR IGNORE INTO ${REQUEST_TABLE}
-          (owner_email, session_id, request_id, type, name, command, payload_json, status, created_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+         ON CONFLICT (owner_email, request_id) DO NOTHING`,
     args: [
       ownerEmail,
       sessionId,
@@ -776,4 +748,14 @@ export async function callBrowserSession(
     timeoutMs: options.timeoutMs ?? input.timeoutMs,
     pollMs: options.pollMs,
   });
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/extensions";
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -64,7 +65,6 @@ import {
 import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
-import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery } from "@/lib/sql-query";
@@ -84,6 +84,25 @@ import type {
 } from "@/pages/adhoc/sql-dashboard/types";
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
+
+const MAX_CHART_POINTS = 400;
+
+export function limitChartRows(
+  rows: Record<string, unknown>[],
+  chartType: ChartType,
+): Record<string, unknown>[] {
+  if (
+    rows.length <= MAX_CHART_POINTS ||
+    !["line", "area", "bar", "pie", "heatmap", "funnel", "callout"].includes(
+      chartType,
+    )
+  ) {
+    return rows;
+  }
+  return chartType !== "line" && chartType !== "area" && chartType !== "heatmap"
+    ? rows.slice(0, MAX_CHART_POINTS)
+    : rows.slice(-MAX_CHART_POINTS);
+}
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",
@@ -222,7 +241,7 @@ export function formatSqlChartError(error: unknown): string {
       ? error.message
       : typeof error === "string"
         ? error
-        : String(error ?? "");
+        : stringifyValue(error);
   const readableMessage = message
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
@@ -238,6 +257,15 @@ export function formatSqlChartError(error: unknown): string {
     return "This chart could not be loaded. Try again.";
   }
   return readableMessage || "This chart could not be loaded. Try again.";
+}
+
+function stringifyValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return typeof value === "number" || typeof value === "boolean"
+    ? String(value)
+    : JSON.stringify(value);
 }
 
 function formatYValue(
@@ -353,7 +381,7 @@ export function seriesValueFormatter(
 /**
  * Format a single metric value for display. Coerces Postgres numeric/bigint
  * columns (returned as strings, e.g. a rate of "0.00000000000000000000") to a
- * number so the formatter applies — SQLite returns JS numbers, so this only
+ * number so the formatter applies - Postgres numeric values may arrive as strings, so this only
  * bites on Postgres/Neon, where the raw high-scale decimal would otherwise be
  * dumped verbatim. A configured `valueLabels` mapping wins; a non-numeric
  * string falls through unformatted.
@@ -375,7 +403,9 @@ export function formatMetricValue(
         : null;
   return numericRaw !== null
     ? formatYValue(numericRaw, formatter)
-    : String(raw ?? "-");
+    : raw == null
+      ? "-"
+      : stringifyValue(raw);
 }
 
 function isNumericLikeValue(value: unknown): boolean {
@@ -450,7 +480,7 @@ export function toSqlChartDateKey(value: unknown): string | null {
     if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
   }
 
-  const parsed = new Date(String(value ?? ""));
+  const parsed = new Date(stringifyValue(value));
   return Number.isNaN(parsed.getTime()) ? null : sqlChartLocalDateKey(parsed);
 }
 
@@ -1130,8 +1160,8 @@ export function ChartTooltip({
     label == null
       ? ""
       : labelFormatter
-        ? labelFormatter(String(label))
-        : String(label);
+        ? labelFormatter(stringifyValue(label))
+        : stringifyValue(label);
 
   if (!isVisible) return null;
 
@@ -1158,7 +1188,7 @@ export function ChartTooltip({
           const value =
             Number.isFinite(numeric) && valueFormatter
               ? valueFormatter(numeric, name)
-              : String(raw ?? "");
+              : stringifyValue(raw);
           return (
             <div key={name} className="flex items-center gap-2">
               <span
@@ -1281,9 +1311,12 @@ interface SqlChartProps {
   resolvedSql?: string;
   className?: string;
   loadData?: boolean;
+  timeRange?: number;
   reportScreenshot?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
+  /** Keeps same-dashboard panels deduplicated without sharing across dashboards. */
+  dashboardId?: string;
   /** Dashboard/panel state sent to slot-backed extension boxes. */
   extensionContext?: Record<string, unknown> | null;
 }
@@ -1292,9 +1325,11 @@ export function SqlChart({
   panel,
   resolvedSql,
   loadData = true,
+  timeRange,
   reportScreenshot = false,
   onExportCsvChange,
   onCopyTableChange,
+  dashboardId,
   extensionContext,
 }: SqlChartProps) {
   const t = useT();
@@ -1313,7 +1348,7 @@ export function SqlChart({
     error: queryError,
     refetch,
   } = useSqlQuery(
-    ["sql-chart", panel.id, sql, panel.source],
+    ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
@@ -1331,11 +1366,12 @@ export function SqlChart({
     if (panel.config?.pivot && rawRows.length) {
       const pivoted = pivotRows(rawRows, panel.config.pivot, {
         fillDateGaps: panel.chartType !== "bar",
+        timeRange,
       });
       return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
     }
     return { rows: rawRows, forcedYKeys: undefined };
-  }, [rawRows, panel.chartType, panel.config?.pivot]);
+  }, [rawRows, panel.chartType, panel.config?.pivot, timeRange]);
 
   const { xKey, yKeys } = useMemo(
     () => detectKeys(queryRows, panel.config, forcedYKeys),
@@ -1352,6 +1388,18 @@ export function SqlChart({
         ? createDemoChartTrendRows(queryRows, yKeys, panel.id)
         : queryRows,
     [queryRows, yKeys, panel.id, shouldCreateDemoTrend],
+  );
+  // Legacy normalization: older saved dashboards may still have stacked-*
+  // chart types. Render them unstacked rather than silently blank.
+  const chartType: ChartType =
+    (panel.chartType as string) === "stacked-bar"
+      ? "bar"
+      : (panel.chartType as string) === "stacked-area"
+        ? "area"
+        : panel.chartType;
+  const chartRows = useMemo(
+    () => limitChartRows(rows, chartType),
+    [chartType, rows],
   );
 
   // Section panels are pure layout — no query, no chart. Render a header with
@@ -1441,14 +1489,6 @@ export function SqlChart({
     );
   }
 
-  // Legacy normalization: older saved dashboards may still have stacked-*
-  // chart types. Render them unstacked rather than silently blank.
-  const chartType: ChartType =
-    (panel.chartType as string) === "stacked-bar"
-      ? "bar"
-      : (panel.chartType as string) === "stacked-area"
-        ? "area"
-        : panel.chartType;
   const missingConfigKeys = configuredKeysMissingFromRows(rows, panel);
   const withConfigWarning = (node: ReactNode) =>
     missingConfigKeys.length > 0 ? (
@@ -1478,7 +1518,7 @@ export function SqlChart({
   if (chartType === "pie") {
     return withConfigWarning(
       <PieRenderer
-        rows={rows}
+        rows={chartRows}
         xKey={xKey}
         yKey={yKeys[0]}
         colors={colors}
@@ -1490,7 +1530,7 @@ export function SqlChart({
   if (chartType === "bar") {
     return withConfigWarning(
       <BarRenderer
-        rows={rows}
+        rows={chartRows}
         xKey={xKey}
         yKeys={yKeys}
         colors={colors}
@@ -1503,16 +1543,18 @@ export function SqlChart({
 
   if (chartType === "funnel") {
     return withConfigWarning(
-      <FunnelRenderer rows={rows} panel={panel} colors={colors} />,
+      <FunnelRenderer rows={chartRows} panel={panel} colors={colors} />,
     );
   }
 
   if (chartType === "heatmap") {
-    return withConfigWarning(<HeatmapRenderer rows={rows} panel={panel} />);
+    return withConfigWarning(
+      <HeatmapRenderer rows={chartRows} panel={panel} />,
+    );
   }
 
   if (chartType === "callout") {
-    return withConfigWarning(<CalloutRenderer rows={rows} />);
+    return withConfigWarning(<CalloutRenderer rows={chartRows} />);
   }
 
   if (chartType !== "line" && chartType !== "area") {
@@ -1521,7 +1563,7 @@ export function SqlChart({
 
   return withConfigWarning(
     <TimeSeriesRenderer
-      rows={rows}
+      rows={chartRows}
       xKey={xKey}
       yKeys={yKeys}
       colors={colors}
@@ -1699,7 +1741,7 @@ export function sortTableRows(
         const comparison =
           an !== null && bn !== null
             ? an - bn
-            : String(av).localeCompare(String(bv));
+            : stringifyValue(av).localeCompare(stringifyValue(bv));
         if (comparison !== 0) {
           return sort.direction === "asc" ? comparison : -comparison;
         }
@@ -1730,7 +1772,7 @@ export function formatCell(
     return `${sign}${numeric.toFixed(1)}%`;
   }
   if (format === "date") {
-    const d = new Date(String(value));
+    const d = new Date(stringifyValue(value));
     if (!isNaN(d.getTime())) {
       return d.toLocaleDateString("en-US", {
         year: "numeric",
@@ -1739,7 +1781,7 @@ export function formatCell(
       });
     }
   }
-  return String(value);
+  return stringifyValue(value);
 }
 
 function clipboardCell(value: string): string {
@@ -2008,8 +2050,8 @@ function TableRenderer({
                   if (col.format === "link") {
                     const formatted = formatCell(raw, col.format);
                     const href = col.linkKey
-                      ? String(row[col.linkKey] ?? "")
-                      : String(raw ?? "");
+                      ? stringifyValue(row[col.linkKey])
+                      : stringifyValue(raw);
                     const safeHref = safeDashboardLinkHref(href);
                     return (
                       <td
@@ -2140,7 +2182,7 @@ function PieRenderer({
 }) {
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
-  const legendKeys = rows.map((row) => String(row[xKey] ?? ""));
+  const legendKeys = rows.map((row) => stringifyValue(row[xKey]));
 
   return (
     <ChartFrame panel={panel} legendKeys={legendKeys} colors={colors}>
@@ -2640,8 +2682,8 @@ function HeatmapRenderer({
     const seenY = new Set<string>();
     const g = new Map<string, number>();
     for (const r of rows) {
-      const xv = String(r[xK] ?? "");
-      const yv = rowK ? String(r[rowK] ?? "") : "";
+      const xv = stringifyValue(r[xK]);
+      const yv = rowK ? stringifyValue(r[rowK]) : "";
       const v = Number(r[valK]);
       if (!seenX.has(xv)) {
         seenX.add(xv);
@@ -2779,12 +2821,12 @@ function CalloutRenderer({ rows }: { rows: Record<string, unknown>[] }) {
   return (
     <div className="space-y-2">
       {rows.map((row, i) => {
-        const sevRaw = String(row.severity ?? "info").toLowerCase();
+        const sevRaw = (stringifyValue(row.severity) || "info").toLowerCase();
         const severity: CalloutSeverity =
           sevRaw === "critical" || sevRaw === "warning" || sevRaw === "info"
             ? (sevRaw as CalloutSeverity)
             : "info";
-        const message = String(row.message ?? "");
+        const message = stringifyValue(row.message);
         const { wrapper, Icon } = styleFor(severity);
         return (
           <div

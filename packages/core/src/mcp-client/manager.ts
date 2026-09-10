@@ -44,8 +44,8 @@ export interface McpTool {
 interface ServerEntry {
   id: string;
   config: McpServerConfig;
-  client: any | null;
-  transport: any | null;
+  client: any;
+  transport: any;
   tools: McpTool[];
   error?: string;
 }
@@ -151,8 +151,8 @@ function guardClose(
 
 type SdkModules = {
   Client: any;
-  StdioClientTransport: any | null;
-  StreamableHTTPClientTransport: any | null;
+  StdioClientTransport: any;
+  StreamableHTTPClientTransport: any;
 };
 
 const DEFAULT_MCP_CONNECT_TIMEOUT_MS = 5_000;

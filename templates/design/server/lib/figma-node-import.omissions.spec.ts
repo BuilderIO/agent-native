@@ -4,10 +4,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // that layer is then dropped. Geoff imported a frame whose wordmark vanished
 // this way and had no way to know: the miss was a server-side console.warn.
 const images = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
+// Image FILLS come from a different endpoint than rendered nodes, and the two
+// disagree about response shape: `/images/:key` returns `images` at the top
+// level, while `/files/:key/images` nests the same map under `meta`. This mock
+// used to return the flat shape for both, which is precisely the assumption
+// the importer had — so neither the code nor the test could see that every
+// image fill was being dropped. Keep them distinct.
+const imageFills = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 
 vi.mock("./provider-api.js", () => ({
-  executeProviderApiRequest: vi.fn(async () => ({
-    response: { ok: true, status: 200, json: { images: images.value } },
+  executeProviderApiRequest: vi.fn(async ({ path }: { path: string }) => ({
+    response: {
+      ok: true,
+      status: 200,
+      json: /^\/files\/[^/]+\/images$/.test(path)
+        ? { meta: { images: imageFills.value } }
+        : { images: images.value },
+    },
   })),
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
@@ -49,6 +62,7 @@ const frame = {
 describe("a layer Figma refuses to render", () => {
   beforeEach(() => {
     images.value = {};
+    imageFills.value = {};
   });
 
   it("tells the caller it was left out", async () => {
@@ -68,5 +82,57 @@ describe("a layer Figma refuses to render", () => {
       "1:1": frame as never,
     });
     expect(result.omissionWarnings).toEqual([]);
+  });
+});
+
+// A RECTANGLE whose paint is an image fill — the shape Geoff's frame uses for
+// its starfield and photo. Its pixels come from `/files/:key/images`, keyed by
+// `imageRef`, not from a node render.
+const imageFillFrame = {
+  id: "2:1",
+  name: "Frame",
+  type: "FRAME",
+  absoluteBoundingBox: { x: 0, y: 0, width: 100, height: 100 },
+  children: [
+    {
+      id: "2:2",
+      name: "Starfield",
+      type: "RECTANGLE",
+      absoluteBoundingBox: { x: 0, y: 0, width: 100, height: 100 },
+      fills: [{ type: "IMAGE", scaleMode: "FILL", imageRef: "REF1" }],
+    },
+  ],
+};
+
+describe("an image fill", () => {
+  beforeEach(() => {
+    images.value = {};
+    imageFills.value = {};
+  });
+
+  it("resolves from the endpoint's `meta.images` map", async () => {
+    // Reported by a designer as "2 image fills could not be fetched from
+    // Figma": the importer read a top-level `images` key that this endpoint
+    // does not have, so EVERY image fill resolved to undefined and was blamed
+    // on "deleted images or very large assets" — a cause the code never
+    // checked. The fidelity harness read `meta.images` all along, which is why
+    // no corpus number ever moved.
+    imageFills.value = { REF1: "https://figma.example/fill.png" };
+    const result = await buildScreenFilesFromFigmaNodes("FILEKEY", {
+      "2:1": imageFillFrame as never,
+    });
+    expect(result.missingImageFillCount).toBe(0);
+    expect(result.omissionWarnings).toEqual([]);
+  });
+
+  it("still reports a fill the endpoint genuinely does not know", async () => {
+    imageFills.value = {};
+    const result = await buildScreenFilesFromFigmaNodes("FILEKEY", {
+      "2:1": imageFillFrame as never,
+    });
+    expect(result.missingImageFillCount).toBe(1);
+    expect(result.omissionWarnings.join(" ")).toMatch(
+      /could not be fetched from Figma/,
+    );
   });
 });

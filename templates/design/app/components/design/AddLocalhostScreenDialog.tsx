@@ -125,7 +125,7 @@ export function AddLocalhostScreenDialog({
       },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
           toast.success(t("designEditor.addLocalhostScreen.added"));

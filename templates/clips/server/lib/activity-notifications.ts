@@ -4,7 +4,7 @@
  * Recipient resolution and delivery reporting live in
  * `@agent-native/core/server`; this module only knows which Clips rows are
  * involved and which template to render. Share invites are deliberately NOT
- * routed through the `emailNotifications` preference — they have their own
+ * routed through the Clips notification preferences - they have their own
  * delivery path.
  */
 
@@ -18,6 +18,8 @@ import { and, eq } from "drizzle-orm";
 
 import { CLIPS_USER_PREFS_KEY } from "../../shared/clips-ai-prefs.js";
 import { getDb, schema } from "../db/index.js";
+import { filterClipsNotificationRecipients } from "./notification-preferences.js";
+import { canReceiveRecordingActivity } from "./recording-page-access.js";
 import { sendClipsTransactionalEmail } from "./transactional-email-templates.js";
 
 /**
@@ -44,6 +46,8 @@ async function getRecording(recordingId: string) {
       title: schema.recordings.title,
       ownerEmail: schema.recordings.ownerEmail,
       orgId: schema.recordings.orgId,
+      password: schema.recordings.password,
+      expiresAt: schema.recordings.expiresAt,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
@@ -73,6 +77,7 @@ export interface RecordingCommentNotificationInput {
   authorEmail: string;
   authorName?: string | null;
   content: string;
+  mentions?: { email: string; name: string }[];
   videoTimestampMs?: number | null;
   isReply?: boolean;
 }
@@ -94,7 +99,11 @@ async function deliverRecordingCommentEmails(
     return RECORDING_MISSING;
   }
 
-  const candidates = [recording.ownerEmail];
+  const mentions = input.mentions ?? [];
+  const mentioned = new Set(
+    mentions.map((mention) => mention.email.trim().toLowerCase()),
+  );
+  const candidates = [recording.ownerEmail, ...mentioned];
   if (input.isReply) {
     candidates.push(
       ...(await threadParticipants(input.recordingId, input.threadId)),
@@ -103,15 +112,27 @@ async function deliverRecordingCommentEmails(
 
   // Thread rows are history, not an access grant: a viewer whose share was
   // revoked must stop receiving the recording's comment bodies.
+  const clipsAllowed = candidates.filter((email) =>
+    canReceiveRecordingActivity({
+      ownerEmail: recording.ownerEmail,
+      recipientEmail: email,
+      hasPassword: Boolean(recording.password),
+      expiresAt: recording.expiresAt,
+    }),
+  );
   const allowed = await filterRecipientsByResourceAccess({
     resourceType: "recording",
     resourceId: recording.id,
-    emails: candidates,
+    emails: clipsAllowed,
     orgId: recording.orgId,
   });
+  const recipients = await filterClipsNotificationRecipients(
+    allowed,
+    "comments",
+  );
 
   return notifyActivity({
-    candidates: allowed,
+    candidates: recipients,
     actorEmail: input.authorEmail,
     preferenceKey: CLIPS_USER_PREFS_KEY,
     logLabel: LOG_LABEL,
@@ -126,6 +147,7 @@ async function deliverRecordingCommentEmails(
         content: input.content,
         videoTimestampMs: input.videoTimestampMs ?? null,
         isReply: input.isReply ?? false,
+        ...(mentioned.has(to) ? { wasMentioned: true } : {}),
       }),
   });
 }
@@ -156,17 +178,29 @@ async function deliverRecordingReactionEmails(
     return RECORDING_MISSING;
   }
 
+  const clipsAllowed = [recording.ownerEmail, ...(input.extraRecipients ?? [])]
+    .filter((email): email is string => Boolean(email))
+    .filter((email) =>
+      canReceiveRecordingActivity({
+        ownerEmail: recording.ownerEmail,
+        recipientEmail: email,
+        hasPassword: Boolean(recording.password),
+        expiresAt: recording.expiresAt,
+      }),
+    );
   const allowed = await filterRecipientsByResourceAccess({
     resourceType: "recording",
     resourceId: recording.id,
-    emails: [recording.ownerEmail, ...(input.extraRecipients ?? [])].filter(
-      (email): email is string => Boolean(email),
-    ),
+    emails: clipsAllowed,
     orgId: recording.orgId,
   });
+  const recipients = await filterClipsNotificationRecipients(
+    allowed,
+    "reactions",
+  );
 
   return notifyActivity({
-    candidates: allowed,
+    candidates: recipients,
     actorEmail: input.viewerEmail,
     preferenceKey: CLIPS_USER_PREFS_KEY,
     logLabel: LOG_LABEL,

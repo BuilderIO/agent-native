@@ -73,6 +73,29 @@ describe("MCP app API", () => {
     expect(result[0]).not.toHaveProperty("config");
   });
 
+  it("waits for lazy MCP initialization before reading app tools", async () => {
+    let initialized = false;
+    const lazyManager = {
+      getTools: () => (initialized ? tools : []),
+      getToolsForServer: (serverId: string) =>
+        initialized
+          ? tools.filter((tool: any) => tool.source === serverId)
+          : [],
+      callTool,
+    };
+    setGlobalMcpManager(lazyManager as any, async () => {
+      initialized = true;
+    });
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme" },
+      async () => {
+        await expect(listVisibleMcpTools()).resolves.toHaveLength(1);
+        expect(initialized).toBe(true);
+      },
+    );
+  });
+
   it("fails closed when an org-scoped request has no active org", async () => {
     await expect(
       runWithRequestContext({ userEmail: "alice@example.com" }, () =>

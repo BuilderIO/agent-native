@@ -149,6 +149,28 @@ const AUTH_FILE = "packages/core/src/server/auth.ts";
 const TEMPLATES_DIR = "templates";
 const CATCH_ALL_FILENAME = "[...page].get.ts";
 
+// packages/docs is the app behind www.agent-native.com. It is not under
+// templates/, so Check E never walked it, and a per-route override shipped
+// there with green CI (#4158 pinned /apps to max-age=30, stale-while-revalidate=30
+// — a 60s cache life, then a blocking ~2.7s cold render for the next visitor).
+// ssr-cache.ts is cache-POLICY code, so it earns core's stricter pattern set
+// (which includes the headers.has("cache-control") escape hatch). The two route
+// files are request handlers, so they get the template patterns like every
+// other catch-all.
+const DOCS_POLICY_FILES = ["packages/docs/lib/ssr-cache.ts"];
+const DOCS_ROUTE_FILES = [
+  "packages/docs/server/routes/[...page].get.ts",
+  "packages/docs/server/routes/[...page].head.ts",
+];
+const DOCS_SSR_FILES = [...DOCS_POLICY_FILES, ...DOCS_ROUTE_FILES];
+
+// A hand-written policy may shorten freshness; it must not shorten the window
+// in which the CDN can still answer from storage. stale-while-revalidate below
+// this floor means a real visitor eventually blocks on the origin, which is the
+// failure this whole contract exists to prevent. Freshness is max-age's job.
+const MIN_STALE_WHILE_REVALIDATE_SECONDS = 3600;
+const STALE_WHILE_REVALIDATE_RE = /stale-while-revalidate=(\d+)/gi;
+
 const SKIP_DIRS = new Set([
   "node_modules",
   ".git",
@@ -629,6 +651,81 @@ function checkResolverStaysDeploymentWide() {
   return violations;
 }
 
+// ─── Check H: packages/docs SSR surfaces ──────────────────────────────
+
+function checkDocsSsrSurfaces() {
+  const violations = [];
+  for (const [files, scan] of [
+    [DOCS_POLICY_FILES, scanCoreFile],
+    [DOCS_ROUTE_FILES, scanTemplateCatchAll],
+  ]) {
+    for (const rel of files) {
+      const content = readFileSafe(path.join(REPO_ROOT, rel));
+      if (content === null) {
+        violations.push({
+          file: rel,
+          line: 1,
+          col: 1,
+          rule: "expected Docs SSR surface is missing; cache-contract coverage must not disappear with a rename",
+          snippet: rel,
+        });
+        continue;
+      }
+      violations.push(...scan(rel, content));
+    }
+  }
+  return violations;
+}
+
+// ─── Check I: hand-written policies must keep a long stale window ─────
+
+function checkStaleWhileRevalidateFloor() {
+  const files = [...DOCS_SSR_FILES];
+  const templatesAbs = path.join(REPO_ROOT, TEMPLATES_DIR);
+  let templateEntries = [];
+  try {
+    templateEntries = readdirSync(templatesAbs, { withFileTypes: true });
+  } catch {
+    templateEntries = [];
+  }
+  for (const entry of templateEntries) {
+    if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) continue;
+    const routesDir = path.join(templatesAbs, entry.name, "server", "routes");
+    for (const abs of walkForFilename(routesDir, CATCH_ALL_FILENAME)) {
+      files.push(path.relative(REPO_ROOT, abs).replaceAll("\\", "/"));
+    }
+  }
+
+  const violations = [];
+  for (const rel of files) {
+    const content = readFileSafe(path.join(REPO_ROOT, rel));
+    if (content === null) continue;
+    const lines = content.split("\n");
+    STALE_WHILE_REVALIDATE_RE.lastIndex = 0;
+    let m;
+    while ((m = STALE_WHILE_REVALIDATE_RE.exec(content)) !== null) {
+      const seconds = Number(m[1]);
+      if (seconds >= MIN_STALE_WHILE_REVALIDATE_SECONDS) continue;
+      const { line, col } = lineColForOffset(content, m.index);
+      const lineText = lines[line - 1] ?? "";
+      if (isCommentLine(lineText)) continue;
+      if (!hasValidOptOut(lines, line - 1)) {
+        violations.push({
+          file: rel,
+          line,
+          col,
+          rule: `stale-while-revalidate=${seconds} is below the ${MIN_STALE_WHILE_REVALIDATE_SECONDS}s floor — once max-age and this window both lapse, the next visitor waits on a cold origin render. Shorten max-age for freshness instead and keep a long stale window`,
+          snippet: lineText.trim(),
+        });
+      }
+      if (STALE_WHILE_REVALIDATE_RE.lastIndex === m.index) {
+        STALE_WHILE_REVALIDATE_RE.lastIndex++;
+      }
+    }
+  }
+  return violations;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────
 
 const violations = [
@@ -639,6 +736,8 @@ const violations = [
   ...checkTemplateCatchAlls(),
   ...checkCachePolicyResolver(),
   ...checkResolverStaysDeploymentWide(),
+  ...checkDocsSsrSurfaces(),
+  ...checkStaleWhileRevalidateFloor(),
 ];
 
 if (violations.length > 0) {

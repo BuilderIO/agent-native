@@ -27,7 +27,7 @@ import { useTheme } from "next-themes";
 import { useNavigate } from "react-router";
 
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
-import { getResolvedTheme } from "@/lib/theme";
+import { getNextTheme, getResolvedTheme } from "@/lib/theme";
 
 import changelog from "../../../CHANGELOG.md?raw";
 
@@ -96,7 +96,7 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const t = useT();
   const navigate = useNavigate();
-  const { resolvedTheme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme, theme } = useTheme();
   const isDark = getResolvedTheme(resolvedTheme) === "dark";
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
@@ -242,11 +242,7 @@ export function CommandPalette({
 
       <CommandMenu.Group heading={t("commandPalette.appearance")}>
         <CommandMenu.Item
-          onSelect={() =>
-            setTheme(
-              getResolvedTheme(resolvedTheme) === "dark" ? "light" : "dark",
-            )
-          }
+          onSelect={() => setTheme(getNextTheme(theme, resolvedTheme))}
           keywords={["theme", "dark", "light", "mode"]}
         >
           {isDark ? (

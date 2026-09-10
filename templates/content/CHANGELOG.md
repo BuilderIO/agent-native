@@ -3,6 +3,36 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-09
+
+### Added
+
+- Connected agents can set up ordinary databases, configure fields and table views, and recover them from Trash with verified results.
+
+### Fixed
+
+- First title edits no longer hit a stale-version conflict, open databases recover after agent Trash and restore actions, and database settings preserve keyboard focus when closing or returning to Add property. Source-managed database fields stay read-only in tables, page property editors, and agent actions, while local fields remain editable. Property editors stay inside mobile Info so edits can be saved without closing the panel.
+- Remote collaborator cursors in the document editor now stay compact above the text instead of expanding into full-width color bars.
+
+## 2026-09-03
+
+### Fixed
+
+- Database records can be added even when older rows use legacy positions.
+
+## 2026-08-28
+
+### Fixed
+
+- Builder Publish connections made in Settings can now discover, attach, and refresh read-only database sources without separate legacy keys or Builder write access.
+- Delegated Content requests now stay on Content's own actions for every authorized caller, including managed Slack channels.
+
+## 2026-08-26
+
+### Fixed
+
+- Shared pages now show retryable load failures instead of leaving their content indefinitely loading.
+
 ## 2026-08-24
 
 ### Fixed

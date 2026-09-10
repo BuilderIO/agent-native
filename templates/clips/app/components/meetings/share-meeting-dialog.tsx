@@ -285,7 +285,13 @@ function LinkTab({
         />
       </div>
 
-      <CopyButton value={shareUrl} disabled={!sharesLoaded}>
+      <CopyButton
+        value={shareUrl}
+        disabled={!sharesLoaded}
+        resourceType="meeting"
+        resourceId={meetingId}
+        linkType="share"
+      >
         {t("shareUi.copyLink")}
       </CopyButton>
 
@@ -316,6 +322,9 @@ function LinkTab({
             value={visibleAgentLink}
             disabled={agentShareDisabled}
             className="shrink-0"
+            resourceType="meeting"
+            resourceId={meetingId}
+            linkType="agent_context"
           >
             {t("shareUi.copy")}
           </CopyButton>

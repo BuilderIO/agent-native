@@ -70,7 +70,6 @@ export default function BrowserChatRoute() {
           storageKey="dispatch"
           showHeader={false}
           showTabBar={false}
-          allowSettingsMode={false}
           dynamicSuggestions={false}
           suggestions={[]}
           emptyStateDisplay="hidden"

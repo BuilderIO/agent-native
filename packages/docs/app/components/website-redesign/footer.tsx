@@ -4,6 +4,7 @@ import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
+import { firstPartyAppUrl } from "../deployment-links";
 import { sitePathForLocale } from "../docs-locale";
 import { controlSurfaceClassName, ThemeIconButton } from "./ds/icon-button";
 import { LanguagePicker } from "./ds/language-picker";
@@ -35,11 +36,11 @@ function footerColumns(
     {
       title: t("homepage.footer.framework"),
       links: [
-        { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
         {
-          label: t("homepage.footer.actions"),
-          href: localizedPath("/docs/actions-overview"),
+          label: t("homepage.footer.download"),
+          href: localizedPath("/download"),
         },
+        { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
       ],
     },
     {
@@ -74,6 +75,10 @@ function footerColumns(
           label: t("homepage.footer.saasTerms"),
           href: localizedPath("/terms"),
         },
+        {
+          label: t("homepage.footer.legalResources"),
+          href: localizedPath("/legal"),
+        },
       ],
     },
   ];
@@ -98,8 +103,9 @@ const SOCIAL_LINKS: Array<{
 
 // Docs, legal, and app routes all render this footer, so it is the one
 // in-site way to report a problem now that the header no longer carries it.
-const DOCS_FEEDBACK_URL =
-  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
+const DOCS_FEEDBACK_URL = firstPartyAppUrl(
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+);
 
 const linkClassName =
   "font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] text-[var(--b-text-secondary)] no-underline hover:text-[var(--b-text-primary)]";

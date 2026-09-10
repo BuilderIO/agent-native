@@ -892,6 +892,277 @@ path is the CORRECT one:
 - Positivus service cards: the "Social Media Marketing" title highlight renders
   green where Figma (and the paste path) render white.
 
+## The `.fig` walker lagged the REST walker, measured
+
+Three fixes had landed on the REST walker and were never mirrored into the
+`.fig`/clipboard walker. That walker is what community-design paste and `.fig`
+import actually use, so the divergence was live on exactly the designs this
+work exists to serve. `run-fig.ts`'s `vsRest%` column measures it directly: it
+is the same design through both walkers, so it isolates walker disagreement
+from anything either walker shares with Figma.
+
+Measured over the five real `.fig` designs (2026-08-27):
+
+| case                    | vs Figma             | vs REST walker       |
+| ----------------------- | -------------------- | -------------------- |
+| interior-single-product | 2.497% -> 2.151%     | 0.757% -> 0.390%     |
+| uui-dashboard           | 4.327% -> 4.049%     | 1.564% -> 1.231%     |
+| whitepace               | 3.111% -> 3.019%     | 0.630% -> 0.472%     |
+| uui-landing-mobile      | 7.438% -> 7.381%     | 1.880% -> 1.792%     |
+| uui-pricing             | 3.150% -> 3.130%     | 0.732% -> 0.712%     |
+| **mean**                | **4.105% -> 3.946%** | **1.112% -> 0.919%** |
+
+Every case improved and none regressed; the synthetic fixture frames in
+`fig-fixtures` were unchanged. Walker divergence fell 17.4% relative, which is
+the number that matters here — it is the part attributable to one walker being
+behind, rather than to anything both walkers approximate.
+
+What was behind, in order of measured effect:
+
+- **`strokeGeometry` was re-stroked instead of filled.** Kiwi's
+  `strokeGeometry` is the stroke ALREADY OUTLINED into a closed region, with
+  weight, joins, caps and dashes baked in — the REST walker has said so in a
+  comment since it was fixed there. Emitting `fill="none" stroke=... stroke-width=W`
+  around that region drew a band of W around an outline that already had width,
+  so every vector stroke came out roughly twice as thick and spilled outside
+  Figma's silhouette. It is now filled, with REST's INSIDE clip: the outlined
+  region is not itself clipped to the alignment Figma states, and a mitred
+  corner reaches a long way past the shape.
+- **The image CROP transform was ignored.** `scaleMode: STRETCH` plus a paint
+  transform is Figma's CROP; this walker decoded `transform` for gradients only
+  and never for an image paint, so a cropped illustration imported as the whole
+  artwork zoomed out. Ported from the REST branch that the Positivus service
+  cards exposed. Small on this corpus (it moved only
+  interior-single-product, -0.016 on divergence) because few `.fig` paints use
+  it — correct, and now it cannot silently diverge again.
+- **The blur radius factor was a guess.** This walker used `radius / 2`; the
+  REST walker uses 0.45, fitted against Figma's own renders at two radii. An
+  11% wider Gaussian changes every pixel of a blurred region. Both now import
+  one exported `FIGMA_BLUR_RADIUS_TO_CSS_BLUR`, so they cannot drift again —
+  the two constants drifting apart is what produced the gap in the first place.
+
+## A tiled fill exported as one stretched copy
+
+Figma's TILE is the one image scale mode `background-size` alone cannot
+express: both importers emit it as a size plus `background-repeat: repeat`. The
+exporter never read `background-repeat` at all, and `imageFitFromSize` folded
+`auto` — exactly what TILE emitted — into the same branch as `cover`. A tiled
+fill therefore exported as a single image stretched over the whole node, with
+no report entry: the paint area was wrong and nothing said so.
+
+`background-repeat` is now carried through the DOM snapshot into the fill
+layers, and a repeating fill is emitted as a `patternUnits="userSpaceOnUse"`
+pattern whose tile IS the image's own size, anchored to the box. Pattern
+content is tile-relative under `userSpaceOnUse` — verified in Chromium rather
+than read off the spec, the same way the CROP placement was.
+
+Both importers now state a TILE's intrinsic size explicitly rather than
+emitting `auto`. It renders identically in a browser (`auto` IS the intrinsic
+size) and is recoverable at export, where `auto` was not: an unset size and a
+tile's size are not the same fact. Where the intrinsic size genuinely cannot be
+resolved the exporter records an approximation naming the lost tiling instead
+of painting a confident wrong answer.
+
+**This had no fixture, so no number could see it.** The whole 28-case
+round-trip corpus contains no TILE fill — the six layers that looked tiled on a
+first pass are `background-size: 100% 100%` STRETCH, which an inline-style grep
+mis-attributes and only the computed values settle. `corpus/image-scale-modes/`
+now covers all five scale modes plus a second tile at 2x, so a pattern emitted
+at the wrong scale shows as a mismatch rather than as two identical swatches.
+It exports at 2.032% with 0 omissions, and its two tiles emit as 16px and 32px
+user-space patterns.
+
+## Four defects a five-lens sweep found, ranked by measured pixels
+
+A read-only sweep over the four walkers produced 16 candidate findings; 17 of
+30 verification passes refuted their claim outright. What survived was ranked
+by ABSOLUTE flat-interior pixels rather than by severity label, and the four
+below were the ones whose numbers justified landing immediately.
+
+### The exporter deleted zero-thickness nodes, silently
+
+`isVisible` ended `rect.width > 0 && rect.height > 0`. But the importer puts a
+flat vector's ink in an absolutely-positioned `overflow: visible` `<svg>`
+CHILD, so a 1332x0 rule has zero size itself and all its paint one level down.
+Rejecting the wrapper on its own rect deleted the child before the walk
+recursed into it. Four horizontal rules vanished from
+`interior-product-comparison` and appeared in neither `vectorized` nor
+`omitted` — the converter dropped content and reported nothing, which is the
+flagship rule violated inside the exporter.
+
+The test now asks whether anything BELOW paints, rather than widening into
+"keep every empty box": a genuine zero-size spacer has no painting descendant
+and still drops. Export on that case 2.892% -> 2.751%, positivus 2.750% ->
+2.738%, and corpus omissions 1 -> 0.
+
+### A background blur covered a vector's bounding box, not its shape
+
+A vector node's wrapper div paints nothing — the shape is an inline
+`<svg><path>` child — and it never receives a `border-radius`, so
+`backdrop-filter` filtered the backdrop of the whole AABB while Figma blurs
+only where the layer paints. Landify's hero blurs 1440x752 of backdrop for a
+path that stops at a diagonal; the first differing pixel sits exactly on that
+edge. The div is now clipped with `clip-path: path(...)` from the node's own
+`fillGeometry`, which is already in border-box coordinates.
+
+Gated on `backdrop-filter` alone, deliberately: `filter` is applied BEFORE
+`clip-path`, so a layer-blurred vector is already correct and clipping would
+shear its halo, and clipping an outer `box-shadow` deletes it outright.
+
+### A content-cast shadow is half as soft as Figma's, and unfolding it measured WORSE
+
+`stdDev = (radius + 2 * spread) / 2` puts spread on the wrong axis. Spread is
+not a softness term — Figma dilates or erodes the alpha silhouette and blurs
+THAT with the radius unchanged — so the fold shifts the standard deviation by
+exactly `spread`, and a negative-spread shadow comes out half as soft instead
+of tighter. Fitting Gaussians to Figma's own render of the Landify `Mobile`
+card (radius 48, spread -12): Figma sigma ~20, ours 11.5.
+
+It is still folded, because this is a two-hop converter and only the import hop
+was fitted. The exporter reconstructs the blur from this very length, so a
+larger std-dev here returns as a larger radius there. Measured in all four
+combinations with the backdrop-filter clip below, on the two Landify cases:
+
+| configuration        | import (ex / tab) | export (ex / tab) |
+| -------------------- | ----------------- | ----------------- |
+| neither              | 3.247 / 4.366     | 3.309 / 4.549     |
+| unfold spread only   | 3.183 / 4.339     | 3.439 / 4.670     |
+| unfold + clip        | 3.117 / 4.317     | 3.380 / 4.647     |
+| **clip only (kept)** | **3.195 / 4.362** | **3.250 / 4.539** |
+
+Unfolding gains 0.123 on import across the two and loses 0.238 on export. The
+clip alone improves both hops, so it is kept and the fold stays. Do not unfold
+without fixing the export-side reconstruction in the same change — this is the
+same shape as the spread experiment already recorded above, and the second time
+an import-only fit has lost on the round trip.
+
+Building the erode properly — an inline `feMorphology` -> `feGaussianBlur`
+filter — was fitted against Figma as well and scored **6.22 mean |delta|,
+worse than the 3.67 the bug scores**. Recorded here so it is not attempted a
+third time.
+
+### A gradient stop CSS can express and this parser cannot rendered black
+
+`parseColorStop` reads a stop position only when it is a PERCENTAGE and
+otherwise returns the whole unsplit token as the COLOUR, so
+a `stop-color` with a length still glued to the colour — an invalid paint —
+rendered black with
+nothing in the export report. The reachable trigger is not exotic: the
+universal hard-stop idiom `<colour> 0 50%, <colour> 50% 100%` computes with a
+bare `0`,
+which is a `<length>`, so an ordinary authored gradient exported as a black
+wedge.
+
+Resolving a length needs box geometry the parser does not have, so an
+unreadable stop now routes the leaf to the raster fallback already sitting
+beside conic and tiled gradients. Rasterized is lossy; a silent black box is
+wrong. This measures 0.000 on all three corpora — every importer formats stops
+as `${color} ${n}%` — and is reachable only from agent-authored HTML, which is
+the app's other primary content source and the one no fidelity harness sees.
+
+**The detector lives INSIDE `collectRawFigmaSvgScene`.** That function is
+serialized with `Function.prototype.toString()` and evaluated in the page, so
+it cannot call module-level helpers; a first version called one and would have
+thrown `ReferenceError` on every export. Unit tests do not exercise that path —
+only running the export harness does.
+
+### One line where the two walkers disagreed and REST was wrong
+
+An angular gradient's `from` angle was computed against the node's pixel box,
+but `buildFills` routes every angular paint through `angularGradientOverlay`,
+which draws into a `side x side` SQUARE and scales that square to the box. Both
+axes scale equally inside it, so the correct angle is the NORMALIZED one; the
+pixel box pre-compensated for a stretch the overlay applies afterwards. The
+`.fig` walker already computed it normalized and said why. Measures 0.000: all
+three angular gradients in the corpus have a due-east ray, where the two
+definitions coincide — which is exactly why it survived. The stale comment that
+justified the old reasoning is deleted, because leaving it regrows the bug.
+
+## What a real designer's "errors" actually were
+
+A designer reported a frame importing with three complaints in one notice: 2
+image fills omitted, 11 image fallbacks, 19 approximated layers. Measured
+against that exact frame (Marketing Playground `927-1130`), they were three
+different things, and only one was a defect in the sense the notice implied.
+
+**The 2 omitted fills were a total outage, not two bad assets.** See the
+`meta.images` section: every image fill in every import was failing, and the
+message blamed deleted or oversized images — a cause the code never checked.
+
+**The 11 fallbacks were one cause: dashed strokes.** Six containers carried a
+`strokeDashes` pattern, and `needsImageFallback` rasterizes any node with one.
+A raster fallback replaces the node AND its subtree, so those six flattened
+**48 descendants** — child frames, icons, text runs — into pixels that can no
+longer be edited or re-themed. That is where "not fully editable" came from.
+
+**Most of the 19 "approximated" layers are not visual loss at all.** Grouping
+the notes on that frame: 14 say variable bindings were preserved as metadata,
+8 say "position, size, fills, strokes and effects mapped 1:1", 6 say a
+transform survived, 6 say a vector was reconstructed as real SVG paths rather
+than a PNG, 4 say component provenance was kept. Those are successes and
+metadata, reported to a designer under a heading that reads "HTML/CSS cannot
+represent every Figma property exactly". Only about nine were genuine
+approximations: inset-shadow strokes, per-side stroke bands, a rotation
+pivoted about the AABB centre, mixed character-style runs.
+
+## Two fixes for that frame, measured and REVERTED
+
+Both made the frame better and the corpus worse. Recorded with numbers so the
+next attempt starts from the measurement rather than the idea.
+
+**Dashed strokes as an inline SVG rect.** `stroke-dasharray` states exactly the
+lengths Figma does, and `border-style: dashed` cannot, so an overlay rect looks
+like the obvious answer — it takes that frame from 11 fallbacks to 5 and keeps
+those 48 descendants as real DOM. It also took `ds-untitled-ui-table-variants`
+from 3.689% to 3.156%, because that whole design is one dashed COMPONENT_SET
+that had been importing as a single PNG.
+
+It still reverts: `shapes`, the fixture built to exercise stroke alignment,
+went 0.543% -> 0.905%. Attribution, run three ways:
+
+| state                                 | shapes |
+| ------------------------------------- | ------ |
+| dashed rasterized (shipped behaviour) | 0.543% |
+| not rasterized, no border drawn       | 0.781% |
+| not rasterized, SVG overlay drawn     | 0.905% |
+
+The overlay scores WORSE than drawing no border at all, so its geometry is
+wrong rather than merely imprecise. Restricting it to rect-like types did not
+move the number, which rules out the obvious explanation (it was drawing a
+dashed rectangle around the fixture's dashed ELLIPSEs) and points at dash phase
+around a rounded rect. Worth redoing with a phase-correct implementation
+verified against `shapes` first; the editability prize is large.
+
+**Letting a collapsed-axis vector reach `buildVectorSvg`.** That builder
+already handles a zero-thickness path — it gives the collapsed axis the
+stroke's width and recentres the geometry — but `rendersVectorGeometry`
+rejected those nodes before it ever saw them, so five straight rules in that
+frame came back as PNGs. Relaxing the guard takes the frame to 0 fallbacks and
+leaves `shapes` and `ds-untitled-ui-table-variants` unchanged.
+
+It reverts too: `community-interior-checkout` 1.297% -> 1.341% and
+`community-interior-product-comparison` 2.369% -> 2.423%. Requiring a visible
+stroke before allowing it did not help, so the cost is the reconstruction
+itself — Figma's own render of a hairline is more exact than rebuilding it from
+`strokeWeight`. Corpus mean moved +0.004pp, which is small but deterministic:
+the import harness replays from cache, so unlike the export hop there is no
+network noise to hide behind.
+
+## The export number depends on the network
+
+`rt-community-interior-single-product` measured 5.106% on one run and 2.691% on
+the next with no code change between them. The difference was eight omissions:
+`Remote background image was not embedded: The operation was aborted due to
+timeout`. `embedRemoteImages` fetches with a 10s timeout, so any case whose
+images are remote measures the network as much as the converter, and a bad run
+inflates the corpus mean by ~0.09pp on its own.
+
+Two consequences. Any export delta under about 0.1pp on a corpus containing
+remote images is indistinguishable from a flaky fetch, so attribute it to a
+change only after re-running. And a new fixture should embed its images —
+`corpus/image-scale-modes/` does — because a fixture that depends on the
+network is measuring the network.
+
 ## `templates/design` runs core's BUILT dist, not its source
 
 `templates/design/server/lib/figma-node-to-html.ts` is a one-line re-export of

@@ -13,8 +13,13 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
-import { BuildOnlinePopover } from "./BuilderWaitlistPopover";
-import { TemplateCard, templates } from "./TemplateCard";
+import {
+  BuildOnlinePopover,
+  BuilderLaunchLink,
+  BuilderWaitlistContent,
+} from "./BuilderWaitlistPopover";
+import { TemplateLandingActions } from "./template-landing/TemplateLandingActions";
+import { templates } from "./TemplateCard";
 
 afterEach(() => {
   cleanup();
@@ -44,6 +49,21 @@ function expectAnimatedPopover(element: HTMLElement) {
 }
 
 describe("docs popover controls", () => {
+  it("opens Builder launch links in a new tab", () => {
+    renderWithProviders(
+      <>
+        <BuilderLaunchLink />
+        <BuilderLaunchLink trigger={<a href="/docs">Custom launch</a>} />
+      </>,
+    );
+
+    for (const name of ["Launch Builder", "Custom launch"]) {
+      const link = screen.getByRole("link", { name });
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    }
+  });
+
   it("opens Build online in the shared animated popover", () => {
     renderWithProviders(<BuildOnlinePopover location="templates_index" />);
 
@@ -54,19 +74,34 @@ describe("docs popover controls", () => {
       .closest("[role=dialog]");
     expect(content).not.toBeNull();
     expectAnimatedPopover(content as HTMLElement);
+    expect(
+      screen.getByText(
+        "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("textbox", { name: "Email" })
+        .getAttribute("placeholder"),
+    ).toBe("you@company.com");
+    expect(screen.getByRole("button", { name: "Join waitlist" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Launch Builder" })).toBeNull();
   });
 
   it("keeps Customize It modes inside the shared animated popover", () => {
-    renderWithProviders(<TemplateCard template={templates[0]} />);
+    renderWithProviders(<TemplateLandingActions template={templates[0]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
 
-    const editOnline = screen.getByRole("button", { name: "Edit Online" });
-    const content = editOnline.closest("[role=dialog]");
+    const customizeOnline = screen.getByRole("button", {
+      name: /^Online/,
+    });
+    const content = customizeOnline.closest("[role=dialog]");
     expect(content).not.toBeNull();
     expectAnimatedPopover(content as HTMLElement);
+    expect(screen.getByText("Join waitlist")).toBeTruthy();
 
-    fireEvent.click(editOnline);
+    fireEvent.click(customizeOnline);
     expect(screen.getByText("Build in the browser")).toBeTruthy();
   });
 
@@ -78,9 +113,9 @@ describe("docs popover controls", () => {
         utm_campaign: "launch",
       }),
     );
-    renderWithProviders(<TemplateCard template={templates[0]} />);
+    renderWithProviders(<TemplateLandingActions template={templates[0]} />);
 
-    const demoLink = screen.getByRole("link", { name: "Try It" });
+    const demoLink = screen.getByRole("link", { name: "Try Clips free" });
     fireEvent.click(demoLink);
 
     const url = new URL(demoLink.getAttribute("href") ?? "");
@@ -91,17 +126,19 @@ describe("docs popover controls", () => {
   it("submits the selected template with customization waitlist requests", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({}),
+      json: async () => ({ formSubmitted: true }),
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderWithProviders(<TemplateCard template={templates[0]} />);
+    renderWithProviders(<TemplateLandingActions template={templates[0]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
-    fireEvent.click(screen.getByRole("button", { name: "Edit Online" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Online/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
       target: { value: "reader@example.com" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Join waitlist" }));
+    const form = screen.getByRole("textbox", { name: "Email" }).closest("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form as HTMLFormElement);
 
     const waitlistRequests = () =>
       fetchMock.mock.calls.filter(([url]) =>
@@ -109,11 +146,46 @@ describe("docs popover controls", () => {
       );
     await waitFor(() => expect(waitlistRequests()).toHaveLength(1));
     const request = waitlistRequests()[0]?.[1] as RequestInit;
-    expect(JSON.parse(String(request.body))).toMatchObject({
+    expect(
+      JSON.parse(typeof request.body === "string" ? request.body : "{}"),
+    ).toMatchObject({
       email: "reader@example.com",
-      source: "docs_template_card",
+      source: "docs_template_customize",
       template: templates[0].slug,
       useCase: "docs_edit_online_waitlist",
     });
+    await waitFor(() => {
+      const success = screen.getByText(
+        "You're on the waitlist. We'll email you when build-online access opens.",
+      );
+      expect(success.getAttribute("role")).toBe("status");
+      expect(success.getAttribute("aria-live")).toBe("polite");
+    });
+  });
+
+  it("shows an unavailable state when the waitlist route declines submission", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ formSubmitted: false }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithProviders(<BuilderWaitlistContent location="templates_index" />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
+      target: { value: "reader@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join waitlist" }));
+
+    await waitFor(() => {
+      const unavailable = screen.getByRole("status");
+      expect(unavailable.textContent).toBe(
+        "Waitlist signups aren't available in this environment yet. Please try the hosted docs site instead.",
+      );
+    });
+    expect(
+      screen.queryByText(
+        "You're on the waitlist. We'll email you when build-online access opens.",
+      ),
+    ).toBeNull();
   });
 });

@@ -37,6 +37,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   prepareInlineSourceEdit,
   SourceWorkspaceEditConflictError,
@@ -357,7 +358,7 @@ snippet (WebGL canvas / JSX component), call apply-shader.
     target: targetSchema,
     source: sourceSchema,
   }),
-  run: async ({ descriptor: rawDescriptor, target, source }) => {
+  run: async ({ descriptor: rawDescriptor, target, source }, context) => {
     const descriptor: ShaderDescriptor = {
       preset: rawDescriptor.preset as ShaderPresetName,
       params: rawDescriptor.params ?? {},
@@ -427,6 +428,7 @@ snippet (WebGL canvas / JSX component), call apply-shader.
       }
       throw error;
     }
+    await snapshotDesignBeforeAgentEdit(file.designId, context);
 
     const intent: StyleEditIntent = {
       kind: "style",

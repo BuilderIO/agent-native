@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { IconDiamond, IconDiamondFilled } from "@tabler/icons-react";
 
 import {
   Tooltip,
@@ -34,33 +35,6 @@ export interface MotionKeyframeDiamondProps {
   className?: string;
 }
 
-/**
- * Small ◆ glyph, 8x8, drawn with currentColor so it inherits the button's
- * text color for the outline/filled/hover states below.
- */
-function DiamondGlyph({ filled }: { filled: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 8 8"
-      width="8"
-      height="8"
-      aria-hidden="true"
-      className="shrink-0"
-    >
-      <rect
-        x="1"
-        y="1"
-        width="6"
-        height="6"
-        transform="rotate(45 4 4)"
-        fill={filled ? "currentColor" : "none"}
-        stroke="currentColor"
-        strokeWidth={filled ? 0 : 1.25}
-      />
-    </svg>
-  );
-}
-
 export function MotionKeyframeDiamond({
   cssProperty,
   hasKeyframe,
@@ -94,7 +68,11 @@ export function MotionKeyframeDiamond({
             className,
           )}
         >
-          <DiamondGlyph filled={hasKeyframe} />
+          {hasKeyframe ? (
+            <IconDiamondFilled className="size-2.5 shrink-0" />
+          ) : (
+            <IconDiamond className="size-2.5 shrink-0" />
+          )}
         </button>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>

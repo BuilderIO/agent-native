@@ -63,6 +63,7 @@ export interface FeedbackEntry {
   messageSeq: number | null;
   feedbackType: FeedbackType;
   value: string;
+  idempotencyKey?: string | null;
   userId: string | null;
   createdAt: number;
 }

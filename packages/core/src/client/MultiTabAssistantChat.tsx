@@ -13,6 +13,7 @@ import React, {
 } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
+import type { AgentChatAttachment } from "../agent/types.js";
 import {
   DEFAULT_REASONING_EFFORT,
   isReasoningEffort,
@@ -45,6 +46,7 @@ import {
   type AssistantChatProps,
   type AssistantChatHandle,
 } from "./AssistantChat.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   buildChatModelGroups,
   type EngineModelGroup,
@@ -98,11 +100,14 @@ interface ModelSelection {
 interface PendingSend {
   message: string;
   images?: string[];
+  attachments?: AgentChatAttachment[];
   submit: boolean;
   trackInRunsTray?: boolean;
   requestMode?: "act" | "plan";
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  /** See `AgentChatMessage.usageLabel`. */
+  usageLabel?: string;
 }
 
 /**
@@ -124,13 +129,21 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     ref.prefillMessage(send.message);
     return;
   }
-  if (send.trackInRunsTray || send.requestMode || send.submitMessageId) {
+  if (
+    send.trackInRunsTray ||
+    send.requestMode ||
+    send.submitMessageId ||
+    send.attachments ||
+    send.usageLabel
+  ) {
     ref.sendMessage(send.message, send.images, {
       ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
       ...(send.requestMode ? { requestMode: send.requestMode } : {}),
+      ...(send.attachments ? { attachments: send.attachments } : {}),
       ...(send.submitMessageId
         ? { submitMessageId: send.submitMessageId }
         : {}),
+      ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
     });
   } else {
     ref.sendMessage(send.message, send.images);
@@ -205,19 +218,36 @@ function resolveModelSelection(
   const suppliedEngine = selection.engine?.trim()
     ? selection.engine
     : undefined;
-  const engine =
-    (groups.some((group) => group.engine === suppliedEngine)
-      ? suppliedEngine
-      : undefined) ??
-    groups.find((group) => group.models.includes(selection.model))?.engine ??
-    suppliedEngine;
-  if (!engine && groups.length > 0) return undefined;
-
-  const effort = resolveReasoningEffortSelection(
-    selection.model,
-    selection.effort,
+  const suppliedEngineGroup = suppliedEngine
+    ? groups.find((group) => group.engine === suppliedEngine)
+    : undefined;
+  const matchingConfiguredGroup = groups.find(
+    (group) => group.configured && group.models.includes(selection.model),
   );
-  const resolved: ModelSelection = { model: selection.model, effort };
+  const fallbackConfiguredGroup = groups.find((group) => group.configured);
+  const fallbackGroup = matchingConfiguredGroup ?? fallbackConfiguredGroup;
+  const engine = suppliedEngineGroup?.engine ?? fallbackGroup?.engine;
+  const model = suppliedEngineGroup
+    ? selection.model
+    : matchingConfiguredGroup?.models.includes(selection.model)
+      ? selection.model
+      : fallbackGroup?.models[0];
+  // A non-empty catalog is an availability boundary: do not keep routing a
+  // stale selection through a provider group hidden for missing credentials.
+  if (!engine || !model) {
+    if (groups.length > 0) return undefined;
+    return {
+      model: selection.model,
+      ...(suppliedEngine ? { engine: suppliedEngine } : {}),
+      effort: resolveReasoningEffortSelection(
+        selection.model,
+        selection.effort,
+      ),
+    };
+  }
+
+  const effort = resolveReasoningEffortSelection(model, selection.effort);
+  const resolved: ModelSelection = { model, effort };
   if (engine) resolved.engine = engine;
   return resolved;
 }
@@ -263,6 +293,31 @@ function ChatSkeleton({
 
 function formatScopeType(type: string) {
   return type.replace(/[-_]+/g, " ");
+}
+
+function buildResourceContextItem(
+  scope: ChatThreadScope,
+  contextNamespace?: string,
+): AgentChatContextItem {
+  const type = formatScopeType(scope.type);
+  const label = scope.label?.trim();
+  const marker = `Resource context: ${scope.type}:${scope.id}`;
+  return {
+    key: scope.contextKey?.trim() || "agent-current-resource-context",
+    title: label || type.replace(/^./, (character) => character.toUpperCase()),
+    ...(contextNamespace ? { contextNamespace } : {}),
+    context: [
+      marker,
+      `The user is currently viewing this ${type}.`,
+      label ? `Resource name: ${label}` : "",
+      `Resource id: ${scope.id}`,
+      typeof window !== "undefined"
+        ? `Current URL: ${window.location.pathname}${window.location.search}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
 }
 
 // ─── History Popover ─────────────────────────────────────────────────────────
@@ -610,7 +665,6 @@ const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_AGENT_TEAM_POLL_MS = 3000;
 const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
-const hasOwn = Object.prototype.hasOwnProperty;
 
 // A duplicated id in `openTabIds` makes two tab-bar entries share one
 // underlying thread: closing either one filters that id out of the array
@@ -638,8 +692,10 @@ function installHistoryThreadUrlPatch(): () => void {
   if (typeof window === "undefined") return () => {};
   historyPatchRefCount += 1;
   if (historyPatchRefCount === 1) {
-    const originalPushState = window.history.pushState;
-    const originalReplaceState = window.history.replaceState;
+    const originalPushState = window.history.pushState.bind(window.history);
+    const originalReplaceState = window.history.replaceState.bind(
+      window.history,
+    );
     const dispatchUrlChange = () => {
       window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
     };
@@ -703,7 +759,7 @@ function resolveThreadUrlSync(
   return {
     enabled: true,
     paramName: value.paramName?.trim() || DEFAULT_THREAD_URL_PARAM,
-    ...(hasOwn.call(value, "routeThreadId")
+    ...(Object.hasOwn(value, "routeThreadId")
       ? { routeThreadId: normalizeUrlThreadId(value.routeThreadId) }
       : {}),
     ...(value.getPath ? { getPath: value.getPath } : {}),
@@ -813,7 +869,7 @@ export function MultiTabAssistantChat({
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
   restoreActiveThread = true,
-  browserTabId,
+  browserTabId: browserTabIdProp,
   threadUrlSync = false,
   scope = null,
   isolateHistoryByScope = false,
@@ -824,6 +880,18 @@ export function MultiTabAssistantChat({
   ...props
 }: MultiTabAssistantChatProps) {
   const translate = useT();
+  const browserTabId =
+    browserTabIdProp ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
+  const tabStoragePart = browserTabId ? `:tab:${browserTabId}` : "";
+  const localStorageNamespace = storageKey
+    ? `${storageKey}${tabStoragePart}`
+    : browserTabId
+      ? `tab:${browserTabId}`
+      : undefined;
+  const keyPrefix = localStorageNamespace ? `:${localStorageNamespace}` : "";
+  const legacyKeyPrefix = storageKey ? `:${storageKey}` : "";
+  const modelSelectionKey = chatModelSelectionStorageKey(storageKey);
   const contextNamespace = scope
     ? scope.contextKey?.trim() || `scope:${scope.type}:${scope.id}`
     : undefined;
@@ -838,7 +906,7 @@ export function MultiTabAssistantChat({
     threadUrlSyncEnabled &&
     threadUrlSync !== true &&
     typeof threadUrlSync === "object" &&
-    hasOwn.call(threadUrlSync, "routeThreadId");
+    Object.hasOwn(threadUrlSync, "routeThreadId");
   const [urlThreadId, setUrlThreadId] = useState<string | null>(() =>
     threadUrlSyncEnabled
       ? threadRouteControlsActiveThread
@@ -971,6 +1039,7 @@ export function MultiTabAssistantChat({
     renameThread,
   } = useChatThreads(apiUrl, storageKey, scope, {
     restoreActiveThread,
+    browserTabId,
     routeThreadId: threadUrlSyncEnabled
       ? urlThreadId
       : (activeDeepLinkedThreadId ?? undefined),
@@ -984,10 +1053,6 @@ export function MultiTabAssistantChat({
     },
     [switchThreadState, writeThreadUrl],
   );
-
-  // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
-  const keyPrefix = storageKey ? `:${storageKey}` : "";
-  const modelSelectionKey = chatModelSelectionStorageKey(storageKey);
 
   // Track which tabs have been focused at least once (lazy mount for sub-agent tabs)
   const mountedTabsRef = useRef<Set<string>>(new Set());
@@ -1333,11 +1398,19 @@ export function MultiTabAssistantChat({
   // Parent-child thread mapping — persisted to localStorage.
   // Maps childThreadId → parentThreadId for sub-agent tabs.
   const PARENT_MAP_KEY = `agent-chat-parent-map${keyPrefix}`;
+  const LEGACY_PARENT_MAP_KEY = `agent-chat-parent-map${legacyKeyPrefix}`;
   const [parentMap, setParentMap] = useState<Record<string, string>>(() => {
     try {
       const saved = localStorage.getItem(PARENT_MAP_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch {}
+      const legacySaved =
+        saved === null && PARENT_MAP_KEY !== LEGACY_PARENT_MAP_KEY
+          ? localStorage.getItem(LEGACY_PARENT_MAP_KEY)
+          : null;
+      const raw = saved ?? legacySaved;
+      if (raw) return JSON.parse(raw);
+    } catch {
+      // coercion-ok: unavailable or malformed localStorage is absent metadata.
+    }
     return {};
   });
   const parentMapRef = useRef(parentMap);
@@ -1354,11 +1427,17 @@ export function MultiTabAssistantChat({
   // Sub-agent display names — persisted to localStorage.
   // Maps childThreadId → short name (e.g. "Research", "Draft email").
   const SUB_AGENT_NAMES_KEY = `agent-chat-sub-agent-names${keyPrefix}`;
+  const LEGACY_SUB_AGENT_NAMES_KEY = `agent-chat-sub-agent-names${legacyKeyPrefix}`;
   const [subAgentNames, setSubAgentNames] = useState<Record<string, string>>(
     () => {
       try {
         const saved = localStorage.getItem(SUB_AGENT_NAMES_KEY);
-        if (saved) return JSON.parse(saved);
+        const legacySaved =
+          saved === null && SUB_AGENT_NAMES_KEY !== LEGACY_SUB_AGENT_NAMES_KEY
+            ? localStorage.getItem(LEGACY_SUB_AGENT_NAMES_KEY)
+            : null;
+        const raw = saved ?? legacySaved;
+        if (raw) return JSON.parse(raw);
       } catch {}
       return {};
     },
@@ -1381,23 +1460,33 @@ export function MultiTabAssistantChat({
   // (and rebroadcasting their run state) while another resource is open.
   const scopeKeyPart = scope ? `:scope:${scope.type}:${scope.id}` : "";
   const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}${scopeKeyPart}`;
+  const LEGACY_OPEN_TABS_KEY = `agent-chat-open-tabs${legacyKeyPrefix}${scopeKeyPart}`;
+  const readStoredOpenTabs = useCallback((): string[] | undefined => {
+    try {
+      const saved = localStorage.getItem(OPEN_TABS_KEY);
+      const legacySaved =
+        saved === null && OPEN_TABS_KEY !== LEGACY_OPEN_TABS_KEY
+          ? localStorage.getItem(LEGACY_OPEN_TABS_KEY)
+          : null;
+      const raw = saved ?? legacySaved;
+      if (raw === null) return undefined;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return undefined;
+      const deduped = dedupeIds(parsed);
+      for (const id of deduped) mountedTabsRef.current.add(id);
+      return deduped;
+    } catch {
+      // coercion-ok: unavailable or malformed localStorage is an absent tab list.
+    }
+    return undefined;
+  }, [LEGACY_OPEN_TABS_KEY, OPEN_TABS_KEY]);
   const [openTabIds, setOpenTabIdsRaw] = useState<string[]>(() => {
     if (!restoreActiveThread && activeThreadId) {
       for (const id of [activeThreadId]) mountedTabsRef.current.add(id);
       return [activeThreadId];
     }
-    try {
-      const saved = localStorage.getItem(OPEN_TABS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const deduped = dedupeIds(parsed);
-          // Mark restored tabs as mounted
-          for (const id of deduped) mountedTabsRef.current.add(id);
-          return deduped;
-        }
-      }
-    } catch {}
+    const restored = readStoredOpenTabs();
+    if (restored && restored.length > 0) return restored;
     return [];
   });
 
@@ -1434,65 +1523,53 @@ export function MultiTabAssistantChat({
       setOpenTabIds(activeThreadId ? [activeThreadId] : []);
       return;
     }
-    try {
-      const saved = localStorage.getItem(OPEN_TABS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          for (const id of parsed) mountedTabsRef.current.add(id);
-          setOpenTabIds(parsed);
-          return;
-        }
-      }
-    } catch {
-      // coercion-ok: malformed persisted tab data is an absent tab list.
+    const restored = readStoredOpenTabs();
+    if (restored) {
+      setOpenTabIds(restored);
+      return;
     }
     setOpenTabIds([]);
-  }, [OPEN_TABS_KEY, activeThreadId, restoreActiveThread]);
+  }, [OPEN_TABS_KEY, activeThreadId, readStoredOpenTabs, restoreActiveThread]);
 
   useBrowserLayoutEffect(() => {
     const nextScope = scope;
     if (!nextScope) return;
-    const type = formatScopeType(nextScope.type);
-    const title =
-      nextScope.label?.trim() ||
-      type.replace(/^./, (character) => character.toUpperCase());
-    const key =
-      nextScope.contextKey?.trim() || "agent-current-resource-context";
+    const item = buildResourceContextItem(nextScope, contextNamespace);
     const marker = `Resource context: ${nextScope.type}:${nextScope.id}`;
     const existing = getAgentChatContextState().items.find(
-      (item) => item.key === key,
+      (current) => current.key === item.key,
     );
-    let ownsContextItem = false;
-    if (!existing || existing.context.startsWith("Resource context:")) {
-      setAgentChatContextItem({
-        key,
-        title,
-        ...(contextNamespace ? { contextNamespace } : {}),
-        context: [
-          marker,
-          `The user is currently viewing this ${type}.`,
-          nextScope.label ? `Resource name: ${nextScope.label}` : "",
-          `Resource id: ${nextScope.id}`,
-          typeof window !== "undefined"
-            ? `Current URL: ${window.location.pathname}${window.location.search}`
-            : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        openSidebar: false,
-        focus: false,
-      });
-      ownsContextItem = true;
-    }
+    const ownsContextItem =
+      !existing || existing.context.startsWith("Resource context:");
+    if (ownsContextItem)
+      setAgentChatContextItem({ ...item, openSidebar: false, focus: false });
     return () => {
       const current = getAgentChatContextState().items.find(
-        (item) => item.key === key,
+        (candidate) => candidate.key === item.key,
       );
       if (ownsContextItem && current?.context.startsWith(marker)) {
-        removeAgentChatContextItem(key);
+        removeAgentChatContextItem(item.key);
       }
     };
+  }, [contextNamespace, scope?.contextKey, scope?.id, scope?.type]);
+
+  useBrowserLayoutEffect(() => {
+    const nextScope = scope;
+    if (!nextScope) return;
+    const item = buildResourceContextItem(nextScope, contextNamespace);
+    const marker = `Resource context: ${nextScope.type}:${nextScope.id}`;
+    const existing = getAgentChatContextState().items.find(
+      (current) => current.key === item.key,
+    );
+    if (!existing || !existing.context.startsWith(marker)) return;
+    if (
+      existing.title === item.title &&
+      existing.context === item.context &&
+      existing.contextNamespace === item.contextNamespace
+    ) {
+      return;
+    }
+    setAgentChatContextItem({ ...item, openSidebar: false, focus: false });
   }, [
     contextNamespace,
     scope?.contextKey,
@@ -1560,7 +1637,7 @@ export function MultiTabAssistantChat({
 
     // If active thread is stale, start fresh
     if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
-      createThread().then((id) => {
+      void createThread().then((id) => {
         if (id) writeThreadUrl(null);
       });
     }
@@ -1637,7 +1714,7 @@ export function MultiTabAssistantChat({
     if (isLoading || autoCreatingRef.current) return;
     if (openTabIds.length === 0 && !activeThreadId) {
       autoCreatingRef.current = true;
-      createThread().then((id) => {
+      void createThread().then((id) => {
         autoCreatingRef.current = false;
         if (id) {
           newThreadIds.current.add(id);
@@ -1857,7 +1934,9 @@ export function MultiTabAssistantChat({
         background,
         submit,
         images,
+        attachments,
         submitMessageId,
+        usageLabel,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -1886,10 +1965,12 @@ export function MultiTabAssistantChat({
       const send: PendingSend = {
         message: fullMessage,
         images,
+        attachments,
         submit,
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
         ...(submitMessageId ? { submitMessageId } : {}),
+        ...(usageLabel ? { usageLabel } : {}),
       };
 
       // Resolved once, up front, and carried with the send until a thread
@@ -2453,10 +2534,10 @@ export function MultiTabAssistantChat({
 
   const handleGenerateTitle = useCallback(
     (threadId: string, message: string) => {
-      generateTitle(threadId, message).then((title) => {
+      void generateTitle(threadId, message).then((title) => {
         if (title) {
           // Persist the generated title to the server
-          saveThreadData(threadId, {
+          void saveThreadData(threadId, {
             threadData: "",
             title,
             preview: message.slice(0, 120),
@@ -2478,7 +2559,7 @@ export function MultiTabAssistantChat({
         messageCount: number;
       },
     ) => {
-      saveThreadData(threadId, data);
+      void saveThreadData(threadId, data);
       if (
         data.messageCount > 0 &&
         threadId === activeThreadIdRef.current &&
@@ -2498,7 +2579,7 @@ export function MultiTabAssistantChat({
       switch (command) {
         case "clear":
         case "new":
-          addTab();
+          void addTab();
           break;
         case "history":
           setShowHistory(true);
@@ -2506,9 +2587,13 @@ export function MultiTabAssistantChat({
         case "plan":
           props.onExecModeChange?.("plan");
           break;
-        case "act":
-          props.onExecModeChange?.("build");
+        case "act": {
+          const ref = activeThreadIdRef.current
+            ? chatRefs.current.get(activeThreadIdRef.current)
+            : undefined;
+          if (!ref?.implementPlan()) props.onExecModeChange?.("build");
           break;
+        }
         case "help":
           setHelpVisible(true);
           break;
@@ -2919,13 +3004,17 @@ export function MultiTabAssistantChat({
                       : undefined
                   }
                   isThreadStateLoading={isLoading}
-                  onMessageCountChange={(count) =>
+                  onMessageCountChange={(count) => {
                     setMessageCounts((prev) =>
                       prev[tabId] === count
                         ? prev
                         : { ...prev, [tabId]: count },
-                    )
-                  }
+                    );
+                    // This sits after `{...props}`, so forwarding is not
+                    // optional: taking the callback for the tab counter alone
+                    // silently drops the host's.
+                    props.onMessageCountChange?.(count);
+                  }}
                   onSaveThread={handleSaveThread}
                   onGenerateTitle={handleGenerateTitle}
                   onSlashCommand={handleSlashCommand}

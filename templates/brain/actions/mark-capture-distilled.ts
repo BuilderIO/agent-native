@@ -40,10 +40,10 @@ export default defineAction({
     if (queueId && claimToken) {
       const result = await getDbExec().execute({
         sql: `UPDATE brain_ingest_queue
-          SET status = ?, error = NULL, lease_token = NULL,
-              lease_expires_at = NULL, updated_at = ?
-          WHERE id = ? AND capture_id = ? AND operation = 'distill'
-            AND status = 'processing' AND lease_token = ?`,
+          SET status = $1, error = NULL, lease_token = NULL,
+              lease_expires_at = NULL, updated_at = $2
+          WHERE id = $3 AND capture_id = $4 AND operation = 'distill'
+            AND status = 'processing' AND lease_token = $5`,
         args: ["done", now, queueId, captureId, claimToken],
       });
       if (result.rowsAffected === 0) {

@@ -1194,7 +1194,7 @@ async function init(): Promise<void> {
   });
 
   openSettings.addEventListener("click", () => {
-    chrome.runtime.openOptionsPage();
+    void chrome.runtime.openOptionsPage();
   });
 
   openRecent.addEventListener("click", async () => {

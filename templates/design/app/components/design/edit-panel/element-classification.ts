@@ -260,6 +260,28 @@ export function parentFlexDirection(
   return isParentFlex(element) ? "horizontal" : null;
 }
 
+/** Drawn vector primitives — an `<svg>` wrapper around one shape child. */
+const VECTOR_PRIMITIVE_KINDS = new Set([
+  "path",
+  "line",
+  "arrow",
+  "polygon",
+  "star",
+]);
+
+/**
+ * True for a pen path, line, arrow, polygon, or star. Their paint is SVG
+ * `fill`/`stroke` on the shape child, not `background`/`border` on the box —
+ * see `vectorPaintTarget` (bridge) and `vectorPaintChild` (code-layer).
+ */
+export function isVectorShapeElement(element: ElementInfo): boolean {
+  // The board's migrated polygons and stars are plain divs carrying the same
+  // primitiveKind, and their paint really is background/border — only an
+  // <svg> has a shape child for `vectorPaintTarget` to redirect to.
+  if ((element.tagName || "").toLowerCase() !== "svg") return false;
+  return VECTOR_PRIMITIVE_KINDS.has(element.primitiveKind ?? "");
+}
+
 export function isTextElement(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
   if (TEXT_TAGS.has(tag)) return true;
@@ -404,9 +426,12 @@ export function inferElementSizing(
 ): AutoLayoutSizing {
   const styles = element.computedStyles;
   const property = axis === "horizontal" ? "width" : "height";
-  // A bridge payload's computedStyles resolve fit-content/auto to px (see
-  // cssElementSize below), so only the authored value can report Hug.
-  const size = element.inlineStyles?.[property] ?? styles[property];
+  // Computed width/height are always pixels, including for `auto`,
+  // `fit-content`, and percentage values. Prefer the authored inline value
+  // when available so the Inspector preserves the user's sizing intent
+  // instead of relabeling a Hug/Fill layer as Fixed after layout resolves.
+  const authoredSize = element.inlineStyles?.[property]?.trim().toLowerCase();
+  const size = authoredSize || styles[property];
   const parentDirection = parentFlexDirection(element);
   const isFlex = isParentFlex(element);
   const isMainFlexAxis = isFlex && parentDirection === axis;

@@ -8,9 +8,11 @@ import { publicSubmitterEmail } from "../../shared/submitter-email.js";
 import type {
   FormIntegration,
   FormField,
+  FormFileValue,
   FormSettings,
   IntegrationType,
 } from "../../shared/types.js";
+import { isFormFileValue, isSafeFormFileUrl } from "./file-upload-policy.js";
 
 // ---------------------------------------------------------------------------
 // Save-time validation
@@ -53,6 +55,14 @@ interface SubmissionPayload {
   pageUrl?: string | null;
   /** Client surface (web/electron/tauri) the feedback came from, when known. */
   clientSurface?: string | null;
+}
+
+export interface IntegrationDeliverySnapshot {
+  id: string;
+  type: IntegrationType;
+  name: string;
+  url: string;
+  payload: unknown;
 }
 
 /** Human-readable label for a client-surface token. */
@@ -112,6 +122,34 @@ function pageLabelFromUrl(pageUrl: string): string {
 // Format helpers
 // ---------------------------------------------------------------------------
 
+function isStoredFileReference(value: unknown): value is FormFileValue {
+  return isFormFileValue(value) && isSafeFormFileUrl(value.url);
+}
+
+function formatIntegrationValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map(formatIntegrationValue).join(", ");
+  }
+  if (isStoredFileReference(value)) {
+    return `${value.name} (${value.url})`;
+  }
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function formatSlackValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map(formatSlackValue).join(", ");
+  }
+  if (isStoredFileReference(value)) {
+    return `<${escapeSlackMrkdwn(value.url)}|${escapeSlackMrkdwn(value.name)}>`;
+  }
+  return escapeSlackMrkdwn(formatIntegrationValue(value));
+}
+
 /** Build a flat label→value object from field definitions and submission data */
 function formatFields(
   fields: FormField[],
@@ -125,7 +163,7 @@ function formatFields(
       let key = label;
       if (usedLabels.has(key)) key = `${label} (${field.id})`;
       usedLabels.add(key);
-      out[key] = data[field.id];
+      out[key] = formatIntegrationValue(data[field.id]);
     }
   }
   return out;
@@ -142,7 +180,7 @@ function formatDebugContext(submission: SubmissionPayload): string[] {
     );
   }
   if (submission.activeRunId) {
-    lines.push(`Run: \`${submission.activeRunId}\``);
+    lines.push(`Request ID: \`${submission.activeRunId}\``);
   }
   if (submission.pageUrl) {
     const appLabel = appLabelFromUrl(submission.pageUrl);
@@ -164,8 +202,7 @@ export function buildSlackPayload(submission: SubmissionPayload) {
     .filter((f) => submission.data[f.id] !== undefined)
     .map((f) => {
       const val = submission.data[f.id];
-      const display = Array.isArray(val) ? val.join(", ") : String(val);
-      return `*${escapeSlackMrkdwn(f.label)}:* ${escapeSlackMrkdwn(display)}`;
+      return `*${escapeSlackMrkdwn(f.label)}:* ${formatSlackValue(val)}`;
     });
 
   const tsContext = `Submitted <!date^${Math.floor(new Date(submission.submittedAt).getTime() / 1000)}^{date_short_pretty} at {time}|${submission.submittedAt}>`;
@@ -211,7 +248,7 @@ function buildDiscordPayload(submission: SubmissionPayload) {
     .filter((f) => submission.data[f.id] !== undefined)
     .map((f) => {
       const val = submission.data[f.id];
-      const display = Array.isArray(val) ? val.join(", ") : String(val);
+      const display = formatIntegrationValue(val);
       return { name: f.label, value: display, inline: true };
     });
   if (submitterEmail) {
@@ -308,20 +345,89 @@ const payloadBuilders: Record<
   webhook: buildWebhookPayload,
 };
 
+export function buildIntegrationDeliverySnapshot(
+  integration: FormIntegration,
+  submission: SubmissionPayload,
+): IntegrationDeliverySnapshot {
+  const buildPayload = payloadBuilders[integration.type] ?? buildWebhookPayload;
+  return {
+    id: integration.id,
+    type: integration.type,
+    name: integration.name,
+    url: integration.url,
+    payload: buildPayload(submission),
+  };
+}
+
+export function buildIntegrationDeliverySnapshots(
+  integrations: FormIntegration[],
+  submission: SubmissionPayload,
+): IntegrationDeliverySnapshot[] {
+  return integrations
+    .filter((integration) => integration.enabled && integration.url)
+    .map((integration) =>
+      buildIntegrationDeliverySnapshot(integration, submission),
+    );
+}
+
+export async function deliverIntegrationDelivery(
+  snapshot: IntegrationDeliverySnapshot,
+  idempotencyKey?: string,
+): Promise<void> {
+  if (!isWebhookUrlAllowed(snapshot.url)) {
+    throw new Error("blocked URL");
+  }
+  const result = await deliverJsonWebhook({
+    url: snapshot.url,
+    payload: snapshot.payload,
+    ...(idempotencyKey
+      ? { headers: { "Idempotency-Key": idempotencyKey } }
+      : {}),
+  });
+  if (result.ok) return;
+  if (result.blocked) throw new Error("blocked URL");
+  throw new Error(
+    result.status
+      ? `destination returned ${result.status}`
+      : "destination request failed",
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Fire integrations
 // ---------------------------------------------------------------------------
 
-/** Fire all enabled integrations for a submission. Never throws. */
+export type DeliveryStatus = "pending" | "succeeded" | "failed";
+export type DeliveryStatuses = Record<string, DeliveryStatus>;
+
+export function integrationDeliveryKey(integrationId: string): string {
+  return `integration:${integrationId}`;
+}
+
+interface FireIntegrationsOptions {
+  deliveryStatus?: Readonly<DeliveryStatuses>;
+  onStatusChange?: (
+    destination: string,
+    status: DeliveryStatus,
+  ) => Promise<void> | void;
+}
+
+/** Fire enabled integrations, skipping destinations already delivered. */
 export async function fireIntegrations(
   integrations: FormIntegration[],
   submission: SubmissionPayload,
-): Promise<void> {
+  options: FireIntegrationsOptions = {},
+): Promise<DeliveryStatuses> {
   const enabled = integrations.filter((i) => i.enabled && i.url);
-  if (enabled.length === 0) return;
+  const statuses: DeliveryStatuses = { ...(options.deliveryStatus ?? {}) };
+  if (enabled.length === 0) return statuses;
 
-  await Promise.allSettled(
+  const results = await Promise.allSettled(
     enabled.map(async (integration) => {
+      const destination = integrationDeliveryKey(integration.id);
+      if (options.deliveryStatus?.[destination] === "succeeded") return;
+
+      let status: DeliveryStatus = "failed";
       // SSRF guard — a form-author can persist any URL in their integration
       // config. Anonymous submissions then trigger a server-side POST. Block
       // private IPs, cloud-metadata endpoints, and non-http(s) schemes
@@ -330,38 +436,28 @@ export async function fireIntegrations(
         console.warn(
           `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,
         );
-        return;
-      }
-
-      const buildPayload =
-        payloadBuilders[integration.type] ?? buildWebhookPayload;
-      const payload = buildPayload(submission);
-
-      try {
-        const result = await deliverJsonWebhook({
-          url: integration.url,
-          payload,
-        });
-        if (!result.ok) {
-          if (result.blocked) {
-            console.warn(
-              `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,
-            );
-            return;
-          }
+      } else {
+        try {
+          await deliverIntegrationDelivery(
+            buildIntegrationDeliverySnapshot(integration, submission),
+          );
+          status = "succeeded";
+        } catch (err) {
           console.warn(
-            result.status
-              ? `[integrations] ${integration.type} "${integration.name}" returned ${result.status}`
-              : `[integrations] ${integration.type} "${integration.name}" failed:`,
-            result.error,
+            `[integrations] ${integration.type} "${integration.name}" failed:`,
+            err,
           );
         }
-      } catch (err) {
-        console.warn(
-          `[integrations] ${integration.type} "${integration.name}" failed:`,
-          err,
-        );
       }
+
+      statuses[destination] = status;
+      await options.onStatusChange?.(destination, status);
     }),
   );
+
+  const rejected = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (rejected) throw rejected.reason;
+  return statuses;
 }

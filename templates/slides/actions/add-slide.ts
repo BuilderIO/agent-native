@@ -1,4 +1,10 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import {
+  AgentActionStopError,
+  ActionContractError,
+  defineAction,
+  embedApp,
+  fail,
+} from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -15,18 +21,27 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
-import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
-import { hashSlideContent } from "../shared/slide-fit.js";
-import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
-  awaitLayoutFitCheck,
-  formatOverflowForTool,
-} from "./_await-fit-check.js";
+  createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
+import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
+import {
+  createLayoutFitRevision,
+  hashSlideContent,
+} from "../shared/slide-fit.js";
+import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
+import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 // Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
 // and the browser's patch-deck all serialise against the SAME lock — writes to
 // different slides of the same deck can never clobber each other.
-import { withDeckLock } from "./patch-deck.js";
+import { isAgentPatchCaller, withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
   return buildDeepLink({
@@ -91,13 +106,18 @@ function deckCreativeContext(value: unknown): DeckCreativeContext | null {
 }
 
 export default defineAction({
+  title: "Add slide to deck",
   description:
-    "Add a single slide to an existing deck. Use this to build decks slide-by-slide — " +
+    "Add a single slide to the real editable Agent-Native Slides deck. This is the primary Slides MCP edit action: use it after create-deck instead of creating or publishing a standalone HTML artifact. " +
+    "Build decks slide-by-slide — " +
     "call it once per slide in slide order and wait for each result before adding the next slide. " +
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
-    "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
+    "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
+    "Before the first slide you add to an existing deck, call `get-deck` with compact=true once and use its `designSystem`, `deckStyle`, and `representativeSlideId`; if designSystem.scope is summary, call `get-design-system` once with its id. Reuse that context for every following slide. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
-    "Returns the new slide ID, 1-based slideNumber, and updated slide count.",
+    "Every new slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, use a light neutral canvas with ink text and one or two restrained accents; never default to a black canvas with white text. " +
+    "For a single-call bulk append, use `patch-deck` with add-slide operations. " +
+    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
     content: z.string().describe("Full HTML content of the new slide"),
@@ -128,11 +148,25 @@ export default defineAction({
       .preprocess((value) => {
         if (typeof value !== "string") return value;
         const trimmed = value.trim();
+        // "start"/"end" are the words an agent reaches for first ("end" used
+        // to fail validation as NaN). Resolve them into the numeric domain so
+        // the insert below keeps one representation; it already clamps an
+        // index past the last slide to an append.
+        if (trimmed.toLowerCase() === "start") return 0;
+        if (trimmed.toLowerCase() === "end") return Number.MAX_SAFE_INTEGER;
         return trimmed === "" ? value : Number(trimmed);
       }, z.number().int().min(0))
       .optional()
       .describe(
-        "Optional 0-based index to insert at. If not provided, appends to the end of the deck.",
+        'Where to insert the slide: a 0-based index, or "start" / "end". Omit to append to the end of the deck.',
+      ),
+    targetSlideCountOverride: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        "New total slide target. Set only when the user explicitly asks for more slides after the persisted target.",
       ),
     contextPackId: z
       .string()
@@ -164,18 +198,22 @@ export default defineAction({
       height: 680,
     }),
   },
-  http: false,
-  run: async ({
-    deckId,
-    content,
-    slideId,
-    layout,
-    notes,
-    position,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }) =>
+  http: { method: "POST" },
+  run: async (
+    {
+      deckId,
+      content,
+      slideId,
+      layout,
+      notes,
+      position,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+      targetSlideCountOverride,
+    },
+    ctx,
+  ) =>
     withDeckLock(deckId, async () => {
       await assertAccess("deck", deckId, "editor");
       const db = getDb();
@@ -185,14 +223,89 @@ export default defineAction({
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId));
 
+      // Reachable only in the narrow window where access resolved and the row
+      // was deleted before this select. A wrong deck id never gets here:
+      // assertAccess throws Forbidden first, on purpose, so a non-member
+      // cannot probe a deck id for existence. Do not delete this as dead.
       if (!rows.length) {
-        throw new Error(`Deck ${deckId} not found`);
+        fail(`Deck ${deckId} not found`, {
+          errorCode: "deck_not_found",
+          statusCode: 404,
+        });
       }
 
       const row = rows[0];
       const deck = JSON.parse(row.data);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
+      const generationContext =
+        deck.generationContext &&
+        typeof deck.generationContext === "object" &&
+        !Array.isArray(deck.generationContext)
+          ? deck.generationContext
+          : null;
+      const targetSlideCount =
+        generationContext &&
+        Number.isInteger(generationContext.targetSlideCount) &&
+        generationContext.targetSlideCount > 0
+          ? generationContext.targetSlideCount
+          : null;
+      if (targetSlideCountOverride !== undefined) {
+        if (!isAgentPatchCaller(ctx?.caller)) {
+          throw new ActionContractError(
+            "targetSlideCountOverride is only available to agent calls after an explicit user request for more slides.",
+            { errorCode: "target_slide_count_override_agent_only" },
+          );
+        }
+        if (
+          targetSlideCount === null ||
+          targetSlideCountOverride <= targetSlideCount ||
+          slides.length < targetSlideCount ||
+          targetSlideCountOverride <= slides.length
+        ) {
+          throw new ActionContractError(
+            targetSlideCount === null
+              ? "targetSlideCountOverride requires a persisted target slide count."
+              : slides.length < targetSlideCount
+                ? `targetSlideCountOverride is only valid after the deck reaches its persisted target of ${targetSlideCount} slides.`
+                : `targetSlideCountOverride must extend both the persisted target of ${targetSlideCount} and the current deck size of ${slides.length}.`,
+            {
+              errorCode: "target_slide_count_override_invalid",
+              details: {
+                deckId,
+                currentSlideCount: slides.length,
+                targetSlideCount,
+                targetSlideCountOverride,
+              },
+            },
+          );
+        }
+      }
+      if (
+        isAgentPatchCaller(ctx?.caller) &&
+        targetSlideCount !== null &&
+        slides.length >= targetSlideCount &&
+        targetSlideCountOverride === undefined
+      ) {
+        throw new AgentActionStopError(
+          `Cannot add a slide: this deck already has ${slides.length} slides and its requested target is ${targetSlideCount}. Re-read the deck and stop adding slides unless the user explicitly changes the target.`,
+          {
+            errorCode: "target_slide_count_reached",
+            details: {
+              deckId,
+              currentSlideCount: slides.length,
+              targetSlideCount,
+            },
+          },
+        );
+      }
+
+      if (targetSlideCountOverride !== undefined) {
+        deck.generationContext = {
+          ...(generationContext ?? {}),
+          targetSlideCount: targetSlideCountOverride,
+        };
+      }
 
       const newSlideId =
         slideId ??
@@ -299,6 +412,7 @@ export default defineAction({
       const newSlide: any = {
         id: newSlideId,
         content: normalizeSlidePadding(content),
+        layoutFitRevision: createLayoutFitRevision(),
         creativeContextReuseLabels: slideReuseLabels,
       };
       if (layout) newSlide.layout = layout;
@@ -311,7 +425,7 @@ export default defineAction({
       const shouldRepairTitle = slides.length === 0;
       slides.splice(insertIndex, 0, newSlide);
 
-      const now = new Date().toISOString();
+      const now = nextDeckRevision(row.updatedAt);
       deck.slides = slides;
       deck.updatedAt = now;
       const currentTitle =
@@ -331,24 +445,30 @@ export default defineAction({
               reuseLabels: mergedReuseLabels,
             };
 
-      await createDeckVersionSnapshot(
-        {
-          id: row.id,
-          title: row.title,
-          data: row.data,
-          ownerEmail: row.ownerEmail,
-        },
-        { label: "Before adding slide" },
-      );
       await db.transaction(async (tx: any) => {
-        await tx
+        await createDeckVersionSnapshot(
+          {
+            id: row.id,
+            title: row.title,
+            data: row.data,
+            ownerEmail: row.ownerEmail,
+          },
+          {
+            force: isAgentPatchCaller(ctx?.caller),
+            chatContext: deckVersionChatContextFromAction(ctx),
+            label: "Before adding slide",
+            db: tx,
+          },
+        );
+        const updateResult = await tx
           .update(schema.decks)
           .set({
             ...(repairedTitle ? { title: repairedTitle } : {}),
             data: JSON.stringify(deck),
             updatedAt: now,
           })
-          .where(eq(schema.decks.id, deckId));
+          .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+        assertDeckWriteApplied(updateResult, deckId, "slide addition");
         await recordGenerationCreativeContext(
           {
             appId: "slides",
@@ -364,11 +484,6 @@ export default defineAction({
         );
       });
 
-      // Start the freshness window immediately after the SQL write and before
-      // notifying the editor. A render can happen during presence/navigation;
-      // capturing the timestamp later can discard that valid measurement.
-      const fitSince = Date.now();
-
       // Best-effort agent presence: light the agent up on the newly-added slide
       // in open editors and drop a lingering "AI edited" highlight for it. Uses
       // the NEW slide's id. Never blocks or fails the write.
@@ -380,19 +495,12 @@ export default defineAction({
 
       // Broadcast to any open editors so the new slide appears immediately.
       // Include the new slideId + agent actor (backwards-compatible payload).
-      notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
-
-      // Wait briefly for the editor to render the new slide and report its
-      // measured fit. If we get an "overflows" signal, append the auto-fix
-      // hint so the agent can make one bounded structural repair. Timeout = no
-      // editor measurement available
-      // (e.g. headless server) — return success without a fit hint.
-      const fit = await awaitLayoutFitCheck(
-        newSlideId,
-        fitSince,
-        5000,
-        hashSlideContent(newSlide.content),
-      );
+      const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+      await notifyClients(deckId, {
+        slideId: newSlideId,
+        actor: "agent",
+        ...(agentChangeId ? { agentChangeId } : {}),
+      });
 
       const base = {
         deckId,
@@ -400,26 +508,18 @@ export default defineAction({
         slideNumber: insertIndex + 1,
         position: insertIndex,
         slideCount: slides.length,
+        appUrl: getDeckUrl(deckId),
         deepLink: deckDeepLink(deckId),
         contextMode,
         contextPackId: recordedPackId,
         reuseLabels: slideReuseLabels,
+        layoutFit: {
+          status: "pending" as const,
+          slideId: newSlideId,
+          contentHash: hashSlideContent(newSlide.content),
+          layoutFitRevision: newSlide.layoutFitRevision,
+        },
       };
-
-      if (fit.status === "overflows") {
-        return {
-          ...base,
-          layoutOverflow: {
-            verticalOverflow: fit.measurement.verticalOverflow,
-            horizontalOverflow: fit.measurement.horizontalOverflow ?? 0,
-            contentWidth: fit.measurement.contentWidth,
-            contentHeight: fit.measurement.contentHeight,
-            viewportWidth: fit.measurement.viewportWidth,
-            viewportHeight: fit.measurement.viewportHeight,
-          },
-          message: formatOverflowForTool(deckId, fit.measurement),
-        };
-      }
 
       return base;
     }),

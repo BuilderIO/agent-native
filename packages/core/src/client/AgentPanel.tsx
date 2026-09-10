@@ -26,7 +26,6 @@ import {
   IconMessageCircle,
   IconMessageDots,
   IconTerminal2,
-  IconSettings,
   IconLayoutSidebarRightCollapse,
   IconLayoutGrid,
   IconCheck,
@@ -38,7 +37,6 @@ import {
   IconArrowsMaximize,
   IconExternalLink,
   IconShare3,
-  IconBulb,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -60,28 +58,22 @@ import {
   type HostedHarnessRuntime,
 } from "../agent/harness/hosted.js";
 import type { AgentRun } from "../progress/types.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu.js";
 import { normalizeTooltipText } from "./components/ui/tooltip.js";
 import { ErrorReportActions } from "./ErrorReportActions.js";
+import { ExternalAgentNudge } from "./external-agent-host.js";
 import { FeedbackButton, resolveFeedbackUrl } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
 import { ShareButton } from "./sharing/ShareButton.js";
-import {
-  ThinkingDisplayProvider,
-  useThinkingDisplayControl,
-} from "./thinking-display.js";
+import { ThinkingDisplayProvider } from "./thinking-display.js";
 // Lazy-load the full assistant-ui chat stack (tiptap composer + react-markdown +
 // assistant-ui + zod block schemas) so it is NOT in the static import closure of
 // every page. The header/tab chrome renders immediately; chat streams in once the
@@ -173,6 +165,20 @@ export function shouldHandleAgentSidebarToggle(
   return typeof detail.scopeId === "string" && detail.scopeId === toggleScopeId;
 }
 
+export function shouldHandleAgentPanelChatShortcut(
+  target: EventTarget | null,
+): boolean {
+  const element = target as HTMLElement | null;
+  if (!element) return true;
+  return !(
+    element.tagName === "INPUT" ||
+    element.tagName === "TEXTAREA" ||
+    element.tagName === "SELECT" ||
+    element.isContentEditable ||
+    element.closest?.("[contenteditable]")
+  );
+}
+
 function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
   const message = buildAppChatSidebarStateMessage(open);
   for (const frame of document.querySelectorAll("iframe")) {
@@ -180,16 +186,47 @@ function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
   }
 }
 
-function settingsRouteHashForSection(section?: string | null): string {
-  const normalized = section?.replace(/^#/, "").toLowerCase() ?? "";
+export function settingsRouteHashForSection(
+  section?: string | null,
+  currentHash?: string | null,
+): string {
+  const raw = section?.replace(/^#/, "").trim() ?? "";
+  const normalized = raw.toLowerCase();
+  if (
+    [
+      "llm",
+      "app-models",
+      "limits",
+      "demo-mode",
+      "hosting",
+      "database",
+      "uploads",
+      "auth",
+      "email",
+      "browser",
+      "background",
+      "usage",
+    ].includes(normalized)
+  ) {
+    return `#${normalized}`;
+  }
   if (normalized === "voice") return "#voice";
+  if (normalized === "a2a") return "#agent:agents";
+  if (normalized.startsWith("secrets:")) {
+    return `#secrets:${raw.slice("secrets:".length)}`;
+  }
+  if (normalized === "secrets") {
+    const existing = currentHash?.replace(/^#/, "").trim() ?? "";
+    if (existing.toLowerCase().startsWith("secrets:") && existing.length > 8) {
+      return `#secrets:${existing.slice("secrets:".length)}`;
+    }
+  }
+  if (normalized === "automations") return "#agent:automations";
   if (
     normalized.startsWith("secrets") ||
     normalized.includes("api") ||
     normalized === "integrations" ||
-    normalized === "connections" ||
-    normalized === "email" ||
-    normalized === "browser"
+    normalized === "connections"
   ) {
     return "#integrations";
   }
@@ -198,16 +235,53 @@ function settingsRouteHashForSection(section?: string | null): string {
     normalized === "workspace" ||
     normalized === "workspace-settings" ||
     normalized === "organization" ||
-    normalized === "org" ||
-    normalized === "hosting" ||
-    normalized === "database" ||
-    normalized === "uploads" ||
-    normalized === "auth" ||
-    normalized === "demo-mode"
+    normalized === "org"
   ) {
     return "#workspace";
   }
   return "#agent";
+}
+
+export function AgentPanelSettingsNavigation({
+  onOpenSettings,
+}: {
+  onOpenSettings?: (section?: string) => void;
+} = {}) {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    function handleOpenSettings(event: Event) {
+      const section = (event as CustomEvent<{ section?: string }>).detail
+        ?.section;
+      if (onOpenSettings) {
+        onOpenSettings(section);
+        return;
+      }
+      const navigation = navigate({
+        pathname: appPath("/settings"),
+        hash: settingsRouteHashForSection(section, window.location.hash),
+      });
+      const notifyLocationChange = () => {
+        window.dispatchEvent(new Event("popstate"));
+        window.dispatchEvent(new Event("hashchange"));
+      };
+      void Promise.resolve(navigation).then(
+        notifyLocationChange,
+        () => undefined,
+      );
+    }
+    window.addEventListener(
+      AGENT_PANEL_OPEN_SETTINGS_EVENT,
+      handleOpenSettings,
+    );
+    return () =>
+      window.removeEventListener(
+        AGENT_PANEL_OPEN_SETTINGS_EVENT,
+        handleOpenSettings,
+      );
+  }, [navigate, onOpenSettings]);
+
+  return null;
 }
 const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 
@@ -219,13 +293,6 @@ function parentFrameTargetOrigin(): string {
 const ResourcesPanel = lazy(() =>
   import("./resources/ResourcesPanel.js").then((m) => ({
     default: m.ResourcesPanel,
-  })),
-);
-
-// Lazy-load SettingsPanel to avoid bundling when not needed
-const SettingsPanel = lazy(() =>
-  import("./settings/index.js").then((m) => ({
-    default: m.SettingsPanel,
   })),
 );
 
@@ -252,8 +319,8 @@ const SetupButton = lazy(() =>
 
 // The setup/onboarding checklist that used to appear above chat is disabled
 // for every app — setup (AI engine, image/video gen, asset storage, email,
-// GitHub, etc.) is surfaced in better places (the settings panel and the
-// per-feature setup affordances). Keep this off; do not re-enable globally.
+// GitHub, etc.) is surfaced in the settings pages and per-feature setup
+// affordances. Keep this off; do not re-enable globally.
 const SHOW_ONBOARDING = false;
 const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
 const AgentSidebarOnboardingContext = React.createContext(false);
@@ -262,14 +329,13 @@ const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "claude";
 const EXEC_MODE_KEY = "agent-native-exec-mode";
 type ExecMode = "build" | "plan";
-type PanelMode = "chat" | "cli" | "resources" | "settings";
+type PanelMode = "chat" | "cli" | "resources";
 export function normalizeAgentPanelModeForSurface(
-  mode: PanelMode,
-  allowSettingsMode: boolean,
+  mode: string,
   chatOnly = false,
 ): PanelMode {
   if (chatOnly) return "chat";
-  return mode === "settings" && !allowSettingsMode ? "chat" : mode;
+  return mode === "cli" || mode === "resources" ? mode : "chat";
 }
 const AGENT_PANEL_FONT_FAMILY =
   'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
@@ -296,14 +362,20 @@ const AGENT_PANEL_CONTROL_STYLE = {
   lineHeight: 1,
 } satisfies React.CSSProperties;
 const ACTIVATE_KEYS = new Set(["Enter", " "]);
+type AgentPanelOverlayOpenTiming = "animation-frame" | "timeout";
 
 export function deferAgentPanelOverlayOpen(
   event: { preventDefault: () => void },
   closeMenu: () => void,
   openOverlay: () => void,
+  timing: AgentPanelOverlayOpenTiming = "animation-frame",
 ): void {
   event.preventDefault();
   closeMenu();
+  if (timing === "timeout") {
+    setTimeout(openOverlay, 0);
+    return;
+  }
   if (
     typeof window !== "undefined" &&
     typeof window.requestAnimationFrame === "function"
@@ -327,51 +399,6 @@ interface AvailableCli {
   command: string;
   label: string;
   available: boolean;
-}
-
-/**
- * Reasoning visibility for this browser. Absent when a host pinned the mode
- * through `thinkingDisplay`, so the menu never offers a control that cannot
- * change anything.
- */
-function ThinkingDisplayMenuItem() {
-  const t = useT();
-  const { mode, setMode, pinned } = useThinkingDisplayControl();
-  if (pinned) return null;
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>
-        <IconBulb size={14} className="shrink-0" />
-        {t("agentChat.thinking.display")}
-      </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent>
-        <DropdownMenuRadioGroup
-          value={mode}
-          onValueChange={(next) => {
-            // The radio group hands back a bare string; anything that is not a
-            // known mode would silently persist and read back as the default.
-            if (
-              next === "expanded" ||
-              next === "collapsed" ||
-              next === "hidden"
-            ) {
-              setMode(next);
-            }
-          }}
-        >
-          <DropdownMenuRadioItem value="expanded">
-            {t("agentChat.thinking.expanded")}
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="collapsed">
-            {t("agentChat.thinking.collapsed")}
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="hidden">
-            {t("agentChat.thinking.hidden")}
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
-  );
 }
 
 function useAvailableClis() {
@@ -587,7 +614,7 @@ export function shouldShowAgentPanelFullViewAction(
   return (
     Boolean(agentPageHref) &&
     currentPath !== agentPageHref &&
-    (isSidebar || mode === "resources" || mode === "settings")
+    (isSidebar || mode === "resources")
   );
 }
 
@@ -753,6 +780,8 @@ export interface AgentPanelProps extends Omit<
   style?: React.CSSProperties;
   /** Called when the user clicks the collapse button. If provided, a collapse button appears in the header. */
   onCollapse?: () => void;
+  /** Whether to render the header collapse button when `onCollapse` is provided. Default: true. */
+  showCollapseButton?: boolean;
   /** Whether the panel is currently in fullscreen (Claude-style centered) mode. */
   isFullscreen?: boolean;
   /** @deprecated Fullscreen sidebar controls are no longer rendered. */
@@ -765,8 +794,20 @@ export interface AgentPanelProps extends Omit<
   isWideDrawer?: boolean;
   /** Called when the user returns the wide drawer to the normal layout. */
   onExitWideDrawer?: () => void;
-  /** URL of the app being developed (shown as "Open app in new tab" in settings). Set by frame. */
-  devAppUrl?: string;
+  /** Route settings requests to a host-owned settings surface. */
+  onOpenSettings?: (section?: string) => void;
+  /** Start a desktop-owned CLI tab from the chat sidebar menu. */
+  onNewCliTab?: () => void;
+  /** Return from a desktop-owned CLI tab to a UI chat tab. */
+  onNewUiTab?: () => void;
+  /** Render a host-owned CLI tab; the built-in terminal is used when omitted. */
+  renderCliTab?: (input: { id: string; active: boolean }) => React.ReactNode;
+  /** Select the mode used by the chat sidebar's new-tab affordances. */
+  newTabMode?: "ui" | "cli";
+  /** Host-owned label for the desktop CLI tab action. */
+  newCliTabLabel?: string;
+  /** Host-owned label for the desktop UI tab action. */
+  newUiTabLabel?: string;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
   /** Restore the previously active chat thread on mount. Default: true. */
@@ -787,11 +828,9 @@ export interface AgentPanelProps extends Omit<
   showTabBar?: boolean;
   /** Show a compact New chat action in page chat when the main header is hidden. */
   showPageNewChatButton?: boolean;
-  /** Allow the sidebar settings view to render inside this panel. Default: true. */
-  allowSettingsMode?: boolean;
   /** Keep this surface on chat even when mode controls are hidden. */
   chatOnly?: boolean;
-  /** Optional link shown in Resources and Settings modes for the full Agent page. */
+  /** Optional link shown in Resources mode for the full Agent page. */
   agentPageHref?: string;
   /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
@@ -930,17 +969,26 @@ function AgentPanelInner({
   apiUrl,
   emptyStateText,
   emptyStateAddon,
+  emptyStateFooter,
+  onMessageCountChange,
   suggestions,
   dynamicSuggestions,
   showHeader = true,
   onCollapse,
+  showCollapseButton = true,
   isFullscreen,
   onToggleFullscreen,
   onFullViewRequest,
   onSnapTo75Percent,
   isWideDrawer,
   onExitWideDrawer,
-  devAppUrl,
+  onOpenSettings,
+  onNewCliTab,
+  onNewUiTab,
+  renderCliTab,
+  newTabMode = "ui",
+  newCliTabLabel,
+  newUiTabLabel,
   storageKey,
   restoreActiveThread = true,
   scope,
@@ -951,14 +999,12 @@ function AgentPanelInner({
   chatNotice,
   showTabBar = true,
   showPageNewChatButton = false,
-  allowSettingsMode = true,
   chatOnly = false,
   agentPageHref,
   codeAccess,
   ...assistantChatProps
 }: AgentPanelProps) {
   const t = useT();
-  const navigate = useNavigate();
   const location = useLocation();
   const mounted = useClientOnly();
   const onboardingPreviewMode = useOnboardingPreviewMode();
@@ -1014,51 +1060,33 @@ function AgentPanelInner({
   const [mode, setMode] = useState<PanelMode>(() => {
     try {
       const saved = localStorage.getItem(panelModeKey);
-      if (
-        saved === "chat" ||
-        saved === "cli" ||
-        saved === "resources" ||
-        saved === "settings"
-      )
-        return normalizeAgentPanelModeForSurface(
-          saved,
-          allowSettingsMode,
-          chatOnly,
-        );
+      return normalizeAgentPanelModeForSurface(saved ?? defaultMode, chatOnly);
     } catch {}
-    return normalizeAgentPanelModeForSurface(
-      defaultMode,
-      allowSettingsMode,
-      chatOnly,
-    );
+    return normalizeAgentPanelModeForSurface(defaultMode, chatOnly);
   });
   useEffect(() => {
     try {
       localStorage.setItem(panelModeKey, mode);
     } catch {}
   }, [mode, panelModeKey]);
-  const [settingsSection, setSettingsSection] = useState<{
-    section: string | null;
-    requestKey: number;
-  }>({ section: null, requestKey: 0 });
   const switchMode = useCallback(
     (m: PanelMode) => {
       startTransition(() =>
-        setMode(
-          normalizeAgentPanelModeForSurface(m, allowSettingsMode, chatOnly),
-        ),
+        setMode(normalizeAgentPanelModeForSurface(m, chatOnly)),
       );
     },
-    [allowSettingsMode, chatOnly],
+    [chatOnly],
   );
+  const previousDefaultModeRef = useRef(defaultMode);
   useEffect(() => {
-    const nextMode = normalizeAgentPanelModeForSurface(
-      mode,
-      allowSettingsMode,
-      chatOnly,
-    );
+    if (previousDefaultModeRef.current === defaultMode) return;
+    previousDefaultModeRef.current = defaultMode;
+    switchMode(defaultMode);
+  }, [defaultMode, switchMode]);
+  useEffect(() => {
+    const nextMode = normalizeAgentPanelModeForSurface(mode, chatOnly);
     if (nextMode !== mode) switchMode(nextMode);
-  }, [mode, allowSettingsMode, chatOnly, switchMode]);
+  }, [mode, chatOnly, switchMode]);
   const openRunThread = useCallback(
     (threadId: string, run?: AgentRun) => {
       switchMode("chat");
@@ -1105,54 +1133,60 @@ function AgentPanelInner({
   // Listen for mode changes from the frame parent (via AgentSidebar)
   useEffect(() => {
     function handler(e: Event) {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.mode) switchMode(detail.mode);
+      const requestedMode = (e as CustomEvent<{ mode?: unknown }>).detail?.mode;
+      if (
+        requestedMode === "chat" ||
+        requestedMode === "cli" ||
+        requestedMode === "resources"
+      ) {
+        switchMode(requestedMode);
+      }
     }
     window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
     return () =>
       window.removeEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
   }, [switchMode]);
 
-  // Open settings tab when requested (replaces the old popover open event)
-  useEffect(() => {
-    function handleOpenSettings(event: Event) {
-      const section = (event as CustomEvent<{ section?: string }>).detail
-        ?.section;
-      setSettingsSection((prev) => ({
-        section: section ?? null,
-        requestKey: prev.requestKey + 1,
-      }));
-      if (!allowSettingsMode) {
-        navigate({
-          pathname: "/settings",
-          hash: settingsRouteHashForSection(section),
-        });
-        switchMode("chat");
-        return;
-      }
-      switchMode("settings");
-    }
-    window.addEventListener(
-      AGENT_PANEL_OPEN_SETTINGS_EVENT,
-      handleOpenSettings,
-    );
-    return () =>
-      window.removeEventListener(
-        AGENT_PANEL_OPEN_SETTINGS_EVENT,
-        handleOpenSettings,
-      );
-  }, [allowSettingsMode, navigate, switchMode]);
-
   // CLI terminal tabs (ephemeral — not persisted to SQL)
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
   const [activeCliTab, setActiveCliTab] = useState("cli-1");
+  const [mountedCliTabs, setMountedCliTabs] = useState<string[]>([]);
   const cliCounter = useRef(1);
+
+  useEffect(() => {
+    if (mode !== "cli" || !activeCliTab) return;
+    setMountedCliTabs((current) =>
+      current.includes(activeCliTab) ? current : [...current, activeCliTab],
+    );
+  }, [activeCliTab, mode]);
 
   const addCliTab = useCallback(() => {
     const id = `cli-${++cliCounter.current}`;
     setCliTabs((prev) => [...prev, id]);
     setActiveCliTab(id);
   }, []);
+  const openNewCliTab = useCallback(() => {
+    if (onNewCliTab) {
+      onNewCliTab();
+      return;
+    }
+    addCliTab();
+    switchMode("cli");
+  }, [addCliTab, onNewCliTab, switchMode]);
+  const openNewUiTab = useCallback(
+    (addTab: () => void) => {
+      if (onNewUiTab) {
+        onNewUiTab();
+        return;
+      }
+      addTab();
+      switchMode("chat");
+    },
+    [onNewUiTab, switchMode],
+  );
+  const cliTabsToRender = renderCliTab
+    ? cliTabs.filter((id) => mountedCliTabs.includes(id))
+    : cliTabs;
 
   const closeCliTab = useCallback(
     (id: string) => {
@@ -1217,7 +1251,7 @@ function AgentPanelInner({
 
   const availableClis = useAvailableClis();
   const [selectedCli, selectCli] = useCliSelection(keyPrefix);
-  const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
+  const { isDevMode } = useDevMode(apiUrl);
   const effectiveAgentChatSurface = resolveAgentPanelChatSurface(
     assistantChatProps.agentChatSurface,
     isDesktopCodeSurfaceRequested(),
@@ -1246,7 +1280,8 @@ function AgentPanelInner({
   // there happens via Builder, and the CLI panel only offers a Download
   // Desktop CTA, which adds clutter without value.
   const showCliMode =
-    (isDevMode || !codeAccessEnabled) && isCodeEditingChatSurface;
+    Boolean(renderCliTab) ||
+    ((isDevMode || !codeAccessEnabled) && isCodeEditingChatSurface);
   useEffect(() => {
     if (mode === "cli" && !showCliMode) switchMode("chat");
   }, [mode, showCliMode, switchMode]);
@@ -1272,14 +1307,6 @@ function AgentPanelInner({
       }
     }
   }, [isDevMode]);
-
-  const isLocalhost =
-    mounted &&
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1" ||
-      window.location.hostname === "::1");
-  const showDevToggle = canToggle && isLocalhost && isCodeEditingChatSurface;
 
   const renderModeButtons = useCallback(
     (activeMode: PanelMode) => (
@@ -1499,20 +1526,30 @@ function AgentPanelInner({
           />
         ) : null}
         {mode === "chat" && (
-          <IconTooltip content={t("agentPanel.newChat")}>
+          <IconTooltip
+            content={
+              newTabMode === "cli" && newCliTabLabel
+                ? newCliTabLabel
+                : (newUiTabLabel ?? t("agentPanel.newChat"))
+            }
+          >
             <button
-              onClick={addTab}
-              aria-label={t("agentPanel.newChat")}
+              onClick={newTabMode === "cli" ? openNewCliTab : addTab}
+              aria-label={
+                newTabMode === "cli" && newCliTabLabel
+                  ? newCliTabLabel
+                  : (newUiTabLabel ?? t("agentPanel.newChat"))
+              }
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
               <IconPlus size={14} />
             </button>
           </IconTooltip>
         )}
-        {!onCollapse && mode === "cli" && canUseCodeTools && (
+        {mode === "cli" && (canUseCodeTools || renderCliTab) && (
           <IconTooltip content={t("agentPanel.newTerminal")}>
             <button
-              onClick={addCliTab}
+              onClick={openNewCliTab}
               aria-label={t("agentPanel.newTerminal")}
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
@@ -1525,8 +1562,7 @@ function AgentPanelInner({
             <button
               className={cn(
                 "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                (headerMenuOpen || mode === "settings") &&
-                  "bg-accent text-foreground",
+                headerMenuOpen && "bg-accent text-foreground",
               )}
               aria-label={t("agentPanel.panelOptions")}
             >
@@ -1591,41 +1627,71 @@ function AgentPanelInner({
             fullViewAction ? (
               <DropdownMenuSeparator />
             ) : null}
-            {onCollapse && mode === "chat" && (
-              <>
-                <DropdownMenuItem onSelect={addTab}>
-                  <IconPlus size={14} className="shrink-0" />
-                  {t("agentPanel.newChat")}
-                </DropdownMenuItem>
-                {(() => {
-                  const activeTab = activeChatSessionId
-                    ? tabs.find((tab) => tab.id === activeChatSessionId)
-                    : undefined;
-                  if (
-                    !activeTab ||
-                    (activeTabMessageCount <= 0 && activeTab.status === "idle")
-                  ) {
-                    return null;
-                  }
-                  return (
-                    // ShareButton's content is portalled, so open it only
-                    // after the menu releases its dismissable layer.
-                    <DropdownMenuItem
-                      onSelect={(event) =>
-                        deferAgentPanelOverlayOpen(
-                          event,
-                          closeHeaderMenuForOverlay,
-                          () => setShareFromMenuOpen(true),
-                        )
-                      }
-                    >
-                      <IconShare3 size={14} className="shrink-0" />
-                      Share
-                    </DropdownMenuItem>
-                  );
-                })()}
-              </>
+            {onCollapse &&
+              (newTabMode === "cli" || (mode === "cli" && renderCliTab)) && (
+                <>
+                  <DropdownMenuItem onSelect={() => openNewUiTab(addTab)}>
+                    <IconPlus size={14} className="shrink-0" />
+                    {newUiTabLabel ?? t("agentPanel.newChat")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={openNewCliTab}>
+                    <IconTerminal2 size={14} className="shrink-0" />
+                    {newCliTabLabel ?? t("agentPanel.newTerminal")}
+                  </DropdownMenuItem>
+                  {mode === "chat" ? <DropdownMenuSeparator /> : null}
+                </>
+              )}
+            {onCollapse && mode === "chat" && newTabMode !== "cli" && (
+              <DropdownMenuItem onSelect={() => openNewUiTab(addTab)}>
+                <IconPlus size={14} className="shrink-0" />
+                {newUiTabLabel ?? t("agentPanel.newChat")}
+              </DropdownMenuItem>
             )}
+            {onCollapse &&
+            mode === "chat" &&
+            renderCliTab &&
+            newTabMode !== "cli" ? (
+              <DropdownMenuItem onSelect={openNewCliTab}>
+                <IconTerminal2 size={14} className="shrink-0" />
+                {newCliTabLabel ?? t("agentPanel.newTerminal")}
+              </DropdownMenuItem>
+            ) : null}
+            {mode === "chat" &&
+            newTabMode !== "cli" &&
+            onNewCliTab &&
+            newCliTabLabel ? (
+              <DropdownMenuItem onSelect={onNewCliTab}>
+                <IconTerminal2 size={14} className="shrink-0" />
+                {newCliTabLabel}
+              </DropdownMenuItem>
+            ) : null}
+            {onCollapse &&
+              mode === "chat" &&
+              (() => {
+                const activeTab = activeChatSessionId
+                  ? tabs.find((tab) => tab.id === activeChatSessionId)
+                  : undefined;
+                if (
+                  !activeTab ||
+                  (activeTabMessageCount <= 0 && activeTab.status === "idle")
+                ) {
+                  return null;
+                }
+                return (
+                  <DropdownMenuItem
+                    onSelect={(event) =>
+                      deferAgentPanelOverlayOpen(
+                        event,
+                        closeHeaderMenuForOverlay,
+                        () => setShareFromMenuOpen(true),
+                      )
+                    }
+                  >
+                    <IconShare3 size={14} className="shrink-0" />
+                    Share
+                  </DropdownMenuItem>
+                );
+              })()}
             {mode === "chat" && toggleHistory && (
               <DropdownMenuItem
                 onSelect={(event) =>
@@ -1633,6 +1699,7 @@ function AgentPanelInner({
                     event,
                     closeHeaderMenuForOverlay,
                     toggleHistory,
+                    "timeout",
                   )
                 }
               >
@@ -1674,18 +1741,6 @@ function AgentPanelInner({
                 <DropdownMenuSeparator />
               </>
             )}
-            {mode === "chat" && <ThinkingDisplayMenuItem />}
-            {allowSettingsMode && (
-              <DropdownMenuItem
-                onSelect={() => switchMode("settings")}
-                className={cn(
-                  mode === "settings" ? "font-medium" : "text-muted-foreground",
-                )}
-              >
-                <IconSettings size={14} className="shrink-0" />
-                {t("agentPanel.settings")}
-              </DropdownMenuItem>
-            )}
             {feedbackEnabled ? (
               <DropdownMenuItem
                 onSelect={(event) =>
@@ -1701,7 +1756,9 @@ function AgentPanelInner({
               </DropdownMenuItem>
             ) : null}
             {((mode === "chat" && activeTabId) ||
-              (mode === "cli" && canUseCodeTools && activeCliTab)) && (
+              (mode === "cli" &&
+                (canUseCodeTools || renderCliTab) &&
+                activeCliTab)) && (
               <>
                 <DropdownMenuSeparator />
                 {mode === "chat" ? (
@@ -1760,7 +1817,7 @@ function AgentPanelInner({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-        {onCollapse && (
+        {onCollapse && showCollapseButton && (
           <IconTooltip content={t("agentPanel.collapseSidebar")}>
             <button
               type="button"
@@ -1777,7 +1834,6 @@ function AgentPanelInner({
     [
       activeCliTab,
       addCliTab,
-      allowSettingsMode,
       availableClis,
       canUseCodeTools,
       closeHeaderMenuForOverlay,
@@ -1792,6 +1848,9 @@ function AgentPanelInner({
       headerMenuOpen,
       isWideDrawer,
       mode,
+      newTabMode,
+      newCliTabLabel,
+      newUiTabLabel,
       agentPageHref,
       fullViewAction,
       onCollapse,
@@ -1799,9 +1858,13 @@ function AgentPanelInner({
       onExitWideDrawer,
       onSnapTo75Percent,
       openRunThread,
+      openNewCliTab,
+      openNewUiTab,
+      renderCliTab,
       selectCli,
       selectedCli,
       shareFromMenuOpen,
+      showCollapseButton,
       storageKey,
       switchMode,
       t,
@@ -1928,6 +1991,132 @@ function AgentPanelInner({
         Boolean(onCollapse) &&
         mode === "chat" &&
         shouldShowAgentPanelSidebarChatTabs(tabs);
+      const showUnifiedSurfaceTabs = Boolean(
+        onCollapse && renderCliTab && showTabBar,
+      );
+      const renderUnifiedSurfaceTabs = () => (
+        <div
+          className="agent-tabs-scroll flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
+          role="tablist"
+          aria-label={t("agentPanel.panelOptions")}
+          data-agent-panel-surface-tabs
+        >
+          {mode === "chat" &&
+            mainTabs.map((tab) => {
+              const isActive =
+                mode === "chat" &&
+                (tab.id === activeTabId ||
+                  (tab.id === focusParentId &&
+                    activeTab?.parentThreadId === tab.id));
+              return (
+                <div
+                  key={tab.id}
+                  className="relative flex shrink-0 items-center"
+                >
+                  <div
+                    role="tab"
+                    tabIndex={0}
+                    aria-selected={isActive}
+                    ref={isActive ? activeTabRefCb : undefined}
+                    onClick={() => {
+                      setActiveTabId(tab.id);
+                      switchMode("chat");
+                    }}
+                    onKeyDown={activateOnKeyDown(() => {
+                      setActiveTabId(tab.id);
+                      switchMode("chat");
+                    })}
+                    className={cn(
+                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
+                      isActive
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    <span className="truncate pe-1">{tab.label}</span>
+                    {tab.status === "running" && (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={t("agentPanel.closeTab")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeTab(tab.id);
+                    }}
+                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 28,
+                      paddingRight: 6,
+                      borderRadius: "0 6px 6px 0",
+                      background:
+                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                    }}
+                  >
+                    <IconX size={10} />
+                  </button>
+                </div>
+              );
+            })}
+          {mode === "cli" &&
+            cliTabs.map((id, index) => {
+              const isActive = mode === "cli" && id === activeCliTab;
+              return (
+                <div key={id} className="relative flex shrink-0 items-center">
+                  <div
+                    role="tab"
+                    tabIndex={0}
+                    aria-selected={isActive}
+                    ref={isActive ? activeTabRefCb : undefined}
+                    onClick={() => {
+                      setActiveCliTab(id);
+                      switchMode("cli");
+                    }}
+                    onKeyDown={activateOnKeyDown(() => {
+                      setActiveCliTab(id);
+                      switchMode("cli");
+                    })}
+                    className={cn(
+                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px]",
+                      isActive
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    <span>Terminal {index + 1}</span>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={t("agentPanel.closeTab")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeCliTab(id);
+                    }}
+                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 28,
+                      paddingRight: 6,
+                      borderRadius: "0 6px 6px 0",
+                      background:
+                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                    }}
+                  >
+                    <IconX size={10} />
+                  </button>
+                </div>
+              );
+            })}
+        </div>
+      );
 
       return (
         <div
@@ -1946,7 +2135,9 @@ function AgentPanelInner({
             style={AGENT_PANEL_HEADER_STYLE}
           >
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-              {showSidebarChatTabs ? (
+              {showUnifiedSurfaceTabs ? (
+                renderUnifiedSurfaceTabs()
+              ) : showSidebarChatTabs ? (
                 <div className="agent-tabs-scroll flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
                   {mainTabs.map((tab) => {
                     const isActive =
@@ -1954,26 +2145,27 @@ function AgentPanelInner({
                       (tab.id === focusParentId &&
                         activeTab?.parentThreadId === tab.id);
                     return (
-                      <div
-                        key={tab.id}
-                        role="button"
-                        tabIndex={0}
-                        ref={isActive ? activeTabRefCb : undefined}
-                        onClick={() => setActiveTabId(tab.id)}
-                        onKeyDown={activateOnKeyDown(() =>
-                          setActiveTabId(tab.id),
-                        )}
-                        className={cn(
-                          "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
-                          isActive
-                            ? "bg-accent text-foreground"
-                            : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                        )}
-                      >
-                        <span className="truncate pe-1">{tab.label}</span>
-                        {tab.status === "running" && (
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                        )}
+                      <div key={tab.id} className="relative shrink-0">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          ref={isActive ? activeTabRefCb : undefined}
+                          onClick={() => setActiveTabId(tab.id)}
+                          onKeyDown={activateOnKeyDown(() =>
+                            setActiveTabId(tab.id),
+                          )}
+                          className={cn(
+                            "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
+                            isActive
+                              ? "bg-accent text-foreground"
+                              : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                          )}
+                        >
+                          <span className="truncate pe-1">{tab.label}</span>
+                          {tab.status === "running" && (
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                          )}
+                        </div>
                         <button
                           type="button"
                           aria-label={t("agentPanel.closeTab")}
@@ -2025,14 +2217,16 @@ function AgentPanelInner({
           ) : null}
           {/* Tab bar: only visible when there is actually more than one tab to switch between. */}
           {showTabBar &&
-            (mode === "chat" || (mode === "cli" && canUseCodeTools)) &&
+            !showUnifiedSurfaceTabs &&
+            (mode === "chat" ||
+              (mode === "cli" && (canUseCodeTools || renderCliTab))) &&
             (() => {
               const showChatTabBar =
                 mode === "chat" &&
                 shouldShowAgentPanelChatTabBar(tabs, activeTabId);
               const showCliTabBar =
                 mode === "cli" &&
-                canUseCodeTools &&
+                (canUseCodeTools || renderCliTab) &&
                 shouldShowAgentPanelCliTabBar(cliTabs);
 
               if (!showChatTabBar && !showCliTabBar) return null;
@@ -2050,28 +2244,29 @@ function AgentPanelInner({
                                 (tab.id === focusParentId &&
                                   activeTab?.parentThreadId === tab.id);
                               return (
-                                <div
-                                  key={tab.id}
-                                  role="button"
-                                  tabIndex={0}
-                                  ref={isActive ? activeTabRefCb : undefined}
-                                  onClick={() => setActiveTabId(tab.id)}
-                                  onKeyDown={activateOnKeyDown(() =>
-                                    setActiveTabId(tab.id),
-                                  )}
-                                  className={cn(
-                                    "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
-                                    isActive
-                                      ? "bg-accent text-foreground"
-                                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                                  )}
-                                >
-                                  <span className="truncate pe-1">
-                                    {tab.label}
-                                  </span>
-                                  {tab.status === "running" && (
-                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                                  )}
+                                <div key={tab.id} className="relative shrink-0">
+                                  <div
+                                    role="button"
+                                    tabIndex={0}
+                                    ref={isActive ? activeTabRefCb : undefined}
+                                    onClick={() => setActiveTabId(tab.id)}
+                                    onKeyDown={activateOnKeyDown(() =>
+                                      setActiveTabId(tab.id),
+                                    )}
+                                    className={cn(
+                                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
+                                      isActive
+                                        ? "bg-accent text-foreground"
+                                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                                    )}
+                                  >
+                                    <span className="truncate pe-1">
+                                      {tab.label}
+                                    </span>
+                                    {tab.status === "running" && (
+                                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                                    )}
+                                  </div>
                                   <button
                                     type="button"
                                     aria-label={t("agentPanel.closeTab")}
@@ -2098,27 +2293,28 @@ function AgentPanelInner({
                               );
                             })
                           : cliTabs.map((id, i) => (
-                              <div
-                                key={id}
-                                role="button"
-                                tabIndex={0}
-                                ref={
-                                  id === activeCliTab
-                                    ? activeTabRefCb
-                                    : undefined
-                                }
-                                onClick={() => setActiveCliTab(id)}
-                                onKeyDown={activateOnKeyDown(() =>
-                                  setActiveCliTab(id),
-                                )}
-                                className={cn(
-                                  "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px]",
-                                  id === activeCliTab
-                                    ? "bg-accent text-foreground"
-                                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                                )}
-                              >
-                                <span>Terminal {i + 1}</span>
+                              <div key={id} className="relative shrink-0">
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  ref={
+                                    id === activeCliTab
+                                      ? activeTabRefCb
+                                      : undefined
+                                  }
+                                  onClick={() => setActiveCliTab(id)}
+                                  onKeyDown={activateOnKeyDown(() =>
+                                    setActiveCliTab(id),
+                                  )}
+                                  className={cn(
+                                    "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px]",
+                                    id === activeCliTab
+                                      ? "bg-accent text-foreground"
+                                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                                  )}
+                                >
+                                  <span>Terminal {i + 1}</span>
+                                </div>
                                 <button
                                   type="button"
                                   aria-label={t("agentPanel.closeTab")}
@@ -2172,32 +2368,33 @@ function AgentPanelInner({
                           Main
                         </div>
                         {childTabs.map((tab) => (
-                          <div
-                            key={tab.id}
-                            role="button"
-                            tabIndex={0}
-                            ref={
-                              tab.id === activeTabId
-                                ? activeTabRefCb
-                                : undefined
-                            }
-                            onClick={() => setActiveTabId(tab.id)}
-                            onKeyDown={activateOnKeyDown(() =>
-                              setActiveTabId(tab.id),
-                            )}
-                            className={cn(
-                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer min-w-[48px] max-w-[140px]",
-                              tab.id === activeTabId
-                                ? "bg-accent text-foreground"
-                                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                            )}
-                          >
-                            <span className="truncate pe-1">
-                              {tab.subAgentName || tab.label}
-                            </span>
-                            {tab.status === "running" && (
-                              <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                            )}
+                          <div key={tab.id} className="relative shrink-0">
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              ref={
+                                tab.id === activeTabId
+                                  ? activeTabRefCb
+                                  : undefined
+                              }
+                              onClick={() => setActiveTabId(tab.id)}
+                              onKeyDown={activateOnKeyDown(() =>
+                                setActiveTabId(tab.id),
+                              )}
+                              className={cn(
+                                "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer min-w-[48px] max-w-[140px]",
+                                tab.id === activeTabId
+                                  ? "bg-accent text-foreground"
+                                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                              )}
+                            >
+                              <span className="truncate pe-1">
+                                {tab.subAgentName || tab.label}
+                              </span>
+                              {tab.status === "running" && (
+                                <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                              )}
+                            </div>
                             <button
                               type="button"
                               aria-label={t("agentPanel.closeTab")}
@@ -2246,12 +2443,15 @@ function AgentPanelInner({
       activeTabRefCb,
       activateOnKeyDown,
       closeCliTab,
+      renderCliTab,
+      switchMode,
       t,
     ],
   );
 
   return (
     <ThinkingDisplayProvider value={assistantChatProps.thinkingDisplay}>
+      <AgentPanelSettingsNavigation onOpenSettings={onOpenSettings} />
       <div
         className={cn(
           "agent-panel-root flex flex-1 flex-col min-h-0 h-full text-[13px] leading-[1.2] antialiased",
@@ -2278,7 +2478,7 @@ function AgentPanelInner({
               ".agent-panel-root:hover .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-panel-root:focus-within .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-sidebar-chat-header[data-agent-sidebar-chat-header][data-agent-sidebar-chat-header-active]{opacity:1;pointer-events:auto;}" +
               ".agent-sidebar-panel[data-agent-sidebar-per-app-chat='true'] .agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:1;pointer-events:auto;transition:none;}" +
               "}" +
-              ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
+              ".agent-tab-close{opacity:0}.agent-tab:hover + .agent-tab-close,.agent-tab:focus-visible + .agent-tab-close,.agent-tab-close:hover{opacity:1}" +
               ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
               ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
               `[data-agent-fullscreen='true'] .agent-thread-content,` +
@@ -2297,7 +2497,7 @@ function AgentPanelInner({
               `margin-left:auto;margin-right:auto;width:100%;}`,
           }}
         />
-        {/* Framework onboarding — appears above the chat/cli/settings tabs
+        {/* Framework onboarding — appears above the chat, CLI, and resources tabs
           so it's visible regardless of which tab the user is on. The panel
           hides itself once all required steps are done or the user dismisses
           it. */}
@@ -2359,6 +2559,8 @@ function AgentPanelInner({
                 contentHidden={mode !== "chat"}
                 emptyStateText={emptyStateText}
                 emptyStateAddon={emptyStateAddon}
+                emptyStateFooter={emptyStateFooter}
+                onMessageCountChange={onMessageCountChange}
                 suggestions={suggestions}
                 dynamicSuggestions={dynamicSuggestions}
                 onSwitchToCli={() => switchMode("cli")}
@@ -2377,54 +2579,60 @@ function AgentPanelInner({
         </div>
 
         {/* CLI terminals — code-capable dev mode: real terminal, otherwise handoff. */}
-        {canUseCodeTools
-          ? mode === "cli" &&
-            cliTabs.map((id) => (
-              <div
-                key={id}
-                className="min-h-0 relative flex-1"
-                style={{
-                  display: id === activeCliTab ? undefined : "none",
-                }}
+        {(canUseCodeTools || renderCliTab) &&
+          (mode === "cli" || Boolean(renderCliTab)) &&
+          cliTabsToRender.map((id) => (
+            <div
+              key={id}
+              className="min-h-0 relative flex-1"
+              style={{
+                display:
+                  mode === "cli" && id === activeCliTab ? undefined : "none",
+              }}
+            >
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                    {t("agentPanel.loadingTerminal")}
+                  </div>
+                }
               >
-                <Suspense
-                  fallback={
-                    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                      {t("agentPanel.loadingTerminal")}
-                    </div>
-                  }
-                >
+                {renderCliTab ? (
+                  renderCliTab({
+                    id,
+                    active: mode === "cli" && id === activeCliTab,
+                  })
+                ) : (
                   <AgentTerminal
                     command={selectedCli}
                     hideInFrame={false}
                     className="h-full"
                     style={{ background: "transparent" }}
                   />
-                </Suspense>
-              </div>
-            ))
-          : mode === "cli" && (
-              <div className="flex flex-1 flex-col items-center justify-center min-h-0 px-6 gap-3">
-                <CodeAccessUnavailablePanel
-                  title={
-                    codeAccessEnabled
-                      ? t("agentPanel.cliRequiresDevMode")
-                      : codeUnavailableTitle
-                  }
-                  description={
-                    codeAccessEnabled
-                      ? t("agentPanel.cliRequiresDevModeDescription")
-                      : codeUnavailableDescription
-                  }
-                  ctaLabel={codeUnavailableCtaLabel}
-                  ctaHref={
-                    codeAccessEnabled ? undefined : codeUnavailableCtaHref
-                  }
-                  secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
-                  secondaryCtaHref={codeUnavailableSecondaryCtaHref}
-                />
-              </div>
-            )}
+                )}
+              </Suspense>
+            </div>
+          ))}
+        {!canUseCodeTools && !renderCliTab && mode === "cli" && (
+          <div className="flex flex-1 flex-col items-center justify-center min-h-0 px-6 gap-3">
+            <CodeAccessUnavailablePanel
+              title={
+                codeAccessEnabled
+                  ? t("agentPanel.cliRequiresDevMode")
+                  : codeUnavailableTitle
+              }
+              description={
+                codeAccessEnabled
+                  ? t("agentPanel.cliRequiresDevModeDescription")
+                  : codeUnavailableDescription
+              }
+              ctaLabel={codeUnavailableCtaLabel}
+              ctaHref={codeAccessEnabled ? undefined : codeUnavailableCtaHref}
+              secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
+              secondaryCtaHref={codeUnavailableSecondaryCtaHref}
+            />
+          </div>
+        )}
 
         {/* Resources view */}
         {mode === "resources" && (
@@ -2442,30 +2650,6 @@ function AgentPanelInner({
               }
             >
               <ResourcesPanel />
-            </Suspense>
-          </div>
-        )}
-
-        {/* Settings / Setup view */}
-        {mode === "settings" && (
-          <div className="flex flex-col flex-1 min-h-0">
-            <Suspense
-              fallback={
-                <div className="p-3 space-y-2">
-                  <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
-                  <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
-                  <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
-                </div>
-              }
-            >
-              <SettingsPanel
-                isDevMode={isDevMode}
-                onToggleDevMode={() => setDevMode(!isDevMode)}
-                showDevToggle={showDevToggle}
-                devAppUrl={devAppUrl}
-                initialSection={settingsSection.section}
-                sectionRequestKey={settingsSection.requestKey}
-              />
             </Suspense>
           </div>
         )}
@@ -2667,8 +2851,8 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       }).catch(() => {});
-    write(appStateKey("__url__"));
-    if (normalizedBrowserTabId) write("__url__");
+    void write(appStateKey("__url__"));
+    if (normalizedBrowserTabId) void write("__url__");
   }, [
     appStateKey,
     location.pathname,
@@ -2829,7 +3013,7 @@ function ScreenRefreshBoundary({ children }: { children: React.ReactNode }) {
     // Mark every cached query stale without kicking off a refetch. The
     // subtree-level refetches happen naturally when the new tree mounts
     // below and child components re-subscribe.
-    queryClient.invalidateQueries({ refetchType: "none" });
+    void queryClient.invalidateQueries({ refetchType: "none" });
   }
   return <React.Fragment key={key}>{children}</React.Fragment>;
 }
@@ -3000,9 +3184,16 @@ export function AgentPanel(props: AgentPanelProps) {
     } catch {}
     setResetKey((key) => key + 1);
   }, [props.storageKey]);
+  const resolvedBrowserTabId =
+    props.browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   return (
     <AgentPanelErrorBoundary onReset={resetPanel}>
-      <AgentPanelInner key={resetKey} {...props} />
+      <AgentPanelInner
+        key={resetKey}
+        {...props}
+        browserTabId={resolvedBrowserTabId}
+      />
     </AgentPanelErrorBoundary>
   );
 }
@@ -3032,13 +3223,6 @@ export function shouldDefaultAgentChatSurfacePageNewChatButton(
   return mode === "page";
 }
 
-export function shouldAllowAgentChatSurfaceSettingsMode(
-  mode: AgentChatSurfaceMode | undefined,
-  allowSettingsMode: boolean | undefined,
-): boolean {
-  return allowSettingsMode ?? mode !== "page";
-}
-
 /**
  * Reusable chat surface backed by AgentPanel internals.
  *
@@ -3059,20 +3243,20 @@ export function AgentChatSurface({
   ...props
 }: AgentChatSurfaceProps) {
   const pageMode = mode === "page";
+  const resolvedBrowserTabId =
+    props.browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   const defaultShowPageNewChatButton =
     shouldDefaultAgentChatSurfacePageNewChatButton(mode, showTabBar);
 
   const panel = (
     <AgentPanel
       {...props}
+      browserTabId={resolvedBrowserTabId}
       defaultMode={defaultMode}
       showHeader={showHeader}
       showTabBar={showTabBar}
       isFullscreen={isFullscreen ?? pageMode}
-      allowSettingsMode={shouldAllowAgentChatSurfaceSettingsMode(
-        mode,
-        props.allowSettingsMode,
-      )}
       showPageNewChatButton={
         showPageNewChatButton ?? defaultShowPageNewChatButton
       }
@@ -3090,7 +3274,7 @@ export function AgentChatSurface({
   if (!pageMode) return panel;
   return (
     <>
-      <URLSync browserTabId={props.browserTabId} />
+      <URLSync browserTabId={resolvedBrowserTabId} />
       {panel}
     </>
   );
@@ -3136,6 +3320,8 @@ export interface AgentSidebarProps {
   adapterReloadKey?: AssistantChatProps["adapterReloadKey"];
   /** Optional content rendered at the bottom of the chat thread. */
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
+  emptyStateFooter?: AssistantChatProps["emptyStateFooter"];
+  onMessageCountChange?: AssistantChatProps["onMessageCountChange"];
   /** Initial sidebar width in pixels. Mount-only; user resize and a saved
    *  localStorage value override this. Default: 380 */
   defaultSidebarWidth?: number;
@@ -3145,6 +3331,8 @@ export interface AgentSidebarProps {
   position?: "left" | "right";
   /** Whether the sidebar starts open. Default: false */
   defaultOpen?: boolean;
+  /** Whether to render the panel's header collapse button. Default: true. */
+  showCollapseButton?: boolean;
   /** Animate the mobile overlay in a sheet-style slide transition. Default: true */
   animateMobile?: boolean;
   /** Animate desktop open/close by resizing the sidebar. Default: true */
@@ -3162,6 +3350,8 @@ export interface AgentSidebarProps {
   chatViewTransitionHandoff?: boolean;
   /** Namespace for persisted chat state. Use the same key as AgentChatHome. */
   storageKey?: string;
+  /** Initial mode for the sidebar. Default: "chat" */
+  defaultMode?: "chat" | "cli";
   /** Restore the previously active chat thread on mount. Default: true. */
   restoreActiveThread?: boolean;
   /** Namespace for the persisted open/closed preference. Defaults to storageKey. */
@@ -3184,8 +3374,24 @@ export interface AgentSidebarProps {
   openOnChatRunning?: boolean;
   /** Called when the user selects the full-view action from the chat sidebar. */
   onFullscreenRequest?: () => void;
+  /** Route settings requests to a host-owned settings surface. */
+  onOpenSettings?: (section?: string) => void;
+  /** Start a desktop-owned CLI tab from the chat sidebar menu. */
+  onNewCliTab?: () => void;
+  /** Return from a desktop-owned CLI tab to a UI chat tab. */
+  onNewUiTab?: () => void;
+  /** Render a host-owned CLI tab; the built-in terminal is used when omitted. */
+  renderCliTab?: (input: { id: string; active: boolean }) => React.ReactNode;
+  /** Select the mode used by the chat sidebar's new-tab affordances. */
+  newTabMode?: "ui" | "cli";
+  /** Host-owned label for the desktop CLI tab action. */
+  newCliTabLabel?: string;
+  /** Host-owned label for the desktop UI tab action. */
+  newUiTabLabel?: string;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Optional host-owned resource history used for chat-side reverts. */
+  chatHistory?: AssistantChatProps["chatHistory"];
   /** Identity used to route host-scoped sidebar toggle events. */
   toggleScopeId?: string;
   /** Keep app-owned chat history isolated to the supplied scope. */
@@ -3196,12 +3402,14 @@ export interface AgentSidebarProps {
   browserTabId?: string;
   /** Keep chat thread selection in URL state. */
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
-  /** Optional link shown in Resources and Settings modes for the full Agent page. */
+  /** Optional link shown in Resources mode for the full Agent page. */
   agentPageHref?: string;
   /** Suppress first-run onboarding while a deep-linked resource is open. */
   suppressFirstRunOnboarding?: boolean;
   /** Pin how much model reasoning the chat shows. Omit to let the reader choose. */
   thinkingDisplay?: AssistantChatProps["thinkingDisplay"];
+  /** Keep the sidebar on chat mode. Defaults to true for embedded app sidebars. */
+  chatOnly?: boolean;
 }
 
 interface HostedHarnessStatus {
@@ -3217,6 +3425,7 @@ export function AgentSidebar({
   children,
   enabled = true,
   emptyStateText = "How can I help you?",
+  defaultMode = "chat",
   suggestions,
   dynamicSuggestions,
   composerToolbarSlot,
@@ -3237,6 +3446,7 @@ export function AgentSidebar({
   sidebarWidth,
   position = "right",
   defaultOpen = false,
+  showCollapseButton = true,
   animateMobile = true,
   animateDesktop = true,
   chatViewTransition = false,
@@ -3253,7 +3463,15 @@ export function AgentSidebar({
   composerPlaceholder,
   openOnChatRunning = false,
   onFullscreenRequest,
+  onOpenSettings,
+  onNewCliTab,
+  onNewUiTab,
+  renderCliTab,
+  newTabMode = "ui",
+  newCliTabLabel,
+  newUiTabLabel,
   scope,
+  chatHistory,
   toggleScopeId,
   isolateHistoryByScope = false,
   showScopeBadge,
@@ -3262,7 +3480,11 @@ export function AgentSidebar({
   agentPageHref,
   suppressFirstRunOnboarding = false,
   thinkingDisplay,
+  chatOnly = true,
 }: AgentSidebarProps) {
+  const resolvedBrowserTabId =
+    browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   const staticHostedHarnessEnabled = isHostedHarnessConfigured(
     injectedAgentNativeConfig().harness,
   );
@@ -3625,6 +3847,17 @@ export function AgentSidebar({
   useEffect(() => {
     const toggleHandler = (event: Event) => {
       if (!shouldHandleAgentSidebarToggle(event, toggleScopeId)) return;
+      const focusOnOpen =
+        (event as CustomEvent<{ focus?: unknown }>).detail?.focus === true;
+      const sidebarIsOpen = isPerAppChatHosted
+        ? perAppChatState.open
+        : frameCodeMode && shouldParentFrameOwnAgentPanel()
+          ? frameSidebarOpen
+          : open;
+      if (focusOnOpen && !sidebarIsOpen) {
+        focusAgentChat();
+        return;
+      }
       if (isPerAppChatHosted) {
         requestPerAppChatCommand("toggle");
         return;
@@ -3639,18 +3872,27 @@ export function AgentSidebar({
         setOpenPersisted((prev) => !prev);
       }
     };
-    const openHandler = () => {
+    const openHandler = (event: Event) => {
+      const focusOnOpen =
+        (event as CustomEvent<{ focus?: unknown }>).detail?.focus === true;
       if (isPerAppChatHosted) {
-        requestPerAppChatCommand("open");
+        requestPerAppChatCommand(
+          "open",
+          focusOnOpen ? { focus: true } : undefined,
+        );
         return;
       }
       if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
         window.parent.postMessage(
-          { type: "agentNative.toggleSidebar", data: { open: true } },
+          {
+            type: "agentNative.toggleSidebar",
+            data: { open: true, ...(focusOnOpen ? { focus: true } : {}) },
+          },
           parentFrameTargetOrigin(),
         );
       } else {
         setOpenPersisted(true);
+        if (focusOnOpen) focusAgentChatComposer();
       }
     };
     const closeHandler = () => {
@@ -3675,7 +3917,15 @@ export function AgentSidebar({
       window.removeEventListener("agent-panel:open", openHandler);
       window.removeEventListener("agent-panel:close", closeHandler);
     };
-  }, [setOpenPersisted, frameCodeMode, isPerAppChatHosted, toggleScopeId]);
+  }, [
+    frameCodeMode,
+    frameSidebarOpen,
+    isPerAppChatHosted,
+    open,
+    perAppChatState.open,
+    setOpenPersisted,
+    toggleScopeId,
+  ]);
 
   // Listen for sidebar mode commands from the frame parent.
   // When frame is in "code" mode, hide the app sidebar.
@@ -3755,10 +4005,13 @@ export function AgentSidebar({
         (e.key === "\\" || e.code === "Backslash")
       ) {
         e.preventDefault();
-        window.dispatchEvent(new Event("agent-panel:toggle"));
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:toggle", { detail: { focus: true } }),
+        );
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "i") {
+        if (!shouldHandleAgentPanelChatShortcut(e.target)) return;
         e.preventDefault();
         let selectionText = "";
         try {
@@ -4042,7 +4295,7 @@ export function AgentSidebar({
         inert={sidebarAnimationEnabled && !panelOpen ? true : undefined}
         aria-hidden={sidebarAnimationEnabled && !panelOpen ? true : undefined}
       >
-        <div className="agent-sidebar-panel-inner flex min-h-0 flex-1 flex-col">
+        <div className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col">
           <AgentPanel
             emptyStateText={emptyStateText}
             suggestions={suggestions}
@@ -4070,23 +4323,33 @@ export function AgentSidebar({
             suppressInlineOpenApp={suppressInlineOpenApp}
             composerPlaceholder={composerPlaceholder}
             missingApiKeySetupLayout="sidebar"
+            defaultMode={defaultMode}
             onCollapse={() => setOpenPersisted(false)}
+            showCollapseButton={showCollapseButton}
             onSnapTo75Percent={isMobile ? undefined : snapTo75Percent}
             isWideDrawer={isMobile ? false : isWideDrawer}
             onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
             onFullViewRequest={onFullscreenRequest}
+            onOpenSettings={onOpenSettings}
+            onNewCliTab={onNewCliTab}
+            onNewUiTab={onNewUiTab}
+            renderCliTab={renderCliTab}
+            newTabMode={newTabMode}
+            newCliTabLabel={newCliTabLabel}
+            newUiTabLabel={newUiTabLabel}
             storageKey={storageKey}
             restoreActiveThread={restoreActiveThread}
             scope={scope}
+            chatHistory={chatHistory}
             isolateHistoryByScope={isolateHistoryByScope}
             showScopeBadge={showScopeBadge}
-            browserTabId={browserTabId}
+            browserTabId={resolvedBrowserTabId}
             threadUrlSync={threadUrlSync}
             agentPageHref={agentPageHref}
             thinkingDisplay={thinkingDisplay}
-            allowSettingsMode={false}
-            chatOnly
+            chatOnly={chatOnly}
           />
+          <ExternalAgentNudge variant="sidebar" />
         </div>
       </div>
       {showResizeHandle && isLeft && (
@@ -4112,7 +4375,7 @@ export function AgentSidebar({
 
   return (
     <AgentSidebarOnboardingContext.Provider value>
-      <RealtimeVoiceModeProvider browserTabId={browserTabId}>
+      <RealtimeVoiceModeProvider browserTabId={resolvedBrowserTabId}>
         {showFirstRunOnboarding && (
           <Suspense fallback={null}>
             <FirstRunOnboarding />
@@ -4151,7 +4414,9 @@ export function AgentSidebar({
           {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
-          {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
+          {shouldMountPanel ? (
+            <URLSync browserTabId={resolvedBrowserTabId} />
+          ) : null}
           {isResizing ? (
             <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
           ) : null}
@@ -4188,28 +4453,52 @@ export function focusAgentChat() {
       detail: { mode: "chat" },
     }),
   );
-  window.dispatchEvent(new Event("agent-panel:open"));
-  // Wait for sidebar to render, then focus the composer
-  requestAnimationFrame(() => {
-    const panel = document.querySelector(".agent-sidebar-panel");
-    if (!panel) return;
-    const prosemirror = panel.querySelector(
-      ".ProseMirror",
-    ) as HTMLElement | null;
-    if (prosemirror) {
-      prosemirror.focus();
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+  );
+  focusAgentChatComposer();
+}
+
+function focusAgentChatComposer() {
+  const focusComposer = (attempt = 0) => {
+    const panel = document.querySelector(
+      ".agent-sidebar-panel[data-agent-sidebar-state='open'], " +
+        ".agent-frame-sidebar[data-agent-frame-sidebar-state='open']",
+    );
+    const composer = panel?.querySelector<HTMLElement>(
+      ".ProseMirror, textarea",
+    );
+    if (
+      composer &&
+      composer.getAttribute("contenteditable") !== "false" &&
+      !composer.hasAttribute("disabled")
+    ) {
+      composer.focus();
       return;
     }
-    const textarea = panel.querySelector("textarea") as HTMLElement | null;
-    if (textarea) textarea.focus();
-  });
+    if (attempt < 10) {
+      window.setTimeout(() => focusComposer(attempt + 1), 50);
+    }
+  };
+  // ponytail: retry for 500ms; use a mounted composer ref if lazy loading outgrows it.
+  requestAnimationFrame(() => focusComposer());
 }
 
 /**
  * Button to toggle the agent sidebar. Place this in your app's header/toolbar.
  * Dispatches a custom event that AgentSidebar listens for.
  */
-export function AgentToggleButton({ className }: { className?: string }) {
+export function AgentToggleButton({
+  className,
+  icon,
+  showWhenOpen = false,
+}: {
+  className?: string;
+  /** Icon rendered inside the toggle. */
+  icon?: React.ReactNode;
+  /** Keep the toggle visible while the sidebar is open. */
+  showWhenOpen?: boolean;
+}) {
   const t = useT();
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -4222,22 +4511,32 @@ export function AgentToggleButton({ className }: { className?: string }) {
     return () =>
       window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
   }, []);
-  // Hide the open-agent button while the agent pane is open; the pane has its
-  // own close button.
-  if (open) return null;
+  if (open && !showWhenOpen) return null;
   return (
     <DesignSystemTooltip
       trigger={
         <button
           type="button"
           aria-label={t("agentPanel.toggleAgent")}
-          onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
+          aria-pressed={open}
+          data-state={open ? "open" : "closed"}
+          onPointerEnter={() => void preloadAgentChatSurface()}
+          onFocus={() => void preloadAgentChatSurface()}
+          onPointerDown={() => void preloadAgentChatSurface()}
+          onClick={() =>
+            window.dispatchEvent(
+              new CustomEvent("agent-panel:toggle", {
+                detail: { focus: true },
+              }),
+            )
+          }
           className={cn(
             "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            open && "bg-accent text-foreground",
             className,
           )}
         >
-          <IconMessageDots size={20} aria-hidden />
+          {icon ?? <IconMessageDots size={20} aria-hidden />}
         </button>
       }
       content={t("agentPanel.toggleAgent")}

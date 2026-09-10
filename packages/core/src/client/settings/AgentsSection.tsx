@@ -16,6 +16,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   buildOpenRoutePath,
   buildSettingsRoute,
+  STANDARD_APP_ROUTES,
   STANDARD_SETTINGS_TABS,
 } from "../../navigation/index.js";
 import {
@@ -24,7 +25,7 @@ import {
   REMOTE_AGENT_RESOURCE_PREFIX,
   remoteAgentResourcePath,
 } from "../../resources/metadata.js";
-import { agentNativePath, appBasePath } from "../api-path.js";
+import { agentNativePath, appBasePath, appMountedPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
@@ -380,7 +381,7 @@ function AgentAddPopover({
               setCheck({ status: "idle" });
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleCheck();
+              if (e.key === "Enter") void handleCheck();
               if (e.key === "Escape") onClose();
             }}
             className="w-full flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
@@ -447,7 +448,10 @@ function AgentAddPopover({
                 <>
                   No shared secret set yet —{" "}
                   <a
-                    href={buildSettingsRoute(STANDARD_SETTINGS_TABS.team)}
+                    href={appMountedPath(
+                      buildSettingsRoute(STANDARD_SETTINGS_TABS.team),
+                      STANDARD_APP_ROUTES.settings,
+                    )}
                     className="underline underline-offset-2 hover:text-foreground"
                   >
                     set one on the Team page
@@ -465,7 +469,7 @@ function AgentAddPopover({
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleAdd();
+            if (e.key === "Enter") void handleAdd();
             if (e.key === "Escape") onClose();
           }}
           className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
@@ -475,7 +479,7 @@ function AgentAddPopover({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleAdd();
+            if (e.key === "Enter") void handleAdd();
             if (e.key === "Escape") onClose();
           }}
           className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
@@ -527,7 +531,10 @@ function A2ASecretStatusRow({
       <div className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-600 dark:text-amber-400">
         No shared secret set — connected apps will reject calls in production.{" "}
         <a
-          href={buildSettingsRoute(STANDARD_SETTINGS_TABS.team)}
+          href={appMountedPath(
+            buildSettingsRoute(STANDARD_SETTINGS_TABS.team),
+            STANDARD_APP_ROUTES.settings,
+          )}
           className="underline underline-offset-2 hover:text-amber-500"
         >
           Set one on the Team page
@@ -585,7 +592,10 @@ function A2ASecretStatusRow({
             <>
               {" "}
               <a
-                href={buildSettingsRoute(STANDARD_SETTINGS_TABS.team)}
+                href={appMountedPath(
+                  buildSettingsRoute(STANDARD_SETTINGS_TABS.team),
+                  STANDARD_APP_ROUTES.settings,
+                )}
                 className="underline underline-offset-2"
               >
                 Set the domain
@@ -726,7 +736,7 @@ export function AgentsSection() {
   }, []);
 
   useEffect(() => {
-    fetchAgents();
+    void fetchAgents();
   }, [fetchAgents]);
 
   const handleAdd = async (
@@ -773,7 +783,7 @@ export function AgentsSection() {
     // Deliberately don't close the popover here — a successful add shows a
     // follow-up state (registration is one-way; the peer doesn't know
     // about us yet) that the user dismisses explicitly.
-    fetchAgents();
+    void fetchAgents();
     return true;
   };
 
@@ -801,7 +811,7 @@ export function AgentsSection() {
       );
       if (res.ok) {
         setEditingAgent(null);
-        fetchAgents();
+        void fetchAgents();
       }
     } catch {}
   };
@@ -817,7 +827,7 @@ export function AgentsSection() {
       );
       if (res.ok) {
         setEditingAgent(null);
-        fetchAgents();
+        void fetchAgents();
       }
     } catch {}
   };

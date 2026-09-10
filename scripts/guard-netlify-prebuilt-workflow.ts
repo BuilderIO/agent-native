@@ -1,11 +1,15 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { parse } from "yaml";
 
 const reusablePath = ".github/workflows/deploy-netlify-prebuilt.yml";
 const clipsNetlifyPath = "templates/clips/netlify.toml";
+const crmNetlifyPath = "templates/crm/netlify.toml";
+const chatNetlifyPath = "templates/chat/netlify.toml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
+const pullRequestPath = ".github/workflows/deploy-netlify-pr-previews.yml";
+const docsProductionPath = ".github/workflows/deploy-docs-production.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
 const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 
@@ -13,13 +17,17 @@ const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 // all three production lanes must therefore share one per-site queue.
 export const PRODUCTION_SITE_GROUP =
   "agent-native-production-site-${{ matrix.site }}";
-export const PRODUCTION_PURGE_CONDITION =
-  "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()";
+export const PUBLISHED_CACHE_PURGE_CONDITION =
+  "(inputs.target == 'production' || inputs.target == 'beta') && inputs.deploy && inputs.deploy_mode == 'production' && (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') && success()";
 
 const reusable = readFileSync(reusablePath, "utf8");
 const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
+const crmNetlify = readFileSync(crmNetlifyPath, "utf8");
+const chatNetlify = readFileSync(chatNetlifyPath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
+const pullRequest = readFileSync(pullRequestPath, "utf8");
+const docsProduction = readFileSync(docsProductionPath, "utf8");
 const manageProduction = readFileSync(manageProductionPath, "utf8");
 const promote = readFileSync(promotePath, "utf8");
 
@@ -39,24 +47,94 @@ export function validateReusableWorkflowConcurrency(
     typeof group !== "string" ||
     !group.includes("inputs.caller") ||
     !group.includes("netlify-prebuilt-child") ||
+    !group.includes("netlify-prebuilt-preview-{0}-{1}") ||
+    !group.includes("netlify-prebuilt-beta-{0}") ||
+    !group.includes("netlify-prebuilt-beta-direct") ||
+    !group.includes("agent-native-release-migrations") ||
     !group.includes("inputs.target") ||
     !group.includes("inputs.site") ||
     !group.includes("agent-native-production-site") ||
-    group.includes("github.event_name")
+    !group.includes("github.event_name")
   ) {
     return [
-      "reusable Netlify workflow must select a distinct child queue through inputs.caller",
+      "reusable Netlify workflow must serialize beta publishers per site and isolate direct beta dispatches",
     ];
   }
   return [];
 }
 
-export function validateProductionPurgeCondition(ifValue: unknown): string[] {
+export function validateReusableWorkflowPermissions(
+  workflow: Record<string, unknown>,
+): string[] {
+  const permissions = asRecord(workflow.permissions);
+  if (
+    permissions?.contents !== "read" ||
+    Object.keys(permissions ?? {}).some(
+      (permission) => permission !== "contents",
+    )
+  ) {
+    return [
+      `${reusablePath} must declare only the read permissions used by the reusable deploy job`,
+    ];
+  }
+  return [];
+}
+
+export function validateReusableCallerPermissions(
+  workflow: Record<string, unknown>,
+  path: string,
+): string[] {
+  const issues: string[] = [];
+  const workflowPermissions = asRecord(workflow.permissions);
+  for (const [jobName, value] of Object.entries(
+    asRecord(workflow.jobs) ?? {},
+  )) {
+    const job = asRecord(value);
+    if (job?.uses !== `./${reusablePath}`) continue;
+    const permissions = asRecord(job.permissions) ?? workflowPermissions;
+    if (
+      !permissions ||
+      (permissions.contents !== "read" && permissions.contents !== "write")
+    ) {
+      issues.push(
+        `${path} ${jobName} reusable deploy job must explicitly retain contents access`,
+      );
+    }
+  }
+  return issues;
+}
+
+export function validateReusablePreviewRecordPlacement(
+  workflow: Record<string, unknown>,
+): string[] {
+  const deploy = asRecord(asRecord(workflow.jobs)?.deploy);
+  const steps = Array.isArray(deploy?.steps) ? deploy.steps.map(asRecord) : [];
+  const stepIndex = (name: string) =>
+    steps.findIndex((step) => step?.name === name);
+  const recordIndex = stepIndex("Prepare the trusted PR preview deploy record");
+  const previewSmokeIndex = stepIndex("Smoke-test the uploaded PR preview");
+  const docsSmokeIndex = stepIndex("Smoke-test the static docs deploy");
+  if (
+    recordIndex < 0 ||
+    previewSmokeIndex < 0 ||
+    docsSmokeIndex < 0 ||
+    recordIndex <= Math.max(previewSmokeIndex, docsSmokeIndex)
+  ) {
+    return [
+      `${reusablePath} must publish PR preview records only after every preview smoke check`,
+    ];
+  }
+  return [];
+}
+
+export function validatePublishedCachePurgeCondition(
+  ifValue: unknown,
+): string[] {
   const normalized =
     typeof ifValue === "string" ? ifValue.trim().replace(/\s+/g, " ") : "";
-  if (normalized !== PRODUCTION_PURGE_CONDITION) {
+  if (normalized !== PUBLISHED_CACHE_PURGE_CONDITION) {
     return [
-      `${reusablePath} production cache purge must run only after a successful production deploy`,
+      `${reusablePath} published cache purge must run only after a successful beta or production deploy`,
     ];
   }
   return [];
@@ -94,11 +172,259 @@ export function validateProductionSiteConcurrency(workflows: {
   return issues;
 }
 
+export function validateNetlifyPrPreviewWorkflow(
+  workflow: Record<string, unknown>,
+  source: string,
+): string[] {
+  const issues: string[] = [];
+  const triggers = asRecord(workflow.on);
+  const jobs = asRecord(workflow.jobs);
+  const build = asRecord(jobs?.build);
+  const buildWith = asRecord(build?.with);
+  const buildPermissions = asRecord(build?.permissions);
+  const discover = asRecord(jobs?.discover);
+  const discoverCheckout = (
+    (discover?.steps as Array<Record<string, unknown>> | undefined) ?? []
+  ).find(
+    (step) =>
+      typeof step.uses === "string" &&
+      step.uses.startsWith("actions/checkout@"),
+  );
+  const discoverCheckoutWith = asRecord(discoverCheckout?.with);
+  const deploy = asRecord(jobs?.deploy);
+  const deployWith = asRecord(deploy?.with);
+  const comment = asRecord(jobs?.comment);
+  const commentPermissions = asRecord(comment?.permissions);
+
+  if (!asRecord(triggers?.pull_request_target)) {
+    issues.push(`${pullRequestPath} must be triggered by pull_request_target`);
+  }
+  if (asRecord(triggers?.pull_request) || source.includes("pull_request:")) {
+    issues.push(`${pullRequestPath} must not use pull_request for previews`);
+  }
+  if (
+    !source.includes(
+      "github.event.pull_request.head.repo.full_name == github.repository",
+    )
+  ) {
+    issues.push(
+      `${pullRequestPath} must restrict deployment jobs to same-repository PRs`,
+    );
+  }
+  if (deploy?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
+    issues.push(
+      `${pullRequestPath} deploy job must call the reusable Netlify workflow`,
+    );
+  }
+  if (build?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
+    issues.push(
+      `${pullRequestPath} build job must call the reusable Netlify workflow`,
+    );
+  }
+  if (
+    discoverCheckoutWith?.ref !== "${{ github.event.pull_request.base.sha }}"
+  ) {
+    issues.push(
+      `${pullRequestPath} discover job must load its helper from the trusted pull request base`,
+    );
+  }
+  if (!source.includes('git fetch --no-tags origin "$HEAD_SHA"')) {
+    issues.push(
+      `${pullRequestPath} discover job must fetch the pull request head for its path diff`,
+    );
+  }
+  if (buildWith?.target !== "preview" || buildWith?.deploy !== false) {
+    issues.push(
+      `${pullRequestPath} build job must build previews without deploying`,
+    );
+  }
+  if (buildWith?.artifact_upload !== true || !buildWith?.artifact_name) {
+    issues.push(
+      `${pullRequestPath} build job must upload a named prebuilt artifact`,
+    );
+  }
+  if (
+    asRecord(build?.secrets) ||
+    buildPermissions?.contents !== "read" ||
+    Object.keys(buildPermissions ?? {}).some(
+      (permission) => permission !== "contents",
+    )
+  ) {
+    issues.push(
+      `${pullRequestPath} PR build job must not receive deployment secrets`,
+    );
+  }
+  if (
+    comment?.["runs-on"] !== "ubuntu-latest" ||
+    !Array.isArray(comment.needs) ||
+    !comment.needs.includes("deploy") ||
+    commentPermissions?.actions !== "read" ||
+    commentPermissions?.contents !== "read" ||
+    commentPermissions.issues !== "write" ||
+    commentPermissions["pull-requests"] !== "write" ||
+    Object.keys(commentPermissions ?? {}).some(
+      (permission) =>
+        !["actions", "contents", "issues", "pull-requests"].includes(
+          permission,
+        ),
+    ) ||
+    !source.includes("actions/download-artifact@") ||
+    !source.includes("actions/github-script@") ||
+    !source.includes("listJobsForWorkflowRun") ||
+    !source.includes("listWorkflowRunArtifacts") ||
+    !source.includes("artifact-ids:") ||
+    !source.includes("started_at") ||
+    !source.includes("created_at") ||
+    !source.includes("needs.deploy.result != 'cancelled'") ||
+    !source.includes("continue-on-error: true") ||
+    !source.includes("No successful deploy record")
+  ) {
+    issues.push(
+      `${pullRequestPath} comment job must own PR comment permissions and consume the trusted deploy record`,
+    );
+  }
+  if (deployWith?.target !== "preview") {
+    issues.push(`${pullRequestPath} deploy job must pass target=preview`);
+  }
+  if (deployWith?.build_context !== "deploy-preview") {
+    issues.push(
+      `${pullRequestPath} deploy job must pass build_context=deploy-preview`,
+    );
+  }
+  if (deployWith?.deploy !== true || deployWith?.deploy_mode !== "draft") {
+    issues.push(
+      `${pullRequestPath} deploy job must upload draft prebuilt artifacts`,
+    );
+  }
+  if (deployWith?.artifact_download !== true || !deployWith?.artifact_name) {
+    issues.push(
+      `${pullRequestPath} deploy job must download the prebuilt artifact`,
+    );
+  }
+  if (
+    deployWith?.checkout_ref !== "${{ github.event.pull_request.base.sha }}"
+  ) {
+    issues.push(
+      `${pullRequestPath} deploy job must use the trusted pull request base checkout`,
+    );
+  }
+  if (
+    !Array.isArray(deploy?.needs) ||
+    !deploy.needs.includes("discover") ||
+    !deploy.needs.includes("build")
+  ) {
+    issues.push(
+      `${pullRequestPath} deploy job must wait for discovery and the secret-free build`,
+    );
+  }
+  if (
+    !source.includes("needs.discover.outputs.has_targets == 'true'") ||
+    !source.includes("has_targets: ${{ steps.targets.outputs.has_targets }}")
+  ) {
+    issues.push(
+      `${pullRequestPath} must skip preview matrices with no buildable targets`,
+    );
+  }
+  if (
+    !source.includes("pull_request_number") ||
+    !source.includes("preview_alias")
+  ) {
+    issues.push(
+      `${pullRequestPath} must pass a PR number and stable preview alias`,
+    );
+  }
+  if (!asRecord(jobs?.cleanup)) {
+    issues.push(`${pullRequestPath} must define closed-PR preview cleanup`);
+  }
+  return issues;
+}
+
+export function validateGoogleCallbackVerificationWorkflow(
+  workflow: string,
+): string[] {
+  const issues: string[] = [];
+  const verifyStart = workflow.indexOf(
+    "name: Verify Google OAuth redirect registration",
+  );
+  const rollbackStart = workflow.indexOf(
+    "name: Roll back after Google callback verification failure",
+    verifyStart,
+  );
+  const failStart = workflow.indexOf(
+    "name: Fail after Google callback verification",
+    rollbackStart,
+  );
+  const verify =
+    verifyStart >= 0 && rollbackStart > verifyStart
+      ? workflow.slice(verifyStart, rollbackStart)
+      : "";
+  const rollback =
+    rollbackStart >= 0 && failStart > rollbackStart
+      ? workflow.slice(rollbackStart, failStart)
+      : "";
+
+  if (!verify) {
+    issues.push(
+      `${reusablePath} must verify Google OAuth after publishing a deploy`,
+    );
+  } else {
+    if (
+      !verify.includes(
+        "node --experimental-strip-types scripts/check-google-redirect-uris.ts",
+      )
+    ) {
+      issues.push(
+        `${reusablePath} Google OAuth verification must run the probe directly with the supported Node loader`,
+      );
+    }
+    if (verify.includes("pnpm check:google-redirect-uris")) {
+      issues.push(
+        `${reusablePath} Google OAuth verification must not depend on a package-script indirection`,
+      );
+    }
+    if (verify.includes("source_template != 'macros'")) {
+      issues.push(
+        `${reusablePath} Google OAuth verification must use the deployed capability contract instead of a template allowlist`,
+      );
+    }
+  }
+
+  if (
+    !rollback ||
+    !rollback.includes("steps.google_redirect.outcome == 'failure'") ||
+    !rollback.includes("steps.google_redirect.outputs.exit_code == '1'")
+  ) {
+    issues.push(
+      `${reusablePath} must roll back only definitive Google OAuth mismatches (exit code 1); inconclusive checks must not roll back`,
+    );
+  }
+  return issues;
+}
+
+export function validateNetlifyApiRateLimitHandling(
+  workflow: string,
+): string[] {
+  const issues: string[] = [];
+  if (!workflow.includes("scripts/netlify-api-request.ts")) {
+    issues.push(
+      `${reusablePath} Netlify API calls must use the bounded rate-limit helper`,
+    );
+  }
+  if (workflow.includes("fetch(")) {
+    issues.push(
+      `${reusablePath} must not make raw Netlify fetch calls outside the rate-limit helper`,
+    );
+  }
+  return issues;
+}
+
 try {
   for (const [path, source] of [
     [reusablePath, reusable],
     [productionPath, production],
     [betaPath, beta],
+    [pullRequestPath, pullRequest],
+    [docsProductionPath, docsProduction],
     [manageProductionPath, manageProduction],
     [promotePath, promote],
   ] as const) {
@@ -106,6 +432,21 @@ try {
     if (!document) {
       throw new Error(`${path} must contain a YAML mapping at the root`);
     }
+    parsedWorkflows.set(path, document);
+  }
+  for (const fileName of readdirSync(".github/workflows")) {
+    if (!/\.ya?ml$/.test(fileName)) continue;
+    const path = `.github/workflows/${fileName}`;
+    if (parsedWorkflows.has(path)) continue;
+    const source = readFileSync(path, "utf8");
+    const document = asRecord(parse(source));
+    if (!document) {
+      throw new Error(`${path} must contain a YAML mapping at the root`);
+    }
+    const hasReusableCaller = Object.values(asRecord(document.jobs) ?? {}).some(
+      (value) => asRecord(value)?.uses === `./${reusablePath}`,
+    );
+    if (!hasReusableCaller) continue;
     parsedWorkflows.set(path, document);
   }
   if (!reusable.includes("workflow_call:")) {
@@ -119,6 +460,77 @@ try {
 
 const reusableDocument = parsedWorkflows.get(reusablePath);
 issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
+issues.push(...validateReusableWorkflowPermissions(reusableDocument ?? {}));
+issues.push(...validateReusablePreviewRecordPlacement(reusableDocument ?? {}));
+for (const [path, workflow] of parsedWorkflows) {
+  if (path === reusablePath) continue;
+  issues.push(...validateReusableCallerPermissions(workflow, path));
+}
+issues.push(
+  ...validateNetlifyPrPreviewWorkflow(
+    parsedWorkflows.get(pullRequestPath) ?? {},
+    pullRequest,
+  ),
+);
+
+if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
+  issues.push(
+    `${reusablePath} beta child deploys must keep accepted publishers alive and coalesce pending sources`,
+  );
+}
+const betaWorkflowConcurrency = asRecord(
+  parsedWorkflows.get(betaPath)?.concurrency,
+);
+const betaWorkflowConcurrencyGroup = String(
+  betaWorkflowConcurrency?.group ?? "",
+);
+if (
+  !betaWorkflowConcurrencyGroup.includes(
+    "github.event_name == 'workflow_dispatch'",
+  ) ||
+  !betaWorkflowConcurrencyGroup.includes(
+    "format('deploy-agent-native-beta-manual-{0}', github.run_id)",
+  ) ||
+  !betaWorkflowConcurrencyGroup.includes(
+    "'deploy-agent-native-beta-sites-prebuilt'",
+  ) ||
+  betaWorkflowConcurrency?.["cancel-in-progress"] !== false
+) {
+  issues.push(
+    `${betaPath} must isolate manual validation from the automatic beta publisher queue`,
+  );
+}
+const reusableDeployJobConfig = asRecord(
+  asRecord(reusableDocument?.jobs)?.deploy,
+);
+if (reusableDeployJobConfig?.["timeout-minutes"] !== 150) {
+  issues.push(
+    `${reusablePath} must reserve cleanup time after the Netlify publish wait`,
+  );
+}
+const reusableConcurrencyGroup = String(
+  asRecord(reusableDocument?.concurrency)?.group ?? "",
+);
+const normalizedReusableConcurrencyGroup = reusableConcurrencyGroup.replace(
+  /\s+/g,
+  " ",
+);
+if (
+  !normalizedReusableConcurrencyGroup.includes(
+    "inputs.target == 'beta' && format('netlify-prebuilt-beta-{0}', inputs.site)",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "github.event_name == 'workflow_dispatch'",
+  ) ||
+  !normalizedReusableConcurrencyGroup.includes("!inputs.caller") ||
+  !normalizedReusableConcurrencyGroup.includes(
+    "format('netlify-prebuilt-beta-direct-{0}-{1}', inputs.site, github.run_id)",
+  )
+) {
+  issues.push(
+    `${reusablePath} beta publishes must share one latest-wins child queue per site`,
+  );
+}
 
 const productionConcurrency = asRecord(
   parsedWorkflows.get(productionPath)?.concurrency,
@@ -129,6 +541,47 @@ if (
 ) {
   issues.push(
     `${productionPath} must keep fleet runs in a dedicated production queue`,
+  );
+}
+const docsProductionDocument = parsedWorkflows.get(docsProductionPath);
+const docsProductionConcurrency = asRecord(docsProductionDocument?.concurrency);
+if (
+  docsProductionConcurrency?.group !== "agent-native-docs-production" ||
+  docsProductionConcurrency["cancel-in-progress"] !== false
+) {
+  issues.push(
+    `${docsProductionPath} must keep its path-filtered production queue independent`,
+  );
+}
+const docsProductionJobs = asRecord(docsProductionDocument?.jobs);
+for (const jobName of ["pause-netlify-builds", "restore-netlify-builds"]) {
+  const concurrency = asRecord(
+    asRecord(docsProductionJobs?.[jobName])?.concurrency,
+  );
+  if (
+    concurrency?.group !== "agent-native-production-site-fw" ||
+    concurrency?.["cancel-in-progress"] !== false
+  ) {
+    issues.push(
+      `${docsProductionPath} ${jobName} must share the fw production site queue without cancellation`,
+    );
+  }
+}
+const docsPauseJob = asRecord(docsProductionJobs?.["pause-netlify-builds"]);
+const docsRestoreJob = asRecord(docsProductionJobs?.["restore-netlify-builds"]);
+if (
+  !asRecord(docsPauseJob?.outputs)?.cutover_acquired ||
+  !asRecord(docsPauseJob?.outputs)?.was_stopped ||
+  typeof docsRestoreJob?.if !== "string" ||
+  !docsRestoreJob.if.includes("always()") ||
+  !String(docsRestoreJob.needs).includes("pause-netlify-builds") ||
+  !docsProduction.includes("stop_builds: false") ||
+  !docsProduction.includes(
+    "needs.pause-netlify-builds.outputs.cutover_acquired",
+  )
+) {
+  issues.push(
+    `${docsProductionPath} must restore the prior Git-connected build setting after every pause attempt`,
   );
 }
 
@@ -143,11 +596,38 @@ const clipsBuild =
   buildStepStart >= 0 && buildStepEnd > buildStepStart
     ? reusable.slice(buildStepStart, buildStepEnd)
     : "";
+const hasOfflineSecretFreePreviewBuild =
+  clipsBuild.includes(
+    'if [[ "$TARGET" == "preview" && "$DEPLOY" != "true" ]]; then',
+  ) &&
+  clipsBuild.includes("build_args+=(--offline)") &&
+  clipsBuild.includes('netlify "${build_args[@]}"');
+if (!hasOfflineSecretFreePreviewBuild) {
+  issues.push(
+    `${reusablePath} must use Netlify offline mode for the secret-free PR build`,
+  );
+}
+const hasChatBuildOverride =
+  clipsBuild.includes(
+    'if [[ ( "$TARGET" == "beta" || "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]];',
+  ) &&
+  chatNetlify.includes("agentNativePrebuiltBuild") &&
+  chatNetlify.includes("agentNativePrebuiltDatabaseUrl") &&
+  chatNetlify.includes("agentNativePrebuiltAuthSecret");
+if (!hasChatBuildOverride) {
+  issues.push(
+    `${reusablePath} and ${chatNetlifyPath} must provide beta, production, and PR preview Chat build-only overrides for masked Netlify secrets`,
+  );
+}
 const hasClipsAndPlanBuildOverride = clipsBuild.includes(
   '[[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]',
 );
+const hasCrmBuildOverride = clipsBuild.includes(
+  '[[ "$SOURCE_TEMPLATE" == "crm" ]]',
+);
 if (
   !hasClipsAndPlanBuildOverride ||
+  !hasCrmBuildOverride ||
   !clipsBuild.includes("agentNativePrebuiltBuild=true") ||
   !clipsBuild.includes("agentNativePrebuiltDatabaseUrl=") ||
   !clipsBuild.includes("agentNativePrebuiltAuthSecret=") ||
@@ -156,10 +636,16 @@ if (
   !clipsNetlify.includes("agentNativePrebuiltAuthSecret") ||
   !/agentNativePrebuiltBuild:-\}.*!= \\"true\\".*migrate:production/.test(
     clipsNetlify,
+  ) ||
+  !crmNetlify.includes("agentNativePrebuiltBuild") ||
+  !crmNetlify.includes("agentNativePrebuiltDatabaseUrl") ||
+  !crmNetlify.includes("agentNativePrebuiltAuthSecret") ||
+  !/agentNativePrebuiltBuild:-\}.*!= \\"true\\".*migrate:production/.test(
+    crmNetlify,
   )
 ) {
   issues.push(
-    `${reusablePath} must provide Clips and Plan build-only env overrides without running production migrations`,
+    `${reusablePath} must provide Clips, Plan, and CRM build-only env overrides without running production migrations`,
   );
 }
 const manageConcurrency = asRecord(
@@ -201,6 +687,8 @@ for (const input of [
   "deploy_mode",
   "smoke",
   "caller",
+  "migration_only",
+  "skip_build_migrations",
 ]) {
   if (!asRecord(workflowCallInputs?.[input])) {
     issues.push(`${reusablePath} workflow_call must define the ${input} input`);
@@ -216,6 +704,10 @@ const parsedStepIndex = (name: string) =>
 const parsedPauseIndex = parsedStepIndex(
   "Pause automatic Netlify builds for production cutover",
 );
+const parsedClipsMigrationIndex = parsedStepIndex(
+  "Run Clips release migrations",
+);
+const parsedCrmMigrationIndex = parsedStepIndex("Run CRM release migrations");
 const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
@@ -223,7 +715,7 @@ const parsedUploadIndex = parsedStepIndex("Upload the prebuilt deploy");
 const parsedPublishWaitIndex = parsedStepIndex(
   "Wait for the Netlify deploy to publish",
 );
-const parsedPurgeIndex = parsedStepIndex("Purge the production Netlify cache");
+const parsedPurgeIndex = parsedStepIndex("Purge the published Netlify cache");
 const parsedLockIndex = parsedStepIndex("Lock the published production deploy");
 const parsedResumeIndex = parsedStepIndex(
   "Resume automatic Netlify builds after production cutover",
@@ -231,6 +723,31 @@ const parsedResumeIndex = parsedStepIndex(
 const parsedCleanupIndex = parsedStepIndex(
   "Restore the production deploy lock after a failed cutover",
 );
+issues.push(...validateGoogleCallbackVerificationWorkflow(reusable));
+issues.push(...validateNetlifyApiRateLimitHandling(reusable));
+const parsedClipsMigrationIf = reusableSteps[parsedClipsMigrationIndex]?.if;
+if (
+  parsedClipsMigrationIndex < 0 ||
+  typeof parsedClipsMigrationIf !== "string" ||
+  !parsedClipsMigrationIf.includes("inputs.target == 'production'") ||
+  !parsedClipsMigrationIf.includes("inputs.deploy") ||
+  !parsedClipsMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !parsedClipsMigrationIf.includes("source_template == 'clips'") ||
+  !reusable.includes("CLIPS_DATABASE_URL")
+) {
+  issues.push(
+    `${reusablePath} must run Clips release migrations against CLIPS_DATABASE_URL before a production prebuilt deploy`,
+  );
+}
+if (
+  parsedCrmMigrationIndex < 0 ||
+  parsedCrmMigrationIndex <= parsedPauseIndex ||
+  parsedCrmMigrationIndex >= parsedUnlockIndex
+) {
+  issues.push(
+    `${reusablePath} must pause automatic Netlify builds before running CRM release migrations`,
+  );
+}
 if (
   parsedPauseIndex < 0 ||
   parsedUnlockIndex < 0 ||
@@ -281,7 +798,7 @@ if (
   );
 }
 issues.push(
-  ...validateProductionPurgeCondition(reusableSteps[parsedPurgeIndex]?.if),
+  ...validatePublishedCachePurgeCondition(reusableSteps[parsedPurgeIndex]?.if),
 );
 
 const uploadStart = reusable.indexOf("name: Upload the prebuilt deploy");
@@ -289,7 +806,7 @@ const uploadEnd = reusable.indexOf(
   "name: Wait for the Netlify deploy to publish",
   uploadStart,
 );
-const purgeStart = reusable.indexOf("name: Purge the production Netlify cache");
+const purgeStart = reusable.indexOf("name: Purge the published Netlify cache");
 const purgeEnd = reusable.indexOf(
   "name: Lock the published production deploy",
   purgeStart,
@@ -357,13 +874,13 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
 }
 if (purgeStart < 0 || purgeEnd <= purgeStart) {
   issues.push(
-    `${reusablePath} must purge the production cache before locking the published deploy`,
+    `${reusablePath} must purge the published cache before locking the published deploy`,
   );
 } else {
   const purge = reusable.slice(purgeStart, purgeEnd);
   if (
     !purge.includes('const api = "https://api.netlify.com/api/v1"') ||
-    !purge.includes("fetch(`${api}/purge`") ||
+    !purge.includes("requestNetlifyApi(`${api}/purge`") ||
     !purge.includes('method: "POST"') ||
     !purge.includes(
       "JSON.stringify({ site_id: process.env.NETLIFY_SITE_ID })",
@@ -371,7 +888,7 @@ if (purgeStart < 0 || purgeEnd <= purgeStart) {
     !purge.includes("response.ok")
   ) {
     issues.push(
-      `${reusablePath} production cache purge must POST the site_id to Netlify and fail on a non-success response`,
+      `${reusablePath} published cache purge must POST the site_id to Netlify and fail on a non-success response`,
     );
   }
 }
@@ -486,11 +1003,353 @@ for (const [path, target, buildContext] of [
   if (deployWith?.build_context !== buildContext) {
     issues.push(`${path} deploy job must pass build_context=${buildContext}`);
   }
-  if (deployWith?.caller !== "fleet") {
+  const expectedCaller =
+    path === betaPath
+      ? "${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}"
+      : "fleet";
+  if (deployWith?.caller !== expectedCaller) {
     issues.push(
       `${path} deploy job must explicitly select the reusable workflow child queue`,
     );
   }
+  if (
+    path === betaPath &&
+    asRecord(deployJob?.strategy)?.["max-parallel"] !== 8
+  ) {
+    issues.push(`${path} must allow beta artifact builds to run concurrently`);
+  }
+}
+
+const betaMigrateJob = asRecord(
+  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.migrate,
+);
+const betaResolveSourceJob = asRecord(
+  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.["resolve-source"],
+);
+const betaResolveSourceStep = (
+  (betaResolveSourceJob?.steps as Array<Record<string, unknown>> | undefined) ??
+  []
+).find((step) => step.id === "source");
+const betaResolveSourceScript = String(
+  asRecord(betaResolveSourceStep?.with)?.script ?? "",
+);
+const betaDeployJob = asRecord(
+  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.deploy,
+);
+const betaSchemaGateJob = asRecord(
+  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.["schema-gate"],
+);
+const betaSchemaGateStep = (
+  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
+).find(
+  (step) =>
+    step.name ===
+    "Detect schema-dependent beta code without production migration",
+);
+const betaSchemaGateBlockStep = (
+  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
+).find(
+  (step) =>
+    step.name === "Block schema-dependent beta code until production migration",
+);
+const betaMigrationMarkerStep = (
+  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
+).find((step) => step.name === "Record pending beta migration marker");
+const betaSchemaGateCheckoutStep = (
+  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
+).find(
+  (step) =>
+    typeof step.uses === "string" && step.uses.startsWith("actions/checkout@"),
+);
+const betaDeployNeeds = Array.isArray(betaDeployJob?.needs)
+  ? betaDeployJob.needs
+  : [];
+const productionMigrationMarkerJob = asRecord(
+  asRecord(parsedWorkflows.get(productionPath)?.jobs)?.[
+    "record-beta-migration"
+  ],
+);
+const productionDiscoverJob = asRecord(
+  asRecord(parsedWorkflows.get(productionPath)?.jobs)?.["discover-sites"],
+);
+const productionDiscoverOutputs = asRecord(productionDiscoverJob?.outputs);
+const productionMigrationMarkerSteps =
+  (productionMigrationMarkerJob?.steps as
+    | Array<Record<string, unknown>>
+    | undefined) ?? [];
+if (betaMigrateJob || betaDeployNeeds.includes("migrate")) {
+  issues.push(
+    `${betaPath} must not run release migrations against masked beta site secrets`,
+  );
+}
+if (
+  asRecord(parsedWorkflows.get(betaPath)?.permissions)?.contents !== "write"
+) {
+  issues.push(`${betaPath} must write immutable migration markers`);
+}
+if (
+  betaSchemaGateJob?.needs !== "resolve-source" ||
+  typeof betaSchemaGateStep?.run !== "string" ||
+  !betaSchemaGateStep.run.includes("migrated_source_sha") ||
+  !betaSchemaGateStep.run.includes("base_sha_input") ||
+  asRecord(betaSchemaGateStep.env)?.base_sha_input !==
+    "${{ github.event.before }}" ||
+  !betaSchemaGateStep.run.includes("git hash-object -t tree /dev/null") ||
+  !betaSchemaGateStep.run.includes("git diff --name-only") ||
+  !betaSchemaGateStep.run.includes(
+    "git tag --list 'agent-native-beta-pending/*'",
+  ) ||
+  !betaSchemaGateStep.run.includes("agent-native-beta-migrated/*") ||
+  !betaSchemaGateStep.run.includes("unresolved_pending_sha") ||
+  !betaSchemaGateStep.run.includes("required_source_sha") ||
+  !betaSchemaGateStep.run.includes("schema_files") ||
+  !betaSchemaGateStep.run.includes("schema_files_between") ||
+  !betaSchemaGateStep.run.includes("Ignoring obsolete beta migration marker") ||
+  !betaSchemaGateStep.run.includes("local changed_files") ||
+  !betaSchemaGateStep.run.includes('[[ "$status" -eq 0 ]]') ||
+  !betaSchemaGateStep.run.includes("pending_schema_files=") ||
+  !betaSchemaGateStep.run.includes('latest_migrated_sha" "$pending_sha') ||
+  betaSchemaGateStep.run.includes("packages/core/src/db/|") ||
+  asRecord(betaSchemaGateCheckoutStep?.with)?.["fetch-depth"] !== 0 ||
+  typeof betaSchemaGateBlockStep?.run !== "string" ||
+  !betaSchemaGateBlockStep.run.includes("required_source_sha") ||
+  typeof betaMigrationMarkerStep?.with !== "object" ||
+  !String(betaSchemaGateStep.run).includes(
+    "No production-owned migration marker exists",
+  ) ||
+  !String(betaMigrationMarkerStep.if).includes("record_pending") ||
+  !String(asRecord(betaMigrationMarkerStep.with)?.script).includes(
+    "Concurrent beta pending marker",
+  ) ||
+  !String(asRecord(betaMigrationMarkerStep.with)?.script).includes(
+    "createRef",
+  ) ||
+  !betaDeployNeeds.includes("schema-gate")
+) {
+  issues.push(
+    `${betaPath} must block schema-dependent beta code until production migration is confirmed`,
+  );
+}
+
+const reusableBetaFreshness = reusable;
+const firstBetaPublishStart = reusableBetaFreshness.indexOf(
+  "name: Publish first beta deploy after freshness verification",
+);
+const firstBetaPublishEnd = reusableBetaFreshness.indexOf(
+  "name: Verify beta source is current after publish",
+  firstBetaPublishStart,
+);
+const firstBetaPublish =
+  firstBetaPublishStart >= 0 && firstBetaPublishEnd > firstBetaPublishStart
+    ? reusableBetaFreshness.slice(firstBetaPublishStart, firstBetaPublishEnd)
+    : "";
+if (
+  reusableBetaFreshness.includes("allowPinnedRecovery") ||
+  !reusableBetaFreshness.includes(
+    "Beta source_ref must be a full 40-character commit SHA.",
+  ) ||
+  !reusableBetaFreshness.includes("Beta source_ref must equal current main") ||
+  !reusableBetaFreshness.includes(
+    "Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt.yml.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta site has no published deploy",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Uploading the first beta deploy as a draft until its source is revalidated.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Verify first beta deploy source immediately before publish",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Publish first beta deploy after freshness verification",
+  ) ||
+  !firstBetaPublish.includes("id: beta_first_publish") ||
+  !firstBetaPublish.includes("--prod") ||
+  firstBetaPublish.includes("/restore") ||
+  !firstBetaPublish.includes(
+    "Wait for first beta production deploy to publish",
+  ) ||
+  !firstBetaPublish.includes("id: beta_first_publish_wait") ||
+  !firstBetaPublish.includes("Netlify first beta production deploy status") ||
+  !firstBetaPublish.includes(
+    "did not become ready and published within 30 minutes",
+  ) ||
+  !firstBetaPublish.includes("main_sha,,}") ||
+  !firstBetaPublish.includes("SOURCE_REF,,}") ||
+  !reusableBetaFreshness.includes("id: beta_first_publish_reconcile") ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id",
+  ) ||
+  !reusableBetaFreshness.includes("Recovered first beta production deploy") ||
+  !reusableBetaFreshness.includes("Netlify published unrelated deploy") ||
+  reusableBetaFreshness.includes(
+    "DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.deploy.outputs.deploy_id }}",
+  ) ||
+  !reusableBetaFreshness.includes("Delete staged first beta draft") ||
+  !reusableBetaFreshness.includes("id: beta_draft_cleanup") ||
+  !reusableBetaFreshness.includes("DRAFT_DEPLOY_ID") ||
+  !reusableBetaFreshness.includes(
+    "Netlify staged beta draft ${draftId} deletion",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Refusing to delete staged beta draft ${draftId} because Netlify published it.",
+  ) ||
+  !reusableBetaFreshness.includes("cancellationDeadline") ||
+  !reusableBetaFreshness.includes(
+    "staged beta draft ${draftId} cancellation status",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Canceled and deleted staged beta draft ${draftId}.",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "did not become terminal after cancellation",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.beta_first_publish_reconcile.outputs.deploy_url || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_url) }}",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "First publishes are staged as drafts and only published after a current-main check",
+  ) ||
+  reusableBetaFreshness.includes("requested || 'beta'") ||
+  !reusableBetaFreshness.includes(
+    "Verify beta source is current immediately before upload",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "core.setOutput('current', String(current))",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Verify beta source is current after publish",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "always() && inputs.target == 'beta' && inputs.deploy",
+  ) ||
+  !reusableBetaFreshness.includes("steps.deploy.outputs.deploy_id != ''") ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_post_freshness.outputs.current == 'false'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_post_freshness.outcome == 'failure'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_freshness.outcome == 'failure'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_freshness.outputs.current == 'false'",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.beta_first_publish_wait.outcome == 'failure'",
+  ) ||
+  !reusableBetaFreshness.includes("id: deploy_wait") ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta deploy ${process.env.DEPLOY_ID} was superseded by unrelated published deploy",
+  ) ||
+  !reusableBetaFreshness.includes("steps.deploy_wait.outcome == 'failure'") ||
+  !reusableBetaFreshness.includes("Revert stale beta deploy") ||
+  !reusableBetaFreshness.includes(
+    "/sites/${siteId}/deploys/${previousId}/restore",
+  ) ||
+  !reusableBetaFreshness.includes("/deploys/${deployId}/cancel") ||
+  !reusableBetaFreshness.includes("cancellationRequested") ||
+  !reusableBetaFreshness.includes(
+    "Netlify beta freshness restore precondition",
+  ) ||
+  !reusableBetaFreshness.includes("const restoredDeployId = restored?.id") ||
+  !reusableBetaFreshness.includes(
+    "current.published_deploy?.id === restoredDeployId",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "Keep this job in the per-site concurrency group until Netlify",
+  ) ||
+  !reusableBetaFreshness.includes("cancellationRejected") ||
+  !reusableBetaFreshness.includes("deletionRequested") ||
+  !reusableBetaFreshness.includes('method: "DELETE"') ||
+  !reusableBetaFreshness.includes(
+    "Netlify stale beta deploy ${deployId} deletion",
+  ) ||
+  !reusableBetaFreshness.includes("Fail after beta freshness verification") ||
+  reusableBetaFreshness.includes(
+    "did not settle before the five-minute cleanup deadline",
+  ) ||
+  !reusableBetaFreshness.includes("PREVIOUS_DEPLOY_ID") ||
+  !reusableBetaFreshness.includes("const publishedDeployId") ||
+  !reusableBetaFreshness.includes(
+    "keeping the beta queue occupied until the stale deploy is non-publishable",
+  ) ||
+  !reusableBetaFreshness.includes(
+    "steps.previous.outputs.published_deploy_id != ''",
+  ) ||
+  !reusableBetaFreshness.includes("TARGET: ${{ inputs.target }}") ||
+  !reusableBetaFreshness.includes("PUBLISH_STARTED_AT") ||
+  !reusableBetaFreshness.includes("DEPLOY_MESSAGE") ||
+  !reusableBetaFreshness.includes(
+    "first beta production deploy reconciliation",
+  ) ||
+  !reusableBetaFreshness.includes("Could not parse Netlify CLI output") ||
+  !reusableBetaFreshness.includes("deploy.commit_ref")
+) {
+  issues.push(
+    `${reusablePath} must reject stale beta sources before upload and revert accepted stale deploys`,
+  );
+}
+if (
+  !betaResolveSourceScript.includes(
+    "context.eventName === 'workflow_dispatch'",
+  ) ||
+  !betaResolveSourceScript.includes(
+    "sourceSha.toLowerCase() !== mainSha.toLowerCase()",
+  ) ||
+  !betaResolveSourceScript.includes(
+    "Manual beta source_ref must equal current main",
+  )
+) {
+  issues.push(`${betaPath} must reject stale manual source_ref values`);
+}
+
+if (
+  productionDiscoverOutputs?.complete_fleet !==
+    "${{ steps.matrix.outputs.complete_fleet }}" ||
+  !(
+    (productionDiscoverJob?.steps as
+      | Array<Record<string, unknown>>
+      | undefined) ?? []
+  ).some(
+    (step) =>
+      typeof step.run === "string" &&
+      step.run.includes("completeFleet") &&
+      step.run.includes("productionNames") &&
+      step.run.includes("productionNames.every") &&
+      step.run.includes("names.includes(name)") &&
+      step.run.includes("buildable.some") &&
+      !step.run.includes("unsupported.length === 0"),
+  ) ||
+  !productionMigrationMarkerJob ||
+  !String(productionMigrationMarkerJob.if).includes(
+    "needs.discover-sites.outputs.complete_fleet == 'true'",
+  ) ||
+  !String(productionMigrationMarkerJob.if).includes(
+    "needs.deploy.result == 'success'",
+  ) ||
+  !Array.isArray(productionMigrationMarkerJob.needs) ||
+  !productionMigrationMarkerJob.needs.includes("resolve-source") ||
+  !productionMigrationMarkerJob.needs.includes("discover-sites") ||
+  !productionMigrationMarkerJob.needs.includes("deploy") ||
+  asRecord(productionMigrationMarkerJob.permissions)?.contents !== "write" ||
+  !productionMigrationMarkerSteps.some(
+    (step) =>
+      typeof step.with === "object" &&
+      String(asRecord(step.with)?.script).includes(
+        "agent-native-beta-migrated",
+      ) &&
+      String(asRecord(step.with)?.script).includes(
+        "Concurrent production migration marker",
+      ) &&
+      String(asRecord(step.with)?.script).includes("createRef"),
+  )
+) {
+  issues.push(
+    `${productionPath} must create the beta migration marker only after a successful all-sites cutover`,
+  );
 }
 
 if (issues.length) {

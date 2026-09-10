@@ -24,6 +24,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+  registerShareableResource: vi.fn(),
 }));
 
 vi.mock("../server/lib/provider-api.js", () => ({

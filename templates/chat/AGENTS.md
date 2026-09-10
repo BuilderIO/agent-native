@@ -1,8 +1,9 @@
 # Chat — Agent Guide
 
-Chat is the minimal chat-first agent-native app. Chat is the primary surface;
-actions carry the real capabilities, and screens exist only where a workflow
-needs durable UI around the conversation.
+Chat is the minimal chat-first agent-native app. The public root is a marketing
+surface; the authenticated chat app starts at `/home`. Actions carry the real
+capabilities, and screens exist only where a workflow needs durable UI around
+the conversation.
 
 ## Skills
 
@@ -16,6 +17,7 @@ the matching skill only when this app actually uses that workflow. The
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Follow the root framework contract: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -46,7 +48,7 @@ brand. Its `app.name` is used in transactional emails, and its optional
 ## Application State
 
 - `navigation` describes the current view and selected entity ids. The default
-  chat view is `chat` at `/`.
+  chat view is `chat` at `/home`; `/` is the public SSR marketing page.
 - `navigate` moves the UI when the app supports it.
 - `view-screen` is the first tool to call when the user's visible context
   matters.

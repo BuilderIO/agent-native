@@ -87,6 +87,33 @@ describe("EnvironmentBadge render", () => {
     expect(container.querySelector("a")).toBeNull();
   });
 
+  it("supports an inline dev pill for app-owned brand slots", () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "localhost",
+        href: "http://localhost:3000/dispatch",
+        replace: vi.fn(),
+      },
+    });
+    injectedAgentNativeConfigMock.mockReturnValue({
+      deployment: { environment: "local" },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge placement="inline" />));
+
+    const badge = container.querySelector('[role="status"]');
+    expect(badge?.textContent).toBe("dev");
+    expect(badge?.className).toContain("inline-flex");
+    expect(badge?.className).toContain("h-5");
+    expect(badge?.className).not.toContain("fixed");
+    expect(badge?.className).not.toContain("bottom-3");
+  });
+
   it("defers the dev pill to a post-mount effect so the first client commit matches SSR's null output", async () => {
     Object.defineProperty(window, "location", {
       configurable: true,
@@ -164,6 +191,29 @@ describe("EnvironmentBadge render", () => {
 
     expect(container.querySelector("button")?.textContent).toContain("beta");
     expect(container.textContent).toContain("beta");
+  });
+
+  it("opens an inline beta chip below an app-owned brand slot", () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge placement="inline" />));
+
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toContain("beta");
+    expect(trigger?.className).toContain("inline-flex");
+    expect(trigger?.className).not.toContain("fixed");
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    expect(document.body.querySelector('[data-side="bottom"]')).not.toBeNull();
   });
 
   it("keeps the beta chip linked to production for every visitor", () => {

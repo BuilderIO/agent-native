@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DesktopChatRelayUnavailableError,
   installDesktopChatFetchRelay,
   resolveDesktopChatRelayBase,
   setDesktopChatRelayActive,
@@ -72,5 +73,89 @@ describe("desktop chat relay URL", () => {
     expect(() => window.fetch("/_agent-native/poll")).toThrow(
       /Unattributed .*mail, calendar/,
     );
+  });
+});
+
+describe("desktop chat relay with no app mounted", () => {
+  afterEach(async () => {
+    // Resolving a base resets the backoff for the next test, same as a real
+    // app mount would.
+    setDesktopChatRelayBase(
+      "reset",
+      "http://127.0.0.1:1/desktop-chat/s/reset/_agent-native/agent-chat",
+    );
+    setDesktopChatRelayBase("reset", null);
+    underlyingFetch.mockClear();
+    vi.useRealTimers();
+  });
+
+  it("rejects with a typed error instead of the doomed file:// fetch", async () => {
+    vi.useFakeTimers();
+    const rejection = expect(
+      window.fetch("/_agent-native/application-state/foo"),
+    ).rejects.toBeInstanceOf(DesktopChatRelayUnavailableError);
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(underlyingFetch).not.toHaveBeenCalled();
+  });
+
+  it("backs off instead of hot-looping at ~350 req/s", async () => {
+    vi.useFakeTimers();
+    // A caller retrying immediately on every rejection — the worst case
+    // that produced the measured storm — issues these back to back with no
+    // awaited delay of its own.
+    const rejections: unknown[] = [];
+    const settle = (n: number) =>
+      Array.from({ length: n }, () =>
+        window.fetch("/_agent-native/application-state/foo").catch((e) => {
+          rejections.push(e);
+        }),
+      );
+
+    const promises = [...settle(4)];
+    await Promise.resolve();
+    expect(rejections).toHaveLength(0); // not synchronous
+
+    await vi.advanceTimersByTimeAsync(250);
+    expect(rejections).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(rejections).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(rejections).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(rejections).toHaveLength(4);
+
+    expect(
+      rejections.every((e) => e instanceof DesktopChatRelayUnavailableError),
+    ).toBe(true);
+    expect(underlyingFetch).not.toHaveBeenCalled();
+    await Promise.all(promises);
+  });
+
+  it("resets the backoff once an app resolves a relay base", async () => {
+    vi.useFakeTimers();
+    const first = window
+      .fetch("/_agent-native/application-state/foo")
+      .catch(() => {});
+    await vi.advanceTimersByTimeAsync(250); // first attempt clears at 250ms
+    await first;
+
+    setDesktopChatRelayBase(
+      "mail",
+      "http://127.0.0.1:1/desktop-chat/s/mail/_agent-native/agent-chat",
+    );
+    setDesktopChatRelayBase("mail", null);
+
+    const rejections: unknown[] = [];
+    void window
+      .fetch("/_agent-native/application-state/foo")
+      .catch((e) => rejections.push(e));
+
+    // Backoff restarted at the base delay, not the grown 500ms it would be
+    // without the reset.
+    await vi.advanceTimersByTimeAsync(249);
+    expect(rejections).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(rejections).toHaveLength(1);
   });
 });

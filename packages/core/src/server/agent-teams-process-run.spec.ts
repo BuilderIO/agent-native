@@ -119,10 +119,12 @@ const queueDb = {
 };
 vi.mock("../db/client.js", () => ({
   getDbExec: () => queueDb,
-  getDialect: () => "sqlite",
-  intType: () => "INTEGER",
-  isPostgres: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 // ── app_state (task records + thread reverse-lookup) ──────────────────────
@@ -302,7 +304,7 @@ vi.mock("../agent/production-agent.js", () => ({
   resolveAgentRequestReasoningEffort: ({ model }: { model: string }) =>
     model === "gpt-5.6" ? "medium" : undefined,
   resolveMainChatMaxOutputTokens: (model: string) =>
-    model === "gpt-5.6" ? 32_000 : 4_096,
+    model === "gpt-5.6" ? 64_000 : 8_192,
   appendAgentLoopContinuation: vi.fn(),
   runAgentLoop: (opts: any) => runAgentLoopMock(opts),
 }));
@@ -467,7 +469,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(res.ok).toBe(true);
     expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
     expect(runAgentLoopMock.mock.calls[0]?.[0]).toMatchObject({
-      maxOutputTokens: 32_000,
+      maxOutputTokens: 64_000,
       reasoningEffort: "medium",
     });
     expect(requestContexts.some((ctx) => ctx.userEmail === OWNER)).toBe(true);

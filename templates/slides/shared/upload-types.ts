@@ -27,6 +27,8 @@ export const SLIDES_REFERENCE_FILE_ERROR_LABEL =
 
 export const MAX_REFERENCE_FILES = 20;
 export const MAX_REFERENCE_FILE_BYTES = 50 * 1024 * 1024;
+export const MAX_INLINE_IMAGE_BASE64_CHARS = 1_000_000;
+export const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_FIG_REFERENCE_FILE_BYTES = 200 * 1024 * 1024;
 
 export function isSlidesReferenceFileExtension(ext: string): boolean {

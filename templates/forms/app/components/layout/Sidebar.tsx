@@ -3,12 +3,11 @@ import {
   focusAgentChat,
   navigateWithAgentChatViewTransition,
 } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconArrowUp,
@@ -267,21 +266,9 @@ export function Sidebar() {
               className="flex size-8 shrink-0 items-center justify-center rounded-lg outline-none transition-[background-color,box-shadow,transform] hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
               data-sidebar-brand-toggle
             >
-              <img
-                src={appPath("/agent-native-icon-light.svg")}
-                alt=""
+              <AgentNativeIcon
                 aria-hidden="true"
-                width={28}
-                height={16}
-                className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-              />
-              <img
-                src={appPath("/agent-native-icon-dark.svg")}
-                alt=""
-                aria-hidden="true"
-                width={28}
-                height={16}
-                className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+                className="h-3.5 w-6 shrink-0 text-foreground"
               />
             </button>
           </TooltipTrigger>
@@ -298,7 +285,7 @@ export function Sidebar() {
                 aria-label={t("navigation.askForms")}
                 className={cn(
                   "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-                  location.pathname === "/ask" || location.pathname === "/"
+                  location.pathname === "/ask" || location.pathname === "/home"
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
@@ -400,25 +387,13 @@ export function Sidebar() {
                     ? t("sidebar.openAskFullScreen")
                     : t("sidebar.collapseSidebar")
                 }
-                className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-2 text-base font-semibold tracking-tight text-muted-foreground/80 active:scale-[0.96] transition-[color,transform] hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-2 text-base font-semibold tracking-tight text-foreground active:scale-[0.96] transition-[color,transform] hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={handleBrandClick}
                 data-sidebar-brand-toggle
               >
-                <img
-                  src={appPath("/agent-native-icon-light.svg")}
-                  alt=""
+                <AgentNativeIcon
                   aria-hidden="true"
-                  width={28}
-                  height={16}
-                  className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-                />
-                <img
-                  src={appPath("/agent-native-icon-dark.svg")}
-                  alt=""
-                  aria-hidden="true"
-                  width={28}
-                  height={16}
-                  className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+                  className="h-3.5 w-6 shrink-0 text-foreground"
                 />
                 <span className="truncate">{t("navigation.brand")}</span>
               </button>
@@ -454,7 +429,7 @@ export function Sidebar() {
             onClick={navigateHomeChat}
             className={cn(
               "forms-sidebar-nav-item flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:text-primary",
-              location.pathname === "/ask" || location.pathname === "/"
+              location.pathname === "/ask" || location.pathname === "/home"
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
             )}

@@ -90,7 +90,7 @@ export function writeCollabText(
   next: string,
   origin: unknown,
 ): boolean {
-  const current = ytext.toString();
+  const current = ytext.toJSON();
   if (current === next) return false;
   // No cleanup pass: diff_cleanupEfficiency merges edits across equal runs
   // shorter than Diff_EditCost (4), which deletes up to three untouched

@@ -2,44 +2,174 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { buildSocialShareUrl } from "../../lib/social-share";
+
 function readSource(name: string): string {
   return readFileSync(new URL(name, import.meta.url), "utf8");
 }
 
 describe("recording share popover", () => {
-  it("renders above the video player controls", () => {
+  it("renders above the player at the compact toolbar density", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
+    const shareUiSource = readSource("../sharing/share-ui.tsx");
     const videoPlayerSource = readSource("./video-player.tsx");
 
     expect(videoPlayerSource).toContain("absolute inset-0 z-10");
-    expect(videoPlayerSource).toContain("absolute inset-x-0 bottom-0 z-20");
-    expect(shareDialogSource).toContain("z-[260] w-[440px]");
+    expect(videoPlayerSource).toContain(
+      "absolute inset-x-0 bottom-0 opacity-100 transition-opacity duration-200",
+    );
+    expect(shareDialogSource).toContain("z-[260] w-[360px]");
+    expect(shareDialogSource).toContain("flex h-10 items-center");
+    expect(shareDialogSource).toContain(
+      'view !== "main" || reserveCloseButton',
+    );
+    expect(shareDialogSource).toContain("[&>button]:top-1.5");
+    expect(shareDialogSource).toContain("h-8 w-full justify-start");
+    expect(shareDialogSource).toContain("<ViewerSwitch");
+    expect(shareUiSource).toContain("flex h-8 min-w-0 flex-1");
+    expect(shareUiSource).toContain('className="size-8 shrink-0"');
   });
 
-  it("does not show the same public URL twice", () => {
+  it("keeps human and agent actions in separate tab panels", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 
-    expect(shareDialogSource).toContain('t("shareDialog.shareWithAgents")');
-    // Both links are copy actions, so neither URL is rendered as text.
+    expect(shareDialogSource).toContain('<TabsContent value="people"');
+    expect(shareDialogSource).toContain('<TabsContent value="agents"');
+    expect(shareDialogSource).toContain("<PeopleTab");
+    expect(shareDialogSource).toContain("<AgentTab");
     expect(shareDialogSource).toContain("<CopyButton");
     expect(shareDialogSource).toContain("value={shareUrl}");
-    expect(shareDialogSource).toContain("value={agentCopyValue}");
-    // The embed textarea is the only readOnly field; share URLs are never
-    // rendered into an input.
+    expect(shareDialogSource).toContain("writeClipboardText(agentCopyValue)");
+    // Share URLs are never rendered into an input.
     expect(shareDialogSource).not.toContain(
       "value={shareUrl}\n          readOnly",
     );
   });
 
-  it("keeps individual access in the primary share surface", () => {
+  it("restores the split Share and Copy link toolbar action", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
+    const shareTriggerSource = readSource("./clips-share-trigger.tsx");
+    const recordingRouteSource = readSource(
+      "../../routes/_app.r.$recordingId.tsx",
+    );
 
+    expect(shareDialogSource).toContain("<PageHeaderActionGroup>");
+    expect(shareDialogSource).toContain("<PopoverAnchor");
+    expect(shareDialogSource).toContain("<IconLink");
+    expect(shareDialogSource).toContain("<IconCheck");
+    expect(shareDialogSource).toContain("copyShareLink");
+    expect(shareDialogSource).toContain('link_type: "share"');
+    expect(shareDialogSource).toContain("<TooltipContent");
+    expect(shareDialogSource).not.toContain("PageHeaderSecondaryAction");
+    expect(recordingRouteSource).not.toContain("<RecordingAgentHandoffPopover");
+    expect(recordingRouteSource).toContain("<ShareRecordingPopover");
+    expect(shareTriggerSource).toContain("<IconUserPlus");
     expect(shareDialogSource).toContain("<PeopleAccessSection");
     expect(shareDialogSource).toContain("<GeneralAccessSelect");
-    expect(shareDialogSource).toContain(
-      "const tabCount = 1 + (canEmbed ? 1 : 0);",
+    expect(shareDialogSource).toContain('variant="line"');
+    expect(shareDialogSource).toContain('t("shareDialog.people")');
+    expect(shareDialogSource).toContain('t("shareDialog.agents")');
+    expect(shareDialogSource).toContain('view === "main"');
+    expect(shareDialogSource).toContain("showHeaderCopy");
+    expect(shareDialogSource).not.toContain("showCopyLink");
+    expect(shareDialogSource).toContain("value={shareUrl}");
+    expect(shareDialogSource).not.toContain('defaultValue="link"');
+    expect(shareTriggerSource).toContain("<PageHeaderPrimaryAction asChild>");
+    expect(shareTriggerSource).not.toContain("h-8");
+    expect(shareTriggerSource).not.toContain("text-xs");
+  });
+
+  it("keeps recording access controls in Share instead of viewer settings", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+    const settingsPanelSource = readSource("./settings-panel.tsx");
+
+    expect(shareDialogSource).toContain("<GeneralAccessSelect");
+    expect(shareDialogSource).toContain("<RecordingAccessControls");
+    expect(shareDialogSource).toContain('id="share-password-required"');
+    expect(shareDialogSource).toContain('type="datetime-local"');
+    expect(shareDialogSource).not.toContain(
+      't("playerSettings.generatePassword")',
     );
-    expect(shareDialogSource).not.toContain('value="invite"');
+    expect(shareDialogSource).toMatch(
+      /<Label[\s\S]*htmlFor="share-password-required"[\s\S]*<ViewerSwitch[\s\S]*id="share-password-required"/,
+    );
+    expect(settingsPanelSource).not.toContain('t("playerSettings.privacy")');
+    expect(settingsPanelSource).not.toContain(
+      'useActionMutation("set-resource-visibility"',
+    );
+    expect(settingsPanelSource).not.toContain(
+      'id="recording-password-required"',
+    );
+  });
+
+  it("keeps social destinations as distinct share jobs", () => {
+    const clipUrl = "https://clips.example/share/abc?via=owner";
+    const title = "Quarterly demo & notes";
+
+    expect(buildSocialShareUrl("linkedin", clipUrl, title)).toBe(
+      `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(clipUrl)}`,
+    );
+    expect(buildSocialShareUrl("x", clipUrl, title)).toBe(
+      `https://twitter.com/intent/tweet?url=${encodeURIComponent(clipUrl)}&text=${encodeURIComponent(title)}`,
+    );
+    expect(buildSocialShareUrl("facebook", clipUrl, title)).toBe(
+      `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(clipUrl)}`,
+    );
+    expect(buildSocialShareUrl("email", clipUrl, title)).toContain(
+      `subject=${encodeURIComponent(title)}`,
+    );
+  });
+
+  it("keeps agent destinations in the Agents tab", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+    const logoSource = readSource("../agent-destination-logos.tsx");
+
+    expect(shareDialogSource).toContain('setView("social")');
+    expect(shareDialogSource).toContain('setView("embed")');
+    expect(shareDialogSource).toContain("<ShareOptionRow");
+    expect(shareDialogSource).toContain("<SocialTab");
+    expect(shareDialogSource).toContain("customizeOpen");
+    expect(shareDialogSource).toContain('openAgentDestination("claude")');
+    expect(shareDialogSource).toContain('openAgentDestination("claude-code")');
+    expect(shareDialogSource).toContain('openAgentDestination("codex")');
+    expect(shareDialogSource).toContain("function AgentTab");
+    expect(shareDialogSource).not.toContain("<DropdownMenu");
+    expect(shareDialogSource).not.toContain(
+      "export function RecordingAgentHandoffPopover",
+    );
+    expect(shareDialogSource).toContain("<ClaudeLogo");
+    expect(shareDialogSource).toContain("<ClaudeCodeLogo");
+    expect(shareDialogSource).toContain("<CodexLogo");
+    expect(logoSource).toContain('viewBox="0 0 100 100"');
+    expect(logoSource).toContain("<IconBrandOpenai");
+    expect(shareDialogSource).not.toContain("<textarea");
+  });
+
+  it("keeps agent handoff out of the People tab", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+    const peopleTabStart = shareDialogSource.indexOf("function PeopleTab");
+    const agentTabStart = shareDialogSource.indexOf("function AgentTab");
+    const accessControlsStart = shareDialogSource.indexOf(
+      "function RecordingAccessControls",
+    );
+    const peopleTabSource = shareDialogSource.slice(
+      peopleTabStart,
+      agentTabStart,
+    );
+    const agentTabSource = shareDialogSource.slice(
+      agentTabStart,
+      accessControlsStart,
+    );
+
+    expect(agentTabSource).toContain('openAgentDestination("claude")');
+    expect(agentTabSource).toContain("writeClipboardText(agentCopyValue)");
+    expect(peopleTabSource).not.toContain("openAgentDestination");
+    expect(peopleTabSource).not.toContain("agentCopyValue");
+    expect(peopleTabSource).toContain("<InvitePeopleField");
+    expect(peopleTabSource).toContain("<PeopleAccessSection");
+    expect(peopleTabSource).toContain(
+      'className="-mx-3 border-t border-border px-1.5 pt-1.5"',
+    );
   });
 
   it("offers inviting only to managers", () => {
@@ -97,6 +227,14 @@ describe("recording share popover", () => {
     expect(shareUiSource).toContain("text-success");
   });
 
+  it("identifies a lone owner instead of showing a generic access status", () => {
+    const shareUiSource = readSource("../sharing/share-ui.tsx");
+
+    expect(shareUiSource).toMatch(
+      /meta=\{\s*first && \(open \|\| rest\.length === 0\)[\s\S]*\? firstRole[\s\S]*: t\("shareUi\.canAccess"\)/,
+    );
+  });
+
   it("offers a rich email preview only for public, unprotected clips", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 
@@ -114,14 +252,13 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("value={shareUrl}");
   });
 
-  it("only promises agent-link expiry when the link is scoped", () => {
+  it("loads a scoped agent link only when the Agents tab is active", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 
+    expect(shareDialogSource).toContain("needsScopedAgentContext");
+    expect(shareDialogSource).toContain("if (!active)");
     expect(shareDialogSource).toContain(
-      'needsScopedAgentContext\n              ? t("shareDialog.agentTokenDescription")',
-    );
-    expect(shareDialogSource).toContain(
-      't("shareDialog.agentPublicDescription")',
+      "visibility !== null && needsScopedAgentContext",
     );
   });
 
@@ -136,8 +273,8 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain(
       'label: t("shareUi.recordingCommenter.label")',
     );
-    expect(shareDialogSource).toContain(
-      'description: t("shareUi.recordingCommenter.description")',
+    expect(shareDialogSource).toMatch(
+      /description: t\(\s*"shareUi\.recordingCommenter\.description",?\s*\)/,
     );
     expect(shareUiSource).toContain(
       "roleCopy?: Partial<Record<Role, RoleCopy>>",

@@ -47,7 +47,20 @@ vi.mock("@agent-native/core/client/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 
-import { formatSqlChartError, SqlChart } from "./SqlChart";
+import { formatSqlChartError, limitChartRows, SqlChart } from "./SqlChart";
+
+describe("limitChartRows", () => {
+  it("keeps tables untouched and bounds chart point rendering", () => {
+    const rows = Array.from({ length: 401 }, (_, index) => ({ index }));
+    expect(limitChartRows(rows, "table")).toBe(rows);
+    expect(limitChartRows(rows, "line")).toEqual(rows.slice(-400));
+    expect(limitChartRows(rows, "heatmap")).toEqual(rows.slice(-400));
+    expect(limitChartRows(rows, "bar")).toEqual(rows.slice(0, 400));
+    expect(limitChartRows(rows, "pie")).toEqual(rows.slice(0, 400));
+    expect(limitChartRows(rows, "funnel")).toEqual(rows.slice(0, 400));
+    expect(limitChartRows(rows, "callout")).toEqual(rows.slice(0, 400));
+  });
+});
 
 describe("SqlChart refresh feedback", () => {
   let container: HTMLDivElement;
@@ -102,7 +115,7 @@ describe("SqlChart refresh feedback", () => {
       '[data-dashboard-report-loading="true"]',
     );
     expect(loadingSkeleton).not.toBeNull();
-    expect(loadingSkeleton?.className).toContain("animate-pulse");
+    expect(loadingSkeleton?.className).toContain("skeleton-shimmer");
     expect(loadingSkeleton?.className).toContain(
       "analytics-dashboard-panel-skeleton",
     );

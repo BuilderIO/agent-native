@@ -22,6 +22,7 @@ const __dirname = path.dirname(__filename);
 
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
+const PGLITE_DEPENDENCY_VERSION = "^0.5.8";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
@@ -2011,6 +2012,7 @@ function postProcessStandalone(
         }
       }
       pkg.dependencies = pkg.dependencies ?? {};
+      pkg.dependencies["@electric-sql/pglite"] ??= PGLITE_DEPENDENCY_VERSION;
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
@@ -2028,7 +2030,6 @@ function postProcessStandalone(
       : "";
     const sections: Record<string, Record<string, string>> = {
       allowBuilds: {
-        "better-sqlite3": "true",
         esbuild: "true",
         "node-pty": "true",
         "tesseract.js": "true",
@@ -2326,6 +2327,7 @@ export {
   rewriteTrackingAppId as _rewriteTrackingAppId,
   rewriteAgentChatAppId as _rewriteAgentChatAppId,
   applyScaffoldIdentity as _applyScaffoldIdentity,
+  ensureScaffoldEmailBrandingConfig as _ensureScaffoldEmailBrandingConfig,
   fixWebManifestName as _fixWebManifestName,
   copyDir as _copyDir,
   localTemplateSourceKind as _localTemplateSourceKind,
@@ -3371,10 +3373,17 @@ function ensureScaffoldEmailBrandingConfig(
   const sourceTemplate = JSON.stringify(
     trackingTemplateName(templateName) ?? templateName,
   );
+  const homePathConfig =
+    scaffoldGuidanceForTemplate(templateName) === "default"
+      ? [
+          "    // Keep the template's authenticated entry explicit after renaming the app.",
+          '    homePath: "/home",',
+        ].join("\n") + "\n"
+      : "";
 
   fs.writeFileSync(
     configPath,
-    `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({\n  app: {\n    // This name appears in transactional emails. Change it to your product name.\n    name: ${appTitle},\n    // The source template keeps a renamed app from inheriting first-party email branding.\n    sourceTemplate: ${sourceTemplate},\n    // Optional: use your own absolute HTTPS logo URL in transactional emails.\n    // logoUrl: "https://example.com/logo.png",\n  },\n});\n`,
+    `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({\n  app: {\n    // This name appears in transactional emails. Change it to your product name.\n    name: ${appTitle},\n    // The source template keeps a renamed app from inheriting first-party email branding.\n    sourceTemplate: ${sourceTemplate},\n${homePathConfig}    // Optional: use your own absolute HTTPS logo URL in transactional emails.\n    // logoUrl: "https://example.com/logo.png",\n  },\n});\n`,
   );
 }
 
@@ -3975,7 +3984,15 @@ function tryGitInit(dir: string): boolean {
 function renameGitignore(dir: string): void {
   const src = path.join(dir, "_gitignore");
   const dst = path.join(dir, ".gitignore");
-  if (fs.existsSync(src)) fs.renameSync(src, dst);
+  if (!fs.existsSync(src)) return;
+  fs.renameSync(src, dst);
+  const contents = fs.readFileSync(dst, "utf8");
+  if (!contents.includes("data/*.lock")) {
+    fs.appendFileSync(
+      dst,
+      `${contents.endsWith("\n") ? "" : "\n"}data/*.lock\n`,
+    );
+  }
 }
 
 function replacePlaceholders(
@@ -4114,5 +4131,8 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   ) {
     return true;
   }
-  return name.endsWith(".tmp.json") || /\.db(?:-shm|-wal)?$/.test(name);
+  return (
+    (name === "pglite" && pathParts?.at(-2) === "data") ||
+    name.endsWith(".tmp.json")
+  );
 }

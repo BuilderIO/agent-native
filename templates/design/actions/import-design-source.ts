@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { saveFigmaPasteHtmlFallback } from "../server/lib/figma-paste-fallback.js";
 import {
   normalizeImportedHtmlDocument,
@@ -42,15 +43,18 @@ export default defineAction({
     frameWidth: z.number().optional(),
     frameHeight: z.number().optional(),
   }),
-  run: async ({
-    designId,
-    sourceType,
-    content,
-    originalName,
-    frameTitle,
-    frameWidth,
-    frameHeight,
-  }) => {
+  run: async (
+    {
+      designId,
+      sourceType,
+      content,
+      originalName,
+      frameTitle,
+      frameWidth,
+      frameHeight,
+    },
+    context,
+  ) => {
     ensureHtmlSize(content);
     const resolvedDesignId = await resolveImportDesignId(designId);
     await assertAccess("design", resolvedDesignId, "editor");
@@ -60,6 +64,7 @@ export default defineAction({
     // keeps every request far below the ~6MB a Netlify function will accept —
     // the cap the server route has to chunk around.
     if (sourceType === "fig-frame") {
+      await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
       const saved = await saveImportedDesignFiles({
         designId: resolvedDesignId,
         sourceType: "fig-upload",
@@ -87,6 +92,7 @@ export default defineAction({
     }
 
     if (sourceType === "html-string") {
+      await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
       const saved = await saveImportedDesignFiles({
         designId: resolvedDesignId,
         sourceType: "html-import",
@@ -105,6 +111,7 @@ export default defineAction({
       };
     }
 
+    await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
     return saveFigmaPasteHtmlFallback({
       designId: resolvedDesignId,
       clipboardHtml: content,

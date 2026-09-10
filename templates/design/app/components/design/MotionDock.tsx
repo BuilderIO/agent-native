@@ -623,7 +623,7 @@ export function MotionDock({
       onTracksChange(nextTracks);
       setSelectedTrackKey(trackKey(newTrack));
     },
-    [defaultEase, onTracksChange, selectedTarget, tracks],
+    [defaultEase, onTracksChange, selectedTarget, t, tracks],
   );
 
   const deleteKeyframe = useCallback(

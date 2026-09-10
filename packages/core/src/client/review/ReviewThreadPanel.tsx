@@ -61,7 +61,7 @@ export interface ReviewThreadPanelProps {
   /** Persist new comments against this target while targetId continues to filter the list. */
   composerTargetId?: string | null;
   /** Optional element/point anchor attached to new comments from the composer. */
-  composerAnchor?: unknown | null;
+  composerAnchor?: unknown;
   /** Host metadata attached to new comments from the composer. */
   composerMetadata?: Record<string, unknown>;
   /** Visible label describing the element currently targeted by the composer. */
@@ -139,7 +139,8 @@ export function ReviewThreadPanel({
     useState<ReviewResolutionTarget | null>(null);
   const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
-  const { formatDate } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
   const comments = useReviewComments({
     resourceType,
     resourceId,

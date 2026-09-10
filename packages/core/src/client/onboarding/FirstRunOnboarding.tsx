@@ -8,9 +8,17 @@ import {
   IconKey,
   IconLoader2,
   IconSearch,
+  IconX,
 } from "@tabler/icons-react";
-import React, { useCallback, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
+import { buildSettingsRoute } from "../../navigation/index.js";
 import type {
   OnboardingAppProfile,
   OnboardingCapability,
@@ -18,15 +26,22 @@ import type {
 import { docsUrl } from "../../shared/docs-url.js";
 import { appPath } from "../api-path.js";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { IntegrationGrid } from "../integrations/IntegrationGrid.js";
 import {
   buildMcpOAuthStartUrl,
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
+  isMcpIntegrationUrl,
   navigateToMcpOAuthStart,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
@@ -38,11 +53,13 @@ import {
   useCreateMcpServer,
   useMcpServers,
 } from "../resources/use-mcp-servers.js";
+import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
-import { useOnboarding } from "./use-onboarding.js";
+import { saveFirstRunOnboardingRole } from "./first-run-status.js";
+import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 type FirstRunScreen =
@@ -50,9 +67,49 @@ type FirstRunScreen =
   | "choice"
   | "manual"
   | "tools"
+  | "role"
   | "connecting"
   | "ready"
   | "extension";
+
+const FIRST_RUN_SCREEN_ORDER: readonly Exclude<FirstRunScreen, "extension">[] =
+  ["intro", "choice", "manual", "tools", "role", "connecting", "ready"];
+
+function firstRunStepProperties(
+  screen: FirstRunScreen,
+  extensions: readonly { id: string }[],
+  extensionIndex: number,
+): Record<string, unknown> {
+  if (screen === "extension") {
+    return {
+      flow: "first_run",
+      step_id: `extension:${extensions[extensionIndex]?.id ?? "unknown"}`,
+      step_index: FIRST_RUN_SCREEN_ORDER.length + extensionIndex,
+      ...(extensions[extensionIndex]
+        ? { extension_id: extensions[extensionIndex].id }
+        : {}),
+    };
+  }
+  return {
+    flow: "first_run",
+    step_id: screen,
+    step_index: FIRST_RUN_SCREEN_ORDER.indexOf(screen),
+  };
+}
+
+const FIRST_RUN_ROLE_OPTIONS = [
+  { value: "product", labelKey: "agentChat.onboarding.roleProduct" },
+  { value: "design", labelKey: "agentChat.onboarding.roleDesign" },
+  { value: "developer", labelKey: "agentChat.onboarding.roleDeveloper" },
+  { value: "marketing", labelKey: "agentChat.onboarding.roleMarketing" },
+  { value: "sales", labelKey: "agentChat.onboarding.roleSales" },
+  { value: "ops", labelKey: "agentChat.onboarding.roleOps" },
+  {
+    value: "individual",
+    labelKey: "agentChat.onboarding.roleIndividual",
+  },
+  { value: "other", labelKey: "agentChat.onboarding.roleOther" },
+] as const;
 
 const BUILDER_MORE_SERVICES = [
   "Voice input",
@@ -76,6 +133,8 @@ export function FirstRunOnboarding({
   skipIntegrations = shouldSkipFirstRunIntegrations(),
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
+  const t = useT();
+  const builderMoreServicesTitleId = React.useId();
   const previewMode = useOnboardingPreviewMode();
   const {
     firstRun,
@@ -85,15 +144,11 @@ export function FirstRunOnboarding({
     completeFirstRun,
     completeFirstRunError,
   } = useOnboarding({ preview: previewMode, initialFirstRun });
-  // completeFirstRun() rejects on failure — swallow it here so a Skip/
-  // Continue click never becomes an unhandled rejection; completeFirstRunError
-  // (rendered below) is the real signal, and the user stays on this screen
-  // to retry instead of being bounced to an unrelated error screen.
-  const finishOnboarding = useCallback(() => {
-    completeFirstRun().catch(() => {});
-  }, [completeFirstRun]);
   const [screen, setScreen] = useState<FirstRunScreen>("intro");
   const [extensionIndex, setExtensionIndex] = useState(0);
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [savingRole, setSavingRole] = useState(false);
+  const [roleSaveError, setRoleSaveError] = useState<string | null>(null);
   const [integrationQuery, setIntegrationQuery] = useState("");
   const [integrationDialogId, setIntegrationDialogId] = useState<string | null>(
     null,
@@ -102,6 +157,9 @@ export function FirstRunOnboarding({
     string | null
   >(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [builderConnectionMode, setBuilderConnectionMode] = useState<
+    "existing" | "provision"
+  >("existing");
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
   const mcpCatalog = useMemo(() => getDefaultMcpIntegrations(), []);
   const mcpServersQuery = useMcpServers();
@@ -110,17 +168,71 @@ export function FirstRunOnboarding({
     () => filterMcpIntegrations(integrationQuery, mcpCatalog),
     [integrationQuery, mcpCatalog],
   );
-  const connectedUrls = useMemo(() => {
-    if (previewMode) return new Set<string>();
+  // completeFirstRun() rejects on failure — swallow it here so a Skip/
+  // Continue click never becomes an unhandled rejection; completeFirstRunError
+  // (rendered below) is the real signal, and the user stays on this screen
+  // to retry instead of being bounced to an unrelated error screen.
+  const trackFirstRunStepCompleted = useCallback(
+    (stepScreen: FirstRunScreen, stepExtensionIndex = extensionIndex) => {
+      if (previewMode) return;
+      trackOnboardingEvent(
+        "onboarding_step_completed",
+        firstRunStepProperties(stepScreen, extensions, stepExtensionIndex),
+      );
+    },
+    [extensionIndex, extensions, previewMode],
+  );
+  const completionAttemptRef = useRef<{
+    screen: FirstRunScreen | null;
+    extensionIndex: number;
+  } | null>(null);
+  const finishOnboarding = useCallback(
+    async (
+      completedScreen: FirstRunScreen | null,
+      completedExtensionIndex = extensionIndex,
+    ) => {
+      completionAttemptRef.current = completedScreen
+        ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
+        : { screen: null, extensionIndex: completedExtensionIndex };
+      try {
+        await completeFirstRun();
+        if (completedScreen) {
+          trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
+        }
+        completionAttemptRef.current = null;
+        return true;
+      } catch {
+        // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
+        return false;
+      }
+    },
+    [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
+  );
+  useEffect(() => {
+    if (!previewMode && firstRun && !loading && profile) {
+      trackOnboardingEvent("onboarding_started", { flow: "first_run" });
+    }
+  }, [firstRun, loading, previewMode, profile]);
+  useEffect(() => {
+    if (previewMode || !firstRun || loading || !profile) return;
+    const step = firstRunStepProperties(screen, extensions, extensionIndex);
+    trackOnboardingEvent("onboarding_step_viewed", step);
+  }, [
+    extensionIndex,
+    extensions,
+    firstRun,
+    loading,
+    previewMode,
+    profile,
+    screen,
+  ]);
+  const connectedServers = useMemo(() => {
+    if (previewMode) return [];
     const servers = [
       ...(mcpServersQuery.data?.user ?? []),
       ...(mcpServersQuery.data?.org ?? []),
     ];
-    return new Set(
-      servers
-        .filter((server) => server.status.state === "connected")
-        .map((server) => compareUrl(server.url)),
-    );
+    return servers.filter((server) => server.status.state === "connected");
   }, [mcpServersQuery.data, previewMode]);
   const hasOrg = Boolean(mcpServersQuery.data?.orgId);
   const canCreateOrgMcp = Boolean(
@@ -129,19 +241,51 @@ export function FirstRunOnboarding({
       mcpServersQuery.data?.role === "admin"),
   );
 
-  const showTools = () => setScreen(skipIntegrations ? "ready" : "tools");
+  const showTools = useCallback(
+    () => setScreen(skipIntegrations ? "role" : "tools"),
+    [skipIntegrations],
+  );
+  const handleBuilderConnected = useCallback(() => {
+    trackFirstRunStepCompleted("choice");
+    trackFirstRunStepCompleted("connecting");
+    showTools();
+  }, [showTools, trackFirstRunStepCompleted]);
+  const roleBackScreen = skipIntegrations ? "manual" : "tools";
   const connectFlow = useBuilderConnectFlow({
     enabled: firstRun && !previewMode,
+    provisionAccount: true,
     trackingSource: "first_run_onboarding",
     trackingFlow: "connect_llm",
-    onConnected: showTools,
+    onConnected: handleBuilderConnected,
   });
+  const canActivateBuilderFreeCredits =
+    connectFlow.agentNativeProvisioningEnabled;
+  const builderCtaRef = useRef<HTMLButtonElement>(null);
+  const dismissOnboarding = useCallback(() => {
+    void finishOnboarding(null);
+  }, [finishOnboarding]);
+  const retryOnboardingCompletion = useCallback(() => {
+    const attempt = completionAttemptRef.current;
+    void finishOnboarding(
+      attempt?.screen ?? null,
+      attempt?.extensionIndex ?? extensionIndex,
+    );
+  }, [extensionIndex, finishOnboarding]);
+  const completionErrorProps = {
+    completionError: completeFirstRunError,
+    onRetry: retryOnboardingCompletion,
+  };
 
   if (!firstRun) return null;
 
   if (error) {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-md flex-col items-center gap-4 text-center">
           <h1 className="text-xl font-semibold tracking-[-0.03em]">
             Setup is almost ready.
@@ -169,38 +313,67 @@ export function FirstRunOnboarding({
     (capability) => capability.builderIncluded,
   );
 
-  const handleBuilder = () => {
+  const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
     if (previewMode) {
       showTools();
       return;
     }
     if (connectFlow.hasFetchedStatus && connectFlow.configured) {
+      trackFirstRunStepCompleted("choice");
       showTools();
       return;
     }
+    setBuilderConnectionMode(
+      provisionAccount && canActivateBuilderFreeCredits
+        ? "provision"
+        : "existing",
+    );
     setScreen("connecting");
     connectFlow.start({
       trackingSource: "first_run_onboarding",
       trackingFlow: "connect_llm",
+      provisionAccount,
     });
   };
 
-  const handleOpenSettings = () => {
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:open-settings", {
-        detail: { section: "integrations" },
-      }),
+  const handleOpenSettings = async () => {
+    const completed = await finishOnboarding("manual");
+    if (!completed) return;
+    if (typeof window === "undefined") return;
+    window.history.pushState(
+      null,
+      "",
+      `${appPath(buildSettingsRoute("agent:llm"))}${window.location.search}`,
     );
-    finishOnboarding();
+    window.dispatchEvent(new Event("popstate"));
   };
 
-  const handleFinish = () => {
+  const handleFinish = (completeStep = true) => {
     if (extensions.length === 0) {
-      finishOnboarding();
+      void finishOnboarding(completeStep ? "role" : null);
       return;
     }
+    if (completeStep) trackFirstRunStepCompleted("role");
     setExtensionIndex(0);
     setScreen("extension");
+  };
+
+  const handleRoleContinue = async () => {
+    if (!selectedRole || savingRole) return;
+    setSavingRole(true);
+    setRoleSaveError(null);
+    try {
+      if (!previewMode) await saveFirstRunOnboardingRole(selectedRole);
+      handleFinish();
+    } catch (error) {
+      setRoleSaveError(
+        error instanceof Error
+          ? error.message
+          : t("agentChat.onboarding.saveRoleError"),
+      );
+    } finally {
+      setSavingRole(false);
+    }
   };
 
   const returnUrl =
@@ -218,7 +391,9 @@ export function FirstRunOnboarding({
     setConnectError(null);
 
     if (
-      connectedUrls.has(compareUrl(integration.url)) ||
+      connectedServers.some((server) =>
+        isMcpIntegrationUrl(integration, server.url),
+      ) ||
       connectingIntegrationId === integration.id
     ) {
       return;
@@ -227,6 +402,11 @@ export function FirstRunOnboarding({
     if (!mcpServersQuery.isSuccess) return;
 
     if (hasOrg) {
+      setIntegrationDialogId(integration.id);
+      return;
+    }
+
+    if (!integration.url.trim()) {
       setIntegrationDialogId(integration.id);
       return;
     }
@@ -260,7 +440,7 @@ export function FirstRunOnboarding({
       integration.connectionMode === "oauth" &&
       integration.availability === "ready"
     ) {
-      navigateToMcpOAuthStart(
+      const opened = navigateToMcpOAuthStart(
         appPath(
           buildMcpOAuthStartUrl({
             name: integration.name,
@@ -271,6 +451,9 @@ export function FirstRunOnboarding({
           }),
         ),
       );
+      if (!opened) {
+        setConnectError(t("mcpIntegrations.connectionError"));
+      }
       return;
     }
 
@@ -280,33 +463,41 @@ export function FirstRunOnboarding({
   if (screen === "extension") {
     const extension = extensions[extensionIndex];
     if (!extension) {
-      finishOnboarding();
+      void finishOnboarding(null);
       return null;
     }
     const Extension = extension.component;
     const advanceExtension = () => {
       if (extensionIndex < extensions.length - 1) {
+        trackFirstRunStepCompleted("extension", extensionIndex);
         setExtensionIndex((current) => current + 1);
         return;
       }
-      finishOnboarding();
+      void finishOnboarding("extension", extensionIndex);
     };
     return (
-      <>
-        <Extension onComplete={advanceExtension} onSkip={finishOnboarding} />
-        {completeFirstRunError && (
-          <FirstRunCompletionError
-            message={completeFirstRunError}
-            onRetry={finishOnboarding}
-          />
-        )}
-      </>
+      <OnboardingShell
+        profile={profile}
+        screen="extension"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
+        <Extension
+          onComplete={advanceExtension}
+          onSkip={() => void finishOnboarding(null)}
+        />
+      </OnboardingShell>
     );
   }
 
   if (screen === "intro") {
     return (
-      <OnboardingShell profile={profile} screen="intro">
+      <OnboardingShell
+        profile={profile}
+        screen="intro"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-lg flex-col items-center text-center">
           <h1 className="text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
             Free forever.
@@ -336,7 +527,10 @@ export function FirstRunOnboarding({
           <button
             type="button"
             className={cn(primaryButtonClass, "mt-6")}
-            onClick={() => setScreen("choice")}
+            onClick={() => {
+              trackFirstRunStepCompleted("intro");
+              setScreen("choice");
+            }}
           >
             Continue
             <IconArrowRight size={15} />
@@ -358,64 +552,102 @@ export function FirstRunOnboarding({
 
   if (screen === "choice") {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
           <h1 className="text-center text-xl font-semibold tracking-[-0.04em] sm:text-2xl">
             Choose your setup.
           </h1>
           <div className="grid gap-3 sm:grid-cols-2">
             <section className="rounded-xl bg-primary/[0.06] p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold">
-                    Connect Builder.io free credits
-                  </h2>
-                  <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
-                    One click connects{" "}
-                    <a
-                      href="https://www.builder.io/"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      Builder.io free credits
-                    </a>{" "}
-                    with the services this app needs.
-                  </p>
-                </div>
-                <IconArrowRight className="mt-0.5 text-primary" size={17} />
+              <div>
+                <h2 className="text-sm font-semibold">
+                  {/* BuilderConnectPopover accepts a single trigger, so this
+                      header delegates to the canonical CTA below instead of
+                      opening a second consent popover on its own anchor. */}
+                  <button
+                    type="button"
+                    data-testid="first-run-builder-header-activate"
+                    className="group flex w-full items-start justify-between gap-3 rounded-md text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => builderCtaRef.current?.click()}
+                  >
+                    <span>
+                      {canActivateBuilderFreeCredits
+                        ? t("agentChat.onboarding.builderActivateCredits")
+                        : t("agentChat.onboarding.builderConnectCredits")}
+                    </span>
+                    <IconArrowRight
+                      aria-hidden="true"
+                      className="mt-0.5 shrink-0 text-primary transition-transform group-hover:translate-x-0.5"
+                      size={17}
+                    />
+                  </button>
+                </h2>
+                <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
+                  {canActivateBuilderFreeCredits ? (
+                    t("agentChat.onboarding.builderActivateDescription")
+                  ) : (
+                    <>
+                      One click connects{" "}
+                      <a
+                        href="https://www.builder.io/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        Builder.io free credits
+                      </a>{" "}
+                      with the services this app needs.
+                    </>
+                  )}
+                </p>
               </div>
               <div className="mt-5 pt-3">
                 <p className="text-[11px] font-medium text-muted-foreground">
-                  Included with Builder.io free credits
+                  {canActivateBuilderFreeCredits
+                    ? t("agentChat.onboarding.builderActiveCredits")
+                    : t("agentChat.onboarding.builderCredits")}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
-                  {builderCapabilities.map((capability, index) => (
-                    <React.Fragment key={capability.id}>
-                      {index > 0 && (
-                        <span
-                          aria-hidden="true"
-                          className="text-muted-foreground"
-                        >
-                          ·
-                        </span>
-                      )}
-                      <span className="inline-flex items-center gap-0.5">
-                        <span>{capability.label}</span>
-                        {capability.id === "design-system-intelligence" && (
-                          <CapabilityInfoButton
-                            capability={capability}
-                            ariaLabel={`About ${capability.label}`}
-                          />
+                  {builderCapabilities.map((capability, index) => {
+                    const copy = getCapabilityCopy(t, capability);
+                    return (
+                      <React.Fragment key={capability.id}>
+                        {index > 0 && (
+                          <span
+                            aria-hidden="true"
+                            className="text-muted-foreground"
+                          >
+                            ·
+                          </span>
                         )}
-                      </span>
-                    </React.Fragment>
-                  ))}
+                        <span className="inline-flex items-center gap-0.5">
+                          <span>{copy.label}</span>
+                          {capability.id === "design-system-intelligence" && (
+                            <CapabilityInfoButton
+                              why={copy.why}
+                              ariaLabel={t(
+                                "agentChat.onboarding.capability.about",
+                                {
+                                  defaultValue: "About {{label}}",
+                                  label: copy.label,
+                                },
+                              )}
+                            />
+                          )}
+                        </span>
+                      </React.Fragment>
+                    );
+                  })}
                   <span aria-hidden="true" className="text-muted-foreground">
                     ·
                   </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+                  <Popover>
+                    <PopoverTrigger asChild>
                       <button
                         type="button"
                         className="text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -423,27 +655,62 @@ export function FirstRunOnboarding({
                       >
                         +{BUILDER_MORE_SERVICES.length} more
                       </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-sm text-xs">
-                      <p className="font-medium">
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="top"
+                      align="start"
+                      sideOffset={6}
+                      aria-labelledby={builderMoreServicesTitleId}
+                      className="w-[min(24rem,calc(100vw-2rem))] text-xs"
+                    >
+                      <p
+                        id={builderMoreServicesTitleId}
+                        className="font-medium"
+                      >
                         Also included with Builder.io free credits
                       </p>
-                      <p className="mt-1 leading-5">
-                        {BUILDER_MORE_SERVICES.join(" · ")}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
+                      <ul className="mt-2 list-disc space-y-1 ps-4 leading-5">
+                        {BUILDER_MORE_SERVICES.map((service) => (
+                          <li key={service}>{service}</li>
+                        ))}
+                      </ul>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
-              <button
-                type="button"
-                data-testid="first-run-connect-builder"
-                className={cn(primaryButtonClass, "mt-5 w-full")}
-                onClick={handleBuilder}
+              <BuilderConnectPopover
+                flow={connectFlow}
+                onConnect={(provisionAccount) =>
+                  handleBuilder(provisionAccount)
+                }
+                defaultProvisionAccount
+                contentTestId="first-run-builder-consent"
+                primaryTestId="first-run-builder-create-and-activate"
+                secondaryTestId="first-run-builder-existing-account"
               >
-                Connect Builder.io free credits
-                <IconArrowRight size={15} />
-              </button>
+                <button
+                  ref={builderCtaRef}
+                  type="button"
+                  data-testid="first-run-connect-builder"
+                  className={cn(primaryButtonClass, "mt-5 w-full")}
+                >
+                  {t(
+                    canActivateBuilderFreeCredits
+                      ? "agentChat.onboarding.builderActivateCredits"
+                      : "agentChat.onboarding.builderConnectCredits",
+                  )}
+                  <IconArrowRight size={15} />
+                </button>
+              </BuilderConnectPopover>
+              {connectFlow.error && !connectFlow.statusResolved && (
+                <p
+                  role="status"
+                  data-testid="first-run-builder-status-error"
+                  className="mt-2 text-center text-xs text-destructive"
+                >
+                  {connectFlow.error}
+                </p>
+              )}
             </section>
 
             <div
@@ -452,10 +719,14 @@ export function FirstRunOnboarding({
               aria-label="Use my own keys"
               data-testid="first-run-use-own-keys"
               className="rounded-xl bg-muted/35 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => setScreen("manual")}
+              onClick={() => {
+                trackFirstRunStepCompleted("choice");
+                setScreen("manual");
+              }}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
+                trackFirstRunStepCompleted("choice");
                 setScreen("manual");
               }}
             >
@@ -503,7 +774,12 @@ export function FirstRunOnboarding({
 
   if (screen === "manual") {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
           <div>
             <button
@@ -519,7 +795,7 @@ export function FirstRunOnboarding({
           </div>
           <div className="rounded-xl bg-muted/35 p-4">
             <CapabilityList capabilities={profile.capabilities} />
-            <div className="mt-5 flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-between">
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 pt-4">
               <button
                 type="button"
                 className={secondaryButtonClass}
@@ -527,21 +803,30 @@ export function FirstRunOnboarding({
               >
                 Back
               </button>
-              <button
-                type="button"
-                className={primaryButtonClass}
-                onClick={handleOpenSettings}
-              >
-                Open key settings
-                <IconArrowRight size={15} />
-              </button>
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                onClick={() => setScreen(skipIntegrations ? "ready" : "tools")}
-              >
-                {skipIntegrations ? "Continue" : "Continue to tools"}
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  data-testid="first-run-skip-keys"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => {
+                    trackFirstRunStepCompleted("manual");
+                    showTools();
+                  }}
+                >
+                  {t("agentChat.onboarding.skipForNow")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="first-run-open-key-settings"
+                  className={primaryButtonClass}
+                  onClick={() => void handleOpenSettings()}
+                >
+                  {t("agentChat.onboarding.openAiKeySettings", {
+                    defaultValue: "Open AI key settings",
+                  })}
+                  <IconArrowRight size={15} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -554,6 +839,8 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="tools"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
         footer={
           <div
             data-testid="onboarding-tools-footer"
@@ -562,16 +849,19 @@ export function FirstRunOnboarding({
             <button
               type="button"
               className={secondaryButtonClass}
-              onClick={handleFinish}
+              onClick={() => setScreen("role")}
             >
-              Skip for now
+              {t("agentChat.onboarding.skipForNow")}
             </button>
             <button
               type="button"
               className={primaryButtonClass}
-              onClick={handleFinish}
+              onClick={() => {
+                trackFirstRunStepCompleted("tools");
+                setScreen("role");
+              }}
             >
-              Continue
+              {t("agentChat.common.continue")}
               <IconArrowRight size={15} />
             </button>
           </div>
@@ -634,8 +924,8 @@ export function FirstRunOnboarding({
 
             <IntegrationGrid
               items={mcpIntegrations.map((integration) => {
-                const connected = connectedUrls.has(
-                  compareUrl(integration.url),
+                const connected = connectedServers.some((server) =>
+                  isMcpIntegrationUrl(integration, server.url),
                 );
                 return {
                   id: integration.id,
@@ -681,42 +971,166 @@ export function FirstRunOnboarding({
     );
   }
 
-  if (screen === "connecting") {
+  if (screen === "role") {
     return (
-      <OnboardingShell profile={profile} screen="choice">
-        <div className="mx-auto flex w-full max-w-md flex-col items-center text-center">
-          <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <IconLoader2 className="animate-spin" size={19} />
-          </div>
-          <h1 className="mt-5 text-xl font-semibold tracking-[-0.04em]">
-            Connecting Builder.io free credits
+      <OnboardingShell
+        profile={profile}
+        screen="role"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
+        <div
+          className="mx-auto flex w-full max-w-md flex-col"
+          data-testid="first-run-role"
+        >
+          <button
+            type="button"
+            className="mb-5 self-start text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setScreen(roleBackScreen)}
+          >
+            {t("agentChat.onboarding.back")}
+          </button>
+          <h1 className="text-2xl font-semibold tracking-[-0.05em] sm:text-3xl">
+            {t("agentChat.onboarding.customizeRole")}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Finish the one-click connection in the new window.
+            {t("agentChat.onboarding.roleQuestion")}
           </p>
-          <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
-            <div className="flex items-center justify-between gap-3">
-              <Skeleton className="h-3 w-28" />
-              <Skeleton className="h-5 w-16 rounded-full" />
-            </div>
-            <Skeleton className="mt-4 h-8 w-full" />
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              <Skeleton className="h-7 w-full" />
-              <Skeleton className="h-7 w-full" />
-              <Skeleton className="h-7 w-full" />
-            </div>
-          </div>
-          {connectFlow.error && (
-            <div className="mt-4 flex flex-col items-center gap-2">
-              <p className="text-xs text-destructive">{connectFlow.error}</p>
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                onClick={() => setScreen("choice")}
+          <fieldset className="mt-7 grid gap-2">
+            <legend className="sr-only">
+              {t("agentChat.onboarding.chooseRole")}
+            </legend>
+            {FIRST_RUN_ROLE_OPTIONS.map(({ value, labelKey }) => (
+              <label
+                key={value}
+                data-testid={`first-run-role-${value}`}
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-sm transition-colors focus-within:ring-2 focus-within:ring-ring",
+                  selectedRole === value
+                    ? "bg-primary/[0.06] ring-1 ring-primary/30"
+                    : "bg-muted/35 hover:bg-muted/50",
+                )}
               >
-                Try again
-              </button>
-            </div>
+                <input
+                  type="radio"
+                  name="first-run-role"
+                  value={value}
+                  checked={selectedRole === value}
+                  onChange={() => setSelectedRole(value)}
+                  className="size-4 accent-primary"
+                />
+                <span>{t(labelKey)}</span>
+              </label>
+            ))}
+          </fieldset>
+          {roleSaveError && (
+            <p className="mt-4 text-xs leading-5 text-destructive" role="alert">
+              {roleSaveError}
+            </p>
+          )}
+          <div className="mt-6 flex justify-between gap-2">
+            <button
+              type="button"
+              className={secondaryButtonClass}
+              onClick={() => handleFinish(false)}
+              disabled={savingRole}
+            >
+              {t("agentChat.onboarding.skipForNow")}
+            </button>
+            <button
+              type="button"
+              className={primaryButtonClass}
+              onClick={() => void handleRoleContinue()}
+              disabled={!selectedRole || savingRole}
+            >
+              {savingRole
+                ? t("agentChat.common.saving")
+                : t("agentChat.common.continue")}
+              {!savingRole && <IconArrowRight size={15} />}
+            </button>
+          </div>
+        </div>
+      </OnboardingShell>
+    );
+  }
+
+  if (screen === "connecting") {
+    const accountExists = connectFlow.accountExists;
+    const provisioning =
+      builderConnectionMode === "provision" && !accountExists;
+    return (
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
+        <div
+          className="mx-auto flex w-full max-w-md flex-col items-center text-center"
+          role="status"
+          aria-live="polite"
+          aria-busy={connectFlow.connecting}
+        >
+          <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+            {accountExists ? (
+              <IconKey size={19} />
+            ) : (
+              <IconLoader2 className="animate-spin" size={19} />
+            )}
+          </div>
+          <h1 className="mt-5 text-xl font-semibold tracking-[-0.04em]">
+            {accountExists
+              ? t("agentChat.onboarding.builderAccountExistsTitle")
+              : provisioning
+                ? t("agentChat.onboarding.builderActivating")
+                : t("agentChat.onboarding.builderConnecting")}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {accountExists
+              ? t("agentChat.onboarding.builderAccountExistsDescription")
+              : provisioning
+                ? t("agentChat.onboarding.builderProvisioningDescription")
+                : t("agentChat.onboarding.builderConnectionDescription")}
+          </p>
+          {accountExists ? (
+            <button
+              type="button"
+              className={cn(primaryButtonClass, "mt-7 w-full")}
+              onClick={() => handleBuilder(false)}
+              disabled={connectFlow.connecting}
+            >
+              {t("agentChat.auth.logIn")}
+              <IconArrowRight size={15} />
+            </button>
+          ) : (
+            <>
+              <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
+                <div className="flex items-center justify-between gap-3">
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+                <Skeleton className="mt-4 h-8 w-full" />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <Skeleton className="h-7 w-full" />
+                  <Skeleton className="h-7 w-full" />
+                  <Skeleton className="h-7 w-full" />
+                </div>
+              </div>
+              {connectFlow.error && (
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <p className="text-xs text-destructive">
+                    {connectFlow.error}
+                  </p>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={() => setScreen("choice")}
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </OnboardingShell>
@@ -724,7 +1138,12 @@ export function FirstRunOnboarding({
   }
 
   return (
-    <OnboardingShell profile={profile} screen="ready">
+    <OnboardingShell
+      profile={profile}
+      screen="ready"
+      onDismiss={dismissOnboarding}
+      {...completionErrorProps}
+    >
       <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
         <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           <IconCheck size={20} />
@@ -775,18 +1194,12 @@ export function FirstRunOnboarding({
           type="button"
           data-testid="first-run-open-app"
           className={cn(primaryButtonClass, "mt-7")}
-          onClick={handleFinish}
+          onClick={() => void finishOnboarding("ready")}
         >
           Open app
           <IconArrowRight size={15} />
         </button>
       </div>
-      {completeFirstRunError && (
-        <FirstRunCompletionError
-          message={completeFirstRunError}
-          onRetry={finishOnboarding}
-        />
-      )}
     </OnboardingShell>
   );
 }
@@ -795,13 +1208,20 @@ function OnboardingShell({
   profile,
   screen,
   footer,
+  onDismiss,
+  completionError,
+  onRetry,
   children,
 }: {
   profile: OnboardingAppProfile | null;
-  screen: "intro" | "choice" | "tools" | "ready";
+  screen: FirstRunScreen;
   footer?: React.ReactNode;
+  onDismiss?: () => void;
+  completionError?: string | null;
+  onRetry?: () => void;
   children: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <div
       className="fixed inset-0 z-[100] flex h-full min-h-0 flex-col bg-background text-foreground"
@@ -810,6 +1230,17 @@ function OnboardingShell({
       aria-modal="true"
       aria-label={`${profile?.appName ?? "Your app"} setup`}
     >
+      {onDismiss ? (
+        <button
+          type="button"
+          data-testid="first-run-dismiss"
+          aria-label={t("agentChat.common.dismiss")}
+          onClick={onDismiss}
+          className="absolute end-4 top-4 z-10 flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconX size={17} />
+        </button>
+      ) : null}
       <div
         className="h-0.5 shrink-0 bg-muted"
         data-testid="onboarding-progress"
@@ -820,7 +1251,10 @@ function OnboardingShell({
             width:
               screen === "intro"
                 ? "33.33%"
-                : screen === "tools" || screen === "ready"
+                : screen === "tools" ||
+                    screen === "role" ||
+                    screen === "ready" ||
+                    screen === "extension"
                   ? "100%"
                   : "66.66%",
           }}
@@ -839,6 +1273,9 @@ function OnboardingShell({
           {footer}
         </footer>
       )}
+      {completionError && onRetry ? (
+        <FirstRunCompletionError message={completionError} onRetry={onRetry} />
+      ) : null}
     </div>
   );
 }
@@ -861,6 +1298,36 @@ function OnboardingSkeleton() {
   );
 }
 
+type CapabilityTranslator = (
+  key: string,
+  options?: Record<string, unknown>,
+) => string;
+
+type CapabilityCopy = Pick<OnboardingCapability, "required" | "suggested"> & {
+  label: string;
+  keySummary: string;
+  why: string;
+};
+
+function getCapabilityCopy(
+  t: CapabilityTranslator,
+  capability: OnboardingCapability,
+): CapabilityCopy {
+  return {
+    required: capability.required,
+    suggested: capability.suggested,
+    label: capability.labelKey
+      ? t(capability.labelKey, { defaultValue: capability.label })
+      : capability.label,
+    keySummary: capability.keySummaryKey
+      ? t(capability.keySummaryKey, { defaultValue: capability.keySummary })
+      : capability.keySummary,
+    why: capability.whyKey
+      ? t(capability.whyKey, { defaultValue: capability.why })
+      : capability.why,
+  };
+}
+
 function CapabilityList({
   capabilities,
   compact = false,
@@ -870,14 +1337,17 @@ function CapabilityList({
   compact?: boolean;
   className?: string;
 }) {
+  const t = useT();
   const visibleCapabilities = useMemo(() => {
-    if (!compact) return capabilities;
-    const suggested = capabilities.filter((capability) => capability.suggested);
-    const leading = capabilities.filter((capability) => !capability.suggested);
-    return [
-      ...leading.slice(0, Math.max(0, 4 - suggested.length)),
-      ...suggested,
-    ].slice(0, 4);
+    const required = capabilities.filter((capability) => capability.required);
+    const suggested = capabilities.filter(
+      (capability) => !capability.required && capability.suggested,
+    );
+    const optional = capabilities.filter(
+      (capability) => !capability.required && !capability.suggested,
+    );
+    const ordered = [...required, ...suggested, ...optional];
+    return compact ? ordered.slice(0, 4) : ordered;
   }, [capabilities, compact]);
 
   return (
@@ -891,7 +1361,7 @@ function CapabilityList({
         {visibleCapabilities.map((capability) => (
           <CapabilityRow
             key={capability.id}
-            capability={capability}
+            copy={getCapabilityCopy(t, capability)}
             compact={compact}
           />
         ))}
@@ -901,12 +1371,14 @@ function CapabilityList({
 }
 
 function CapabilityRow({
-  capability,
+  copy,
   compact,
 }: {
-  capability: OnboardingCapability;
+  copy: CapabilityCopy;
   compact: boolean;
 }) {
+  const t = useT();
+
   return (
     <div
       className={cn(
@@ -919,40 +1391,39 @@ function CapabilityRow({
           <span
             className={cn("font-medium", compact ? "text-[11px]" : "text-sm")}
           >
-            {capability.label}
+            {copy.label}
           </span>
           <CapabilityInfoButton
-            capability={capability}
-            ariaLabel={`Why ${capability.label} is needed`}
+            why={copy.why}
+            ariaLabel={t("agentChat.onboarding.capability.why", {
+              defaultValue: "Why {{label}} is needed",
+              label: copy.label,
+            })}
           />
         </div>
-        <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-          {capability.keySummary}
+        <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+          {copy.keySummary}
         </p>
       </div>
       <span
         className={cn(
           "shrink-0 text-[10px] uppercase tracking-[0.08em]",
-          capability.required || capability.suggested
+          copy.required || copy.suggested
             ? "text-primary"
             : "text-muted-foreground",
         )}
       >
-        {capability.required
-          ? "Required"
-          : capability.suggested
-            ? "Suggested"
-            : "Optional"}
+        {copy.required ? "Required" : copy.suggested ? "Suggested" : "Optional"}
       </span>
     </div>
   );
 }
 
 function CapabilityInfoButton({
-  capability,
+  why,
   ariaLabel,
 }: {
-  capability: OnboardingCapability;
+  why: string;
   ariaLabel: string;
 }) {
   return (
@@ -969,14 +1440,18 @@ function CapabilityInfoButton({
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs text-xs">
-        {capability.why}
+        {why}
       </TooltipContent>
     </Tooltip>
   );
 }
 
+// `aria-disabled` (not `disabled`) is what BuilderConnectPopover sets while the
+// Builder status is still in flight, so the `disabled:` styles never engage and
+// a pending CTA is pixel-identical to a live one — which is why this class of
+// dead button survives screenshot review.
 const primaryButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-60";
 
 /** Inline failure signal for a failed completeFirstRun() call — keeps the
  *  user on their current screen with a way forward, instead of swapping to
@@ -1004,14 +1479,4 @@ function FirstRunCompletionError({
 }
 
 const secondaryButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-
-function compareUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
-}
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";

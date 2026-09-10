@@ -12,6 +12,7 @@ export {
 
 // YDoc manager
 export {
+  CollabBaseVersionConflictError,
   getDoc,
   applyUpdate,
   applyText,

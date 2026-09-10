@@ -178,8 +178,96 @@ describe("useDeleteForm", () => {
     });
 
     const [, request] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const body = JSON.parse(String(request.body));
+    const body = JSON.parse(
+      typeof request.body === "string"
+        ? request.body
+        : JSON.stringify(request.body),
+    );
     expect(body._meta.pageUrl).toContain("utm_source=newsletter");
     expect(body._meta.pageUrl).toContain("token=%3Credacted%3E");
+  });
+
+  it("uploads selected files before submitting public form data", async () => {
+    const file = new File(["image"], "screen.png", { type: "image/png" });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            url: "https://files.example/screen.png",
+            name: file.name,
+            type: file.type,
+            size: file.size,
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    let mutation: any;
+    function SubmitProbe({ onReady }: { onReady: (value: any) => void }) {
+      onReady(useSubmitForm());
+      return null;
+    }
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <QueryClientProvider client={queryClient}>
+          <SubmitProbe onReady={(value) => (mutation = value)} />
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
+      await mutation.mutateAsync({
+        formId: "form-1",
+        data: { attachments: [file], message: "hello" },
+      });
+    });
+
+    // Match this flow's own requests by URL rather than asserting a global
+    // call count: an unrelated queued request from an earlier test in this file
+    // can land on this stub and made the count assertion flake.
+    const flowCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/form-1"),
+    ) as Array<[string, RequestInit]>;
+    const uploadCalls = flowCalls.filter(([url]) =>
+      url.includes("/api/upload/form-1"),
+    );
+    const submitCalls = flowCalls.filter(([url]) =>
+      url.includes("/api/submit/form-1"),
+    );
+    expect(uploadCalls).toHaveLength(1);
+    expect(submitCalls).toHaveLength(1);
+    const [uploadUrl, uploadRequest] = uploadCalls[0]!;
+    expect(uploadUrl).toContain("/api/upload/form-1");
+    expect(uploadRequest.method).toBe("POST");
+    expect(uploadRequest.body).toBeInstanceOf(FormData);
+    const uploadBody = uploadRequest.body as FormData;
+    expect(uploadBody.get("fieldId")).toBe("attachments");
+    expect((uploadBody.get("file") as File).name).toBe(file.name);
+
+    const [, submitRequest] = submitCalls[0]!;
+    const submitted = JSON.parse(submitRequest.body as string);
+    expect(submitted.data).toMatchObject({
+      attachments: [
+        {
+          url: "https://files.example/screen.png",
+          name: file.name,
+        },
+      ],
+      message: "hello",
+    });
   });
 });

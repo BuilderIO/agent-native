@@ -425,7 +425,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     });
   }
 
-  app.whenReady().then(() => {
+  void app.whenReady().then(() => {
     void checkForAppUpdates();
     let checkRunning = false;
     setInterval(() => {

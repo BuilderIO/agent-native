@@ -45,11 +45,11 @@ export const DEFAULT_AGENT_NATIVE_ROUTE_WARMUP_SELECTOR =
 
 export const DEFAULT_AGENT_NATIVE_ROUTE_WARMUP_CONFIG: AgentNativeRouteWarmupResolvedConfig =
   {
-    strategy: "intent",
+    strategy: "viewport",
     data: true,
     modules: true,
     selector: DEFAULT_AGENT_NATIVE_ROUTE_WARMUP_SELECTOR,
-    maxConcurrent: 4,
+    maxConcurrent: 8,
   };
 
 export function isAgentNativeRouteWarmupStrategy(

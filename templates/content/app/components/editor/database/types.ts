@@ -23,7 +23,7 @@ export type DatabaseFilter = ContentDatabaseFilter;
 export type DatabaseFilterMode = ContentDatabaseFilterMode;
 export type DatabaseColumnCalculation = ContentDatabaseColumnCalculation;
 export type DatabaseRowDensity = ContentDatabaseRowDensity;
-export type ColumnKey = "name" | string;
+export type ColumnKey = "name" | (string & {});
 
 // Column dimension constants (used by views, grid, and table modules).
 export const DEFAULT_NAME_COLUMN_WIDTH = 240;
@@ -122,7 +122,7 @@ export interface DatabaseBoardGroup {
   id: string;
   label: string;
   property: DocumentProperty | null;
-  value: DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE;
+  value: DocumentPropertyValue;
   items: ContentDatabaseItem[];
 }
 

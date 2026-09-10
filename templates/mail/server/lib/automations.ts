@@ -5,10 +5,15 @@ import type { AutomationAction, AutomationRule } from "../../shared/types.js";
 import { db, schema } from "../db/index.js";
 
 export function toApiRule(row: any): AutomationRule {
+  const kind = row.kind ?? "automation";
+  if (kind !== "automation" && kind !== "ai-filter") {
+    throw new Error(`Unknown automation rule kind: ${kind}`);
+  }
   return {
     id: row.id,
     ownerEmail: row.ownerEmail,
     domain: row.domain,
+    kind,
     name: row.name,
     condition: row.condition,
     actions: JSON.parse(row.actions),
@@ -42,6 +47,7 @@ export async function createAutomationRule(
     condition: string;
     actions: AutomationAction[];
     domain?: string;
+    kind?: "automation" | "ai-filter";
     enabled?: boolean;
   },
 ): Promise<AutomationRule> {
@@ -50,6 +56,7 @@ export async function createAutomationRule(
     id: nanoid(12),
     ownerEmail,
     domain: input.domain ?? "mail",
+    kind: input.kind ?? "automation",
     name: input.name,
     condition: input.condition,
     actions: JSON.stringify(input.actions),
@@ -71,6 +78,7 @@ export async function updateAutomationRule(
     actions?: AutomationAction[];
     enabled?: boolean;
     domain?: string;
+    kind?: "automation" | "ai-filter";
   },
 ): Promise<AutomationRule> {
   const updates: Record<string, any> = { updatedAt: Date.now() };
@@ -81,6 +89,7 @@ export async function updateAutomationRule(
   }
   if (patch.enabled !== undefined) updates.enabled = patch.enabled ? 1 : 0;
   if (patch.domain !== undefined) updates.domain = patch.domain;
+  if (patch.kind !== undefined) updates.kind = patch.kind;
 
   await db
     .update(schema.automationRules)

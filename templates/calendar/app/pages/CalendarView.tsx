@@ -7,6 +7,7 @@ import type {
   UpdateEventScope,
 } from "@shared/api";
 import { getWeekStartsOn } from "@shared/calendar-week";
+import { isCalendarEventOrganizer } from "@shared/event-permissions";
 import {
   IconCheck,
   IconChevronLeft,
@@ -75,6 +76,7 @@ import {
   shouldShowEventsSkeleton,
 } from "@/hooks/use-events";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useGoogleCalendars } from "@/hooks/use-google-calendars";
 import { useMeetingStartNotifications } from "@/hooks/use-meeting-start-notifications";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
@@ -82,6 +84,7 @@ import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import {
+  buildAllDayEventDraft,
   buildWorkingLocationDraft,
   resolveDraftWorkingLocation,
 } from "@/lib/calendar-drafts";
@@ -200,14 +203,6 @@ function draftRange(draft: CalendarEventDraft, fallbackDate: Date) {
   const fallback = fallbackDraftRange(fallbackDate);
   const fullDayTimezone = draft.startTimeZone ?? draft.endTimeZone;
   const fullDayDatePattern = /^\d{4}-\d{2}-\d{2}$/;
-  const dateOnlyAllDay =
-    draft.allDay === true &&
-    Boolean(
-      draft.start &&
-      draft.end &&
-      fullDayDatePattern.test(draft.start) &&
-      fullDayDatePattern.test(draft.end),
-    );
   const semanticFullDay =
     draft.eventType === "outOfOffice" &&
     draft.fullDay &&
@@ -216,6 +211,15 @@ function draftRange(draft: CalendarEventDraft, fallbackDate: Date) {
     draft.end &&
     fullDayDatePattern.test(draft.start) &&
     fullDayDatePattern.test(draft.end);
+  const dateOnlyAllDay =
+    draft.allDay === true &&
+    !semanticFullDay &&
+    Boolean(
+      draft.start &&
+      draft.end &&
+      fullDayDatePattern.test(draft.start) &&
+      fullDayDatePattern.test(draft.end),
+    );
   const start = dateOnlyAllDay
     ? dateKeyToDate(draft.start!)
     : semanticFullDay
@@ -334,11 +338,11 @@ function applyDraftPatch(
   copy("location");
   copy("allDay");
   copy("fullDay");
-  if (patch.allDay === true) {
+  copy("eventType");
+  if (patch.allDay === true && next.eventType !== "outOfOffice") {
     delete next.startTimeZone;
     delete next.endTimeZone;
   }
-  copy("eventType");
   copy("outOfOfficeProperties");
   copy("transparency");
   copy("visibility");
@@ -437,6 +441,7 @@ export default function CalendarView() {
 
   const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
+  const googleCalendars = useGoogleCalendars();
   const defaultAccountEmail = googleStatus.data?.accounts?.[0]?.email;
   const settingsQuery = useSettings();
   const { data: settings } = settingsQuery;
@@ -453,6 +458,24 @@ export default function CalendarView() {
     () => overlayPeople.map((p) => p.email),
     [overlayPeople],
   );
+  const enabledGoogleCalendarSourceKeys = useMemo(() => {
+    if (!googleCalendars.enabled || !googleCalendars.data) return undefined;
+    return googleCalendars.data
+      .filter((source) => {
+        if (source.accessRole === "freeBusyReader") {
+          return false;
+        }
+        return (
+          viewPrefs.googleCalendarVisibility[source.canonicalKey] ??
+          (source.primary || source.selected)
+        );
+      })
+      .map((source) => source.sourceKey);
+  }, [
+    googleCalendars.data,
+    googleCalendars.enabled,
+    viewPrefs.googleCalendarVisibility,
+  ]);
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
@@ -549,7 +572,7 @@ export default function CalendarView() {
     isLoading,
     isFetching,
     isPlaceholderData,
-  } = useEvents(from, to, overlayEmails);
+  } = useEvents(from, to, overlayEmails, enabledGoogleCalendarSourceKeys);
   const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
   const draftEvent = useMemo(
     () => (eventDraft ? draftToCalendarEvent(eventDraft, selectedDate) : null),
@@ -617,10 +640,17 @@ export default function CalendarView() {
       }
     })();
     for (const range of ranges) {
-      void prefetchEvents(queryClient, range.from, range.to, overlayEmails);
+      void prefetchEvents(
+        queryClient,
+        range.from,
+        range.to,
+        overlayEmails,
+        enabledGoogleCalendarSourceKeys,
+      );
     }
   }, [
     displayTimezone,
+    enabledGoogleCalendarSourceKeys,
     isLoading,
     overlayEmails,
     queryClient,
@@ -679,13 +709,13 @@ export default function CalendarView() {
         // Hide events from hidden people overlays
         if (e.overlayEmail && hiddenCalendars.people.includes(e.overlayEmail))
           return false;
-        // Hide events from hidden Google accounts
         if (
-          e.accountEmail &&
-          !e.overlayEmail &&
-          hiddenCalendars.accounts.includes(e.accountEmail)
-        )
+          e.source === "google" &&
+          e.canonicalKey &&
+          viewPrefs.googleCalendarVisibility[e.canonicalKey] === false
+        ) {
           return false;
+        }
         // Hide events from hidden external calendars
         if (e.source === "ical") {
           const hiddenMatch = hiddenCalendars.external.some((calId) =>
@@ -695,7 +725,14 @@ export default function CalendarView() {
         }
         return true;
       });
-  }, [rawEvents, draftEvent, overlayPeople, hiddenCalendars, quickEditTempIds]);
+  }, [
+    rawEvents,
+    draftEvent,
+    overlayPeople,
+    hiddenCalendars,
+    quickEditTempIds,
+    viewPrefs.googleCalendarVisibility,
+  ]);
 
   // Filter events for day view — use overlap check so multi-day continuation
   // events (started on a prior day) still appear on the selected day.
@@ -859,10 +896,11 @@ export default function CalendarView() {
             ? draft.start!
             : start.toISOString(),
         end: semanticFullDay || dateOnlyAllDay ? draft.end! : end.toISOString(),
-        startTimeZone: draft.allDay ? undefined : timezone,
-        endTimeZone: draft.allDay
-          ? undefined
-          : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
+        startTimeZone: draft.allDay && !semanticFullDay ? undefined : timezone,
+        endTimeZone:
+          draft.allDay && !semanticFullDay
+            ? undefined
+            : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
         location: eventType === "outOfOffice" ? "" : location,
         accountEmail,
         allDay: draft.allDay ?? false,
@@ -1082,10 +1120,8 @@ export default function CalendarView() {
         notificationMessage?: string;
       },
     ) => {
-      const isOrganizer =
-        ev.organizer?.self ||
-        ev.attendees?.find((a) => a.self)?.organizer ||
-        !ev.attendees?.length;
+      if (ev.calendarPrimary === false || ev.calendarReadOnly) return;
+      const isOrganizer = isCalendarEventOrganizer(ev);
       const hasOtherAttendees =
         ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
       const removeOnly = !isOrganizer && !!hasOtherAttendees;
@@ -1161,17 +1197,15 @@ export default function CalendarView() {
 
   const handleDeleteEvent = useCallback(
     (eventId: string) => {
+      if (deleteEvent.isPending) return;
       if (calendarDraftIdFromEventId(eventId)) {
         discardDraftEvent(eventId);
         return;
       }
       const ev = events.find((e) => e.id === eventId);
-      if (!ev) return;
+      if (!ev || ev.calendarPrimary === false || ev.calendarReadOnly) return;
       const isRecurring = !!(ev.recurringEventId || ev.recurrence?.length);
-      const isOrganizer =
-        ev.organizer?.self ||
-        ev.attendees?.find((a) => a.self)?.organizer ||
-        !ev.attendees?.length;
+      const isOrganizer = isCalendarEventOrganizer(ev);
       const hasOtherAttendees =
         ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
       const removeOnly = !isOrganizer && !!hasOtherAttendees;
@@ -1181,13 +1215,20 @@ export default function CalendarView() {
         void handleDirectDelete(ev);
       }
     },
-    [discardDraftEvent, events, handleDirectDelete],
+    [deleteEvent.isPending, discardDraftEvent, events, handleDirectDelete],
   );
 
   // Move event to a new date (drag-and-drop from MonthView)
   async function handleEventDrop(eventId: string, newDate: Date) {
     const event = events.find((e) => e.id === eventId);
-    if (!event) return;
+    if (
+      !event ||
+      event.calendarPrimary === false ||
+      event.calendarReadOnly ||
+      !isCalendarEventOrganizer(event) ||
+      updateEvent.isPending
+    )
+      return;
 
     const moved = moveEventToCalendarDate(event, newDate, displayTimezone);
     if (!moved) return;
@@ -1259,7 +1300,14 @@ export default function CalendarView() {
     async (eventId: string, newStart: Date, newEnd: Date) => {
       // Skip no-op drags (dropped back in same spot)
       const event = events.find((e) => e.id === eventId);
-      if (!event) return;
+      if (
+        !event ||
+        event.calendarPrimary === false ||
+        event.calendarReadOnly ||
+        !isCalendarEventOrganizer(event) ||
+        updateEvent.isPending
+      )
+        return;
 
       // Guard against a zero/negative duration reaching the server —
       // gesture math should already prevent this, but never commit it.
@@ -1340,7 +1388,6 @@ export default function CalendarView() {
     [
       displayTimezone,
       events,
-      displayTimezone,
       updateDraftEvent,
       promptGuestNotification,
       updateEvent,
@@ -1353,7 +1400,7 @@ export default function CalendarView() {
       clickedDate: Date,
       startTime: string,
       endTime: string,
-      options?: { explicitDuration?: boolean },
+      options?: { allDay?: boolean; explicitDuration?: boolean },
     ) => {
       let activeSettings = settings;
       if (!activeSettings) {
@@ -1371,10 +1418,29 @@ export default function CalendarView() {
         activeSettings.defaultEventDuration ?? 30,
       );
       const timezone = activeSettings.timezone;
-      setCreateDefaultStart(startTime);
+      const dateStr = dateToCalendarDateKey(clickedDate);
+      const now = new Date().toISOString();
+      const draftId = `slot-${Date.now()}`;
       setCreateDialogOpen(false);
 
-      const dateStr = dateToCalendarDateKey(clickedDate);
+      if (options?.allDay) {
+        setCreateDefaultStart(undefined);
+        setCreateDefaultEnd(undefined);
+        const draft = buildAllDayEventDraft({
+          id: draftId,
+          date: clickedDate,
+          accountEmail: defaultAccountEmail,
+          now,
+        });
+
+        persistCalendarDraft(draft);
+        setEventDraft(draft);
+        setQuickEditEventId(calendarDraftEventId(draftId));
+        return;
+      }
+
+      setCreateDefaultStart(startTime);
+
       // A drag-to-create gesture already computed the exact dragged range;
       // a plain click falls back to the user's configured default duration.
       const end = options?.explicitDuration
@@ -1383,8 +1449,6 @@ export default function CalendarView() {
       setCreateDefaultEnd(end.time);
       const startISO = dateTimeInTimezoneToIso(dateStr, startTime, timezone);
       const endISO = dateTimeInTimezoneToIso(end.date, end.time, timezone);
-      const now = new Date().toISOString();
-      const draftId = `slot-${Date.now()}`;
       const draft: CalendarEventDraft = {
         id: draftId,
         title: "",
@@ -2167,7 +2231,7 @@ function AccountAvatars() {
             {accounts.map((account, i) => (
               <div
                 key={account.email}
-                className={cn("relative rounded-full ring-2 ring-card")}
+                className={cn("relative rounded-full ring-1 ring-card")}
                 style={{
                   marginLeft: i === 0 ? 0 : -8,
                   zIndex: accounts.length - i,

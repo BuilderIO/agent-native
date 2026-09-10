@@ -68,19 +68,16 @@ const CATALOG_MESSAGES = {
 
 function render(props: Partial<Parameters<typeof MotionDock>[0]>): string {
   return renderToStaticMarkup(
-    createElement(AgentNativeI18nProvider, {
-      catalog: { messages: CATALOG_MESSAGES },
-      children: createElement(
-        TooltipProvider,
-        null,
-        createElement(MotionDock, {
+    <AgentNativeI18nProvider catalog={{ messages: CATALOG_MESSAGES }}>
+      <TooltipProvider>
+        {createElement(MotionDock, {
           tracks: [],
           durationMs: 2000,
           open: true,
           ...props,
-        }),
-      ),
-    }),
+        })}
+      </TooltipProvider>
+    </AgentNativeI18nProvider>,
   );
 }
 

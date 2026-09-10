@@ -44,12 +44,18 @@ const messages = {
       noMatches: "Nenhum resultado",
       localResults: "Nesta caixa de entrada",
       searchingGmail: "Pesquisando no Gmail...",
+      saveAsTab: "Salvar como aba",
+      saveAsTabPrompt: "Nomeie esta aba",
+      saveAsTabFailed: "Não foi possível salvar esta aba. Tente novamente.",
+      filtersLimitReached: "Você pode salvar até 20 filtros.",
     },
     tabSettings: {
       views: "Visualizações",
       categories: "Categorias",
       rename: "Renomear",
       renameTab: "Renomear aba",
+      savedFilters: "Filtros salvos",
+      combinedInbox: "Caixa de entrada combinada",
       help: "Itens marcados aparecem como abas. Emails com marcador ficam separados da caixa de entrada.",
     },
     accounts: {
@@ -381,6 +387,63 @@ const messages = {
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
+    aiFilter: {
+      title: "Filtro de IA",
+      subtitle: "Uma etiqueta reversível que aprende com suas decisões.",
+      lunaBadge: "Luna quando disponível",
+      toggle: "Ativar filtro de IA",
+      autoFilterTitle: "Filtrar automaticamente com alta confiança",
+      autoFilterDescription:
+        "Mova apenas correspondências claras para fora da Caixa de entrada; revise o restante aqui.",
+      autoFilterToggle: "Filtrar automaticamente mensagens de alta confiança",
+      thresholdLabel: "Limite de confiança do filtro automático",
+      labelName: "Etiqueta do Gmail",
+      labelHelp:
+        "agent-native-filtered continua visível no Gmail e em outros clientes. Não é o Spam do Gmail.",
+      reviewLabel: "Revisar filtrados",
+      instructionsTitle: "Instruções",
+      instructionCount: "{{count}} instrução(ões)",
+      instructionPlaceholder:
+        "ex. Assuntos como “question for you, Steve” são indesejados",
+      addInstruction: "Adicionar",
+      noInstructions: "Nenhuma instrução ainda.",
+      instructionExample:
+        "Experimente “todos os emails de campanhas políticas são indesejados”.",
+      toggleInstruction: "Ativar instrução: {{instruction}}",
+      deleteInstruction: "Excluir instrução",
+      activityTitle: "Atividade recente",
+      suggestionCount: "{{count}} para revisar",
+      viewAll: "Ver tudo",
+      noActivity: "Ainda não há atividade do filtro de IA.",
+      unknownSender: "Remetente desconhecido",
+      noSubject: "(sem assunto)",
+      filterTitle: "Filtrar com IA",
+      keepTitle: "Manter na Caixa de entrada",
+      filterDescription:
+        "Isso arquiva {{count}} conversa(s) e adiciona a etiqueta agent-native-filtered.",
+      keepDescription:
+        "Isso restaura {{count}} conversa(s) à Caixa de entrada e ensina o filtro.",
+      labelNote:
+        "Adiciona a etiqueta agent-native-filtered e arquiva a conversa. Você pode desfazer a qualquer momento.",
+      learningNote:
+        "Mantém a mensagem na Caixa de entrada e ensina o filtro a não repetir o erro.",
+      rememberLabel: "Lembrar para emails futuros (opcional)",
+      correctLabel: "O que ele deve aprender? (opcional)",
+      rememberPlaceholder:
+        "ex. Mensagens semelhantes de campanhas políticas são indesejadas",
+      correctPlaceholder:
+        "ex. Este remetente é um cliente; manter futuras mensagens na Caixa de entrada",
+      commentHint:
+        "Sua nota vira uma regra editável ou um exemplo de aprendizado.",
+      filterButton: "Filtrar",
+      keepButton: "Manter",
+      filteredToast: "{{count}} conversa(s) filtrada(s).",
+      keptToast: "{{count}} conversa(s) mantida(s) na Caixa de entrada.",
+      actionFailed: "Não foi possível atualizar o filtro de IA.",
+      settingsFailed:
+        "Não foi possível salvar as configurações do filtro de IA.",
+      instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
+    },
     draftQueue: {
       title: "Cola de borradores",
       queueDraft: "Poner borrador en cola",
@@ -566,6 +629,7 @@ const messages = {
     deleteSnippetDescription:
       'Excluir o trecho "{{name}}"? Isso nao pode ser desfeito.',
     automations: "Automacoes",
+    aiFilter: "Filtro de IA",
     gmailFilters: "Filtros do Gmail",
     aliases: "Aliases",
     tracking: "Rastreamento",

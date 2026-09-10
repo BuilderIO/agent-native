@@ -307,7 +307,7 @@ export function useNavigationState(enabled = true) {
       if (cmd.view === "present" && cmd.designId)
         return `/present/${cmd.designId}`;
       if (cmd.view === "settings") return "/settings";
-      return "/";
+      return "/home";
     },
     onNavigate: (cmd, path) => {
       const command = editorCommandFromNavigate(cmd, path);

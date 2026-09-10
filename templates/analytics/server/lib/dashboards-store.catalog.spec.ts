@@ -23,10 +23,6 @@ function column(name: string) {
   return { name };
 }
 
-vi.mock("@agent-native/core/db", () => ({
-  isPostgres: () => false,
-}));
-
 vi.mock("@agent-native/core/server", () => ({
   recordChange: () => undefined,
 }));
@@ -179,8 +175,8 @@ describe("loadDashboardCatalogDashboards", () => {
     expect(state.projection).not.toHaveProperty("visibility");
     expect(state.projection).toHaveProperty("id");
     expect(state.projection).toHaveProperty("title");
-    expect(state.projection).toHaveProperty("description");
     expect(state.projection).toHaveProperty("config");
+    expect(state.projection).toHaveProperty("updatedAt");
     expect(state.getAllSettings).not.toHaveBeenCalled();
     expect(state.getOrgSetting.mock.calls.map((call) => call[1])).toContain(
       "sql-dashboard-legacy-org",
@@ -223,5 +219,32 @@ describe("loadDashboardCatalogDashboards", () => {
         },
       },
     ]);
+  });
+
+  it("normalizes persisted SQL panels before catalog hydration", async () => {
+    state.rows = [
+      {
+        id: "saved",
+        kind: "sql",
+        title: "Saved dashboard",
+        config: JSON.stringify({
+          name: "Saved dashboard",
+          panels: [
+            {
+              id: "section",
+              chartType: "section",
+              config: { columns: 3 },
+            },
+          ],
+        }),
+      },
+    ];
+
+    const result = await loadDashboardCatalogDashboards(ctx, ["saved"]);
+
+    expect(result[0]?.config).toEqual({
+      name: "Saved dashboard",
+      panels: [{ id: "section", chartType: "section", columns: 3 }],
+    });
   });
 });

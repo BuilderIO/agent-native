@@ -150,13 +150,23 @@ export function normalizeUsageAppKey(value: string): string {
 function appKeys(value: string): string[] {
   const raw = value.trim().toLowerCase();
   const normalized = normalizeUsageAppKey(value);
-  return [...new Set([raw, normalized, `agent-native-${normalized}`])].filter(
-    Boolean,
-  );
+  return [...new Set([raw, normalized, `agent-native-${normalized}`])];
 }
 
 export function usageAppScope(app: string): QueryScope {
-  const keys = appKeys(app);
+  const configured = getAppConfig().app;
+  const configuredKeys = [configured.id, configured.legacyId, configured.name]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => value.trim());
+  const requested = app.trim().toLowerCase();
+  const matchesConfiguredIdentity = configuredKeys.some(
+    (value) => value.toLowerCase() === requested,
+  );
+  const keys = [
+    ...new Set(
+      (matchesConfiguredIdentity ? configuredKeys : [app]).flatMap(appKeys),
+    ),
+  ];
   return {
     where: `LOWER(COALESCE(app, '')) IN (${keys.map(() => "?").join(", ")})`,
     args: keys,
@@ -165,7 +175,9 @@ export function usageAppScope(app: string): QueryScope {
 
 async function listOrgMembers(orgId: string): Promise<MemberRecord[]> {
   const result = await getDbExec().execute({
-    sql: `SELECT email, role FROM org_members WHERE org_id = ? ORDER BY LOWER(email) ASC`,
+    sql: `SELECT email, role FROM org_members
+          WHERE org_id = ? AND federation_removal_pending_at IS NULL
+          ORDER BY LOWER(email) ASC`,
     args: [orgId],
   });
   return (result.rows as Array<Record<string, unknown>>)
@@ -182,7 +194,10 @@ async function getOrgRole(
 ): Promise<string | null> {
   if (!orgId) return null;
   const result = await getDbExec().execute({
-    sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [orgId, ownerEmail],
   });
   const role = result.rows[0]?.role;
@@ -450,9 +465,10 @@ export async function listAppUsageMetrics(
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const now = Date.now();
   const sinceMs = now - sinceDays * DAY_MS;
-  const app = accessInput.app.trim() || "this app";
-  const appKey = normalizeUsageAppKey(app);
-  const appScope = usageAppScope(app);
+  const appId = accessInput.app.trim();
+  const app = appId || "this app";
+  const appKey = normalizeUsageAppKey(appId);
+  const appScope = usageAppScope(appId);
   const resolved = await resolveScope(accessInput, scope, input.userEmail);
 
   const baseArgs = [...appScope.args, ...resolved.ownerScope.args, sinceMs];

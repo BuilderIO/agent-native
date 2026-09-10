@@ -126,6 +126,13 @@ describe("forms db.ts migration entries follow the naming convention", () => {
       .map((e) => e.version);
     expect(missingNames).toEqual([]);
   });
+
+  it("keeps the response-delivery migration name stable", () => {
+    expect(entries).toContainEqual({
+      version: 15,
+      name: "response-delivery-snapshots",
+    });
+  });
 });
 
 /**

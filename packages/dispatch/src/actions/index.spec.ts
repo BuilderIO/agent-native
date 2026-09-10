@@ -17,6 +17,7 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty(
       "create-workspace-app-embed-session",
     );
+    expect(dispatchActions).toHaveProperty("list-workspace-connections");
     expect(dispatchActions).toHaveProperty("read-slack-thread-context");
     expect(dispatchActions).toHaveProperty("list-dispatch-usage-metrics");
     expect(dispatchActions).toHaveProperty(
@@ -72,5 +73,6 @@ describe("dispatch action registry", () => {
     expect(action.tool.description).toContain(
       "workspaceAppCreationsByUserMonth",
     );
+    expect(action.tool.description).toContain("app adoption metrics");
   });
 });

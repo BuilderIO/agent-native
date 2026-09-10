@@ -124,6 +124,28 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
             "`agentTool`을 물려받습니다. false로 설정하면 MCP와 A2A를 통한 외부 에이전트에서 숨겨지고, true로 설정하면 엄선된 카탈로그 소속임을 선언합니다. 액세스 및 권한 부여를 참고하세요.",
         },
         {
+          name: "endsTurn",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "성공한 호출이 사용자에게 제어를 넘길 때(질문 폼, 인테이크 대화상자) true로 설정하고, 해당 턴의 첫 번째 또는 유일한 호출로 만드세요. mcpTool: true가 아닌 한 MCP, WebMCP, A2A에서 숨겨집니다 — 외부 호출자는 앱 내 답변을 받을 수 없기 때문입니다. 외부 에이전트를 참고하세요.",
+        },
+        {
+          name: "link",
+          type: "(result) => { url, label }",
+          optional: true,
+          description:
+            "MCP 호스트와 데스크톱 앱이 읽는 순수하고 동기적인 딥 링크 빌더입니다. 다른 표면들을 참고하세요.",
+        },
+        {
+          name: "mcpApp",
+          type: "object",
+          optional: true,
+          description:
+            "MCP-App 호스트 안에 실제 앱 경로를 인라인으로 임베드합니다. 다른 표면들을 참고하세요.",
+        },
+        {
           name: "deferLoading",
           type: "boolean",
           optional: true,
@@ -194,6 +216,8 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
 
 이 schema는 두 가지 역할을 합니다. Claude API 도구 정의를 위해 JSON Schema로 변환되고, `run()`이 실행되기 전에 런타임에 입력을 검증합니다. 유효하지 않은 입력은 여러분의 핸들러에 도달하지 않습니다.
 
+enum 값과 기본값은 `.describe()`에 명시하고, 도구 패밀리 전체에서 기본 id 이름을 동일하게 유지하며(`id`/`deckId`처럼 섞지 말고 `id`로 통일), 간결 카탈로그에서 도구를 호출하기에 충분하도록 한 줄 설명을 작성하세요 — 모든 앱에 포함된 `actions` 스킬에 체크리스트가 있습니다.
+
 ## 반환값 검증하기 {#output-schema}
 
 `schema`는 _입력값_ 을 검증합니다. action이 **반환하는** 값도 검증하려면 `outputSchema`(Zod, Valibot, ArkType 등 `schema`와 동일하게 Standard Schema 호환 schema라면 무엇이든)를 전달하세요. 프레임워크는 `run()` 전에 입력을 검증하고, `run()`이 완료되면 결과를 검증합니다.
@@ -222,6 +246,10 @@ export default defineAction({
 | `"fallback"` | 유효하지 않은 결과 대신 제공된 `outputFallback` 값을 반환합니다.                                           |
 
 `run()`이 성공하면 프레임워크는 검증된 값을 반환하므로, `outputSchema`의 기본값이나 형 변환이 입력값과 마찬가지로 적용됩니다. `outputSchema`를 전달하지 않으면 반환값은 그대로 유지됩니다.
+
+## 결과 계약 {#result-contracts}
+
+create나 update의 결과는 호출자 외에도 읽힙니다. `id`(`link`가 편집 뷰로의 딥 링크를 만들 수 있도록), 한 줄짜리 `message`, 그리고 — 그 작업이 에이전트가 계속 진행해야 할 흐름의 한 단계일 때는 — 다음 도구 이름을 담은 `nextRequiredAction`을 반환하세요. 사용자를 기다리는 것처럼 표현하지 마세요. MCP/WebMCP/A2A 호출자는 앱 내 답변을 받을 수 없습니다. 큰 결과가 잘리더라도 에이전트 루프는 연속 프롬프트에 `nextRequiredAction`을 유지하며, MCP 호출자에게는 `Next: …`로 보입니다.
 
 ## HTTP 설정 {#http}
 

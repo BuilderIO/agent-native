@@ -15,8 +15,18 @@ import {
 } from "./_database-row-mutation.js";
 
 const schema = databaseMutationEnvelopeSchema.extend({
-  itemId: z.string().min(1).describe("Exact database membership row ID"),
-  documentId: z.string().min(1).describe("Exact row page ID"),
+  itemId: z
+    .string()
+    .min(1)
+    .describe(
+      "Exact database membership row ID from the selected item's id in a fresh get-content-database read; never use the row page document ID here",
+    ),
+  documentId: z
+    .string()
+    .min(1)
+    .describe(
+      "Exact row page ID from the selected item's document.id in a fresh get-content-database read; this is distinct from itemId",
+    ),
   expectedRowRevision: z
     .string()
     .min(1)
@@ -28,12 +38,15 @@ const schema = databaseMutationEnvelopeSchema.extend({
   ),
 });
 const agentSchema = schema
-  .extend({ target: databaseMutationAgentTargetSchema })
-  .omit({ propertyValues: true });
+  .extend({ target: databaseMutationAgentTargetSchema.strict() })
+  .omit({ propertyValues: true })
+  .strict();
 
 export default defineAction({
   description:
-    "Sparsely update one exact Content database row by stable item and document IDs. Requires schema and row revisions, validates every non-Blocks property, and returns a verified idempotent receipt.",
+    "Sparsely update one exact Content database row using identifiers and revisions copied from a fresh get-content-database read: item.id is the membership itemId, document.id is the distinct page documentId, and rowRevision is expectedRowRevision. Requires the fresh schema revision, preserves omitted properties, validates every provided non-Blocks property, and returns a verified idempotent receipt.",
+  mcpTool: true,
+  mcpApp: { structuredContent: true },
   agentInputSchema: agentSchema,
   schema,
   http: { method: "PUT" },
@@ -52,16 +65,23 @@ export default defineAction({
         : "Updated Content database row";
     },
   },
-  run: (args) => updateDatabaseRow(canonicalizeDatabasePropertyInput(args)),
+  run: (args, context) => {
+    if (context?.caller === "mcp") agentSchema.parse(args);
+    return updateDatabaseRow(canonicalizeDatabasePropertyInput(args));
+  },
   link: ({ result }) => {
-    const documentId = (result as ContentDatabaseRowMutationResult | null)
-      ?.receipt.row.documentId;
-    if (!documentId) return null;
+    const receipt = (result as ContentDatabaseRowMutationResult | null)
+      ?.receipt;
+    if (!receipt) return null;
     return {
       url: buildDeepLink({
         app: "content",
         view: "editor",
-        params: { documentId },
+        params: {
+          documentId: receipt.row.documentId,
+          databaseId: receipt.target.databaseId,
+          databaseDocumentId: receipt.target.databaseDocumentId,
+        },
       }),
       label: "Open database row",
       view: "editor",

@@ -4,6 +4,8 @@ import {
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
+import type { EmailMessage, Label } from "@shared/types.js";
 /**
  * Shared server functions for email state-change operations.
  *
@@ -12,7 +14,6 @@ import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
  * superset of behaviour from the two prior implementations — see reconciliation
  * notes inline.
  */
-import type { EmailMessage, Label } from "@shared/types.js";
 
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import {
@@ -132,8 +133,12 @@ function recomputeUnreadCounts(
   labels: Label[],
 ): Label[] {
   return labels.map((label) => {
+    const inboxScoped = label.id === "inbox" || isInboxScopedAppLabel(label.id);
     const active = emails.filter(
-      (e) => !e.isArchived && !e.isTrashed && e.labelIds.includes(label.id),
+      (e) =>
+        !e.isTrashed &&
+        (!inboxScoped || !e.isArchived) &&
+        e.labelIds.includes(label.id),
     );
     return {
       ...label,

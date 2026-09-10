@@ -46,6 +46,7 @@ export const triageDecisionOutcomeSchema = z.enum([
   "needs_manual",
   "propose_fix",
   "propose_review",
+  "auto_approval_claimed",
   "auto_approve",
   "auto_merge",
 ]);

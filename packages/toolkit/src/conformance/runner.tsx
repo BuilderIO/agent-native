@@ -1,10 +1,4 @@
-import {
-  createElement,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 
@@ -23,12 +17,18 @@ interface MountedProbe {
   root: Root;
 }
 
+type ConformanceComponents = {
+  [Name in keyof DesignSystemComponents]: OmitThisParameter<
+    DesignSystemComponents[Name]
+  >;
+};
+
 interface CheckContext {
-  components: DesignSystemComponents;
+  components: ConformanceComponents;
   document: Document;
-  mount(element: ReactElement): MountedProbe;
-  unmount(probe: MountedProbe): void;
-  settle(): Promise<void>;
+  mount(this: void, element: ReactElement): MountedProbe;
+  unmount(this: void, probe: MountedProbe): void;
+  settle(this: void): Promise<void>;
 }
 
 interface ConformanceCheck {
@@ -221,7 +221,9 @@ const checks: readonly ConformanceCheck[] = [
     id: "leaf.action-button",
     category: "leaf",
     components: ["ActionButton"],
-    run: ({ components, document, mount, unmount }) => {
+    run: (context) => {
+      const { document, mount, unmount } = context;
+      const components = context.components;
       let presses = 0;
       const probe = mount(
         <components.ActionButton
@@ -244,7 +246,9 @@ const checks: readonly ConformanceCheck[] = [
     id: "leaf.icon-button",
     category: "leaf",
     components: ["IconButton"],
-    run: ({ components, document, mount, unmount }) => {
+    run: (context) => {
+      const { document, mount, unmount } = context;
+      const components = context.components;
       let presses = 0;
       const probe = mount(
         <components.IconButton
@@ -269,7 +273,9 @@ const checks: readonly ConformanceCheck[] = [
     id: "leaf.text-field",
     category: "leaf",
     components: ["TextField"],
-    run: ({ components, mount, unmount }) => {
+    run: (context) => {
+      const { mount, unmount } = context;
+      const components = context.components;
       let value = "";
       const probe = mount(
         <components.TextField
@@ -289,7 +295,9 @@ const checks: readonly ConformanceCheck[] = [
     id: "leaf.text-area",
     category: "leaf",
     components: ["TextArea"],
-    run: ({ components, mount, unmount }) => {
+    run: (context) => {
+      const { mount, unmount } = context;
+      const components = context.components;
       let value = "";
       const probe = mount(
         <components.TextArea
@@ -309,7 +317,9 @@ const checks: readonly ConformanceCheck[] = [
     id: "leaf.progress-and-placeholder",
     category: "leaf",
     components: ["Spinner", "Skeleton"],
-    run: ({ components, mount, unmount }) => {
+    run: (context) => {
+      const { mount, unmount } = context;
+      const components = context.components;
       const probe = mount(
         <>
           <components.Spinner label="Loading records" size="compact" />
@@ -855,8 +865,5 @@ export async function assertDesignSystemConformance(
 export function renderDesignSystemConformanceFixture(
   components: DesignSystemComponents,
 ): ReactNode {
-  return createElement(components.Status, {
-    tone: "info",
-    children: "Adapter loaded",
-  });
+  return <components.Status tone="info">Adapter loaded</components.Status>;
 }

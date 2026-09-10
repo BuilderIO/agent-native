@@ -3,12 +3,11 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
@@ -149,7 +148,7 @@ function BrainChatsSection({ open }: { open: boolean }) {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(navigate, "/home");
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -234,7 +233,7 @@ export function Sidebar({
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const isAskRoute = location.pathname === "/";
+  const isAskRoute = location.pathname === "/home";
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
     : IconLayoutSidebarLeftCollapse;
@@ -309,7 +308,7 @@ export function Sidebar({
         )}
       >
         <Link
-          to="/"
+          to="/home"
           onClick={(event) => {
             if (
               !collapsible ||
@@ -339,21 +338,9 @@ export function Sidebar({
                 : undefined
           }
         >
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
+          <AgentNativeIcon
             aria-hidden="true"
-            width={28}
-            height={16}
-            className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            width={28}
-            height={16}
-            className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+            className="h-3.5 w-6 shrink-0 text-sidebar-accent-foreground"
           />
           <div className={cn("min-w-0", collapsed && "sr-only")}>
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
@@ -384,7 +371,7 @@ export function Sidebar({
             const link = (
               <NavLink
                 to={item.href}
-                end={item.href === "/"}
+                end={item.href === "/home"}
                 onClick={(event) => {
                   if (
                     item.view === "ask" &&
@@ -395,7 +382,7 @@ export function Sidebar({
                     !event.altKey
                   ) {
                     event.preventDefault();
-                    navigateWithAgentChatViewTransition(navigate, "/");
+                    navigateWithAgentChatViewTransition(navigate, "/home");
                   }
                 }}
                 className={navClass}
@@ -458,13 +445,13 @@ export function Sidebar({
 
       <div className="mt-auto shrink-0">
         {!collapsed ? (
-          <div className="px-3 py-2">
+          <div className="px-3 py-2 empty:hidden">
             <OrgSwitcher />
           </div>
         ) : null}
 
         {!collapsed ? (
-          <div className="px-3 py-2">
+          <div className="px-3 py-2 empty:hidden">
             <DevDatabaseLink />
           </div>
         ) : null}

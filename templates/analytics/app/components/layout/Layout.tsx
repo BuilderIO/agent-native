@@ -8,6 +8,9 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
   useGuidedQuestionFlow,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
@@ -65,6 +68,60 @@ function InteractiveLayout({ children }: LayoutProps) {
     }
     return null;
   }, [location.pathname]);
+  const analyticsChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!analyticsScope) return undefined;
+    if (analyticsScope.type === "dashboard") {
+      const dashboardId = analyticsScope.id;
+      return {
+        list: {
+          action: "list-dashboard-revisions",
+          args: { dashboardId },
+          getVersions: (result: unknown) => {
+            const revisions =
+              result && typeof result === "object"
+                ? (result as { revisions?: unknown }).revisions
+                : undefined;
+            return Array.isArray(revisions)
+              ? revisions.filter(isAssistantChatHistoryVersion)
+              : [];
+          },
+        },
+        restore: {
+          action: "restore-dashboard-revision",
+          args: (version: AssistantChatHistoryVersion) => ({
+            dashboardId,
+            revisionId: version.id,
+          }),
+        },
+      };
+    }
+
+    const analysisId = analyticsScope.id;
+    return {
+      list: {
+        action: "list-analysis-revisions",
+        args: { analysisId },
+        getVersions: (result: unknown) => {
+          const revisions =
+            result && typeof result === "object"
+              ? (result as { revisions?: unknown }).revisions
+              : undefined;
+          return Array.isArray(revisions)
+            ? revisions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-analysis-revision",
+        args: (version: AssistantChatHistoryVersion) => ({
+          analysisId,
+          revisionId: version.id,
+        }),
+      },
+    };
+  }, [analyticsScope]);
 
   const {
     questions: guidedQuestions,
@@ -213,6 +270,7 @@ function InteractiveLayout({ children }: LayoutProps) {
                 t("chat.suggestionMrr"),
               ]}
               scope={analyticsScope}
+              chatHistory={analyticsChatHistory}
               composerSlot={<CreativeContextComposerChip />}
             >
               {contentFrame}

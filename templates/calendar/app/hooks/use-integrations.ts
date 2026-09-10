@@ -41,8 +41,8 @@ function useIntegrationConnect(provider: Provider) {
       if (!res.ok) throw new Error(`${res.status}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["integration-status", provider] });
-      qc.invalidateQueries({ queryKey: ["integration-data", provider] });
+      void qc.invalidateQueries({ queryKey: ["integration-status", provider] });
+      void qc.invalidateQueries({ queryKey: ["integration-data", provider] });
     },
   });
 }
@@ -56,8 +56,8 @@ function useIntegrationDisconnect(provider: Provider) {
       });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["integration-status", provider] });
-      qc.invalidateQueries({ queryKey: ["integration-data", provider] });
+      void qc.invalidateQueries({ queryKey: ["integration-status", provider] });
+      void qc.invalidateQueries({ queryKey: ["integration-data", provider] });
     },
   });
 }
