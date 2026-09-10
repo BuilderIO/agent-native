@@ -51,11 +51,11 @@ external side effects.
 
 ## Required GitHub secrets
 
-| Secret               | Where to get it                               |
-| -------------------- | --------------------------------------------- |
-| `NEON_API_KEY`       | Neon dashboard → Account → API Keys           |
-| `NETLIFY_AUTH_TOKEN` | Netlify User Settings → Personal Access Token |
-| `NETLIFY_ACCOUNT_ID` | Netlify team settings → Team ID               |
+| Secret                                    | Where to get it                                                                                  |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `NEON_API_KEY`                            | Neon dashboard → Account → API Keys                                                              |
+| `NETLIFY_AUTH_TOKEN`                      | Netlify User Settings → Personal Access Token                                                    |
+| `NETLIFY_ACCOUNT_ID`                      | Netlify team settings → Team ID                                                                  |
 | `NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>` | Matching production `templates/<template>/.env` URL; `CHAT` uses the production Netlify database |
 
 ## Restoring production env vars
