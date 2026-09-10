@@ -28,6 +28,8 @@ const messages = {
     newChat: "新建聊天",
     optionsFor: "選項：",
     pinChat: "置頂聊天",
+    pinned: "已置頂",
+    recents: "最近",
     renameChat: "重新命名聊天",
     renameFailed: "重新命名失敗",
     renameThread: "重新命名對話",
@@ -35,6 +37,7 @@ const messages = {
     suggestionCapabilities: "這個應用能做什麼？",
     suggestionCustomize: "幫我自訂此應用",
     unpinChat: "取消置頂聊天",
+    untitledChat: "未命名聊天",
   },
   navigation: {
     chat: "聊天",

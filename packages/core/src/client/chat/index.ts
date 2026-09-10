@@ -62,7 +62,65 @@ export {
   type CreateCodeAgentChatAdapterOptions,
 } from "../code-agent-chat-adapter.js";
 export * from "./connectors.js";
+export {
+  AgentApprovalCard,
+  AgentChoiceCard,
+  AgentInputCard,
+  type AgentApprovalCardProps,
+  type AgentChoiceCardProps,
+  type AgentChoiceOption,
+  type AgentInputCardProps,
+} from "./agent-approval-card.js";
+export {
+  AgentActivityObject,
+  type AgentActivityObjectKind,
+  type AgentActivityObjectProps,
+  type AgentActivityObjectReference,
+} from "./agent-activity-object.js";
+export {
+  AgentActivityChip,
+  AgentActivityTrace,
+  type AgentActivityChipProps,
+  type AgentActivityDisplayMode,
+  type AgentActivityItem,
+  type AgentActivityStatus,
+  type AgentActivityTraceProps,
+  type AgentActivityVariant,
+} from "./agent-activity-trace.js";
+export {
+  ToolChips,
+  type ToolChipDetail,
+  type ToolChipDiff,
+  type ToolChipKind,
+  type ToolChipStep,
+  type ToolChipTone,
+  type ToolChipsProps,
+} from "./tool-chips.js";
+export {
+  AssistantMessageActionBar,
+  type AssistantMessageActionBarProps,
+  type FormattedMessageTimestamp,
+} from "./message-components.js";
 export * from "./runtime.js";
+export {
+  createAgentKitProtocolAdapter,
+  type AgentKitProtocolAdapter,
+  type CreateAgentKitProtocolAdapterOptions,
+} from "./agentkit-protocol.js";
+export {
+  createAgentNativeAgentKitTransport,
+  type CreateAgentNativeAgentKitTransportOptions,
+} from "./agentkit-agent-native.js";
+export {
+  AGENT_CHAT_RUNNING_EVENT,
+  dispatchAgentChatRunning,
+  resolveAgentChatRunningThreadId,
+  useAgentChatRunningThreads,
+  type AgentChatPresentationPhase,
+  type AgentChatRunningEventDetail,
+  type AgentChatRunningThreadsState,
+  type UseAgentChatRunningThreadsOptions,
+} from "../use-agent-chat-running-threads.js";
 export {
   sendToAgentChat,
   sendToAgentChatAndConfirm,

@@ -47,6 +47,13 @@
       "import": "./dist/app-shell/*.js",
       "default": "./dist/app-shell/*.js"
     },
+    "./agentkit": {
+      "types": "./dist/agentkit.d.ts",
+      "browser": "./dist/agentkit.js",
+      "development": "./dist/agentkit.js",
+      "import": "./dist/agentkit.js",
+      "default": "./dist/agentkit.js"
+    },
     "./collab-ui": {
       "types": "./dist/collab-ui/index.d.ts",
       "browser": "./dist/collab-ui/index.js",
@@ -130,6 +137,13 @@
       "development": "./dist/canvas-interactions/*.js",
       "import": "./dist/canvas-interactions/*.js",
       "default": "./dist/canvas-interactions/*.js"
+    },
+    "./clipboard": {
+      "types": "./dist/clipboard.d.ts",
+      "browser": "./dist/clipboard.js",
+      "development": "./dist/clipboard.js",
+      "import": "./dist/clipboard.js",
+      "default": "./dist/clipboard.js"
     },
     "./composer": {
       "types": "./dist/composer/index.d.ts",
@@ -285,6 +299,20 @@
       "import": "./dist/utils.js",
       "default": "./dist/utils.js"
     },
+    "./streaming-text-smoothing": {
+      "types": "./dist/streaming-text-smoothing.d.ts",
+      "browser": "./dist/streaming-text-smoothing.js",
+      "development": "./dist/streaming-text-smoothing.js",
+      "import": "./dist/streaming-text-smoothing.js",
+      "default": "./dist/streaming-text-smoothing.js"
+    },
+    "./markdown-block-split": {
+      "types": "./dist/markdown-block-split.d.ts",
+      "browser": "./dist/markdown-block-split.js",
+      "development": "./dist/markdown-block-split.js",
+      "import": "./dist/markdown-block-split.js",
+      "default": "./dist/markdown-block-split.js"
+    },
     "./agent-native.eject.json": "./agent-native.eject.json",
     "./migration-manifest.json": "./migration-manifest.json",
     "./styles.css": "./dist/styles.css",
@@ -303,6 +331,8 @@
   },
   "dependencies": {
     "@assistant-ui/react": "catalog:",
+    "@assistant-ui/store": "catalog:",
+    "@assistant-ui/tap": "catalog:",
     "@radix-ui/react-accordion": "^1.2.15",
     "@radix-ui/react-alert-dialog": "^1.1.18",
     "@radix-ui/react-aspect-ratio": "^1.1.11",

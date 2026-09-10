@@ -2209,6 +2209,7 @@ const enUS = {
     dropInAgent: "Drop-in Agent",
     componentApi: "Component API",
     nativeChatUi: "Native Chat UI",
+    agentkit: "AgentKit",
     generativeUi: "Generative UI",
     realTimeCollaboration: "Real-Time Collaboration",
     agentResourcesOverview: "Agent Resources Overview",

@@ -1,5 +1,4 @@
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -8,6 +7,7 @@ import {
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
+import { TeamPage } from "@agent-native/core/client/team-page";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
 

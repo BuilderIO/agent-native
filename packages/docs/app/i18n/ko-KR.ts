@@ -2207,6 +2207,7 @@ const koKR = {
     dropInAgent: "Drop-in Agent 추가",
     componentApi: "컴포넌트 API",
     nativeChatUi: "네이티브 채팅 UI",
+    agentkit: "AgentKit",
     generativeUi: "생성형 UI",
     realTimeCollaboration: "실시간 협업",
     agentResourcesOverview: "에이전트 리소스 개요",

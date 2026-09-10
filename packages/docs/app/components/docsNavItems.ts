@@ -794,6 +794,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "native-chat-ui",
       },
       {
+        id: "agentkit",
+        labelKey: "agentkit",
+        slug: "agentkit",
+      },
+      {
         id: "generative-ui",
         labelKey: "generativeUi",
         slug: "generative-ui",

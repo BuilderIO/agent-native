@@ -239,7 +239,7 @@ body {
   --sidebar-accent: 0 0% 95%;
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
-  --agent-native-lower-surface: hsl(var(--sidebar-background));
+  --agent-native-lower-surface: var(--agent-kit-nav-surface);
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -269,19 +269,7 @@ body {
 
 @supports (background: color-mix(in srgb, white, black)) {
   .desktop-chat-first-hub {
-    --agent-native-lower-surface: color-mix(
-      in srgb,
-      hsl(var(--sidebar-background)) 98%,
-      hsl(var(--code-agents-dark-shadow)) 2%
-    );
-  }
-
-  .dark .desktop-chat-first-hub {
-    --agent-native-lower-surface: color-mix(
-      in srgb,
-      hsl(var(--sidebar-background)) 94%,
-      hsl(var(--code-agents-dark-shadow)) 6%
-    );
+    --agent-native-lower-surface: var(--agent-kit-nav-surface);
   }
 }
 

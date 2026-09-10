@@ -2202,6 +2202,7 @@ const hiIN = {
     dropInAgent: "Drop-in agent",
     componentApi: "Component API संदर्भ",
     nativeChatUi: "Native chat UI",
+    agentkit: "AgentKit",
     generativeUi: "जनरेटिव UI",
     realTimeCollaboration: "Real-time collaboration",
     agentResourcesOverview: "एजेंट संसाधन अवलोकन",

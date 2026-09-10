@@ -2224,6 +2224,7 @@ const ptBR = {
     dropInAgent: "Agent drop-in",
     componentApi: "API de componentes",
     nativeChatUi: "UI de chat nativa",
+    agentkit: "AgentKit",
     generativeUi: "UI generativa",
     realTimeCollaboration: "Colaboração em tempo real",
     agentResourcesOverview: "Visão geral dos recursos do agente",

@@ -16,11 +16,11 @@ import {
 // `<Suspense><lazy(IntegrationsPanel)/></Suspense>` — its dynamic import
 // needs real macrotask ticks to settle (more on a cold module cache), not
 // just queued microtasks.
-async function flushLazyImport(container: HTMLElement) {
-  for (let i = 0; i < 50; i++) {
-    if (container.textContent) return;
+async function flushLazyImport(isReady: () => boolean) {
+  for (let i = 0; i < 100; i++) {
+    if (isReady()) return;
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 10));
     });
   }
 }
@@ -131,7 +131,13 @@ describe("ConnectionsSettingsContent", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    await flushLazyImport(container);
+    await flushLazyImport(
+      () =>
+        builderStatusRequests.length === 1 &&
+        container.textContent?.includes(
+          "Builder callback could not save credentials",
+        ) === true,
+    );
 
     expect(builderStatusRequests).toHaveLength(1);
     expect(container.textContent).toContain(
@@ -220,7 +226,9 @@ describe("ConnectionsSettingsContent", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    await flushLazyImport(container);
+    await flushLazyImport(
+      () => container.textContent?.includes("Ready to connect") === true,
+    );
 
     const connectButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Connect Builder"),

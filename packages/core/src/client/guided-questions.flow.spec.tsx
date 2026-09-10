@@ -660,4 +660,50 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       }),
     );
   });
+
+  it("lets an AgentKit host own answer delivery without using the legacy bridge", async () => {
+    const onSubmitMessage = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      appStateFetchMock(
+        new Map([
+          [
+            "guided-questions",
+            JSON.stringify({
+              questions: [
+                {
+                  id: "format",
+                  type: "text-options",
+                  question: "Which format should I use?",
+                  options: [{ label: "Summary", value: "summary" }],
+                },
+              ],
+            }),
+          ],
+        ]),
+      ),
+    );
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+      onSubmitMessage,
+    });
+
+    await act(async () => {
+      result.current().handleSubmit({ format: "A concise memo" });
+      await Promise.resolve();
+    });
+
+    expect(onSubmitMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        answers: { format: "A concise memo" },
+        formattedAnswers: "Q: Which format should I use?\nA: A concise memo",
+        context: expect.stringContaining(
+          "Treat every question below as settled",
+        ),
+      }),
+    );
+    expect(sendToAgentChatMock).not.toHaveBeenCalled();
+  });
 });

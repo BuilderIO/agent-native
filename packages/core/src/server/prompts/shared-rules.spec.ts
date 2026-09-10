@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { sharedRule8 } from "./shared-rules.js";
+import { buildFrameworkCoreCompact } from "./framework-core-compact.js";
+import { buildFrameworkCore } from "./framework-core.js";
+import { RESPONSE_TYPOGRAPHY_GUIDANCE, sharedRule8 } from "./shared-rules.js";
 
 describe("shared framework prompt rules", () => {
+  it("keeps generated response emphasis intentional in full and compact prompts", () => {
+    expect(RESPONSE_TYPOGRAPHY_GUIDANCE).toContain(
+      "do not use bold or italics as routine emphasis",
+    );
+    expect(RESPONSE_TYPOGRAPHY_GUIDANCE).toContain(
+      "user explicitly requests styled Markdown",
+    );
+    expect(buildFrameworkCore()).toContain(RESPONSE_TYPOGRAPHY_GUIDANCE);
+    expect(buildFrameworkCoreCompact()).toContain(RESPONSE_TYPOGRAPHY_GUIDANCE);
+  });
+
   it("teaches provider API fallback and corpus-first coverage generically", () => {
     const rule = sharedRule8({
       providerActions: ["github-search", "notion-search"],

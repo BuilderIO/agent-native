@@ -1,0 +1,277 @@
+---
+title: "AgentKit"
+description: "The provider-neutral AgentKit protocol, headless client, HTTP transport, and React runtime behind Agent-Native chat."
+---
+
+# AgentKit
+
+AgentKit is the agent interaction and experience layer of the framework: a
+portable conversation protocol, a deterministic headless client, transports, and
+React bindings for composable agent UI. Agent-Native owns actions, SQL data,
+application state, agent execution, authentication, access control, and
+deployment; AgentKit owns the conversation itself and stays provider-neutral so
+another backend can implement the transport contract directly instead of
+adopting the whole framework.
+
+Most apps never touch AgentKit directly — Agent-Native chat already wires it up
+through the first-party Core adapter. Read this page when you need the headless
+client, a custom transport, capability-gated UI, or the HTTP contract for a
+non-Agent-Native backend. For exhaustive API reference, see the package
+[README](https://github.com/BuilderIO/agent-native/blob/main/packages/agentkit/README.md)
+and [ARCHITECTURE.md](https://github.com/BuilderIO/agent-native/blob/main/packages/agentkit/ARCHITECTURE.md).
+
+<Callout tone="info">
+
+**One package, subpath exports.** AgentKit previously published six packages
+(`agentkit-protocol`, `agentkit-client`, `agentkit-adapters`,
+`agentkit-conformance`, `agentkit-react`, and `agentkit`). It now ships as a
+single `@agent-native/agentkit` package with explicit subpaths, so a server or
+alternate renderer that imports the root or `/protocol` never pulls in React.
+
+</Callout>
+
+## Package layout {#package-layout}
+
+| Import                                                                                | Contents                                                                                                       | Loads React |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------- |
+| `@agent-native/agentkit`                                                              | Headless client and protocol types: reduction, optimistic sends, reconnect, replay, approvals, actions, queues | No          |
+| `@agent-native/agentkit/protocol`                                                     | Wire contract only: versioned types, runtime validators, lifecycle semantics                                   | No          |
+| `@agent-native/agentkit/http`                                                         | Fetch-compatible HTTP transport and server handler with resumable server-sent events                           | No          |
+| `@agent-native/agentkit/conformance`                                                  | Executable transport invariants for custom and remote transports                                               | No          |
+| `@agent-native/agentkit/react`                                                        | Provider, hooks, control API, slots, registries, composer integration                                          | Yes         |
+| `@agent-native/agentkit/react/{root,chat,components,context,headless,streaming-text}` | Focused React entries                                                                                          | Yes         |
+| `@agent-native/agentkit/react/styles.css`                                             | Standalone stylesheet                                                                                          | No          |
+
+`/protocol` is dependency-free and reserved for code that must not pull in the
+client. The root re-exports the protocol as well, so most application code only
+needs the root import and `/react`.
+
+## Install and mount a React chat {#install-and-mount}
+
+```bash
+pnpm add @agent-native/agentkit @agent-native/core
+```
+
+`react` and `react-dom` 19 are optional peer dependencies required only by the
+`/react` entries. Generated Chat apps already include a compatible version, and
+Core is needed only when you use the first-party Agent-Native transport.
+
+`AgentChat` owns one AgentKit client, loads the thread, reconnects active work,
+and disposes the client when it unmounts:
+
+```tsx
+import { AgentChat } from "@agent-native/agentkit/react";
+import "@agent-native/agentkit/react/styles.css";
+import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agent-chat";
+import { useMemo } from "react";
+
+export function Conversation({ threadId }: { threadId: string }) {
+  const transport = useMemo(
+    () => createAgentNativeAgentKitTransport({ threadId, surface: "app" }),
+    [threadId],
+  );
+
+  return (
+    <AgentChat
+      transport={transport}
+      clientOptions={{ transportOwnership: "owned" }}
+      threadId={threadId}
+      title="Workspace review"
+    />
+  );
+}
+```
+
+`AgentChat` accepts exactly one client source — `endpoint`, `transport`, or
+`client` — and an application must have exactly one behavioral owner per
+conversation. Never open a second client, SSE connection, or queue reducer for
+the same live thread. For a composed surface with custom slots, registries, and
+dependency injection, use `AgentKitRoot` from `@agent-native/agentkit/react/headless`
+instead of `AgentChat`; see the README's "Compose an advanced product" section
+for the full controller and registry shape.
+
+## Headless client {#headless-client}
+
+The root import is the framework-agnostic controller. It owns deterministic
+event reduction, optimistic user messages, sequence replay, reconnects,
+approvals, actions, suggestions, and message queues — with no React, DOM,
+storage, or provider dependency, so web, native, terminal, and test clients
+subscribe to the same behavioral source of truth.
+
+```ts
+import { createAgentKitClient } from "@agent-native/agentkit";
+
+const client = createAgentKitClient({ transport });
+const thread = await client.openThread("thread-1");
+const run = await client.sendMessage({
+  threadId: "thread-1",
+  text: "Review the workspace",
+});
+await run.completed;
+thread.release();
+```
+
+The transport is the client's only remote owner. Call and await `shutdown()`
+(or its `dispose()` alias) when a client leaves its application lifecycle;
+disposal is idempotent, and a borrowed transport is never disposed by the
+client that borrowed it.
+
+## HTTP transport and server handler {#http-transport}
+
+Agent-Native apps normally use `createAgentNativeAgentKitTransport()` and never
+touch `/http` directly. Use it when another backend needs the portable
+AgentKit boundary, or when a host intentionally exposes a separate AgentKit
+route. The contract uses versioned JSON envelopes for commands and resumable
+server-sent events for run streams, so the same handler runs in Node,
+serverless, and edge hosts.
+
+```ts
+import { createAgentKitHttpTransport } from "@agent-native/agentkit/http";
+
+const transport = createAgentKitHttpTransport({
+  baseUrl: "/_agent-native/agentkit",
+  headers: async () => ({ Authorization: `Bearer ${await getToken()}` }),
+});
+```
+
+```ts
+import { createAgentKitHttpHandler } from "@agent-native/agentkit/http";
+
+export const handleAgentKit = createAgentKitHttpHandler({
+  basePath: "/_agent-native/agentkit",
+  resolveRequestContext: (request) => identity.authorize(request),
+  createTransport: ({ trusted }) => agentRuntime.forRequest(trusted),
+  onError: (error, request) => telemetry.capture(error, request),
+});
+```
+
+The host is responsible for authenticating before the handler runs, scoping
+thread and run operations to the current principal and workspace, validating
+action payloads with the same checks used by direct application calls, and
+advertising only the capabilities the mounted transport can actually complete.
+The adapter validates protocol shape and route identity; it never turns a
+thread id, action id, or widget payload into an authorization grant.
+
+## Capability descriptors {#capability-descriptors}
+
+AgentKit negotiates optional behavior — uploads, threading, feedback, message
+queues, suggestions, model selection — through capability descriptors instead
+of booleans. A descriptor's `state` is one of `available`, `degraded`,
+`unavailable`, or `unsupported`.
+
+`resolveAgentCapabilityAffordance()` (and the React `useAgentCapability()` hook
+built on it) turns a descriptor into `{ state, visible, enabled, reason }`:
+
+```tsx
+import { useAgentCapability } from "@agent-native/agentkit/react";
+
+function UploadButton() {
+  const uploads = useAgentCapability("uploads");
+  if (!uploads.visible) return null;
+  return (
+    <button disabled={!uploads.enabled}>
+      {uploads.reason ?? "Attach file"}
+    </button>
+  );
+}
+```
+
+| State         | `visible` | `enabled` | Meaning                                       |
+| ------------- | --------- | --------- | --------------------------------------------- |
+| `available`   | true      | true      | Fully working.                                |
+| `degraded`    | true      | true      | Working, with an operator-facing `reason`.    |
+| `unavailable` | true      | false     | Temporarily down; show it, but disable it.    |
+| `unsupported` | false     | false     | The backend explicitly does not implement it. |
+| `unknown`     | false     | false     | The backend never reported it in discovery.   |
+
+<Callout tone="warning">
+
+**`unknown` is not `unsupported`.** A descriptor is only `unsupported` when the
+backend explicitly says so. If discovery ran and simply omitted a capability,
+`resolveAgentCapabilityAffordance()` returns `unknown` — the same
+`visible: false, enabled: false` result as `unsupported`, but a distinct
+`state`. This keeps an older backend's silence from rendering as a deliberate
+denial: code that only checks `visible`/`enabled` behaves correctly either way,
+but code that needs to _tell the difference_ — for diagnostics, or to decide
+whether a capability might appear after a backend upgrade — must read `state`
+and must not treat `unknown` as a confirmed absence.
+
+</Callout>
+
+`useAgentCapabilities()` still exists as a backward-compatible boolean
+projection (`true` means available, `false` means unsupported, and omission
+means unknown), but it is lossy: it cannot express `degraded` or `unavailable`,
+and it renders an unreported capability identically to a denied one. Do not use
+it to gate behavior — use `useAgentCapability()` or
+`resolveAgentCapabilityAffordance()` against the descriptors instead. On the
+client, `requireAgentCapability()` throws a typed capability error instead of
+silently treating a missing or unsupported capability as a no-op.
+
+## Stream integrity reporting {#stream-integrity}
+
+The client detects four stream integrity problems it cannot fix on its own,
+all of which are silent from the user's side unless a host counts them:
+
+- `sequence_gap` — the transport and the reducer disagree about event ordering.
+- `duplicate_event` — the same event was delivered more than once.
+- `run_missing_terminal` — a stream closed without an explicit completed,
+  failed, or cancelled event, so a finished run can look frozen.
+- `queue_promotion_dropped` — a queued follow-up message never started a run.
+
+Pass `onIntegrityReport` to `createAgentKitClient()` (or to `AgentChat`'s
+`clientOptions`) to observe these:
+
+```ts
+const client = createAgentKitClient({
+  transport,
+  onIntegrityReport: (report) => metrics.count(report.code),
+});
+```
+
+Agent-Native hosts should wire this with `createAgentKitIntegrityReporter(surface)`
+from `@agent-native/core/client/agentkit-chat/integrity` instead of writing a
+counter by hand:
+
+```ts
+import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
+
+const onIntegrityReport = createAgentKitIntegrityReporter("app");
+```
+
+This reports each occurrence, tagged by `surface`, `code`, `threadId`, and
+`runId`, as the `agentkit_stream_integrity` analytics event — so a bad
+migration or a flaky transport is attributable to the surface that regressed
+instead of showing up as an unexplained "AgentKit is buggy" report.
+
+## Transport conformance {#transport-conformance}
+
+`@agent-native/agentkit/conformance` is an executable invariant suite for
+custom and remote transports. It checks capability discovery, stable identity,
+runtime validation, unique event identity, contiguous sequence, explicit
+terminal semantics, declared reconnect replay, and run/thread snapshots,
+without tying a host to a particular test runner:
+
+```ts
+import { assertAgentTransportConformance } from "@agent-native/agentkit/conformance";
+
+const report = await assertAgentTransportConformance({
+  transport,
+  threadId: "conformance-thread",
+});
+
+console.log(report.checks);
+```
+
+Run this against every first-party adapter and in deployment smoke tests for
+remote implementations. Use the `createTransport` factory form (an isolated
+transport per scenario) for release gates that need to prove cancellation,
+abort, reconnect, cross-thread isolation, approval, queue, and terminal-failure
+behavior; a transport must not advertise a capability it cannot prove.
+
+## What's next {#whats-next}
+
+- [**Package README**](https://github.com/BuilderIO/agent-native/blob/main/packages/agentkit/README.md) — exhaustive reference: connection requests, approval decisions, durable snapshots and replay, slash discovery, semantic styling, and migrating an existing Core chat surface.
+- [**ARCHITECTURE.md**](https://github.com/BuilderIO/agent-native/blob/main/packages/agentkit/ARCHITECTURE.md) — ownership, invariants, and the extension model.
+- [**Native Chat UI**](/docs/native-chat-ui) — the action-declared widget system that renders inside an AgentKit-powered conversation.
+- [**Component API**](/docs/components) — generated reference for AgentKit's public React exports.
+- [**A2A Protocol**](/docs/a2a-protocol) — the sibling agent-to-agent protocol for cross-app delegation, distinct from AgentKit's single-conversation client/transport contract.

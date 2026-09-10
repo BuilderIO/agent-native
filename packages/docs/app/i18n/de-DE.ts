@@ -2232,6 +2232,7 @@ const deDE = {
     dropInAgent: "Drop-in-Agent",
     componentApi: "Komponenten-API",
     nativeChatUi: "Native Chat-UI",
+    agentkit: "AgentKit",
     generativeUi: "Generative Oberfläche",
     realTimeCollaboration: "Echtzeit-Zusammenarbeit",
     agentResourcesOverview: "Übersicht über Agent-Ressourcen",

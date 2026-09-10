@@ -1,15 +1,13 @@
 /**
  * FilesChangedSummary — aggregates all edit/write tool calls in a turn and
- * renders a compact "+N -M  path" summary row per file.  Click a row to expand
+ * renders a compact "path  +N -M" summary row per file.  Click a row to expand
  * to that file's diff.  Derived purely from ContentPart structuredMeta.
  */
 
-import { IconFiles } from "@tabler/icons-react";
 import { memo, useMemo, useState } from "react";
 
 import { AnimatedCollapse } from "../chat/tool-call-display.js";
 import type { ContentPart } from "../sse-event-processor.js";
-import { cn } from "../utils.js";
 import { EditCell } from "./EditCell.js";
 import { WriteCell } from "./WriteCell.js";
 
@@ -28,6 +26,19 @@ interface FileEntry {
 
 function countLines(text: string): number {
   return text ? text.split("\n").length : 0;
+}
+
+function splitFilePath(filePath: string): {
+  directory: string;
+  fileName: string;
+} {
+  const separator = filePath.lastIndexOf("/");
+  return separator < 0
+    ? { directory: "", fileName: filePath }
+    : {
+        directory: filePath.slice(0, separator + 1),
+        fileName: filePath.slice(separator + 1),
+      };
 }
 
 function editLineDelta(
@@ -114,70 +125,42 @@ export const FilesChangedSummary = memo(function FilesChangedSummary({
     });
   };
 
-  const totalAdded = entries.reduce((s, e) => s + e.added, 0);
-  const totalRemoved = entries.reduce((s, e) => s + e.removed, 0);
-
   return (
-    <div className="my-2 overflow-hidden rounded-md border border-border/60">
-      {/* Summary header */}
-      <div className="flex items-center gap-2 border-b border-border/40 bg-muted px-2.5 py-1.5 text-xs text-muted-foreground">
-        <IconFiles className="h-3.5 w-3.5 shrink-0" />
-        <span className="font-medium text-foreground">
-          {entries.length} file{entries.length === 1 ? "" : "s"} changed
-        </span>
-        <span className="ml-auto flex items-center gap-1.5">
-          {totalAdded > 0 && (
-            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-              +{totalAdded}
-            </span>
-          )}
-          {totalRemoved > 0 && (
-            <span className="text-[10px] font-semibold text-destructive">
-              -{totalRemoved}
-            </span>
-          )}
-        </span>
-      </div>
-
-      {/* Per-file rows */}
+    <div data-agent-files-changed="" className="my-1 w-full">
       {entries.map((entry) => {
         const key = `${entry.kind}:${entry.filePath}`;
         const isExpanded = expanded.has(key);
         const part = parts[entry.partIndex];
+        const { directory, fileName } = splitFilePath(entry.filePath);
 
         return (
-          <div key={key} className="border-b border-border/30 last:border-b-0">
+          <div key={key}>
             <button
+              data-agent-file-change-row=""
               type="button"
               onClick={() => toggle(key)}
-              className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-1 text-left text-[11px] hover:bg-accent"
+              className="agent-kit-activity-row flex w-full min-w-0 cursor-pointer items-center gap-4 py-1 text-left text-muted-foreground transition-colors hover:text-foreground focus-visible:bg-muted/50 focus-visible:outline-none"
             >
               <span
-                className={cn(
-                  "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
-                  entry.kind === "write" ? "bg-emerald-500" : "bg-amber-500",
-                )}
-              />
-              <span className="min-w-0 flex-1 truncate font-mono text-foreground">
-                {entry.filePath}
+                data-agent-file-change-path=""
+                className="min-w-0 flex-1 truncate"
+                title={entry.filePath}
+              >
+                <span>{directory}</span>
+                <span className="text-foreground">{fileName}</span>
               </span>
-              <span className="ml-auto flex shrink-0 items-center gap-1">
-                {entry.added > 0 && (
-                  <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                    +{entry.added}
-                  </span>
-                )}
-                {entry.removed > 0 && (
-                  <span className="text-[10px] font-semibold text-destructive">
-                    -{entry.removed}
-                  </span>
-                )}
+              <span
+                data-agent-file-change-stats=""
+                className="ms-auto flex shrink-0 items-center gap-1.5 tabular-nums"
+              >
+                <span className="agent-kit-tone-positive">+{entry.added}</span>
+                <span className="text-destructive">−{entry.removed}</span>
               </span>
             </button>
 
             <AnimatedCollapse open={isExpanded}>
               {part.type === "tool-call" && part.structuredMeta && (
-                <div className="pl-4">
+                <div>
                   {entry.kind === "edit" ? (
                     <EditCell
                       meta={

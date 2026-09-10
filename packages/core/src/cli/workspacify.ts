@@ -57,6 +57,8 @@ export interface WorkspacifyOptions {
   dispatchDependencyVersion?: string;
   /** Version range to use for the published @agent-native/toolkit package */
   toolkitDependencyVersion?: string;
+  /** Version range to use for the published @agent-native/agentkit package */
+  agentKitDependencyVersion?: string;
 }
 
 /**
@@ -132,6 +134,10 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     "@agent-native/toolkit",
     opts.toolkitDependencyVersion,
   );
+  const agentKitDependencyVersion = pinnedByWorkspace(
+    "@agent-native/agentkit",
+    opts.agentKitDependencyVersion,
+  );
 
   // 1) Rewrite package.json to add the workspace core dep and resolve
   //    published framework-package workspace:* refs to package ranges.
@@ -160,6 +166,9 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
             }
             if (key === "@agent-native/toolkit") {
               deps[key] = toolkitDependencyVersion;
+            }
+            if (key === "@agent-native/agentkit") {
+              deps[key] = agentKitDependencyVersion;
             }
           }
         }

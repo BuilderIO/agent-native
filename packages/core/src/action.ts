@@ -277,6 +277,54 @@ export function isAgentActionStopError(
   );
 }
 
+export interface AgentConnectionRequiredOptions {
+  provider: string;
+  reason?: "connect" | "grant" | "reauthorize" | "admin_required";
+  appId?: string;
+  source?: { id: string; kind?: string; label?: string };
+  toolResult?: string;
+}
+
+/**
+ * Pauses an agent turn until the host resolves a provider through its trusted
+ * connection catalog. Connection URLs, credentials, and OAuth scopes are not
+ * accepted here by design.
+ */
+export class AgentConnectionRequiredError extends AgentActionStopError {
+  readonly agentConnectionRequired = true;
+  readonly provider: string;
+  readonly reason: NonNullable<AgentConnectionRequiredOptions["reason"]>;
+  readonly appId?: string;
+  readonly source?: AgentConnectionRequiredOptions["source"];
+
+  constructor(message: string, options: AgentConnectionRequiredOptions) {
+    super(message, {
+      errorCode: "connection_required",
+      toolResult: options.toolResult,
+    });
+    this.name = "AgentConnectionRequiredError";
+    this.provider = options.provider;
+    this.reason = options.reason ?? "connect";
+    this.appId = options.appId;
+    this.source = options.source;
+  }
+}
+
+export function isAgentConnectionRequiredError(
+  error: unknown,
+): error is AgentConnectionRequiredError {
+  return (
+    error instanceof AgentConnectionRequiredError ||
+    Boolean(
+      error &&
+      typeof error === "object" &&
+      "agentConnectionRequired" in error &&
+      (error as { agentConnectionRequired?: unknown })
+        .agentConnectionRequired === true,
+    )
+  );
+}
+
 /** HTTP exposure config for an action. */
 export interface ActionHttpConfig {
   /**

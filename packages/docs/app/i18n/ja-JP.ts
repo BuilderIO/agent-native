@@ -2221,6 +2221,7 @@ const jaJP = {
     dropInAgent: "Drop-in Agent の追加",
     componentApi: "コンポーネント API",
     nativeChatUi: "ネイティブチャット UI",
+    agentkit: "AgentKit",
     generativeUi: "生成 UI",
     realTimeCollaboration: "リアルタイム共同編集",
     agentResourcesOverview: "エージェント リソースの概要",
