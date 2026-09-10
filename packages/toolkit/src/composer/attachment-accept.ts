@@ -57,6 +57,7 @@ export const TEXT_ATTACHMENT_ACCEPT = [
   "text/yaml",
   "application/json",
   "application/x-yaml",
+  "message/rfc822",
   ".txt",
   ".md",
   ".markdown",
@@ -68,7 +69,23 @@ export const TEXT_ATTACHMENT_ACCEPT = [
   ".xml",
   ".yaml",
   ".yml",
+  ".eml",
 ].join(",");
+
+export function formatAttachmentError(
+  error: unknown,
+  fallback: string,
+): string {
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (
+    !message ||
+    message === "No matching adapter found for file" ||
+    /^File type .* is not accepted\. Accepted types: /.test(message)
+  ) {
+    return fallback;
+  }
+  return message;
+}
 
 export class TextAttachmentAdapter extends SimpleTextAttachmentAdapter {
   public accept = TEXT_ATTACHMENT_ACCEPT;

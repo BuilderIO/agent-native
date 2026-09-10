@@ -47,6 +47,16 @@ describe("isTextLikeFile", () => {
       ),
     ).toBe(false);
   });
+
+  it("routes EML exports through the inline text attachment path", () => {
+    expect(
+      isTextLikeFile(
+        new File(["From: sender@example.com\n\nHello"], "message.eml", {
+          type: "message/rfc822",
+        }),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("serializeAttachmentContentPart", () => {
@@ -95,6 +105,34 @@ describe("serializeQueuedAttachments", () => {
         name: "pasted-text-1.txt",
         content: [{ type: "text", text: "pasted outline" }],
         metadata: { displayOnly: true },
+      }),
+    ]);
+  });
+
+  it("serializes EML exports as text instead of an unsupported binary file", async () => {
+    await expect(
+      serializeQueuedAttachments([
+        {
+          id: "message.eml",
+          type: "document",
+          name: "message.eml",
+          contentType: "message/rfc822",
+          file: new File(["From: sender@example.com\n\nHello"], "message.eml", {
+            type: "message/rfc822",
+          }),
+        },
+      ]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        name: "message.eml",
+        type: "file",
+        contentType: "message/rfc822",
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("Hello"),
+          },
+        ],
       }),
     ]);
   });

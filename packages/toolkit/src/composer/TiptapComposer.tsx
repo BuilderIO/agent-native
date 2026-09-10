@@ -38,6 +38,7 @@ import {
   PopoverTrigger,
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
+import { formatAttachmentError } from "./attachment-accept.js";
 import {
   ComposerPlusMenu,
   type ComposerTerminalModeControl,
@@ -2660,13 +2661,13 @@ export function TiptapComposer({
           void Promise.all(
             attachments.map((file) => addAttachmentForCurrentScope(file)),
           ).catch((error) => {
-            const msg =
-              error instanceof Error
-                ? error.message
-                : t("agentChat.composer.pastedImageError", {
-                    defaultValue:
-                      "Could not attach the pasted image. Try a different format.",
-                  });
+            const msg = formatAttachmentError(
+              error,
+              t("agentChat.composer.pastedImageError", {
+                defaultValue:
+                  "Could not attach the pasted image. Try a different format.",
+              }),
+            );
             onAttachmentErrorRef.current?.(msg);
           });
           return true;
@@ -2684,12 +2685,12 @@ export function TiptapComposer({
           void addAttachmentForCurrentScope(
             createPastedAttachmentFile(paste),
           ).catch((error) => {
-            const msg =
-              error instanceof Error
-                ? error.message
-                : t("agentChat.composer.pastedTextError", {
-                    defaultValue: "Could not attach the pasted text.",
-                  });
+            const msg = formatAttachmentError(
+              error,
+              t("agentChat.composer.pastedTextError", {
+                defaultValue: "Could not attach the pasted text.",
+              }),
+            );
             onAttachmentErrorRef.current?.(msg);
           });
           return true;
@@ -2705,13 +2706,13 @@ export function TiptapComposer({
           event: event as DragEvent,
           addAttachment: addAttachmentForCurrentScope,
           onError: (error) => {
-            const msg =
-              error instanceof Error
-                ? error.message
-                : t("agentChat.composer.droppedFileError", {
-                    defaultValue:
-                      "Could not attach the dropped file. Try a different format.",
-                  });
+            const msg = formatAttachmentError(
+              error,
+              t("agentChat.composer.droppedFileError", {
+                defaultValue:
+                  "Could not attach the dropped file. Try a different format.",
+              }),
+            );
             onAttachmentErrorRef.current?.(msg);
           },
         });
@@ -3989,6 +3990,7 @@ export function TiptapComposer({
           (plusMenuMode === "hidden" ? null : (
             <ComposerPlusMenu
               addAttachment={addAttachmentForCurrentScope}
+              attachmentAccept={composerRuntime.getState().attachmentAccept}
               onSelectMode={handleSelectMode}
               mode={plusMenuMode}
               terminalModeControl={terminalModeControl}

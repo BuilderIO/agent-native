@@ -1,4 +1,7 @@
-import { TextAttachmentAdapter } from "@agent-native/toolkit/composer/attachment-accept";
+import {
+  formatAttachmentError,
+  TextAttachmentAdapter,
+} from "@agent-native/toolkit/composer/attachment-accept";
 import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
 import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
 import {
@@ -2711,10 +2714,10 @@ const AssistantChatInner = forwardRef<
       void Promise.all(
         attachments.map((file) => composerRuntime.addAttachment(file)),
       ).catch((error) => {
-        const msg =
-          error instanceof Error
-            ? error.message
-            : t("agentChat.composer.droppedFileError");
+        const msg = formatAttachmentError(
+          error,
+          t("agentChat.composer.droppedFileError"),
+        );
         setComposerError(msg);
       });
     },
@@ -5478,10 +5481,10 @@ const AssistantChatInner = forwardRef<
       try {
         queuedAttachments = await serializeQueuedAttachments(attachments);
       } catch (err) {
-        const msg =
-          err instanceof Error
-            ? err.message
-            : t("agentChat.composer.attachmentError");
+        const msg = formatAttachmentError(
+          err,
+          t("agentChat.composer.attachmentError"),
+        );
         setComposerError(msg);
         reportAgentChatSubmitResult(submitMessageId, false, "attachment-error");
         return;
@@ -6800,9 +6803,9 @@ const AssistantChatInner = forwardRef<
                           {composerError && (
                             <div
                               role="alert"
-                              className="shrink-0 mx-3 mb-1.5 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                              className="mx-3 mb-1.5 flex shrink-0 items-start gap-2 rounded-md border border-border bg-muted/70 px-3 py-2 text-xs text-foreground shadow-sm"
                             >
-                              <IconAlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                              <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                               <span className="flex-1 leading-snug">
                                 {composerError}
                               </span>
@@ -6810,9 +6813,9 @@ const AssistantChatInner = forwardRef<
                                 type="button"
                                 aria-label={t("agentChat.common.dismissError")}
                                 onClick={() => setComposerError(null)}
-                                className="shrink-0 opacity-70 hover:opacity-100"
+                                className="-mr-1 -mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               >
-                                <IconX className="h-3 w-3" />
+                                <IconX className="h-3.5 w-3.5" />
                               </button>
                             </div>
                           )}
