@@ -6899,38 +6899,33 @@ const AssistantChatInner = forwardRef<
                                                 composerPlaceholder,
                                               )
                                   }
-                                  onSubmit={
-                                    isRunning ||
-                                    visibleComposerContextItems.length > 0
-                                      ? async (
-                                          text,
-                                          references,
-                                          attachments,
-                                          options,
-                                        ) => {
-                                          const accepted = await addToQueue(
-                                            text,
-                                            undefined,
-                                            references.length > 0
-                                              ? references
-                                              : undefined,
-                                            attachments,
-                                            undefined,
-                                            resolveAssistantChatSubmitIntent({
-                                              isRunning,
-                                              requestedIntent: options?.intent,
-                                            }),
-                                            undefined,
-                                            true,
-                                          );
-                                          if (!accepted) {
-                                            throw new Error(
-                                              "Attachment submission was not accepted",
-                                            );
-                                          }
-                                        }
-                                      : undefined
-                                  }
+                                  onSubmit={async (
+                                    text,
+                                    references,
+                                    attachments,
+                                    options,
+                                  ) => {
+                                    const accepted = await addToQueue(
+                                      text,
+                                      undefined,
+                                      references.length > 0
+                                        ? references
+                                        : undefined,
+                                      attachments,
+                                      undefined,
+                                      resolveAssistantChatSubmitIntent({
+                                        isRunning,
+                                        requestedIntent: options?.intent,
+                                      }),
+                                      undefined,
+                                      true,
+                                    );
+                                    if (!accepted) {
+                                      throw new Error(
+                                        "Attachment submission was not accepted",
+                                      );
+                                    }
+                                  }}
                                   willQueue={engineSetupRequired || isRunning}
                                   onSlashCommand={onSlashCommand}
                                   execMode={execMode}
