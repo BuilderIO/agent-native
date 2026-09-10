@@ -272,8 +272,10 @@ export default function ClipsTemplate() {
         </GridInner>
       </PageSection>
 
-      {/* Key features — six cards, same layout as builder.io/platform/code */}
-      <PageSection>
+      {/* Key features — six cards, same layout as builder.io/platform/code.
+          showGrid is off because the card grid below already draws its own
+          dividers; the decorative page gridlines would double them up. */}
+      <PageSection showGrid={false}>
         <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
           <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
             {t("templateLanding.clips.keyFeaturesEyebrow")}
@@ -296,9 +298,11 @@ export default function ClipsTemplate() {
         </GridInner>
       </PageSection>
 
-      {/* See Clips in action — three video cards, same card component */}
+      {/* See Clips in action — three video cards, same card component.
+          No border-t here: the key-features grid above already ends in its
+          own bottom border, so another one right below it just doubles up. */}
       <PageSection>
-        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
             {t("templateLanding.clips.seeInActionHeading")}
           </h2>
