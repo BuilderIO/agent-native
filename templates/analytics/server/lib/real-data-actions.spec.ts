@@ -1358,6 +1358,8 @@ describe("incomplete evidence detection", () => {
       "How many dashboard automation job counts are there?",
       "What is the number of dashboard automations?",
       "How many dashboard automations are scheduled?",
+      "How many scheduled dashboard automations are there?",
+      "Are scheduled dashboard automations active?",
       "How many dashboard automations are there?",
       "How many automation dashboards exist?",
       "What is the status of dashboard automations?",
@@ -1404,6 +1406,11 @@ describe("incomplete evidence detection", () => {
         "What is the status of the Revenue dashboard automation?",
       ),
     ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What is the status of the dashboard? Show revenue",
+      ),
+    ).toBe(true);
   });
 
   it("keeps report framing as analytics intent around workflow terms", () => {
@@ -1448,11 +1455,14 @@ describe("incomplete evidence detection", () => {
   });
 
   it("preserves analytics intent in a clause after an automation request", () => {
-    expect(
-      looksLikeAnalyticsDataRequest(
-        "Create an automation to send the weekly summary. What was the conversion rate last week?",
-      ),
-    ).toBe(true);
+    for (const request of [
+      "Create an automation to send the weekly summary. What was the conversion rate last week?",
+      "Create an automation and show the conversion rate last week",
+      "Create an automation, then show the conversion rate last week",
+      "What was the conversion rate last week? Then create an automation to send it",
+    ]) {
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
   });
 
   it("preserves a later dashboard build after a sentence-boundary refresh-rate question", () => {
