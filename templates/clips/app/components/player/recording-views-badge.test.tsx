@@ -205,7 +205,8 @@ describe("RecordingViewsBadge", () => {
     expect(chartSource).toContain('indicatorClassName="bg-highlight"');
     expect(chartSource).not.toContain("dropOff");
     expect(source).not.toContain("<ResponsiveContainer");
-    expect(controlsSource).toContain("overflow-x-auto overflow-y-hidden");
+    expect(controlsSource).toContain("overflow-x-auto rounded-none");
+    expect(source).toContain('<ViewerTabsList className="overflow-visible">');
     expect(source).not.toContain("onOpenInsights");
     expect(source).not.toContain('t("recordingInsights.humanViews")');
     expect(source).toContain("agentViewCount");

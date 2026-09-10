@@ -85,7 +85,7 @@ export const ViewerTabsList = React.forwardRef<
     ref={ref}
     variant="line"
     className={cn(
-      "h-10 min-h-10 w-fit max-w-full shrink-0 justify-start overflow-x-auto overflow-y-hidden rounded-none px-3 py-0",
+      "h-10 min-h-10 w-fit max-w-full shrink-0 justify-start overflow-x-auto rounded-none px-3 py-0",
       className,
     )}
     {...props}

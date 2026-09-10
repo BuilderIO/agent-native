@@ -182,7 +182,7 @@ export function RecordingViewsBadge({
           value={activeTab}
           onValueChange={(value) => setActiveTab(value as "views" | "insights")}
         >
-          <ViewerTabsList>
+          <ViewerTabsList className="overflow-visible">
             <ViewerTabsTrigger value="views">
               {t("recordingInsights.viewsTab")}
             </ViewerTabsTrigger>
