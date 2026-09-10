@@ -28,6 +28,7 @@ import {
 } from "../server/triage/babysit-evidence.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import {
+  metadataString,
   parseTriageMetadata,
   serializeTriageMetadata,
   triageItemAuthor,
@@ -38,6 +39,7 @@ import {
   babysitHeldPingClause,
   babysitOutOfScopeClause,
   babysitStuckClause,
+  countBabysitComments,
   countHumanReviewBodies,
   countHumanReviewComments,
   DEFAULT_BABYSIT_BOT_AUTHORS,
@@ -45,12 +47,89 @@ import {
   formatBabysitAuditSummary,
   hasHumanChangesRequested,
   reconcileBabysitState,
-  resolveStickyMergeability,
   shouldRecordBabysitAudit,
+  type BabysitPingReason,
 } from "../server/triage/pr-babysit.js";
 import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
 
 const babysitDecisionSchema = z.enum(["ping", "already_asked", "stuck"]);
+const BABYSIT_POST_CLAIM_TTL_MS = 120_000;
+
+async function tryAcquireBabysitPostClaim(
+  itemId: string,
+  orgId: string,
+  factoryId: string,
+): Promise<boolean> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    await tx
+      .select({ id: triageItems.id })
+      .from(triageItems)
+      .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+      .for("update");
+    const row = (
+      await tx
+        .select({ metadataJson: triageItems.metadataJson })
+        .from(triageItems)
+        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .limit(1)
+    )[0];
+    if (!row) return false;
+    const metadata = parseTriageMetadata(row.metadataJson);
+    const claimedAt = metadataString(metadata, "prBabysitPostClaimedAt");
+    const claimedMs = claimedAt ? Date.parse(claimedAt) : NaN;
+    if (
+      Number.isFinite(claimedMs) &&
+      Date.now() - claimedMs < BABYSIT_POST_CLAIM_TTL_MS
+    ) {
+      return false;
+    }
+    metadata.prBabysitPostClaimedAt = new Date().toISOString();
+    await tx
+      .update(triageItems)
+      .set({ metadataJson: serializeTriageMetadata(metadata) })
+      .where(
+        and(
+          eq(triageItems.id, itemId),
+          eq(triageItems.orgId, orgId),
+          factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
+        ),
+      );
+    await requireExistingFactory(tx as unknown as typeof db, orgId, factoryId);
+    return true;
+  });
+}
+
+async function releaseBabysitPostClaim(
+  itemId: string,
+  orgId: string,
+  factoryId: string,
+): Promise<void> {
+  const db = getDb();
+  await db.transaction(async (tx) => {
+    const row = (
+      await tx
+        .select({ metadataJson: triageItems.metadataJson })
+        .from(triageItems)
+        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .limit(1)
+    )[0];
+    if (!row) return;
+    const metadata = parseTriageMetadata(row.metadataJson);
+    delete metadata.prBabysitPostClaimedAt;
+    await tx
+      .update(triageItems)
+      .set({ metadataJson: serializeTriageMetadata(metadata) })
+      .where(
+        and(
+          eq(triageItems.id, itemId),
+          eq(triageItems.orgId, orgId),
+          factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
+        ),
+      );
+    await requireExistingFactory(tx as unknown as typeof db, orgId, factoryId);
+  });
+}
 
 async function updateBabysitItem(
   itemId: string,
@@ -109,10 +188,11 @@ export default defineAction({
       .describe(
         "Required when inScope is true. ping, already_asked, or stuck.",
       ),
+    failingJobLog: z.string().max(50_000).optional(),
   }),
   http: false,
   run: async (
-    { itemId, factoryId: factoryIdInput, inScope, decision },
+    { itemId, factoryId: factoryIdInput, inScope, decision, failingJobLog },
     context,
   ) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
@@ -203,11 +283,15 @@ export default defineAction({
     }
 
     const repository = parseGitHubRepositoryRef(item.repository);
+    const pullRequestNumber = item.pullRequestNumber;
+    if (typeof pullRequestNumber !== "number") {
+      throw new Error("Factory item is not a GitHub pull request.");
+    }
     const github = createGitHubClient({ ownerEmail: userEmail, orgId });
     const read = await readBabysitEvidence(
       github,
       repository,
-      item.pullRequestNumber,
+      pullRequestNumber,
     );
     const now = new Date();
     const nowIso = now.toISOString();
@@ -293,6 +377,7 @@ export default defineAction({
       commentsTruncated: details.commentsTruncated,
       reviews: details.reviews,
       reviewsTruncated: details.reviewsTruncated,
+      failingJobLog,
       botAuthors: [...DEFAULT_BABYSIT_BOT_AUTHORS],
     });
     const metadata = parseTriageMetadata(item.metadataJson);
@@ -327,6 +412,7 @@ export default defineAction({
       prBabysitMergeConflict: mechanical.mergeability.mergeConflict,
       prBabysitMergeabilityComputed:
         mechanical.mergeability.mergeabilityComputed,
+      prBabysitPendingReopen: false,
     };
     const evidenceDetails = {
       author: pullRequest.userLogin,
@@ -435,11 +521,51 @@ export default defineAction({
       return { ok: true, action: "waiting", veto: mechanical.ping.reason };
     }
 
-    const comment = await github.createIssueComment(
-      repository,
-      item.pullRequestNumber,
-      DEFAULT_BABYSIT_PR_COMMENT,
-    );
+    const vetoHeldPing = async (reason: BabysitPingReason) => {
+      await park("waiting", babysitHeldPingClause(reason));
+      return { ok: true as const, action: "waiting" as const, veto: reason };
+    };
+
+    const scanIssueComments = async () =>
+      github.listIssueComments(repository, pullRequestNumber);
+
+    const preClaimScan = await scanIssueComments();
+    if (preClaimScan.truncated) {
+      return vetoHeldPing("comment-scan-truncated");
+    }
+    if (countBabysitComments(preClaimScan.comments) > 0) {
+      return vetoHeldPing("duplicate-comment");
+    }
+
+    const acquired = await tryAcquireBabysitPostClaim(itemId, orgId, factoryId);
+    if (!acquired) {
+      const contendedScan = await scanIssueComments();
+      if (contendedScan.truncated) {
+        return vetoHeldPing("comment-scan-truncated");
+      }
+      if (countBabysitComments(contendedScan.comments) > 0) {
+        return vetoHeldPing("duplicate-comment");
+      }
+      return vetoHeldPing("already-asked");
+    }
+
+    let comment: Awaited<ReturnType<typeof github.createIssueComment>>;
+    try {
+      const finalScan = await scanIssueComments();
+      if (finalScan.truncated) {
+        return vetoHeldPing("comment-scan-truncated");
+      }
+      if (countBabysitComments(finalScan.comments) > 0) {
+        return vetoHeldPing("duplicate-comment");
+      }
+      comment = await github.createIssueComment(
+        repository,
+        pullRequestNumber,
+        DEFAULT_BABYSIT_PR_COMMENT,
+      );
+    } finally {
+      await releaseBabysitPostClaim(itemId, orgId, factoryId);
+    }
     await recordFactoryAudit(
       context,
       { userEmail, orgId },

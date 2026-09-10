@@ -190,6 +190,30 @@ describe("babysitMechanicalVerdict", () => {
     expect(result.ping).toEqual({ allowed: true, reason: "first-ask" });
   });
 
+  it("treats a pending reopen as new human work when poll deferred counter advancement", () => {
+    const result = babysitMechanicalVerdict({
+      stored: readBabysitStoredState({
+        prBabysitState: "queued",
+        prBabysitPendingReopen: true,
+        prBabysitLastCommentAt: "2026-08-11T15:23:49.000Z",
+        prBabysitHumanReviewCommentCount: 1,
+      }),
+      summary: { mergeable: true, mergeableState: "clean" },
+      details: { ...details, babysitCommentCount: 1 },
+      proposal,
+      nextHumanReviewCommentCount: 2,
+      nextHumanReviewBodyCount: 0,
+      nextChangesRequested: false,
+      nowMs: Date.parse("2026-08-11T15:25:33.000Z"),
+    });
+
+    expect(result.newHumanWork).toBe(true);
+    expect(result.ping).toEqual({
+      allowed: true,
+      reason: "new-human-work",
+    });
+  });
+
   it("refuses a second ask when GitHub only finished computing mergeability", () => {
     const result = verdict(
       {

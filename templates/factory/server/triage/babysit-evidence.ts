@@ -121,6 +121,8 @@ export interface BabysitStoredState {
   commentsTruncated: boolean;
   reviewsTruncated: boolean;
   changesRequested: boolean;
+  /** Poll set this when reopening on new human work; write clears it after acting. */
+  pendingReopen: boolean;
 }
 
 export function readBabysitStoredState(
@@ -152,6 +154,7 @@ export function readBabysitStoredState(
       metadataBoolean(metadata, "prBabysitReviewsTruncated") === true,
     changesRequested:
       metadataBoolean(metadata, "prBabysitChangesRequested") === true,
+    pendingReopen: metadataBoolean(metadata, "prBabysitPendingReopen") === true,
   };
 }
 
@@ -179,17 +182,19 @@ export function babysitMechanicalVerdict(input: {
   nextChangesRequested: boolean;
   nowMs: number;
 }): BabysitMechanicalVerdict {
-  const newHumanWork = hasNewHumanReviewWork({
-    storedChangesRequested: input.stored.changesRequested,
-    nextChangesRequested: input.nextChangesRequested,
-    storedCommentsTruncated: input.stored.commentsTruncated,
-    storedHumanReviewCommentCount: input.stored.humanReviewCommentCount,
-    nextHumanReviewCommentCount: input.nextHumanReviewCommentCount,
-    storedHumanReviewBodyCount: input.stored.humanReviewBodyCount,
-    nextHumanReviewBodyCount: input.nextHumanReviewBodyCount,
-    storedReviewsTruncated: input.stored.reviewsTruncated,
-    nextReviewsTruncated: input.details.reviewsTruncated,
-  });
+  const newHumanWork =
+    input.stored.pendingReopen ||
+    hasNewHumanReviewWork({
+      storedChangesRequested: input.stored.changesRequested,
+      nextChangesRequested: input.nextChangesRequested,
+      storedCommentsTruncated: input.stored.commentsTruncated,
+      storedHumanReviewCommentCount: input.stored.humanReviewCommentCount,
+      nextHumanReviewCommentCount: input.nextHumanReviewCommentCount,
+      storedHumanReviewBodyCount: input.stored.humanReviewBodyCount,
+      nextHumanReviewBodyCount: input.nextHumanReviewBodyCount,
+      storedReviewsTruncated: input.stored.reviewsTruncated,
+      nextReviewsTruncated: input.details.reviewsTruncated,
+    });
   const newDefiniteMergeConflict = hasNewDefiniteMergeConflict({
     storedMergeConflict: input.stored.mergeConflict,
     storedMergeabilityComputed: input.stored.mergeabilityComputed,

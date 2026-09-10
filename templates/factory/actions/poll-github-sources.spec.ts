@@ -86,27 +86,27 @@ describe("selectParkedRowsForRecheck", () => {
       {
         pullRequestNumber: 1,
         repository: "acme/current",
-        updatedAt: "2026-09-01T00:00:00.000Z",
+        metadataJson: "{}",
       },
       {
         pullRequestNumber: 2,
         repository: "acme/old",
-        updatedAt: "2026-09-02T00:00:00.000Z",
+        metadataJson: "{}",
       },
       {
         pullRequestNumber: 3,
         repository: "acme/current",
-        updatedAt: "2026-09-03T00:00:00.000Z",
+        metadataJson: '{"prBabysitLastCheckedAt":"2026-09-03T00:00:00.000Z"}',
       },
       {
         pullRequestNumber: 4,
         repository: "acme/current",
-        updatedAt: "2026-09-04T00:00:00.000Z",
+        metadataJson: '{"prBabysitLastCheckedAt":"2026-09-02T00:00:00.000Z"}',
       },
       {
         pullRequestNumber: 5,
         repository: "acme/current",
-        updatedAt: "2026-09-05T00:00:00.000Z",
+        metadataJson: '{"prBabysitLastCheckedAt":"2026-09-05T00:00:00.000Z"}',
       },
     ];
     expect(
@@ -115,7 +115,7 @@ describe("selectParkedRowsForRecheck", () => {
         listedOpenPrNumbers: new Set([1]),
         extraLimit: 2,
       }).map((row) => row.pullRequestNumber),
-    ).toEqual([1, 5, 4]);
+    ).toEqual([1, 4, 3]);
   });
 
   it("drops parked rows from another repository", async () => {
@@ -127,7 +127,7 @@ describe("selectParkedRowsForRecheck", () => {
           {
             pullRequestNumber: 9,
             repository: "acme/old",
-            updatedAt: "2026-09-02T00:00:00.000Z",
+            metadataJson: "{}",
           },
         ],
         {
@@ -142,7 +142,7 @@ describe("selectParkedRowsForRecheck", () => {
   // later gets human feedback is only reachable through this extra set. Raise
   // the limit if real inventory outgrows it; do not park items in `active` to
   // keep them on the listed page.
-  it("covers the newest parked pull requests up to the default limit", async () => {
+  it("rotates through the oldest rechecks up to the default limit", async () => {
     const { selectParkedRowsForRecheck, PARKED_PR_RECHECK_EXTRA_LIMIT } =
       await import("./poll-github-sources.js");
     const rows = Array.from(
@@ -150,7 +150,9 @@ describe("selectParkedRowsForRecheck", () => {
       (_, index) => ({
         pullRequestNumber: index + 1,
         repository: "acme/current",
-        updatedAt: `2026-09-${String((index % 28) + 1).padStart(2, "0")}T00:00:00.000Z`,
+        metadataJson: JSON.stringify({
+          prBabysitLastCheckedAt: `2026-09-${String((index % 28) + 1).padStart(2, "0")}T00:00:00.000Z`,
+        }),
       }),
     );
     const selected = selectParkedRowsForRecheck(rows, {
@@ -158,11 +160,15 @@ describe("selectParkedRowsForRecheck", () => {
       listedOpenPrNumbers: new Set(),
     });
     expect(selected).toHaveLength(PARKED_PR_RECHECK_EXTRA_LIMIT);
-    expect(selected[0]?.updatedAt).toBe(
+    expect(
+      JSON.parse(selected[0]?.metadataJson ?? "{}").prBabysitLastCheckedAt,
+    ).toBe(
       rows
-        .map((row) => row.updatedAt)
-        .sort()
-        .at(-1),
+        .map(
+          (row) =>
+            JSON.parse(row.metadataJson).prBabysitLastCheckedAt as string,
+        )
+        .sort()[0],
     );
   });
 });
@@ -174,6 +180,8 @@ describe("parkedRecheckEvidencePatch", () => {
     commentsTruncated: false,
     reviewsTruncated: false,
     changesRequested: false,
+    mergeable: null,
+    mergeableState: "unknown",
   };
 
   it("keeps a stored conflict when GitHub has not recomputed mergeability", async () => {
@@ -215,6 +223,25 @@ describe("parkedRecheckEvidencePatch", () => {
     ).toMatchObject({
       prBabysitMergeConflict: false,
       prBabysitMergeabilityComputed: false,
+    });
+  });
+
+  it("defers human review counters when poll reopens on new human work", async () => {
+    const { parkedRecheckEvidencePatch } =
+      await import("./poll-github-sources.js");
+    expect(
+      parkedRecheckEvidencePatch(
+        { prBabysitHumanReviewCommentCount: 1 },
+        recheck,
+        {
+          deferHumanReviewCounters: true,
+          checkedAt: "2026-09-10T00:00:00.000Z",
+        },
+      ),
+    ).toEqual({
+      prBabysitMergeConflict: false,
+      prBabysitMergeabilityComputed: false,
+      prBabysitLastCheckedAt: "2026-09-10T00:00:00.000Z",
     });
   });
 });

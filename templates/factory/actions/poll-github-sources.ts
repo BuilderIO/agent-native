@@ -164,19 +164,46 @@ function storedMergeability(metadata: TriageMetadata): StoredMergeability {
 export function parkedRecheckEvidencePatch(
   existingMetadata: TriageMetadata,
   recheck: ParkedRecheck,
+  options?: { deferHumanReviewCounters?: boolean; checkedAt?: string },
 ) {
   const mergeability = resolveStickyMergeability(
     storedMergeability(existingMetadata),
     recheck,
   );
+  const base = {
+    prBabysitMergeConflict: mergeability.mergeConflict,
+    prBabysitMergeabilityComputed: mergeability.mergeabilityComputed,
+    ...(options?.checkedAt
+      ? { prBabysitLastCheckedAt: options.checkedAt }
+      : {}),
+  };
+  if (options?.deferHumanReviewCounters) {
+    return base;
+  }
   return {
+    ...base,
     prBabysitHumanReviewCommentCount: recheck.humanReviewCommentCount,
     prBabysitHumanReviewBodyCount: recheck.humanReviewBodyCount,
     prBabysitCommentsTruncated: recheck.commentsTruncated,
     prBabysitReviewsTruncated: recheck.reviewsTruncated,
     prBabysitChangesRequested: recheck.changesRequested,
-    prBabysitMergeConflict: mergeability.mergeConflict,
-    prBabysitMergeabilityComputed: mergeability.mergeabilityComputed,
+  };
+}
+
+function parkedRecheckPollMetadataPatch(
+  existingMetadata: TriageMetadata,
+  recheck: ParkedRecheck,
+  reopenParked: boolean,
+  checkedAt: string,
+): TriageMetadata {
+  return {
+    ...parkedRecheckEvidencePatch(existingMetadata, recheck, {
+      deferHumanReviewCounters: reopenParked,
+      checkedAt,
+    }),
+    ...(reopenParked
+      ? { prBabysitState: "queued", prBabysitPendingReopen: true }
+      : {}),
   };
 }
 
@@ -219,11 +246,20 @@ function shouldReopenFromRecheck(
   });
 }
 
+function parkedRecheckSortKey(metadataJson: string | null | undefined): string {
+  return (
+    metadataString(
+      parseTriageMetadata(metadataJson ?? "{}"),
+      "prBabysitLastCheckedAt",
+    ) ?? ""
+  );
+}
+
 export function selectParkedRowsForRecheck<
   T extends {
     pullRequestNumber: number | null;
     repository: string | null;
-    updatedAt?: string | null;
+    metadataJson?: string | null;
   },
 >(
   rows: readonly T[],
@@ -247,8 +283,11 @@ export function selectParkedRowsForRecheck<
       extras.push(row);
     }
   }
+  // Oldest recheck first so every parked row is eventually covered by the cap.
   extras.sort((left, right) =>
-    (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""),
+    parkedRecheckSortKey(left.metadataJson).localeCompare(
+      parkedRecheckSortKey(right.metadataJson),
+    ),
   );
   return [...inOpenPage, ...extras.slice(0, extraLimit)];
 }
@@ -654,10 +693,15 @@ export default defineAction({
           existingBabysitState,
         );
         const metadataWithBabysit = parkedRecheck
-          ? mergeTriageMetadata(metadata, {
-              ...parkedRecheckEvidencePatch(existingMetadata, parkedRecheck),
-              ...(reopenParked ? { prBabysitState: "queued" } : {}),
-            })
+          ? mergeTriageMetadata(
+              metadata,
+              parkedRecheckPollMetadataPatch(
+                existingMetadata,
+                parkedRecheck,
+                reopenParked,
+                now,
+              ),
+            )
           : reopenParked
             ? mergeTriageMetadata(metadata, { prBabysitState: "queued" })
             : metadata;
@@ -764,10 +808,15 @@ export default defineAction({
           true,
           currentBabysitState,
         );
-        const metadataWithBabysit = mergeTriageMetadata(current.metadataJson, {
-          ...parkedRecheckEvidencePatch(currentMetadata, parkedRecheck),
-          ...(reopenParked ? { prBabysitState: "queued" } : {}),
-        });
+        const metadataWithBabysit = mergeTriageMetadata(
+          current.metadataJson,
+          parkedRecheckPollMetadataPatch(
+            currentMetadata,
+            parkedRecheck,
+            reopenParked,
+            now,
+          ),
+        );
         await tx
           .update(triageItems)
           .set({
