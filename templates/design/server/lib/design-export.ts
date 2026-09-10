@@ -1,5 +1,11 @@
 import { decodeHTML } from "entities";
 
+import {
+  isActiveXmlAttributeValue,
+  isStaticXmlAttributeName,
+  NON_STATIC_EXPORT_ELEMENT_NAME_RE,
+} from "../../shared/xml-export-attributes.js";
+
 export interface DesignExportFile {
   filename: string;
   fileType: string | null;
@@ -167,25 +173,6 @@ function escapeXmlAttribute(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function isStaticXmlAttributeName(name: string): boolean {
-  if (
-    name.startsWith("@") ||
-    name.startsWith(":") ||
-    /^x-(?:data|init|show|cloak|if|for|transition|on|bind|model|text|html|ref|teleport|id|effect|ignore)(?:$|[.:])/i.test(
-      name,
-    )
-  ) {
-    return false;
-  }
-  if (/^on/i.test(name)) return false;
-  // Preserve the standard namespaces used by inline SVG icons. Other colon
-  // prefixes are unbound in raw HTML and would make the enclosing XML invalid.
-  return (
-    /^(?:xmlns:xlink|xlink:href|xml:lang|xml:space)$/i.test(name) ||
-    /^[A-Za-z_][A-Za-z0-9._-]*$/.test(name)
-  );
-}
-
 function unquotedAttributeValue(valueSuffix: string): string {
   const equals = valueSuffix.indexOf("=");
   if (equals === -1) return "";
@@ -201,22 +188,7 @@ function unquotedAttributeValue(valueSuffix: string): string {
 }
 
 function isStaticXmlAttributeValue(name: string, valueSuffix: string): boolean {
-  const value = unquotedAttributeValue(valueSuffix);
-  if (
-    /^(?:href|src|action|formaction|poster|xlink:href)$/i.test(name) &&
-    (/^(?:javascript|vbscript):/i.test(value.trim()) ||
-      (/^data:/i.test(value.trim()) &&
-        !/^data:image\/(?:png|jpeg|webp|gif|avif);base64,/i.test(value.trim())))
-  ) {
-    return false;
-  }
-  if (
-    name.toLowerCase() === "style" &&
-    /(?:javascript|vbscript|data\s*:\s*text\/html)/i.test(value)
-  ) {
-    return false;
-  }
-  return true;
+  return !isActiveXmlAttributeValue(name, unquotedAttributeValue(valueSuffix));
 }
 
 /**
@@ -356,9 +328,7 @@ function normalizeStartTagsForXml(html: string): string {
     if (
       openingTagName &&
       (editorChromeElement ||
-        /^(?:script|iframe|object|embed|base|foreignObject|animate|set)$/i.test(
-          openingTagName,
-        ))
+        NON_STATIC_EXPORT_ELEMENT_NAME_RE.test(openingTagName))
     ) {
       const isVoid =
         /^(?:embed|base)$/i.test(openingTagName) || /\/\s*>$/.test(tag);

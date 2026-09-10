@@ -8,6 +8,7 @@ import {
   unionExportCropRects,
   waitForExportReady,
 } from "./export-capture";
+import { mirrorPreviewWebFonts } from "./export-font-mirror";
 import { isScreenRootElementInfo } from "./selection-state";
 
 const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
@@ -280,6 +281,17 @@ export async function renderExportDocumentCanvas({
   // Bounded wait; never blocks an export indefinitely. See
   // export-capture.ts's waitForExportReady docblock.
   await waitForExportReady(doc);
+  // html2canvas paints glyphs through a canvas owned by *this* document while
+  // measuring every box in the preview iframe, so the design's webfonts have
+  // to exist on both sides or decorations drift away from the text they sit
+  // behind. See export-font-mirror.ts.
+  const mirroredFonts = await mirrorPreviewWebFonts(doc, iframe.ownerDocument);
+  if (mirroredFonts.unreadableStylesheets.length > 0) {
+    console.warn(
+      "Export font mirroring skipped unreadable stylesheets; text metrics may drift:",
+      mirroredFonts.unreadableStylesheets,
+    );
+  }
   const width = Math.max(
     doc.documentElement.scrollWidth,
     doc.body?.scrollWidth ?? 0,
@@ -309,25 +321,29 @@ export async function renderExportDocumentCanvas({
     },
   };
   try {
-    // html2canvas's normal renderer handles native form controls, clipping,
-    // and computed layout more consistently than its foreignObject shortcut.
-    // Prefer it for production exports and retain foreignObject as a fallback
-    // for the uncommon CSS feature the canvas renderer cannot parse.
-    const canvas = await render(doc.documentElement, {
-      ...options,
-      foreignObjectRendering: false,
-    });
-    return { canvas, scale: effectiveScale };
-  } catch (primaryError) {
-    console.warn(
-      "PNG canvas capture failed; retrying foreignObject renderer:",
-      primaryError,
-    );
-    const canvas = await render(doc.documentElement, {
-      ...options,
-      foreignObjectRendering: true,
-    });
-    return { canvas, scale: effectiveScale };
+    try {
+      // html2canvas's normal renderer handles native form controls, clipping,
+      // and computed layout more consistently than its foreignObject shortcut.
+      // Prefer it for production exports and retain foreignObject as a fallback
+      // for the uncommon CSS feature the canvas renderer cannot parse.
+      const canvas = await render(doc.documentElement, {
+        ...options,
+        foreignObjectRendering: false,
+      });
+      return { canvas, scale: effectiveScale };
+    } catch (primaryError) {
+      console.warn(
+        "PNG canvas capture failed; retrying foreignObject renderer:",
+        primaryError,
+      );
+      const canvas = await render(doc.documentElement, {
+        ...options,
+        foreignObjectRendering: true,
+      });
+      return { canvas, scale: effectiveScale };
+    }
+  } finally {
+    mirroredFonts.dispose();
   }
 }
 

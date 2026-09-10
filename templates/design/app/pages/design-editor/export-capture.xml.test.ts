@@ -1,8 +1,12 @@
 // @vitest-environment happy-dom
 
+import { isXmlSafeAttributeName } from "@shared/xml-export-attributes";
 import { describe, expect, it } from "vitest";
 
-import { stripNonStaticXmlAttributes } from "./export-capture";
+import {
+  buildStaticForeignObjectSvg,
+  stripNonStaticXmlAttributes,
+} from "./export-capture";
 
 describe("stripNonStaticXmlAttributes", () => {
   it("removes executable/invalid template attributes from the clone only", () => {
@@ -75,3 +79,79 @@ describe("stripNonStaticXmlAttributes", () => {
     expect(images[1]?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
   });
 });
+
+describe("exported SVG is well-formed XML", () => {
+  /**
+   * Alpine puts every `x-for` / `x-if` block behind a `<template>`, whose
+   * children live in a `content` DocumentFragment that `querySelectorAll`
+   * cannot see but `XMLSerializer` still writes out. That gap shipped
+   * `:class="..."` into downloaded SVGs, and browsers refused the file with
+   * "Failed to parse QName ':class'" at the first list or conditional.
+   */
+  it("strips directives inside <template> content", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<nav x-data="{ open: false }">
+      <template x-for="link in links" :key="link.id">
+        <a :class="{ 'text-white': link.active }" x-text="link.label" href="#">Link</a>
+      </template>
+    </nav>`;
+
+    stripNonStaticXmlAttributes(root);
+
+    const anchor = (
+      root.querySelector("template") as HTMLTemplateElement
+    ).content.querySelector("a")!;
+    expect(anchor.hasAttribute(":class")).toBe(false);
+    expect(anchor.hasAttribute("x-text")).toBe(false);
+    expect(anchor.getAttribute("href")).toBe("#");
+    expect(new XMLSerializer().serializeToString(root)).not.toContain(":class");
+  });
+
+  it("strips nested <template> content at any depth", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<template><div><template><span :class="deep">x</span></template></div></template>`;
+    stripNonStaticXmlAttributes(root);
+    expect(new XMLSerializer().serializeToString(root)).not.toContain(":class");
+  });
+
+  it("removes active elements hidden inside <template> content", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<template><script>window.bad = true</script><p>ok</p></template>`;
+    stripNonStaticXmlAttributes(root);
+    const content = (root.querySelector("template") as HTMLTemplateElement)
+      .content;
+    expect(content.querySelector("script")).toBeNull();
+    expect(content.querySelector("p")?.textContent).toBe("ok");
+  });
+
+  it("produces a document an XML parser accepts", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<section x-data="{ open: false }">
+      <button @click="open = !open" :class="{ active: open }" x-bind:aria-expanded="open">Menu</button>
+      <template x-for="item in items"><li :class="item.cls" x-text="item.label">Item</li></template>
+      <p>Ampersands &amp; entities stay intact</p>
+    </section>`;
+
+    stripNonStaticXmlAttributes(root);
+    const svg = buildStaticForeignObjectSvg({
+      documentWidth: 800,
+      documentHeight: 600,
+      scale: 1,
+      safeTitle: "Untitled Design",
+      serializedHtml: new XMLSerializer().serializeToString(root),
+    });
+
+    const parsed = new DOMParser().parseFromString(svg, "image/svg+xml");
+    expect(parsed.querySelector("parsererror")?.textContent ?? null).toBeNull();
+    expect(collectInvalidXmlAttributeNames(svg)).toEqual([]);
+  });
+});
+
+/** Attribute names in the serialized output that are not legal XML QNames. */
+function collectInvalidXmlAttributeNames(xml: string): string[] {
+  const names = new Set<string>();
+  for (const [, name] of xml.matchAll(/[\s"']([^\s"'<>/=]+)=["']/g)) {
+    if (!isXmlSafeAttributeName(name)) names.add(name);
+  }
+  return Array.from(names);
+}

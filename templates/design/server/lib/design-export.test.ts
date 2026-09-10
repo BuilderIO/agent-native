@@ -185,3 +185,39 @@ describe("design export helpers", () => {
     expect(html.startsWith("<style")).toBe(true);
   });
 });
+
+/**
+ * The action-side exporter tokenizes stored HTML text while the editor-side
+ * exporter walks the live DOM. They ship the same file format, so a directive
+ * one of them rejects must be rejected by the other too — they now share
+ * shared/xml-export-attributes.ts, and this pins that agreement.
+ */
+describe("buildSvgForeignObject XML validity", () => {
+  it("drops directives inside <template> markup", () => {
+    const svg = buildSvgForeignObject({
+      html: `<html><body><nav x-data="{ open: false }">
+        <template x-for="link in links" :key="link.id">
+          <a :class="{ 'text-white': link.active }" x-text="link.label" href="#">Link</a>
+        </template>
+      </nav></body></html>`,
+      width: 800,
+      height: 600,
+    });
+    expect(svg).not.toContain(":class");
+    expect(svg).not.toContain(":key");
+    expect(svg).not.toContain("x-for");
+    expect(svg).not.toContain("x-text");
+    expect(svg).toContain('href="#"');
+  });
+
+  it("drops Alpine directives whose names are otherwise valid QNames", () => {
+    const svg = buildSvgForeignObject({
+      html: `<html><body><div x-modelable="count" x-collapse.duration.500ms="1" data-keep="yes">z</div></body></html>`,
+      width: 100,
+      height: 100,
+    });
+    expect(svg).not.toContain("x-modelable");
+    expect(svg).not.toContain("x-collapse");
+    expect(svg).toContain('data-keep="yes"');
+  });
+});

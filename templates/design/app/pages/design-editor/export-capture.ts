@@ -1,3 +1,9 @@
+import {
+  isActiveXmlAttributeValue,
+  isStaticXmlAttributeName,
+  NON_STATIC_EXPORT_ELEMENT_SELECTOR,
+} from "@shared/xml-export-attributes";
+
 /**
  * Editor-chrome overlays that editor-chrome.bridge.ts appends inside the preview
  * iframe (the selection outline + resize handles, hover highlight, marquee,
@@ -107,6 +113,26 @@ export function resolveRasterExportScale(args: {
 }
 
 /**
+ * `<template>` children live in a separate `content` DocumentFragment, so they
+ * are invisible to `querySelectorAll` on the template's own tree — but
+ * `XMLSerializer` still writes them out. Alpine puts every `x-for` / `x-if`
+ * block behind a `<template>`, so skipping that fragment let `:class` reach
+ * the file and made the whole SVG unparsable at the first list or conditional.
+ */
+function collectStaticExportScopes(root: ParentNode): ParentNode[] {
+  const scopes: ParentNode[] = [root];
+  for (let index = 0; index < scopes.length; index += 1) {
+    for (const template of Array.from(
+      scopes[index]!.querySelectorAll("template"),
+    )) {
+      const content = (template as HTMLTemplateElement).content;
+      if (content) scopes.push(content);
+    }
+  }
+  return scopes;
+}
+
+/**
  * Runtime HTML frameworks allow attribute syntaxes (`@click`, `:class`,
  * `x-bind:class`) which are legal in HTML but not legal XML QNames. A static
  * foreignObject snapshot has already resolved those directives and removes
@@ -115,45 +141,25 @@ export function resolveRasterExportScale(args: {
  * other unbound/invalid XML attribute name from the CLONE only.
  */
 export function stripNonStaticXmlAttributes(root: Element): void {
-  root
-    .querySelectorAll(
-      "script,iframe,object,embed,base,meta[http-equiv],foreignObject,animate,set",
-    )
-    .forEach((element) => element.remove());
-  const elements = [root, ...Array.from(root.querySelectorAll("*"))];
-  for (const element of elements) {
-    for (const attribute of Array.from(element.attributes)) {
-      const name = attribute.name;
-      const frameworkDirective =
-        name.startsWith("@") ||
-        name.startsWith(":") ||
-        /^x-(?:data|init|show|cloak|if|for|transition|on|bind|model|text|html|ref|teleport|id|effect|ignore)(?:$|[.:])/i.test(
-          name,
-        );
-      const standardNamespaceAttribute =
-        /^(?:xmlns:xlink|xlink:href|xml:lang|xml:space)$/i.test(name);
-      const xmlSafeName =
-        standardNamespaceAttribute || /^[A-Za-z_][A-Za-z0-9._-]*$/.test(name);
-      const inlineHandler = /^on/i.test(name);
-      const urlAttribute =
-        /^(?:href|src|action|formaction|poster|xlink:href)$/i.test(name);
-      const value = attribute.value.trim();
-      const activeUrl =
-        urlAttribute &&
-        (/^(?:javascript|vbscript):/i.test(value) ||
-          (/^data:/i.test(value) &&
-            !/^data:image\/(?:png|jpeg|webp|gif|avif);base64,/i.test(value)));
-      const activeStyle =
-        name.toLowerCase() === "style" &&
-        /(?:javascript|vbscript|data\s*:\s*text\/html)/i.test(value);
-      if (
-        frameworkDirective ||
-        !xmlSafeName ||
-        inlineHandler ||
-        activeUrl ||
-        activeStyle
-      ) {
-        element.removeAttribute(name);
+  for (const scope of collectStaticExportScopes(root)) {
+    scope
+      .querySelectorAll(NON_STATIC_EXPORT_ELEMENT_SELECTOR)
+      .forEach((element) => element.remove());
+  }
+  for (const scope of collectStaticExportScopes(root)) {
+    const elements = [
+      ...(scope instanceof Element ? [scope] : []),
+      ...Array.from(scope.querySelectorAll("*")),
+    ];
+    for (const element of elements) {
+      for (const attribute of Array.from(element.attributes)) {
+        const name = attribute.name;
+        if (
+          !isStaticXmlAttributeName(name) ||
+          isActiveXmlAttributeValue(name, attribute.value)
+        ) {
+          element.removeAttribute(name);
+        }
       }
     }
   }
