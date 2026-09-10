@@ -269,10 +269,13 @@ function fetchSharedSession(): Promise<SessionRead> {
   const requestResult = (async (): Promise<SessionRead> => {
     try {
       const result = await fetchAuthSessionStatus();
-      if (result.state === "unavailable") return { state: "unreadable" };
+      // Check the generation first: a failed read from an invalidated
+      // generation proved nothing about the current one and must not spend
+      // its retry budget, regardless of which way the stale request failed.
       if (requestGeneration !== sessionGeneration) {
         return { state: "superseded" };
       }
+      if (result.state === "unavailable") return { state: "unreadable" };
       const data = result.value as AuthSession & { error?: unknown };
       const session = data.error ? null : (data as AuthSession);
       cachedSession = session;
@@ -341,7 +344,9 @@ export function useSession(): UseSessionResult {
 
       if (read.state !== "resolved") {
         if (read.state === "unreadable") failures += 1;
-        if (monotonicNow() - startedAt >= SESSION_RETRY_BUDGET_MS) {
+        const remaining =
+          SESSION_RETRY_BUDGET_MS - (monotonicNow() - startedAt);
+        if (remaining <= 0) {
           setError(
             new Error(`Could not read the session after ${failures} attempts.`),
           );
@@ -349,13 +354,16 @@ export function useSession(): UseSessionResult {
           return;
         }
         // A superseded read cost nothing and proved nothing, so it earns an
-        // immediate re-ask instead of a backoff step.
+        // immediate re-ask instead of a backoff step. Clamp to what's left of
+        // the budget so a near-boundary backoff step can't itself push the
+        // next check past the advertised wall-clock budget.
         const delay =
           read.state === "superseded"
             ? 0
             : Math.min(
                 SESSION_RETRY_BASE_DELAY_MS * 2 ** (failures - 1),
                 SESSION_RETRY_MAX_DELAY_MS,
+                remaining,
               );
         retryTimer = setTimeout(() => {
           void resolveSession();
