@@ -93,15 +93,14 @@ export async function getSuggestionByCreationKey(
     })
   ).rows[0];
   if (!row) return null;
+  // Read the immutable first-amendment receipt last so it repairs any current-state read torn by a concurrent amendment.
+  const current = await getSuggestion(String(row.suggestion_id), client);
   const amendment = (
     await client.execute({
       sql: "SELECT before_json FROM agent_review_suggestion_amendments WHERE suggestion_id = ? ORDER BY revision LIMIT 1",
       args: [String(row.suggestion_id)],
     })
   ).rows[0];
-  const current = amendment
-    ? null
-    : await getSuggestion(String(row.suggestion_id), client);
   const suggestion = amendment
     ? decode<ResourceSuggestion>(amendment.before_json)
     : current

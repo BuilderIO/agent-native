@@ -173,6 +173,71 @@ describe("suggestion store", () => {
     ).toEqual(original);
   });
 
+  it("uses the immutable amendment receipt after an interleaved creation replay read", async () => {
+    const original = await insertSuggestion(input);
+    const interleavedClient = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              suggestion_id: original.id,
+              author_email: original.authorEmail,
+              actor_kind: original.actorKind,
+              request_hash: "request-hash",
+            },
+          ],
+          rowsAffected: 0,
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: original.id,
+              revision: 1,
+              resource_type: original.resourceType,
+              resource_id: original.resourceId,
+              adapter_kind: original.adapterKind,
+              adapter_version: original.adapterVersion,
+              thread_id: original.threadId,
+              author_email: original.authorEmail,
+              actor_kind: original.actorKind,
+              base_revision: original.baseRevision,
+              status: original.status,
+              summary: original.summary,
+              owner_email: original.ownerEmail,
+              org_id: original.orgId,
+              visibility: original.visibility,
+              created_at: original.createdAt,
+              updated_at: original.updatedAt,
+              metadata_json: null,
+            },
+          ],
+          rowsAffected: 0,
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              ...original.operations[0],
+              suggestion_id: original.id,
+              operation_kind: original.operations[0]?.kind,
+              after_json: '"interleaved amendment"',
+            },
+          ],
+          rowsAffected: 0,
+        })
+        .mockResolvedValueOnce({
+          rows: [{ before_json: JSON.stringify(original) }],
+          rowsAffected: 0,
+        }),
+    };
+
+    expect(
+      (await getSuggestionByCreationKey(interleavedClient, "creation-replay"))
+        ?.suggestion,
+    ).toEqual(original);
+    expect(interleavedClient.execute).toHaveBeenCalledTimes(4);
+  });
+
   it("loads complete suggestion operations in one resource-scoped query", async () => {
     await insertSuggestion(input);
     await insertSuggestion({
