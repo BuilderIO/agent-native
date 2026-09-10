@@ -1110,6 +1110,15 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("preserves dashboard clauses after nested automation actions", () => {
+    for (const request of [
+      "Create an automation to refresh the Revenue dashboard, build a Sales dashboard",
+      "Create an automation to refresh the Revenue dashboard and build a Sales dashboard",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    }
+  });
+
   it("does not treat dashboard-targeting automation names as dashboard construction", () => {
     expect(
       looksLikeDashboardConstructionRequest(
@@ -1226,6 +1235,16 @@ describe("incomplete evidence detection", () => {
         "Schedule the dashboard to refresh daily",
       ),
     ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Schedule a refresh of the Revenue dashboard every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Schedule a daily refresh of the dashboard",
+      ),
+    ).toBe(false);
   });
 
   it("keeps cron refresh-rate questions as analytics requests", () => {
@@ -1262,6 +1281,16 @@ describe("incomplete evidence detection", () => {
         "Create a report of automation conversion rates",
       ),
     ).toBe(true);
+  });
+
+  it("keeps report-framed refresh-rate requests as analytics requests", () => {
+    for (const request of [
+      "Create a report showing the dashboard refresh rate",
+      "Create a report of the dashboard refresh rate for the past week.",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
+    }
   });
 
   it("does not treat a dashboard template input as dashboard construction", () => {

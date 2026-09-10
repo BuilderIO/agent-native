@@ -386,6 +386,33 @@ describe("realDataFinalGuard dashboard edits", () => {
     expect(result).not.toBeNull();
   });
 
+  it("keeps recovery for a separate dashboard after nested automation actions", () => {
+    for (const userText of [
+      "Create an automation to refresh the Revenue dashboard, build a Sales dashboard",
+      "Create an automation to refresh the Revenue dashboard and build a Sales dashboard",
+    ]) {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: 'Created automation "sales-morning".',
+          toolResults: [
+            {
+              name: "manage-automations",
+              isError: false,
+              content: JSON.stringify({
+                created: true,
+                name: "sales-morning",
+                triggerType: "schedule",
+              }),
+            },
+          ],
+        }),
+      );
+
+      expect(result).not.toBeNull();
+    }
+  });
+
   it("does not retry bare cron automation as a dashboard build", () => {
     for (const userText of [
       "Create a cron to email the Revenue dashboard daily",
@@ -396,6 +423,8 @@ describe("realDataFinalGuard dashboard edits", () => {
       "Schedule a dashboard refresh",
       "Schedule a dashboard refresh every morning",
       "Schedule the dashboard to refresh daily",
+      "Schedule a refresh of the Revenue dashboard every morning",
+      "Schedule a daily refresh of the dashboard",
     ]) {
       const result = realDataFinalGuard(
         guardContext({
@@ -417,6 +446,21 @@ describe("realDataFinalGuard dashboard edits", () => {
 
       expect(result).toBeNull();
     }
+  });
+
+  it("does not steer report-framed refresh-rate queries into dashboard construction", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create a report showing the dashboard refresh rate",
+        draftText: "The dashboard refresh rate is 92 percent.",
+      }),
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.retryMessage).toContain("real source query");
+    expect(result?.retryMessage).not.toContain(
+      "dashboard construction/template-clone",
+    );
   });
 
   it("keeps recovery for an automation dashboard using a template", () => {
