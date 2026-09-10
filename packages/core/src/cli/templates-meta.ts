@@ -262,7 +262,7 @@ export const TEMPLATES: TemplateMeta[] = [
     color: "#7C3AED",
     colorRgb: "124 58 237",
     devPort: 8108,
-    prodUrl: "https://agent-native-factory.netlify.app",
+    prodUrl: "https://factory.agent-native.com",
     hidden: true,
     defaultMode: "dev",
     core: false,

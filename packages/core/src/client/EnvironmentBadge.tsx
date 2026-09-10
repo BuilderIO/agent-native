@@ -17,6 +17,7 @@ import {
   BETA_OPT_OUT_STORAGE_KEY,
   BETA_REDIRECT_DURATION_MS,
   BETA_REDIRECT_STORAGE_KEY,
+  buildAutomaticBetaRedirectUrl,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   resolveEnvironmentTargets,
@@ -35,6 +36,7 @@ export {
   BETA_OPT_OUT_STORAGE_KEY,
   BETA_REDIRECT_DURATION_MS,
   BETA_REDIRECT_STORAGE_KEY,
+  buildAutomaticBetaRedirectUrl,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   resolveEnvironmentTargets,
@@ -319,7 +321,7 @@ function ProductionEnvironmentBadge({
     if (readBetaOptOutUntil() !== null) return;
     if (consumeBetaOptOutQueryParam(window.location.href)) return;
 
-    const betaHref = buildEnvironmentUrl(
+    const betaHref = buildAutomaticBetaRedirectUrl(
       window.location.href,
       targets.betaHost,
     );

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   BETA_FORCE_SESSION_STORAGE_KEY,
+  BETA_LANE_RETURN_STORAGE_KEY,
+  BETA_LANE_RETURNED_STORAGE_KEY,
+  BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
   BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
   BETA_REDIRECT_STORAGE_KEY,
@@ -35,6 +38,7 @@ function runScript({
   userAgent = "",
   session = { email: "employee@builder.io" },
   sessionResponseOk = true,
+  sessionStatus,
   sessionPath = "/_agent-native/auth/session",
   workspaceRuntime = false,
   workspaceAppMountPaths,
@@ -47,6 +51,7 @@ function runScript({
   userAgent?: string;
   session?: Record<string, unknown> | null;
   sessionResponseOk?: boolean;
+  sessionStatus?: number;
   sessionPath?: string;
   workspaceRuntime?: boolean;
   workspaceAppMountPaths?: string[];
@@ -91,9 +96,10 @@ function runScript({
   const fetch = async (input: string) => {
     result.fetched.push(input);
     const responseSession = sessionProbe ? await sessionProbe : session;
+    const status = sessionStatus ?? (sessionResponseOk ? 200 : 503);
     return {
-      ok: sessionResponseOk,
-      status: sessionResponseOk ? 200 : 503,
+      ok: sessionStatus === undefined ? sessionResponseOk : status < 400,
+      status,
       json: async () => responseSession,
     };
   };
@@ -121,7 +127,7 @@ describe("getSsrBetaRedirectScript", () => {
     });
 
     expect(result.redirectedTo).toBe(
-      "https://beta.plan.agent-native.com/inbox?tab=all#runs",
+      "https://beta.plan.agent-native.com/inbox?tab=all&agentNativeLaneRedirect=1#runs",
     );
     expect(result.fetched).toEqual(["/_agent-native/auth/session"]);
   });
@@ -135,7 +141,7 @@ describe("getSsrBetaRedirectScript", () => {
     });
 
     expect(result.redirectedTo).toBe(
-      "https://beta.agent-workspace.builder.io/inbox",
+      "https://beta.agent-workspace.builder.io/inbox?agentNativeLaneRedirect=1",
     );
   });
 
@@ -151,7 +157,7 @@ describe("getSsrBetaRedirectScript", () => {
 
     expect(result.fetched).toEqual(["/plan/_agent-native/auth/session"]);
     expect(result.redirectedTo).toBe(
-      "https://beta.agent-workspace.builder.io/plan/inbox",
+      "https://beta.agent-workspace.builder.io/plan/inbox?agentNativeLaneRedirect=1",
     );
   });
 
@@ -166,7 +172,7 @@ describe("getSsrBetaRedirectScript", () => {
 
     expect(result.fetched).toEqual(["/_agent-native/auth/session"]);
     expect(result.redirectedTo).toBe(
-      "https://beta.agent-workspace.builder.io/settings/inbox",
+      "https://beta.agent-workspace.builder.io/settings/inbox?agentNativeLaneRedirect=1",
     );
   });
 
@@ -183,7 +189,7 @@ describe("getSsrBetaRedirectScript", () => {
 
     expect(result.fetched).toEqual(["/diagrams/_agent-native/auth/session"]);
     expect(result.redirectedTo).toBe(
-      "https://beta.agent-workspace.builder.io/diagrams/inbox",
+      "https://beta.agent-workspace.builder.io/diagrams/inbox?agentNativeLaneRedirect=1",
     );
   });
 
@@ -200,7 +206,7 @@ describe("getSsrBetaRedirectScript", () => {
 
     expect(result.fetched).toEqual(["/dispatch/_agent-native/auth/session"]);
     expect(result.redirectedTo).toBe(
-      "https://beta.agent-workspace.builder.io/settings/inbox",
+      "https://beta.agent-workspace.builder.io/settings/inbox?agentNativeLaneRedirect=1",
     );
   });
 
@@ -356,7 +362,7 @@ describe("getSsrBetaRedirectScript", () => {
       localStorage: productionStorage,
     });
     expect(redirected.redirectedTo).toBe(
-      "https://beta.plan.agent-native.com/inbox",
+      "https://beta.plan.agent-native.com/inbox?agentNativeLaneRedirect=1",
     );
     expect(productionStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).not.toBeNull();
 
@@ -489,8 +495,205 @@ describe("getSsrBetaRedirectScript", () => {
     const result = await pending;
 
     expect(result.redirectedTo).toBe(
-      "https://beta.plan.agent-native.com/settings?tab=profile#security",
+      "https://beta.plan.agent-native.com/settings?tab=profile&agentNativeLaneRedirect=1#security",
     );
+  });
+
+  describe("automatic lane redirect that lands signed out on beta", () => {
+    const BETA_ARRIVAL =
+      "https://beta.plan.agent-native.com/inbox?tab=all&agentNativeLaneRedirect=1#runs";
+
+    it("returns the visitor to the production page they were taken from", async () => {
+      const sessionStorage = createStorage();
+
+      const result = await runScript({
+        href: BETA_ARRIVAL,
+        sessionStorage,
+        sessionStatus: 401,
+        session: null,
+      });
+
+      const target = new URL(result.redirectedTo ?? "");
+      expect(target.hostname).toBe("plan.agent-native.com");
+      expect(target.pathname).toBe("/inbox");
+      expect(target.hash).toBe("#runs");
+      expect(target.searchParams.get("tab")).toBe("all");
+      expect(
+        Number(target.searchParams.get(BETA_OPT_OUT_QUERY_PARAM)),
+      ).toBeGreaterThan(Date.now());
+      // The opt-out is what stops production bouncing straight back to beta.
+      expect(sessionStorage.getItem(BETA_LANE_RETURNED_STORAGE_KEY)).toBe("1");
+      expect(sessionStorage.getItem(BETA_LANE_RETURN_STORAGE_KEY)).toBeNull();
+    });
+
+    it("strips the lane marker from the beta URL it arrived on", async () => {
+      const result = await runScript({
+        href: BETA_ARRIVAL,
+        sessionStatus: 401,
+        session: null,
+      });
+
+      expect(result.historyUrl).toBe(
+        "https://beta.plan.agent-native.com/inbox?tab=all#runs",
+      );
+    });
+
+    it("returns to the production page, not the sign-in URL beta navigated to", async () => {
+      const href = { current: BETA_ARRIVAL };
+      let resolveProbe:
+        | ((session: Record<string, unknown> | null) => void)
+        | undefined;
+      const sessionProbe = new Promise<Record<string, unknown> | null>(
+        (resolve) => {
+          resolveProbe = resolve;
+        },
+      );
+
+      const pending = runScript({
+        href,
+        sessionProbe,
+        sessionStatus: 401,
+      });
+      await Promise.resolve();
+      // What the client session gate does while the probe is in flight.
+      href.current = "https://beta.plan.agent-native.com/sign-in?c=abc123";
+      resolveProbe!(null);
+
+      const result = await pending;
+
+      const target = new URL(result.redirectedTo ?? "");
+      expect(target.hostname).toBe("plan.agent-native.com");
+      expect(target.pathname).toBe("/inbox");
+    });
+
+    it("stays on beta when the visitor does have a beta session", async () => {
+      const sessionStorage = createStorage();
+
+      const result = await runScript({
+        href: BETA_ARRIVAL,
+        sessionStorage,
+        session: { email: "employee@builder.io" },
+      });
+
+      expect(result.redirectedTo).toBeNull();
+      expect(sessionStorage.getItem(BETA_LANE_RETURN_STORAGE_KEY)).toBeNull();
+      expect(sessionStorage.getItem(BETA_LANE_RETURNED_STORAGE_KEY)).toBeNull();
+    });
+
+    it("leaves a deliberate switch to beta on beta's sign-in page", async () => {
+      const result = await runScript({
+        href: "https://beta.plan.agent-native.com/inbox",
+        sessionStatus: 401,
+        session: null,
+      });
+
+      expect(result.redirectedTo).toBeNull();
+      expect(result.fetched).toEqual([]);
+    });
+
+    it("returns at most once per tab so the two lanes cannot ping-pong", async () => {
+      const sessionStorage = createStorage();
+
+      const first = await runScript({
+        href: BETA_ARRIVAL,
+        sessionStorage,
+        sessionStatus: 401,
+        session: null,
+      });
+      expect(first.redirectedTo).not.toBeNull();
+
+      const second = await runScript({
+        href: BETA_ARRIVAL,
+        sessionStorage,
+        sessionStatus: 401,
+        session: null,
+      });
+
+      expect(second.redirectedTo).toBeNull();
+      expect(second.fetched).toEqual([]);
+    });
+
+    it("stays on beta when session storage cannot bound the return", async () => {
+      const sessionStorage = {
+        getItem() {
+          throw new Error("storage is denied");
+        },
+        removeItem() {
+          throw new Error("storage is denied");
+        },
+        setItem() {
+          throw new Error("storage is denied");
+        },
+      };
+
+      const result = await runScript({
+        href: BETA_ARRIVAL,
+        sessionStorage: sessionStorage as ReturnType<typeof createStorage>,
+        sessionStatus: 401,
+        session: null,
+      });
+
+      expect(result.redirectedTo).toBeNull();
+      expect(result.fetched).toEqual([]);
+    });
+
+    it("treats an unreadable session as present rather than signed out", async () => {
+      const result = await runScript({
+        href: BETA_ARRIVAL,
+        sessionResponseOk: false,
+        session: null,
+      });
+
+      expect(result.redirectedTo).toBeNull();
+    });
+
+    it("leaves a desktop webview pinned to beta alone", async () => {
+      const result = await runScript({
+        href: BETA_ARRIVAL,
+        userAgent: "AgentNativeDesktop/1.0",
+        sessionStatus: 401,
+        session: null,
+      });
+
+      expect(result.redirectedTo).toBeNull();
+      expect(result.fetched).toEqual([]);
+    });
+
+    it("keeps the return on the production host for a protocol-relative path", async () => {
+      const result = await runScript({
+        href: "https://beta.plan.agent-native.com//evil.example.com/x?agentNativeLaneRedirect=1",
+        sessionStatus: 401,
+        session: null,
+      });
+
+      expect(new URL(result.redirectedTo ?? "").hostname).toBe(
+        "plan.agent-native.com",
+      );
+    });
+
+    it("hands production an opt-out that suppresses the next lane redirect", async () => {
+      const betaStorage = createStorage();
+      const returned = await runScript({
+        href: BETA_ARRIVAL,
+        sessionStorage: betaStorage,
+        sessionStatus: 401,
+        session: null,
+      });
+
+      const productionStorage = createStorage({
+        [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+      });
+      const backOnProduction = await runScript({
+        href: returned.redirectedTo ?? "",
+        localStorage: productionStorage,
+      });
+
+      expect(backOnProduction.redirectedTo).toBeNull();
+      expect(productionStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).toBeNull();
+      expect(
+        Number(productionStorage.getItem(BETA_OPT_OUT_STORAGE_KEY)),
+      ).toBeGreaterThan(Date.now());
+    });
   });
 
   it("emits a marked inline script for head or shell injection", () => {
