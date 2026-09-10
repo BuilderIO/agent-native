@@ -534,10 +534,13 @@ const DASHBOARD_AUTOMATION_COUNT_REVERSE_QUERY_TERMS =
   /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:run|runs|ran|execution(?:s)?|job(?:s)?|fail(?:ed|ure|ures)?|count(?:s)?|number)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b/i;
 
 const DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS =
-  /\b(?:create|make|build)\s+(?:a|an|the)\s+(?:report|chart|analysis|metric)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:number|count(?:s)?|run(?:s)?|ran|execution(?:s)?|job(?:s)?|conversion(?:s)?|failure(?:s)?|fail(?:ed|ure|ures)?|success(?:es)?|rate(?:s)?|error(?:s)?|performance|metric(?:s)?)\b|\b(?:number|count(?:s)?|run(?:s)?|ran|execution(?:s)?|job(?:s)?|conversion(?:s)?|failure(?:s)?|fail(?:ed|ure|ures)?|success(?:es)?|rate(?:s)?|error(?:s)?|performance|metric(?:s)?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b)/i;
+  /\b(?:create|make|build)\s+(?:a|an|the)\s+(?:report|chart|analysis|metric)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:number|count(?:s)?|run(?:s)?|ran|execution(?:s)?|job(?:s)?|conversion(?:s)?|failure(?:s)?|fail(?:ed|ure|ures)?|success(?:es)?|rate(?:s)?|error(?:s)?|performance|metric(?:s)?|status|state|scheduled|active|enabled|paused|running|pending|disabled)\b|\b(?:number|count(?:s)?|run(?:s)?|ran|execution(?:s)?|job(?:s)?|conversion(?:s)?|failure(?:s)?|fail(?:ed|ure|ures)?|success(?:es)?|rate(?:s)?|error(?:s)?|performance|metric(?:s)?|status|state|scheduled|active|enabled|paused|running|pending|disabled)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b)/i;
 
 const DASHBOARD_AUTOMATION_STATUS_QUERY_TERMS =
-  /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much|list)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:scheduled|active|enabled|paused|running|pending|disabled)\b/i;
+  /(?:\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much|list|are|is)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:scheduled|active|enabled|paused|running|pending|disabled|status|state)\b|\b(?:what|which|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:status|state)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:dashboard|extension|panel|widget)\s*(?:['’]s)?\b)/i;
+
+const DASHBOARD_AUTOMATION_DIRECT_COUNT_QUERY_TERMS =
+  /\bhow\s+many\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*(?:\bare there\b|\bexist\b|\bdo we have\b|\bis there\b|(?=\s*[?.!]|$))/i;
 
 const ANALYTICS_DOMAIN_ENTITY_TERMS =
   /\b(?:branch(?:es)?|branch creation|created by|creator identity)\b/;
@@ -596,7 +599,8 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   }
   if (
     DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS.test(lower) ||
-    DASHBOARD_AUTOMATION_STATUS_QUERY_TERMS.test(lower)
+    DASHBOARD_AUTOMATION_STATUS_QUERY_TERMS.test(lower) ||
+    DASHBOARD_AUTOMATION_DIRECT_COUNT_QUERY_TERMS.test(lower)
   ) {
     return true;
   }
@@ -635,7 +639,9 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   if (
     DASHBOARD_AUTOMATION_ANALYTICS_QUERY_TERMS.test(lower) ||
     DASHBOARD_AUTOMATION_COUNT_REVERSE_QUERY_TERMS.test(lower) ||
-    DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS.test(lower)
+    DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS.test(lower) ||
+    DASHBOARD_AUTOMATION_STATUS_QUERY_TERMS.test(lower) ||
+    DASHBOARD_AUTOMATION_DIRECT_COUNT_QUERY_TERMS.test(lower)
   ) {
     return true;
   }
