@@ -180,7 +180,7 @@ const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;
 
 const DASHBOARD_CONSTRUCTION_OBJECT_TERMS =
-  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:[\w-]+\s+){0,3}(?:dashboard|extension|panel|widget)\b/i;
+  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:[\w-]+\s+){0,3}(?:dashboard|extension|panel|widget)(?!\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron job)\b)\b/i;
 
 const DASHBOARD_AUTOMATION_COMPOUND_TERMS =
   /\b(?:dashboard|extension|panel|widget)\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron job)\b/i;
@@ -189,15 +189,25 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
   const requestText = stripInjectedAnalyticsGuardContext(text);
   const lower = requestText.toLowerCase();
   if (!lower) return false;
-  if (DASHBOARD_AUTOMATION_COMPOUND_TERMS.test(lower)) return false;
   const dashboardConstructionObjectMatch = lower.match(
     DASHBOARD_CONSTRUCTION_OBJECT_TERMS,
   );
+  const dashboardConstructionObjectText =
+    dashboardConstructionObjectMatch?.[0] ?? "";
   const hasDashboardConstructionObject =
     dashboardConstructionObjectMatch !== null &&
-    !/\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron job)\b/.test(
-      dashboardConstructionObjectMatch[0],
-    );
+    (!/\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron job)\b/.test(
+      dashboardConstructionObjectText,
+    ) ||
+      /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron job)\s+(?:dashboard|extension|panel|widget)\b/.test(
+        dashboardConstructionObjectText,
+      ));
+  if (
+    DASHBOARD_AUTOMATION_COMPOUND_TERMS.test(lower) &&
+    !hasDashboardConstructionObject
+  ) {
+    return false;
+  }
   if (
     looksLikeWorkflowOrAutomationRequest(lower) &&
     !hasDashboardConstructionObject
@@ -319,7 +329,7 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
       lower,
     );
   const hasExplicitAutomationTarget =
-    /\b(?:want|need|create|make|set up|setup|add|configure|build|define|schedule)\s+(?:(?:a|an|the)\s+)?(?:(?!(?:dashboard|extension|panel|widget)\b)[\w-]+\s+){0,2}(?:recurring job|scheduled job|automation|automations|workflow|workflows|cron\s+job)\b/.test(
+    /\b(?:want|need|create|make|set up|setup|add|configure|build|define|schedule)\s+(?:(?:a|an|the)\s+)?(?:(?!(?:dashboard|extension|panel|widget)\b)[\w-]+\s+){0,2}(?:recurring job|scheduled job|automation|automations|workflow|workflows|cron\s+job)\b(?!\s+(?:dashboard|extension|panel|widget)\b)/.test(
       lower,
     );
 

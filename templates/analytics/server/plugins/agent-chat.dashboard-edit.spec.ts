@@ -134,6 +134,51 @@ describe("realDataFinalGuard dashboard edits", () => {
     expect(result).toBeNull();
   });
 
+  it("keeps recovery for an automation-themed dashboard request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Build an automation dashboard tracking Zapier failure rates",
+        draftText: 'Created automation "zapier-failures".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "zapier-failures",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("keeps recovery for a separate dashboard beside dashboard automation", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a sales dashboard and a dashboard automation to email it each morning",
+        draftText: 'Created automation "sales-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "sales-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
   it("keeps dashboard recovery for a named dashboard and automation request", () => {
     const result = realDataFinalGuard(
       guardContext({

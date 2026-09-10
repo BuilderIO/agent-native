@@ -1086,6 +1086,25 @@ describe("incomplete evidence detection", () => {
     ).toBe(false);
   });
 
+  it("keeps automation-themed dashboards as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Build an automation dashboard tracking Zapier failure rates",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest("Create a workflow dashboard"),
+    ).toBe(true);
+  });
+
+  it("preserves a separate dashboard request beside dashboard automation", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a sales dashboard and a dashboard automation to email it each morning",
+      ),
+    ).toBe(true);
+  });
+
   it("still treats a plain numeric analytics question as a data request, not construction", () => {
     expect(
       looksLikeAnalyticsDataRequest("What was our conversion rate last week?"),
