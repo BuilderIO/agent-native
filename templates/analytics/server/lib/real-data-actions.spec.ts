@@ -1141,6 +1141,40 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("does not treat nested dashboard actions as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation to refresh the Revenue dashboard every morning",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation to clone the Revenue dashboard template every morning",
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves long and automation-first dashboard construction requests", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a quarterly revenue retention forecast dashboard and schedule an automation to email it",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create an automation and a dashboard",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps named dashboards as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a dashboard called Automation Health",
+      ),
+    ).toBe(true);
+  });
+
   it("still treats a plain numeric analytics question as a data request, not construction", () => {
     expect(
       looksLikeAnalyticsDataRequest("What was our conversion rate last week?"),

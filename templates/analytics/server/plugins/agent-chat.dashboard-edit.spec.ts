@@ -246,6 +246,119 @@ describe("realDataFinalGuard dashboard edits", () => {
     expect(result).not.toBeNull();
   });
 
+  it("does not retry a nested dashboard action as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create an automation to refresh the Revenue dashboard every morning",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not retry a template lookup nested inside an automation", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create an automation to clone the Revenue dashboard template every morning",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("keeps recovery for a long dashboard title with automation", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a quarterly revenue retention forecast dashboard and schedule an automation to email it",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("keeps recovery for an automation-first dashboard request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create an automation and a dashboard",
+        draftText: 'Created automation "daily-summary".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "daily-summary",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("keeps recovery for a named dashboard", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create a dashboard called Automation Health",
+        draftText: 'Created automation "automation-health".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "automation-health",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
   it("keeps dashboard recovery for a named dashboard and automation request", () => {
     const result = realDataFinalGuard(
       guardContext({
