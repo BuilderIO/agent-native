@@ -18,10 +18,13 @@ export function beginOptimisticBreakpointSetPatch(args: {
   designDataJsonRef: { current: Record<string, unknown> };
   nextData: Record<string, unknown>;
 }): { rollback: () => void } {
-  const designQueryKey = ["action", "get-design", { id: args.designId }] as const;
-  const previousDesign = args.queryClient.getQueryData<DesignQueryData>(
-    designQueryKey,
-  );
+  const designQueryKey = [
+    "action",
+    "get-design",
+    { id: args.designId },
+  ] as const;
+  const previousDesign =
+    args.queryClient.getQueryData<DesignQueryData>(designQueryKey);
   const previousData = args.designDataJsonRef.current;
   args.designDataJsonRef.current = args.nextData;
   args.queryClient.setQueryData(

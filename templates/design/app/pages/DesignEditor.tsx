@@ -610,7 +610,16 @@ import {
   type DesignDataOperation,
   type PendingDesignDataOperations,
 } from "./design-editor/data-operations";
-import { deriveDesignBreakpoints } from "./design-editor/derive/design-breakpoints";
+import {
+  beginOptimisticBreakpointSetPatch,
+  optimisticAddBreakpointData,
+  optimisticRemoveBreakpointData,
+} from "./design-editor/commands/optimistic-breakpoint-mutation";
+import {
+  applyOptimisticBreakpointAdd,
+  applyOptimisticBreakpointRemove,
+  deriveDesignBreakpoints,
+} from "./design-editor/derive/design-breakpoints";
 import { deriveOverviewScreens } from "./design-editor/derive/overview-screens";
 import {
   cloneCanvasFrameGeometry,

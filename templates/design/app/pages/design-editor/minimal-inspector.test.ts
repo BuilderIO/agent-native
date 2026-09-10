@@ -64,7 +64,9 @@ describe("rightInspectorPanelClassName", () => {
     expect(rightInspectorPanelClassName(true)).toBe(
       FLOATING_RIGHT_INSPECTOR_CLASSNAME,
     );
-    expect(rightInspectorPanelClassName(true)).toContain("top-14 right-3 bottom-3");
+    expect(rightInspectorPanelClassName(true)).toContain(
+      "top-14 right-3 bottom-3",
+    );
     expect(rightInspectorPanelClassName(true)).toContain("rounded-2xl");
     expect(rightInspectorPanelClassName(true)).toContain("shadow-xl");
     expect(rightInspectorPanelClassName(true)).not.toContain("inset-y-0");
