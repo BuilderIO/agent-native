@@ -168,7 +168,12 @@ async function probe(host, fetchImpl = fetch) {
 }
 
 export function cacheStatusHasHit(value) {
-  return /(?:^|[;,]\s*)(?:hit|fwd=stale)(?:\s*[,;]|\s*$)/i.test(value ?? "");
+  const status = value ?? "";
+  const hasHit = /(?:^|[;,]\s*)hit(?:\s*[,;]|\s*$)/i.test(status);
+  const hasSuccessfulStaleRevalidation =
+    /(?:^|[;,]\s*)fwd=stale(?:\s*[,;]|\s*$)/i.test(status) &&
+    /(?:^|[;,]\s*)fwd-status=304(?:\s*[,;]|\s*$)/i.test(status);
+  return hasHit || hasSuccessfulStaleRevalidation;
 }
 
 export function contentTypeMatches(value, expected) {

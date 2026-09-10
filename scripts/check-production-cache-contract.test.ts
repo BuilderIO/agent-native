@@ -31,13 +31,14 @@ function queuedFetch(responses: Response[]) {
 }
 
 describe("production cache contract probe helpers", () => {
-  it("recognizes hit and stale cache reuse without treating stored or vary-miss as a hit", () => {
+  it("recognizes hits and successful stale revalidation without false positives", () => {
     assert.equal(cacheStatusHasHit('"Netlify Durable"; hit; ttl=599'), true);
     assert.equal(cacheStatusHasHit('"Netlify Edge"; hit; ttl=599'), true);
     assert.equal(
       cacheStatusHasHit('"Netlify Edge"; fwd=stale; fwd-status=304; stored'),
       true,
     );
+    assert.equal(cacheStatusHasHit('"Netlify Edge"; fwd=stale; stored'), false);
     assert.equal(
       cacheStatusHasHit('"Netlify Durable"; fwd=vary-miss; stored'),
       false,
