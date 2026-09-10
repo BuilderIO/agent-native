@@ -1148,11 +1148,12 @@ export default function Index() {
       const retryContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
+      const retryReferenceFilePaths =
+        newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
       setPendingDeck({
         prompt,
         files,
-        referenceFilePaths:
-          prompt === newDeckRetryPrompt ? newDeckRetryReferenceFilePaths : [],
+        referenceFilePaths: retryReferenceFilePaths,
         context: retryContext,
         attachments: [
           ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
@@ -1175,6 +1176,7 @@ export default function Index() {
       return "retain" as const;
     },
     [
+      newDeckRetryFiles,
       newDeckRetryAttachments,
       newDeckRetryReferenceFilePaths,
       newDeckRetryContext,

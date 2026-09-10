@@ -79,6 +79,10 @@ describe("new deck generation flow", () => {
   it("keeps imported reference exclusions through skip, repeats, and retries", () => {
     expect(source).toContain("retryReferenceFilePaths?: string[]");
     expect(source).toContain(
+      "newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : []",
+    );
+    expect(source).toContain("referenceFilePaths: retryReferenceFilePaths,");
+    expect(source).toContain(
       "setNewDeckRetryReferenceFilePaths(state.retryReferenceFilePaths ?? [])",
     );
     expect(source).toContain(
