@@ -74,9 +74,17 @@ beforeEach(async () => {
   pglite = await createTestPglite();
   await pglite.exec(TABLE_SQL);
   await pglite.exec(ORG_MEMBERS_SQL);
-  await pglite
-    .prepare(`INSERT INTO org_members (org_id, email, role) VALUES (?, ?, ?)`)
-    .run("org-1", "a@example.com", "owner");
+  for (const [orgId, email, role] of [
+    ["org-1", "a@example.com", "owner"],
+    ["org-1", "peer@example.com", "member"],
+    // `peer@example.com` also belongs to org-2, so their unattributed rows
+    // cannot be shown to belong to org-1.
+    ["org-2", "peer@example.com", "member"],
+  ] as const) {
+    await pglite
+      .prepare(`INSERT INTO org_members (org_id, email, role) VALUES (?, ?, ?)`)
+      .run(orgId, email, role);
+  }
   for (const key of [
     "AGENT_NATIVE_APP_ID",
     "APP_ID",
@@ -164,5 +172,70 @@ describe("listAppUsageMetrics organization scoping", () => {
     );
 
     expect(metrics.totals).toMatchObject({ calls: 1, inputTokens: 200 });
+  });
+});
+
+describe("listAppUsageMetrics workspace scope", () => {
+  it("does not claim another member's unattributed usage for the workspace", async () => {
+    // org_id IS NULL means the organization is unknown, and `peer` belongs to
+    // org-1 and org-2. Admitting the row into an org-1 roll-up would report
+    // another organization's spend — and expose its prompt text — to an org-1
+    // admin.
+    await recordUsage({
+      ownerEmail: "peer@example.com",
+      inputTokens: 5_000,
+      outputTokens: 5_000,
+      model: "claude-sonnet-4-5",
+      label: "recurring-job:digest",
+    });
+    await recordInOrg("org-1", 200);
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "workspace" },
+      { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+    );
+
+    expect(metrics.totals).toMatchObject({
+      calls: 1,
+      inputTokens: 200,
+      outputTokens: 50,
+    });
+    expect(metrics.recent.map((row) => row.ownerEmail)).toEqual([
+      "a@example.com",
+    ]);
+  });
+
+  it("still shows an admin their own unattributed usage in workspace scope", async () => {
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 400,
+      outputTokens: 100,
+      model: "claude-sonnet-4-5",
+      label: "recurring-job:digest",
+    });
+    await recordInOrg("org-1", 200);
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "workspace", userEmail: "a@example.com" },
+      { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+    );
+
+    expect(metrics.totals).toMatchObject({ calls: 2, inputTokens: 600 });
+  });
+
+  it("does not admit unattributed rows when an admin selects another member", async () => {
+    await recordUsage({
+      ownerEmail: "peer@example.com",
+      inputTokens: 5_000,
+      outputTokens: 5_000,
+      model: "claude-sonnet-4-5",
+    });
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "workspace", userEmail: "peer@example.com" },
+      { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+    );
+
+    expect(metrics.totals).toMatchObject({ calls: 0, inputTokens: 0 });
   });
 });

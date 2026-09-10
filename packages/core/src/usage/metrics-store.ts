@@ -257,7 +257,12 @@ async function resolveScope(
   }
 
   const placeholders = selectedEmails.map(() => "?").join(", ");
-  const orgScope = usageOrgScope(orgId);
+  const orgScope = usageOrgScope({
+    orgId,
+    selfScoped:
+      selectedEmails.length === 1 &&
+      selectedEmails[0]!.toLowerCase() === viewerEmail,
+  });
   return {
     ownerScope: {
       where: [orgScope.where, `LOWER(owner_email) IN (${placeholders})`]

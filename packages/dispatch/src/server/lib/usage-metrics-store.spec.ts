@@ -41,11 +41,15 @@ vi.mock("@agent-native/core/usage", () => ({
     shortLabel: "Cost",
     source: "estimated-provider-cost",
   }),
-  usageOrgScope: (orgId: string | null | undefined) => {
-    const trimmed = orgId?.trim();
-    return trimmed
+  usageOrgScope: (options: {
+    orgId: string | null | undefined;
+    selfScoped: boolean;
+  }) => {
+    const trimmed = options.orgId?.trim();
+    if (!trimmed) return { where: "", args: [] };
+    return options.selfScoped
       ? { where: "(org_id = ? OR org_id IS NULL)", args: [trimmed] }
-      : { where: "", args: [] };
+      : { where: "org_id = ?", args: [trimmed] };
   },
 }));
 
@@ -458,20 +462,21 @@ describe("listDispatchUsageMetrics", () => {
         ),
       ),
     ).toBe(false);
-    // The org predicate must admit unattributed rows. `org_id` is filled from
-    // the request context, so recurring jobs, automations, and every row
-    // written before that column existed are NULL — an equality-only filter
-    // reported real workspace spend as zero usage.
+    // A workspace roll-up spans other members, so it must NOT admit rows whose
+    // organization is unknown — a member shared with another organization
+    // would otherwise have that spend claimed here.
     expect(
       mocks.execute.mock.calls.some(([query]) => {
         const sql = String((query as { sql?: string }).sql);
         const args = (query as { args?: unknown[] }).args ?? [];
-        return (
-          sql.includes("(org_id = ? OR org_id IS NULL)") &&
-          args.includes("org-a")
-        );
+        return sql.includes("org_id = ?") && args.includes("org-a");
       }),
     ).toBe(true);
+    expect(
+      mocks.execute.mock.calls.some(([query]) =>
+        String((query as { sql?: string }).sql).includes("org_id IS NULL"),
+      ),
+    ).toBe(false);
   });
 
   it("keeps weekly app adoption independent from a one-day lookback", async () => {

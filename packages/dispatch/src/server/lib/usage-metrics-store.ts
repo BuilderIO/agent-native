@@ -486,11 +486,12 @@ function usageScope(
 function withOrgUsageScope(
   scope: { where: string; args: unknown[] },
   orgId: string | null,
+  selfScoped: boolean,
 ): { where: string; args: unknown[] } {
   // A no-org viewer keeps the narrow `IS NULL` scope: `usageScope` degrades to
   // an unfiltered owner scope when it has no member emails, so dropping the
   // org predicate there would widen the read to the whole table.
-  const org = usageOrgScope(orgId);
+  const org = usageOrgScope({ orgId, selfScoped });
   return {
     where: `${scope.where} AND ${org.where || "org_id IS NULL"}`,
     args: [...scope.args, ...org.args],
@@ -543,7 +544,12 @@ function appUsageScope(
   appId: string,
   orgId: string | null,
 ): { where: string; args: unknown[] } {
-  const scope = withOrgUsageScope(usageScope(sinceMs, memberEmails), orgId);
+  // An app-wide read spans every member, so it is never self-scoped.
+  const scope = withOrgUsageScope(
+    usageScope(sinceMs, memberEmails),
+    orgId,
+    false,
+  );
   return {
     where: `${scope.where} AND LOWER(app) = ?`,
     args: [...scope.args, appUsageKey(appId)],
@@ -1026,6 +1032,11 @@ export async function listDispatchUsageMetrics(input: {
   const memberEmails = selectedUserEmail
     ? [selectedUserEmail]
     : members.map((member) => member.email);
+  // Unattributed (`org_id IS NULL`) usage may only be admitted when the read is
+  // narrowed to the viewer's own spend. An admin-selected member or a
+  // workspace-wide roll-up must not claim rows whose organization is unknown.
+  const selfScopedUsage =
+    selectedUserEmail?.toLowerCase() === viewerEmail.toLowerCase();
   const memberByEmail = new Map(
     members.map((member) => [member.email.toLowerCase(), member]),
   );
@@ -1037,6 +1048,7 @@ export async function listDispatchUsageMetrics(input: {
             ? ownerScope(sinceMs, selectedUserEmail)
             : usageScope(sinceMs, memberEmails),
           orgId,
+          selfScopedUsage,
         );
   const visibleSinceMs = Math.floor(sinceMs / DAY_MS) * DAY_MS;
   const adoptionSinceMs = Math.min(
@@ -1051,6 +1063,7 @@ export async function listDispatchUsageMetrics(input: {
             ? ownerScope(adoptionSinceMs, selectedUserEmail)
             : usageScope(adoptionSinceMs, memberEmails),
           orgId,
+          selfScopedUsage,
         );
   const weeklyLookbackUsage = {
     where: `${adoptionUsage.where} AND created_at < ?`,
