@@ -65,6 +65,8 @@ import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { RunsTray } from "@agent-native/core/client/progress";
 import {
   AgentNativeIcon,
+  AppSidebarFooter,
+  AppSidebarHeader,
   EnvironmentBadge,
   FeedbackButton,
 } from "@agent-native/core/client/ui";
@@ -1221,74 +1223,13 @@ export function NavContent({
       </ul>
     </nav>
   );
-  const sidebarFooterActions = (
-    <div
-      className={cn(
-        "shrink-0 border-t border-border p-2",
-        collapsed ? "space-y-1" : "space-y-1.5",
-      )}
-    >
-      <SidebarFooterActions
-        feedback={feedbackButton}
-        search={searchButton}
-        collapse={collapseButton}
-        collapsed={collapsed}
-      />
-      <div
-        data-sidebar-footer-utilities
-        className={cn(
-          collapsed
-            ? "flex flex-col items-center gap-1"
-            : "flex items-center gap-0.5",
-        )}
-      >
-        <OrgSwitcher
-          compact={collapsed}
-          reserveSpace
-          currentAppId="dispatch"
-          className={cn(
-            "!bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary",
-            collapsed ? "!size-9 !p-0 [&>svg]:!size-4" : "min-w-0 flex-1",
-          )}
-        />
-      </div>
-    </div>
-  );
-
   return (
     <>
-      <div
-        className={cn(
-          "flex h-14 shrink-0 items-center border-b border-sidebar-border",
-          collapsed ? "flex-col justify-center gap-0.5 px-2" : "gap-2 px-4",
-        )}
-      >
-        <Link
-          to={dispatchNavLinkTarget("/overview")}
-          aria-label={`${DISPATCH_SIDEBAR_LABEL} overview`}
-          data-dispatch-logo
-          className={cn(
-            "flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-            collapsed ? "size-8 justify-center" : "shrink-0",
-          )}
-        >
-          <AgentNativeIcon
-            aria-hidden="true"
-            className="h-3.5 w-6 shrink-0 text-foreground"
-          />
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <div
-                data-dispatch-sidebar-label
-                className="truncate text-sm font-semibold tracking-tight text-foreground"
-              >
-                {DISPATCH_SIDEBAR_LABEL}
-              </div>
-            </div>
-          )}
-        </Link>
-        <EnvironmentBadge placement="inline" />
-      </div>
+      <AppSidebarHeader
+        brandName={DISPATCH_SIDEBAR_LABEL}
+        brandHref={dispatchNavLinkTarget("/overview")}
+        collapsed={collapsed}
+      />
 
       {chatFirstMode ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -1332,7 +1273,23 @@ export function NavContent({
         data-dispatch-sidebar-footer={chatFirstMode ? "chat-first" : "standard"}
       >
         {bottomNavigation}
-        {sidebarFooterActions}
+        <AppSidebarFooter
+          collapsed={collapsed}
+          collapsible={false}
+          feedback={feedbackButton}
+          orgSwitcher={
+            <OrgSwitcher
+              compact={collapsed}
+              reserveSpace
+              currentAppId="dispatch"
+              className={cn(
+                "!bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary",
+                collapsed ? "!size-9 !p-0 [&>svg]:!size-4" : "min-w-0 flex-1",
+              )}
+            />
+          }
+          footerExtras={collapseButton}
+        />
       </div>
     </>
   );

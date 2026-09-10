@@ -13,6 +13,8 @@ import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AgentNativeIcon,
+  AppSidebarFooter,
+  AppSidebarHeader,
   EnvironmentBadge,
   FeedbackButton,
 } from "@agent-native/core/client/ui";
@@ -1901,33 +1903,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   : "fixed start-0 top-0 bottom-0 z-40",
               )}
             >
-              <div
-                className={cn(
-                  "flex h-14 shrink-0 items-center border-b border-border",
-                  showCollapsedSidebar
-                    ? "flex-col justify-center gap-0.5 px-2"
-                    : "gap-2 px-4",
-                )}
+              <AppSidebarHeader
+                brandName={t("mail.appName")}
+                brandHref="/inbox"
+                collapsed={showCollapsedSidebar}
               >
-                <Link
-                  to="/inbox"
-                  aria-label={t("mail.appName")}
-                  className={cn(
-                    "flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    showCollapsedSidebar ? "size-8 justify-center" : "shrink-0",
-                  )}
-                >
-                  <AgentNativeIcon
-                    aria-hidden="true"
-                    className="h-3.5 w-6 shrink-0 text-primary"
-                  />
-                  {!showCollapsedSidebar && (
-                    <span className="truncate text-sm font-semibold text-primary">
-                      {t("mail.appName")}
-                    </span>
-                  )}
-                </Link>
-                <EnvironmentBadge placement="inline" />
                 {!showCollapsedSidebar && (
                   <div className="ms-auto flex items-center gap-1">
                     <Tooltip>
@@ -1968,7 +1948,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     </Tooltip>
                   </div>
                 )}
-              </div>
+              </AppSidebarHeader>
               {showCollapsedSidebar ? (
                 <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-1 py-2">
                   {railNavItems.map((item) => {
@@ -2191,25 +2171,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     </div>
                   </div>
 
-                  <div
-                    className={cn(
-                      "shrink-0 border-t border-border p-2",
-                      showCollapsedSidebar ? "space-y-1" : "space-y-1.5",
-                    )}
-                  >
-                    <FeedbackButton
-                      variant={showCollapsedSidebar ? "icon" : "sidebar"}
-                      side="right"
-                      className={showCollapsedSidebar ? "!size-9 !p-0" : "w-full"}
-                    />
-                    <div
-                      data-sidebar-footer-utilities
-                      className={cn(
-                        showCollapsedSidebar
-                          ? "flex flex-col items-center gap-1"
-                          : "flex items-center gap-0.5",
-                      )}
-                    >
+                  <AppSidebarFooter
+                    collapsed={showCollapsedSidebar}
+                    collapsible={false}
+                    feedback={feedbackButton}
+                    orgSwitcher={
                       <OrgSwitcher
                         compact={showCollapsedSidebar}
                         className={cn(
@@ -2219,26 +2185,30 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                             : "min-w-0 flex-1",
                         )}
                       />
-                      <DevDatabaseLink />
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Link
-                            to="/settings"
-                            onClick={closeSidebar}
-                            aria-label={t("mail.toolbar.settings")}
-                            className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
-                          >
-                            <IconSettings className="size-4" />
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          {t("mail.toolbar.settings")}
-                        </TooltipContent>
-                      </Tooltip>
-                      <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
-                      {collapseButton}
-                    </div>
-                  </div>
+                    }
+                    footerExtras={
+                      <>
+                        <DevDatabaseLink />
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Link
+                              to="/settings"
+                              onClick={closeSidebar}
+                              aria-label={t("mail.toolbar.settings")}
+                              className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
+                            >
+                              <IconSettings className="size-4" />
+                            </Link>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            {t("mail.toolbar.settings")}
+                          </TooltipContent>
+                        </Tooltip>
+                        <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
+                        {collapseButton}
+                      </>
+                    }
+                  />
                 </>
               )}
             </div>

@@ -1,5 +1,7 @@
 import {
   AgentNativeIcon,
+  AppSidebarFooter,
+  AppSidebarHeader,
   EnvironmentBadge,
 } from "@agent-native/core/client/ui";
 import {
@@ -2317,18 +2319,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       )}
       {effectiveCollapsed ? (
         <>
-          <div className="flex h-14 shrink-0 flex-col items-center justify-center gap-0.5 border-b border-border px-2">
-            <Link
-              to="/home"
-              className="flex size-8 items-center justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <AgentNativeIcon
-                aria-hidden="true"
-                className="h-3.5 w-6 shrink-0 text-primary"
-              />
-            </Link>
-            <EnvironmentBadge placement="inline" />
-          </div>
+          <AppSidebarHeader
+            brandName={t("navigation.brand")}
+            brandHref="/home"
+            collapsed={true}
+          />
           <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3">
             {collapsedNavItems.map((item) => {
               const Icon = item.icon;
@@ -2348,42 +2343,31 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               );
             })}
           </nav>
-          <div className="shrink-0 border-t border-border p-2 space-y-1">
-            <SidebarFooterActions
-              feedback={footerFeedback}
-              search={footerSearch}
-              collapse={footerCollapse}
-              collapsed
-            />
-            <div
-              data-sidebar-footer-utilities
-              className="flex flex-col items-center gap-1"
-            >
+          <AppSidebarFooter
+            collapsed={true}
+            collapsible={false}
+            feedback={footerFeedback}
+            orgSwitcher={
               <OrgSwitcher
                 compact
                 className="!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
               />
-              <DevDatabaseLink />
-            </div>
-          </div>
+            }
+            footerExtras={
+              <>
+                <DevDatabaseLink />
+                {footerCollapse}
+              </>
+            }
+          />
         </>
       ) : (
         <>
-          <div className="flex h-14 shrink-0 items-center border-b border-border gap-2 px-4">
-            <Link
-              to="/home"
-              className="flex min-w-0 items-center gap-2 font-semibold"
-            >
-              <AgentNativeIcon
-                aria-hidden="true"
-                className="h-3.5 w-6 shrink-0 text-primary"
-              />
-              <span className="truncate text-sm font-semibold text-primary">
-                {t("navigation.brand")}
-              </span>
-            </Link>
-            <EnvironmentBadge placement="inline" />
-          </div>
+          <AppSidebarHeader
+            brandName={t("navigation.brand")}
+            brandHref="/home"
+            collapsed={false}
+          />
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
             <nav className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3">
               {/* Ask section */}
@@ -2721,20 +2705,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 })}
               </nav>
 
-              <div className="mt-2 shrink-0 space-y-1.5 border-t border-border p-2">
-                <SidebarFooterActions
-                  feedback={footerFeedback}
-                  search={footerSearch}
-                  collapse={footerCollapse}
-                />
-                <div
-                  data-sidebar-footer-utilities
-                  className="flex items-center gap-0.5"
-                >
+              <AppSidebarFooter
+                collapsed={false}
+                collapsible={false}
+                feedback={footerFeedback}
+                orgSwitcher={
                   <OrgSwitcher className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
-                  <DevDatabaseLink />
-                </div>
-              </div>
+                }
+                footerExtras={
+                  <>
+                    <DevDatabaseLink />
+                    {footerCollapse}
+                  </>
+                }
+              />
             </div>
           </div>
         </>

@@ -11,6 +11,8 @@ import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AgentNativeIcon,
+  AppSidebarFooter,
+  AppSidebarHeader,
   EnvironmentBadge,
   FeedbackButton,
 } from "@agent-native/core/client/ui";
@@ -2359,38 +2361,44 @@ export function DocumentSidebar({
   if (collapsed) {
     return (
       <div className="agent-layout-left-drawer flex h-full w-14 flex-col items-center border-e border-border bg-sidebar transition-[width] duration-200 ease-out">
-        {brandButton(true)}
+        <AppSidebarHeader
+          brandName="Content"
+          brandHref="/home"
+          collapsed
+          onBrandClick={onToggleCollapsed}
+        />
         <div className="flex flex-col items-center gap-1 px-2 py-3">
           {renderCollapsedNewButton()}
         </div>
-        <div className="mt-auto shrink-0 w-full p-2 border-t border-border space-y-1">
-          <SidebarFooterActions
-            feedback={feedbackButton}
-            search={searchButton}
-            collapse={collapseButton}
+        <div className="mt-auto shrink-0 w-full">
+          <AppSidebarFooter
             collapsed
+            collapsible={false}
+            feedback={feedbackButton}
+            orgSwitcher={
+              <OrgSwitcher
+                compact
+                reserveSpace
+                className="!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+              />
+            }
+            footerExtras={
+              <>
+                {isCodeMode ? <DevDatabaseLink /> : null}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link to="/settings" aria-label={t("navigation.settings")}>
+                      <IconSettings className="size-4" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {t("navigation.settings")}
+                  </TooltipContent>
+                </Tooltip>
+                {collapseButton}
+              </>
+            }
           />
-          <div
-            data-sidebar-footer-utilities
-            className="flex flex-col items-center gap-1"
-          >
-            <OrgSwitcher
-              compact
-              reserveSpace
-              className="!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
-            />
-            {isCodeMode ? <DevDatabaseLink /> : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link to="/settings" aria-label={t("navigation.settings")}>
-                  <IconSettings className="size-4" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("navigation.settings")}
-              </TooltipContent>
-            </Tooltip>
-          </div>
         </div>
       </div>
     );
@@ -2406,9 +2414,12 @@ export function DocumentSidebar({
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
     >
       {/* Header */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
-        {brandButton(false)}
-      </div>
+      <AppSidebarHeader
+        brandName="Content"
+        brandHref="/home"
+        collapsed={false}
+        onBrandClick={onToggleCollapsed}
+      />
 
       <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
         <div className="w-full min-w-0 py-2 pe-2">
@@ -2544,33 +2555,33 @@ export function DocumentSidebar({
         />
       </div>
 
-      <div className="shrink-0 border-t border-border p-2 space-y-1.5">
-        <SidebarFooterActions
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-        />
-        <div
-          data-sidebar-footer-utilities
-          className="flex items-center gap-0.5"
-        >
+      <AppSidebarFooter
+        collapsed={false}
+        collapsible={false}
+        feedback={feedbackButton}
+        orgSwitcher={
           <OrgSwitcher
             reserveSpace
             className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
           />
-          {isCodeMode ? <DevDatabaseLink /> : null}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link to="/settings" aria-label={t("navigation.settings")}>
-                <IconSettings className="size-4" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("navigation.settings")}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
+        }
+        footerExtras={
+          <>
+            {isCodeMode ? <DevDatabaseLink /> : null}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link to="/settings" aria-label={t("navigation.settings")}>
+                  <IconSettings className="size-4" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {t("navigation.settings")}
+              </TooltipContent>
+            </Tooltip>
+            {collapseButton}
+          </>
+        }
+      />
 
       {/* Resize handle */}
       {onResize && width !== undefined && (

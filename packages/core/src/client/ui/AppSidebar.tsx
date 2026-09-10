@@ -1,7 +1,12 @@
 import {
   AppSidebar as ToolkitAppSidebar,
+  AppSidebarHeader as ToolkitAppSidebarHeader,
+  AppSidebarFooter as ToolkitAppSidebarFooter,
+  useAppSidebar,
   type AppSidebarLinkComponent,
   type AppSidebarProps as ToolkitAppSidebarProps,
+  type AppSidebarHeaderProps as ToolkitAppSidebarHeaderProps,
+  type AppSidebarFooterProps as ToolkitAppSidebarFooterProps,
 } from "@agent-native/toolkit/app-shell";
 import { forwardRef, type MouseEvent, type ReactNode } from "react";
 import { Link } from "react-router";
@@ -36,6 +41,79 @@ function RouterSidebarLink({
     </Link>
   );
 }
+
+export interface AppSidebarHeaderProps extends ToolkitAppSidebarHeaderProps {
+  badgeText?: string;
+  showBadge?: boolean;
+}
+
+export const AppSidebarHeader = forwardRef<
+  HTMLDivElement,
+  AppSidebarHeaderProps
+>(
+  (
+    {
+      brandIcon,
+      badge,
+      badgeText,
+      showBadge = true,
+      brandLink,
+      brandHref = "/",
+      ...props
+    },
+    ref,
+  ) => {
+    const resolvedBrandIcon = brandIcon ?? (
+      <AgentNativeIcon
+        aria-hidden="true"
+        className="h-3.5 w-6 shrink-0 text-primary"
+      />
+    );
+
+    const resolvedBadge =
+      badge ??
+      (showBadge ? (
+        <EnvironmentBadge placement="inline" badgeText={badgeText} />
+      ) : undefined);
+
+    return (
+      <ToolkitAppSidebarHeader
+        ref={ref}
+        brandIcon={resolvedBrandIcon}
+        badge={resolvedBadge}
+        brandHref={brandHref}
+        {...props}
+      />
+    );
+  },
+);
+AppSidebarHeader.displayName = "AppSidebarHeader";
+
+export interface AppSidebarFooterProps extends ToolkitAppSidebarFooterProps {}
+
+export const AppSidebarFooter = forwardRef<
+  HTMLDivElement,
+  AppSidebarFooterProps
+>(({ feedback, collapsed: propCollapsed, ...props }, ref) => {
+  const context = useAppSidebar();
+  const collapsed = propCollapsed ?? context.collapsed;
+  const resolvedFeedback =
+    feedback !== undefined ? (
+      feedback
+    ) : (
+      <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
+    );
+
+  return (
+    <ToolkitAppSidebarFooter
+      ref={ref}
+      collapsed={collapsed}
+      feedback={resolvedFeedback}
+      {...props}
+    />
+  );
+});
+AppSidebarFooter.displayName = "AppSidebarFooter";
 
 export interface AppSidebarProps extends ToolkitAppSidebarProps {
   badgeText?: string;
@@ -85,19 +163,15 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
 AppSidebar.displayName = "AppSidebar";
 
 export {
-  AppSidebarHeader,
   AppSidebarNavItem,
   AppSidebarNavGroup,
   AppSidebarSection,
   AppSidebarFeedbackButton,
-  AppSidebarFooter,
   useAppSidebar,
-  type AppSidebarHeaderProps,
   type AppSidebarNavItemProps,
   type AppSidebarNavGroupProps,
   type AppSidebarSectionProps,
   type AppSidebarFeedbackButtonProps,
-  type AppSidebarFooterProps,
   type AppSidebarItemDefinition,
   type AppSidebarContextValue,
   type AppSidebarLinkComponent,

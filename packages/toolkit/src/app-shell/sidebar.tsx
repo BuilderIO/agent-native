@@ -83,12 +83,17 @@ function NativeSidebarLink({
   );
 }
 
+const defaultSidebarContextValue: AppSidebarContextValue = {
+  collapsed: false,
+  setCollapsed: () => {},
+  toggleCollapsed: () => {},
+  isMobile: false,
+  LinkComponent: NativeSidebarLink,
+};
+
 export function useAppSidebar(): AppSidebarContextValue {
   const context = useContext(AppSidebarContext);
-  if (!context) {
-    throw new Error("useAppSidebar must be used within an AppSidebar");
-  }
-  return context;
+  return context ?? defaultSidebarContextValue;
 }
 
 function renderSidebarIcon(
@@ -132,6 +137,7 @@ export interface AppSidebarHeaderProps extends HTMLAttributes<HTMLDivElement> {
   brandLink?: ReactNode;
   badge?: ReactNode;
   onBrandClick?: (event: MouseEvent) => void;
+  collapsed?: boolean;
 }
 
 export const AppSidebarHeader = forwardRef<
@@ -146,30 +152,16 @@ export const AppSidebarHeader = forwardRef<
       brandLink,
       badge,
       onBrandClick,
+      collapsed: propCollapsed,
       className,
       children,
       ...props
     },
     ref,
   ) => {
-    const { collapsed, LinkComponent } = useAppSidebar();
-
-    if (children) {
-      return (
-        <div
-          ref={ref}
-          data-sidebar-header
-          className={cn(
-            "flex h-14 shrink-0 items-center border-b border-border",
-            collapsed ? "flex-col justify-center gap-0.5 px-2" : "gap-2 px-4",
-            className,
-          )}
-          {...props}
-        >
-          {children}
-        </div>
-      );
-    }
+    const context = useAppSidebar();
+    const collapsed = propCollapsed ?? context.collapsed;
+    const LinkComponent = context.LinkComponent;
 
     return (
       <div
@@ -202,6 +194,7 @@ export const AppSidebarHeader = forwardRef<
           </LinkComponent>
         )}
         {badge}
+        {children}
       </div>
     );
   },
@@ -615,6 +608,8 @@ export interface AppSidebarFooterProps extends HTMLAttributes<HTMLDivElement> {
   collapsible?: boolean;
   expandLabel?: string;
   collapseLabel?: string;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 export const AppSidebarFooter = forwardRef<
@@ -629,13 +624,17 @@ export const AppSidebarFooter = forwardRef<
       collapsible = true,
       expandLabel = "Expand sidebar",
       collapseLabel = "Collapse sidebar",
+      collapsed: propCollapsed,
+      onToggleCollapsed,
       className,
       children,
       ...props
     },
     ref,
   ) => {
-    const { collapsed, toggleCollapsed } = useAppSidebar();
+    const context = useAppSidebar();
+    const collapsed = propCollapsed ?? context.collapsed;
+    const toggleCollapsed = onToggleCollapsed ?? context.toggleCollapsed;
 
     if (children) {
       return (
