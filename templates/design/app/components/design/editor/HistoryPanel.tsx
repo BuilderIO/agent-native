@@ -137,7 +137,10 @@ export function HistoryPanel({
               </button>
             ) : (
               <>
-                <IconHistory size={16} className="text-[#609FF8]" />
+                <IconHistory
+                  size={16}
+                  className="text-[var(--design-editor-accent-color)]"
+                />
                 <span>{"History" /* i18n-ignore */}</span>
               </>
             )}
@@ -239,7 +242,7 @@ export function HistoryPanel({
                     className="w-full rounded-md px-3 py-2.5 text-left transition-colors hover:bg-accent"
                   >
                     <div className="flex min-w-0 items-start gap-3">
-                      <div className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-[#609FF8]" />
+                      <div className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-[var(--design-editor-accent-color)]" />
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center gap-2">
                           <p className="truncate text-sm font-medium">

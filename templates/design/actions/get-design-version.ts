@@ -15,6 +15,7 @@ function parseChatContext(raw: string | null): DesignVersionChatContext | null {
   try {
     value = JSON.parse(raw);
   } catch {
+    // coercion-ok: malformed chatContext JSON is absent metadata, not a successful parse.
     return null;
   }
   if (value === null || typeof value !== "object" || Array.isArray(value)) {

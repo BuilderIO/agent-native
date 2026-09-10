@@ -115,11 +115,23 @@ export function MakeRealDialog({
           }),
         },
       );
-      const data = await res.json().catch(() => ({}));
+      const responseText = await res.text();
+      let payload: { error?: unknown } | null = null;
+      if (responseText) {
+        try {
+          const parsed: unknown = JSON.parse(responseText);
+          if (parsed !== null && typeof parsed === "object") {
+            payload = parsed as { error?: unknown };
+          }
+        } catch {
+          // coercion-ok: non-JSON bodies still fail via !res.ok below.
+          payload = null;
+        }
+      }
       if (!res.ok) {
         throw new Error(
-          typeof data?.error === "string"
-            ? data.error
+          typeof payload?.error === "string"
+            ? payload.error
             : "Couldn't join the waitlist. Please try again." /* i18n-ignore */,
         );
       }
