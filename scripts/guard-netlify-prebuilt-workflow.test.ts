@@ -237,11 +237,13 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("requires a distinct reusable child queue selected by the caller input", () => {
-    assert.deepEqual(
-      validateReusableWorkflowConcurrency(
-        readWorkflow(".github/workflows/deploy-netlify-prebuilt.yml"),
-      ),
-      [],
+    const reusable = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.deepEqual(validateReusableWorkflowConcurrency(reusable), []);
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.target == 'preview'[\s\S]*netlify-prebuilt-preview-\{0\}-\{1\}/,
     );
   });
 
