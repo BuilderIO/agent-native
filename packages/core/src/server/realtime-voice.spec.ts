@@ -764,6 +764,36 @@ describe("realtime voice session route", () => {
     });
   });
 
+  it("keeps the legacy transport for SDP-only compatibility callers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=legacy\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    const event = sessionEvent(undefined, {
+      [REALTIME_VOICE_PROTOCOL_HEADER]: "realtime",
+    });
+    await expect(
+      handlers.get(REALTIME_VOICE_SESSION_PATH)!(event),
+    ).resolves.toBe("v=0\r\ns=legacy\r\n");
+
+    expect(event.responseHeaders).toMatchObject({
+      [REALTIME_VOICE_PROTOCOL_HEADER]: "realtime",
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.openai.com/v1/realtime/calls");
+    const form = init.body as FormData;
+    expect(form.get("sdp")).toBe("v=0\r\ns=agent-native\r\n");
+    expect(JSON.parse(form.get("session") as string)).toMatchObject({
+      type: "realtime",
+      model: "gpt-realtime-2.1",
+    });
+  });
+
   it("never returns the API key on missing/upstream failures", async () => {
     const { handlers } = mount();
     resolveSecret.mockResolvedValueOnce(null);

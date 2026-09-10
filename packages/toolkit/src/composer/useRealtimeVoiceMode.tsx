@@ -797,6 +797,7 @@ interface RealtimeVoiceSessionOptions {
   signal?: AbortSignal;
   preferences?: RealtimeVoicePreferences;
   browserLanguages?: readonly string[];
+  protocol?: RealtimeVoiceProtocol;
 }
 
 export async function createRealtimeVoiceSessionWithCapability(
@@ -811,6 +812,9 @@ export async function createRealtimeVoiceSessionWithCapability(
       "Content-Type": "application/sdp",
       ...(options.browserTabId
         ? { "X-Agent-Native-Browser-Tab": options.browserTabId }
+        : {}),
+      ...(options.protocol
+        ? { [REALTIME_VOICE_PROTOCOL_HEADER]: options.protocol }
         : {}),
       ...(preferences
         ? {
@@ -851,8 +855,12 @@ export async function createRealtimeVoiceSession(
   offerSdp: string,
   options: RealtimeVoiceSessionOptions = {},
 ): Promise<string> {
-  return (await createRealtimeVoiceSessionWithCapability(offerSdp, options))
-    .sdp;
+  return (
+    await createRealtimeVoiceSessionWithCapability(offerSdp, {
+      ...options,
+      protocol: "realtime",
+    })
+  ).sdp;
 }
 
 export async function executeRealtimeVoiceTool(input: {
@@ -2107,6 +2115,7 @@ function useRealtimeVoiceModeController(
           handledCallsRef.current.clear();
           responseCoordinator.reset();
           toolManifestCoordinator.reset();
+          toolManifestCoordinator.setProtocol(protocolRef.current);
           lastUserTextRef.current = "";
           lastAssistantTextRef.current = "";
           transition("listening");

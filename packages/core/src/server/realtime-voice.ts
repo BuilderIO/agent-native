@@ -634,7 +634,15 @@ function createSessionHandler(
           readSafeHeader(event, "x-agent-native-realtime-voice"),
           configuredIdentifier(options.voice, DEFAULT_VOICE),
         );
-        const model = configuredIdentifier(options.model, DEFAULT_MODEL);
+        const configuredModel = configuredIdentifier(
+          options.model,
+          DEFAULT_MODEL,
+        );
+        const model =
+          readSafeHeader(event, REALTIME_VOICE_PROTOCOL_HEADER) ===
+            "realtime" && configuredModel === DEFAULT_MODEL
+            ? LEGACY_MODEL
+            : configuredModel;
         const sessionBase =
           model === DEFAULT_MODEL
             ? {

@@ -343,6 +343,7 @@ describe("Realtime voice client transport", () => {
         headers: {
           "Content-Type": "application/sdp",
           "X-Agent-Native-Browser-Tab": "tab-1",
+          "X-Agent-Native-Realtime-Protocol": "realtime",
           "X-Agent-Native-Realtime-Language": "en",
           "X-Agent-Native-Realtime-Intelligence": "instant",
           "X-Agent-Native-Realtime-Voice": "marin",
