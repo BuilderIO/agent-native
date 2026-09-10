@@ -293,6 +293,7 @@ const messages = {
     connectGoogle: "Google 연결",
     openInGoogleSlides: "Google Slides에서 열기",
     googleSlidesUnavailable: "사용 불가",
+    googleSlidesOpenImporter: "Google Slides 가져오기 열기",
     googleSlidesUnavailableHint:
       "Google 연결이 설정되지 않아 지금은 Google Slides로 내보낼 수 없습니다. 대신 PPTX로 내보낸 뒤 Google Slides에서 가져오세요.",
     googleSlidesCreated: "Google Slides에서 열었습니다",

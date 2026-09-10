@@ -11,6 +11,16 @@ export type GoogleSlidesExportAvailability =
  */
 let inFlight: Promise<GoogleSlidesExportAvailability> | null = null;
 
+/**
+ * Drops the cached verdict so the next export menu asks the server again. Call
+ * this after a Google Slides export fails at runtime: the failure is evidence
+ * the cached "available" answer may be stale, but not proof of it, so this
+ * re-checks rather than assuming the integration is broken.
+ */
+export function invalidateGoogleSlidesExportAvailability(): void {
+  inFlight = null;
+}
+
 /** Exposed for tests; the promise is otherwise cached for the page's lifetime. */
 export function resetGoogleSlidesExportAvailabilityCache(): void {
   inFlight = null;

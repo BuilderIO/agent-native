@@ -289,6 +289,7 @@ const messages = {
     connectGoogle: "连接 Google",
     openInGoogleSlides: "在 Google Slides 中打开",
     googleSlidesUnavailable: "不可用",
+    googleSlidesOpenImporter: "打开 Google Slides 导入",
     googleSlidesUnavailableHint:
       "由于尚未配置 Google 连接，目前无法导出到 Google Slides。请改为导出 PPTX，然后将其导入 Google Slides。",
     googleSlidesCreated: "已在 Google Slides 中打开",

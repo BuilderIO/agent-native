@@ -296,6 +296,7 @@ const messages = {
     connectGoogle: "توصيل Google",
     openInGoogleSlides: "فتح في Google Slides",
     googleSlidesUnavailable: "غير متاح",
+    googleSlidesOpenImporter: "فتح استيراد Google Slides",
     googleSlidesUnavailableHint:
       "تصدير Google Slides غير متاح حاليًا لأن اتصال Google غير مُهيأ. صدّر الملف بصيغة PPTX واستورده إلى Google Slides بدلاً من ذلك.",
     googleSlidesCreated: "تم الفتح في Google Slides",

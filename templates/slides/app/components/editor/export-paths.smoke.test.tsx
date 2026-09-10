@@ -56,6 +56,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "Google Slides export is unavailable right now.",
         "editorExport.googleSlidesCreated": "Exported to Google Slides",
         "editorExport.googleSlidesCreatedHint": "Created in your Drive.",
+        "editorExport.googleSlidesDownloaded": "Downloaded for Google Slides",
+        "editorExport.googleSlidesImportHint":
+          "Import the downloaded PPTX into Google Slides yourself.",
+        "editorExport.googleSlidesOpenImporter": "Open Google Slides import",
         "editorExport.exportFailed": "Export failed",
         "editorExport.exporting": "Exporting...",
         "editorExport.duplicateDeck": "Duplicate deck",
@@ -275,6 +279,63 @@ describe("export paths smoke test", () => {
     expect(item.textContent).toContain("Unavailable");
     fireEvent.click(item);
     expect(onExportGoogleSlides).not.toHaveBeenCalled();
+  });
+
+  it("the Drive fallback never claims the deck reached Google Slides", async () => {
+    // Reported symptom: a tab opens Google Slides, the deck is not in the
+    // library, and a .pptx lands on the desktop. The download itself is the
+    // right escape hatch - labelling its button "Export to Google Slides" is
+    // what made it read as a success.
+    installHarness({ googleAvailable: true });
+    renderMenu({
+      onExportGoogleSlides: vi.fn().mockResolvedValue({
+        url: null,
+        downloaded: true,
+        reason: "Could not reach Google Drive. Try again.",
+      }),
+    });
+
+    await clickExport("Export to Google Slides");
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("Downloaded for Google Slides");
+
+    const cta = Array.from(dialog.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Google Slides"),
+    );
+    expect(cta?.textContent).toBe("Open Google Slides import");
+    expect(cta?.textContent).not.toBe("Export to Google Slides");
+    expect(dialog.textContent).toContain("Could not reach Google Drive");
+  });
+
+  it("re-checks availability after the Drive upload fails", async () => {
+    // The stale verdict that let the attempt through must not survive the
+    // failure, or the next click dead-ends exactly the same way.
+    installHarness({ googleAvailable: true });
+    renderMenu({
+      onExportGoogleSlides: vi
+        .fn()
+        .mockResolvedValue({ url: null, downloaded: true, reason: "HTTP 502" }),
+    });
+
+    await clickExport("Export to Google Slides");
+    await screen.findByRole("dialog");
+
+    const statusCalls = () =>
+      (
+        globalThis.fetch as unknown as { mock: { calls: unknown[][] } }
+      ).mock.calls.filter((call) =>
+        String(call[0]).includes("/google-docs/status"),
+      ).length;
+    const before = statusCalls();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]!);
+    fireEvent.pointerDown(screen.getByRole("button", { name: /export/i }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    await vi.waitFor(() => expect(statusCalls()).toBeGreaterThan(before));
   });
 
   it("a failing export says so instead of failing silently", async () => {

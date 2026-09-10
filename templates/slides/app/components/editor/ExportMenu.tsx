@@ -35,7 +35,10 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { useDecks } from "@/context/DeckContext";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
-import { useGoogleSlidesExportAvailability } from "@/lib/google-slides-export-availability-client";
+import {
+  invalidateGoogleSlidesExportAvailability,
+  useGoogleSlidesExportAvailability,
+} from "@/lib/google-slides-export-availability-client";
 
 /** Google Slides' File → Import dialog, primed to ask for a file. */
 const GOOGLE_SLIDES_IMPORT_URL =
@@ -113,6 +116,11 @@ export type ExportStatus =
       title: string;
       description?: string;
       openUrl: string;
+      /**
+       * Defaults to "open the exported deck". The download fallback overrides
+       * it: that link opens an empty importer, not the user's deck.
+       */
+      openLabel?: string;
     }
   | { state: "error"; message: string };
 
@@ -173,7 +181,7 @@ export function ExportStatusDialog({
                   window.open(status.openUrl, "_blank", "noopener,noreferrer")
                 }
               >
-                {t("editorExport.openInGoogleSlides")}
+                {status.openLabel ?? t("editorExport.openInGoogleSlides")}
               </Button>
               <Button
                 type="button"
@@ -405,11 +413,19 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           });
           return;
         }
+        // Nothing reached Drive. The deck was downloaded instead, and this
+        // link opens an empty importer - labelling its button "Export to
+        // Google Slides" is what made this read as a silent failure. Re-ask
+        // the server whether the integration is usable at all so a repeat
+        // attempt is badged up front rather than dead-ending the same way; a
+        // transient Drive blip re-checks clean and stays enabled.
+        invalidateGoogleSlidesExportAvailability();
         updateExportStatus({
           state: "ready",
           title: t("editorExport.googleSlidesDownloaded"),
-          description: `${result.reason} ${t("editorExport.googleSlidesImportHint")}`,
+          description: `${t("editorExport.googleSlidesImportHint")} ${result.reason}`,
           openUrl: GOOGLE_SLIDES_IMPORT_URL,
+          openLabel: t("editorExport.googleSlidesOpenImporter"),
         });
       } catch (err) {
         console.error("Export failed:", err);

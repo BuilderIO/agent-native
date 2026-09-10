@@ -47,6 +47,7 @@ vi.mock("@agent-native/core/client/integrations", () => ({
 // ExportMenu.google-availability.test.tsx.
 vi.mock("@/lib/google-slides-export-availability-client", () => ({
   useGoogleSlidesExportAvailability: () => ({ available: true }),
+  invalidateGoogleSlidesExportAvailability: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -66,6 +67,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.exportPptx": "Export as PPTX",
         "editorExport.exporting": "Exporting...",
         "editorExport.googleSlidesDownloaded": "Downloaded for Google Slides",
+        "editorExport.googleSlidesOpenImporter": "Open Google Slides import",
         "editorExport.googleSlidesImportHint":
           "Import the downloaded PPTX into Google Slides.",
         "editorExport.pptxFailed": "PPTX export failed",
@@ -434,8 +436,11 @@ describe("<ExportMenu>", () => {
       "Import the downloaded PPTX into Google Slides.",
     );
     expect(window.open).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Export to Google Slides" }),
+    ).toBeNull();
     fireEvent.click(
-      screen.getByRole("button", { name: "Export to Google Slides" }),
+      screen.getByRole("button", { name: "Open Google Slides import" }),
     );
     expect(window.open).toHaveBeenCalledWith(
       "https://docs.google.com/presentation/u/0/?usp=import",

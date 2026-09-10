@@ -303,6 +303,7 @@ const messages = {
     connectGoogle: "Connecter Google",
     openInGoogleSlides: "Ouvrir dans Google Slides",
     googleSlidesUnavailable: "Indisponible",
+    googleSlidesOpenImporter: "Ouvrir l'import Google Slides",
     googleSlidesUnavailableHint:
       "L'export vers Google Slides est indisponible pour le moment car la connexion Google n'est pas configurée. Exportez en PPTX puis importez le fichier dans Google Slides.",
     googleSlidesCreated: "Ouvert dans Google Slides",
