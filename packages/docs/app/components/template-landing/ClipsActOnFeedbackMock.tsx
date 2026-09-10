@@ -465,17 +465,20 @@ export function ClipsActOnFeedbackMock({
             </div>
           </div>
 
-          {/* ShareRecordingPopover, open on the Agents tab. */}
-          {/* `align="end"`, so the popover and the 360px panel below it share a
-              right edge — the same coincidence the real page has. */}
-          <div className="absolute end-4 top-[46px] z-20 w-[360px] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md">
+          {/* ShareRecordingPopover, open on the Agents tab. `align="end"` puts
+              its right edge on the panel's. The width is art direction rather
+              than product truth: the real popover is `w-[360px]`, which at this
+              magnification crowded the crop, so it is pulled in. The shadow is
+              likewise heavier than `shadow-md` because it has to separate the
+              menu from a near-black page. */}
+          <div className="absolute end-4 top-[46px] z-20 w-[293px] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-[1px_1px_70px_0_rgba(0,0,0,1)]">
             <div className="px-3 py-2">
               <div className="flex flex-col gap-3">
                 <div className="flex h-8 w-full items-center justify-start gap-1 rounded-none px-0 py-0 text-muted-foreground">
-                  <span className="relative inline-flex h-8 min-w-0 flex-none items-center justify-center rounded-none px-2 py-0 text-sm font-medium text-foreground/60">
+                  <span className="relative inline-flex h-8 min-w-0 flex-none items-center justify-center rounded-none px-2 py-0 text-sm font-medium text-foreground/60 transition-colors hover:text-foreground">
                     People
                   </span>
-                  <span className="relative inline-flex h-8 min-w-0 flex-none items-center justify-center rounded-none px-2 py-0 text-sm font-medium text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-foreground">
+                  <span className="relative inline-flex h-8 min-w-0 flex-none items-center justify-center rounded-none px-2 py-0 text-sm font-medium text-foreground transition-colors after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-foreground">
                     Agents
                   </span>
                 </div>
@@ -486,7 +489,7 @@ export function ClipsActOnFeedbackMock({
                       {index === 1 ? (
                         <div className="my-1 border-t border-border" />
                       ) : null}
-                      <span className="flex h-9 w-full items-center justify-start gap-2 rounded-md px-1.5 text-sm font-normal">
+                      <span className="flex h-9 w-full items-center justify-start gap-2 rounded-md px-1.5 text-sm font-normal transition-colors hover:bg-accent hover:text-accent-foreground">
                         <span className="text-muted-foreground">
                           {row.icon}
                         </span>
