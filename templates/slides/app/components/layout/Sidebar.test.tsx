@@ -15,14 +15,17 @@ vi.mock("@agent-native/core", () => ({
       .filter((v) => typeof v === "string" && v.length > 0)
       .join(" "),
 }));
-vi.mock(import("@agent-native/core/client/api-path"), async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    appPath: (path: string) => path,
-    agentNativePath: (path: string) => path,
-  };
-});
+vi.mock(
+  import("@agent-native/core/client/api-path"),
+  async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+      ...actual,
+      appPath: (path: string) => path,
+      agentNativePath: (path: string) => path,
+    };
+  },
+);
 
 vi.mock("@agent-native/core/client/db-admin", () => ({
   DevDatabaseLink: () => null,
@@ -130,9 +133,7 @@ describe("<Sidebar expanded>", () => {
       <Sidebar collapsed={false} onToggleCollapsed={() => {}} />,
     );
 
-    const brandMark = container.querySelector(
-      'svg[data-agent-native-icon]',
-    );
+    const brandMark = container.querySelector("svg[data-agent-native-icon]");
 
     expect(brandMark).not.toBeNull();
     expect(brandMark?.getAttribute("width")).toBe("24");

@@ -227,25 +227,23 @@ export function Sidebar({
   const t = useT();
   const isAskRoute = location.pathname === "/home";
 
-  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map((item) => ({
-    to: item.href,
-    label: item.view === "agent" ? t("settings.agentTitle") : t(`navigation.${item.view}`),
-    icon: item.icon,
-    active: location.pathname.startsWith(item.href),
-  }));
+  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map(
+    (item) => ({
+      to: item.href,
+      label:
+        item.view === "agent"
+          ? t("settings.agentTitle")
+          : t(`navigation.${item.view}`),
+      icon: item.icon,
+      active: location.pathname.startsWith(item.href),
+    }),
+  );
 
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
 
-  const orgSwitcher = (
-    <OrgSwitcher
-      compact={collapsed}
-    />
-  );
+  const orgSwitcher = <OrgSwitcher compact={collapsed} />;
 
   return (
     <AppSidebar

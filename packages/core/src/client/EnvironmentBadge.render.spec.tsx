@@ -141,7 +141,9 @@ describe("EnvironmentBadge render", () => {
 
     await act(async () => {});
 
-    expect(container.querySelector('[role="status"]')?.textContent).toBe("alpha");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "alpha",
+    );
   });
 
   it.each([
@@ -278,7 +280,9 @@ describe("EnvironmentBadge render", () => {
     act(() => hideButton?.click());
 
     expect(container.innerHTML).toBe("");
-    expect(window.localStorage?.getItem("agent-native:beta-opt-out-until")).toBeNull();
+    expect(
+      window.localStorage?.getItem("agent-native:beta-opt-out-until"),
+    ).toBeNull();
   });
 
   it("supports configurable badgeText prop and config", () => {

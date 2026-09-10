@@ -52,17 +52,10 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   ];
 
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
 
-  const orgSwitcher = (
-    <OrgSwitcher
-      compact={collapsed}
-    />
-  );
+  const orgSwitcher = <OrgSwitcher compact={collapsed} />;
 
   return (
     <AppSidebar

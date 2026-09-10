@@ -408,10 +408,7 @@ export function EnvironmentBadge({
   const environment = resolveEnvironmentChannel(config, hostname);
   const targets = resolveEnvironmentTargets(hostname);
   const resolvedBadgeText =
-    badgeText ??
-    config.deployment?.badgeText ??
-    config.badgeText ??
-    "alpha";
+    badgeText ?? config.deployment?.badgeText ?? config.badgeText ?? "alpha";
 
   useEffect(() => {
     setHydrated(true);

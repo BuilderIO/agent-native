@@ -1063,10 +1063,7 @@ export function NavContent({
     </Tooltip>
   );
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
   const chatFirstCreateAppTrigger = (
     <CreateAppPopover
@@ -1231,10 +1228,7 @@ export function NavContent({
         collapsed ? "space-y-1" : "space-y-1.5",
       )}
     >
-      <FeedbackButton
-        variant={collapsed ? "icon" : "sidebar"}
-        side="right"
-      />
+      <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
       <div
         data-sidebar-footer-utilities
         className={cn(

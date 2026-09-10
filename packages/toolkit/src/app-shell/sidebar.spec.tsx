@@ -39,9 +39,7 @@ describe("AppSidebar", () => {
             { label: "Inbox", to: "/inbox", count: 5, active: true },
             { label: "Tasks", to: "/tasks" },
           ]}
-          secondaryItems={[
-            { label: "Archive", to: "/archive" },
-          ]}
+          secondaryItems={[{ label: "Archive", to: "/archive" }]}
           feedback={<button type="button">Feedback</button>}
           orgSwitcher={<button type="button">Acme Org</button>}
         />,
@@ -69,9 +67,7 @@ describe("AppSidebar", () => {
           collapsed
           brandName="My App"
           badge={<span data-badge>alpha</span>}
-          items={[
-            { label: "Inbox", to: "/inbox" },
-          ]}
+          items={[{ label: "Inbox", to: "/inbox" }]}
         />,
       );
     });
@@ -95,7 +91,9 @@ describe("AppSidebar", () => {
       );
     });
 
-    const collapseButton = container.querySelector('button[aria-label="Collapse sidebar"]');
+    const collapseButton = container.querySelector(
+      'button[aria-label="Collapse sidebar"]',
+    );
     expect(collapseButton).not.toBeNull();
 
     act(() => {

@@ -1,4 +1,7 @@
-import { AgentNativeIcon, EnvironmentBadge } from "@agent-native/core/client/ui";
+import {
+  AgentNativeIcon,
+  EnvironmentBadge,
+} from "@agent-native/core/client/ui";
 import {
   IconChartBar,
   IconChevronDown,
@@ -2347,11 +2350,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             })}
           </nav>
           <div className="shrink-0 border-t border-border p-2 space-y-1">
-            <FeedbackButton
-              variant="icon"
-              side="right"
-            />
-            <div data-sidebar-footer-utilities className="flex flex-col items-center gap-1">
+            <FeedbackButton variant="icon" side="right" />
+            <div
+              data-sidebar-footer-utilities
+              className="flex flex-col items-center gap-1"
+            >
               <OrgSwitcher
                 compact
                 className="!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
@@ -2382,8 +2385,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             <nav className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3">
               {/* Ask section */}
               <div className="order-1 group/section min-w-0 space-y-0.5">
-                <div
-                >
+                <div>
                   <Link
                     to="/ask"
                     onClick={handleAskClick}
@@ -2717,14 +2719,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </nav>
 
               <div className="mt-2 shrink-0 space-y-1.5 border-t border-border p-2">
-                <FeedbackButton
-                  variant="sidebar"
-                  side="right"
-                />
-                <div data-sidebar-footer-utilities className="flex items-center gap-0.5">
-                  <OrgSwitcher
-                    className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
-                  />
+                <FeedbackButton variant="sidebar" side="right" />
+                <div
+                  data-sidebar-footer-utilities
+                  className="flex items-center gap-0.5"
+                >
+                  <OrgSwitcher className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
                   <DevDatabaseLink />
                   {footerCollapse}
                 </div>

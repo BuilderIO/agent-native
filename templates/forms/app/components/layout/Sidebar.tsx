@@ -242,11 +242,7 @@ export function Sidebar() {
     />
   );
 
-  const orgSwitcher = (
-    <OrgSwitcher
-      compact={effectiveCollapsed}
-    />
-  );
+  const orgSwitcher = <OrgSwitcher compact={effectiveCollapsed} />;
 
   const sidebarElement = (
     <AppSidebar

@@ -550,16 +550,11 @@ export function Sidebar({
   ];
 
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
 
   const orgSwitcher = session ? (
-    <OrgSwitcher
-      compact={collapsed}
-    />
+    <OrgSwitcher compact={collapsed} />
   ) : !sessionLoading ? (
     <Button
       type="button"

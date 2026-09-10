@@ -15,10 +15,7 @@ import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
-import {
-  IconMessageCircle,
-  IconSettings,
-} from "@tabler/icons-react";
+import { IconMessageCircle, IconSettings } from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -280,18 +277,10 @@ export function Sidebar({
   ];
 
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
 
-  const orgSwitcher = (
-    <OrgSwitcher
-      compact={collapsed}
-      reserveSpace
-    />
-  );
+  const orgSwitcher = <OrgSwitcher compact={collapsed} reserveSpace />;
 
   return (
     <AppSidebar

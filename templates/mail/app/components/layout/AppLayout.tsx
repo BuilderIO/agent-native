@@ -2202,9 +2202,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       variant={showCollapsedSidebar ? "icon" : "sidebar"}
                       side="right"
                     />
-                    <div
-                      data-sidebar-footer-utilities
-                    >
+                    <div data-sidebar-footer-utilities>
                       <OrgSwitcher
                         compact={showCollapsedSidebar}
                         className={cn(
@@ -2490,9 +2488,7 @@ function StandardLayout({ children }: AppLayoutProps) {
       <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
     </Tooltip>
   );
-  const feedbackButton = (
-    <FeedbackButton variant="sidebar" side="right" />
-  );
+  const feedbackButton = <FeedbackButton variant="sidebar" side="right" />;
 
   // Extensions (`/extensions` list and `/extensions/:id` viewer) render their own h-12
   // toolbar inside the shared
@@ -2647,14 +2643,12 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
 
           <div className="shrink-0 border-t border-border p-2 space-y-1.5">
-            <FeedbackButton
-              variant="sidebar"
-              side="right"
-            />
-            <div data-sidebar-footer-utilities className="flex items-center gap-0.5">
-              <OrgSwitcher
-                className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
-              />
+            <FeedbackButton variant="sidebar" side="right" />
+            <div
+              data-sidebar-footer-utilities
+              className="flex items-center gap-0.5"
+            >
+              <OrgSwitcher className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
               <DevDatabaseLink />
               <Tooltip>
                 <TooltipTrigger asChild>

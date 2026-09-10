@@ -768,26 +768,21 @@ export function Sidebar({
       <TooltipContent side="top">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
   );
-  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map((item) => ({
-    to: item.path,
-    label: t(item.labelKey),
-    icon: item.icon,
-    active: location.pathname.startsWith(item.path),
-    onClick: onClose,
-  }));
+  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map(
+    (item) => ({
+      to: item.path,
+      label: t(item.labelKey),
+      icon: item.icon,
+      active: location.pathname.startsWith(item.path),
+      onClick: onClose,
+    }),
+  );
 
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
 
-  const orgSwitcher = (
-    <OrgSwitcher
-      compact={collapsed}
-    />
-  );
+  const orgSwitcher = <OrgSwitcher compact={collapsed} />;
 
   return (
     <>
@@ -864,283 +859,277 @@ export function Sidebar({
               })}
             </div>
 
-              {/* Google status / connect CTA */}
-              {!googleStatus.isLoading &&
-                !isConnected &&
-                (googleStatus.data?.configured === true ||
-                  canOfferGoogleOAuthSetup) && <GoogleConnectSidebarButton />}
+            {/* Google status / connect CTA */}
+            {!googleStatus.isLoading &&
+              !isConnected &&
+              (googleStatus.data?.configured === true ||
+                canOfferGoogleOAuthSetup) && <GoogleConnectSidebarButton />}
 
+            {isConnected && (googleStatus.data?.accounts?.length ?? 0) > 0 && (
+              <GoogleCalendarsSections onClose={onClose} />
+            )}
+
+            {/* Other Calendars — people overlays + external ICS feeds combined */}
+            <div className="px-1.5 py-1.5">
+              <div className="flex min-h-8 items-center justify-between px-3">
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {t("sidebar.otherCalendars")}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="flex items-center text-muted-foreground/40 hover:text-muted-foreground cursor-default">
+                        <IconInfoCircle className="h-3 w-3" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="right"
+                      className="pointer-events-none"
+                    >
+                      <p>{t("sidebar.otherCalendarsDescription")}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <button
+                  type="button"
+                  aria-label={t("eventForm.addCalendar")}
+                  onClick={() => {
+                    setAddCalendarDefaultTab("people");
+                    setAddCalendarOpen(true);
+                  }}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                </button>
+              </div>
               {isConnected &&
                 (googleStatus.data?.accounts?.length ?? 0) > 0 && (
-                  <GoogleCalendarsSections onClose={onClose} />
+                  <GoogleCalendarsSections onClose={onClose} section="other" />
                 )}
-
-              {/* Other Calendars — people overlays + external ICS feeds combined */}
-              <div className="px-1.5 py-1.5">
-                <div className="flex min-h-8 items-center justify-between px-3">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                      {t("sidebar.otherCalendars")}
-                    </span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="flex items-center text-muted-foreground/40 hover:text-muted-foreground cursor-default">
-                          <IconInfoCircle className="h-3 w-3" />
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent
-                        side="right"
-                        className="pointer-events-none"
-                      >
-                        <p>{t("sidebar.otherCalendarsDescription")}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={t("eventForm.addCalendar")}
-                    onClick={() => {
-                      setAddCalendarDefaultTab("people");
-                      setAddCalendarOpen(true);
-                    }}
-                    className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-                  >
-                    <IconPlus className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                {isConnected &&
-                  (googleStatus.data?.accounts?.length ?? 0) > 0 && (
-                    <GoogleCalendarsSections
-                      onClose={onClose}
-                      section="other"
-                    />
-                  )}
-                {(overlayPeople.length > 0 || externalCalendars.length > 0) && (
-                  <div className="mt-1 space-y-1">
-                    {overlayPeople.length > 0 && (
-                      <Collapsible
-                        open={peopleGroupOpen}
-                        onOpenChange={setPeopleGroupOpen}
-                      >
-                        <CollapsibleTrigger asChild>
-                          <button
-                            type="button"
-                            className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              {(overlayPeople.length > 0 || externalCalendars.length > 0) && (
+                <div className="mt-1 space-y-1">
+                  {overlayPeople.length > 0 && (
+                    <Collapsible
+                      open={peopleGroupOpen}
+                      onOpenChange={setPeopleGroupOpen}
+                    >
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        >
+                          {peopleGroupOpen ? (
+                            <IconChevronDown className="h-3 w-3" />
+                          ) : (
+                            <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
+                          )}
+                          <span className="min-w-0 flex-1 text-start">
+                            People
+                          </span>
+                          <span className="text-[10px]">
+                            {overlayPeople.length}
+                          </span>
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-0.5">
+                        {overlayPeople.map((person) => (
+                          <div
+                            key={person.email}
+                            className="group flex min-h-7 items-center gap-2 px-2 text-xs"
                           >
-                            {peopleGroupOpen ? (
-                              <IconChevronDown className="h-3 w-3" />
-                            ) : (
-                              <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
-                            )}
-                            <span className="min-w-0 flex-1 text-start">
-                              People
-                            </span>
-                            <span className="text-[10px]">
-                              {overlayPeople.length}
-                            </span>
-                          </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="space-y-0.5">
-                          {overlayPeople.map((person) => (
-                            <div
-                              key={person.email}
-                              className="group flex min-h-7 items-center gap-2 px-2 text-xs"
+                            <ColorPickerPopover
+                              color={person.color}
+                              onColorChange={(color) =>
+                                updatePersonColor.mutate({
+                                  email: person.email,
+                                  color,
+                                })
+                              }
                             >
-                              <ColorPickerPopover
-                                color={person.color}
-                                onColorChange={(color) =>
-                                  updatePersonColor.mutate({
-                                    email: person.email,
-                                    color,
-                                  })
-                                }
+                              <button
+                                type="button"
+                                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
                               >
-                                <button
-                                  type="button"
-                                  className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-                                >
-                                  <span
-                                    className={cn(
-                                      "block h-2.5 w-2.5 rounded-full",
-                                      isHiddenCalendar(
-                                        "people",
-                                        person.email,
-                                      ) && "opacity-40",
-                                    )}
-                                    style={{ backgroundColor: person.color }}
-                                  />
-                                </button>
-                              </ColorPickerPopover>
-                              <span
-                                className={cn(
-                                  "min-w-0 flex-1 truncate",
-                                  isHiddenCalendar("people", person.email)
-                                    ? "text-muted-foreground/40"
-                                    : "text-muted-foreground",
-                                )}
-                              >
-                                {person.name || person.email}
-                              </span>
-                              {overlayStatusByEmail?.get(
-                                person.email.toLowerCase(),
-                              )?.status === "error" && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span
-                                      tabIndex={0}
-                                      className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                      aria-label={t(
-                                        "sidebar.overlayCalendarUnavailable",
-                                        { email: person.name || person.email },
-                                      )}
-                                    >
-                                      <IconAlertTriangle
-                                        className="h-3 w-3 text-muted-foreground/60"
-                                        aria-hidden="true"
-                                      />
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right">
-                                    {t("sidebar.overlayCalendarUnavailable", {
-                                      email: person.name || person.email,
-                                    })}
-                                  </TooltipContent>
-                                </Tooltip>
+                                <span
+                                  className={cn(
+                                    "block h-2.5 w-2.5 rounded-full",
+                                    isHiddenCalendar("people", person.email) &&
+                                      "opacity-40",
+                                  )}
+                                  style={{ backgroundColor: person.color }}
+                                />
+                              </button>
+                            </ColorPickerPopover>
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 truncate",
+                                isHiddenCalendar("people", person.email)
+                                  ? "text-muted-foreground/40"
+                                  : "text-muted-foreground",
                               )}
-                              <div className="flex items-center">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    toggleHiddenCalendar("people", person.email)
-                                  }
-                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
-                                  aria-label={
-                                    isHiddenCalendar("people", person.email)
-                                      ? t("sidebar.showCalendar")
-                                      : t("sidebar.hideCalendar")
-                                  }
-                                >
-                                  {isHiddenCalendar("people", person.email) ? (
-                                    <IconEyeOff className="h-3 w-3" />
-                                  ) : (
-                                    <IconEye className="h-3 w-3" />
-                                  )}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    removePerson.mutate(person.email)
-                                  }
-                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
-                                >
-                                  <IconX className="h-3 w-3" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </CollapsibleContent>
-                      </Collapsible>
-                    )}
-
-                    {externalCalendars.length > 0 && (
-                      <Collapsible
-                        open={feedsGroupOpen}
-                        onOpenChange={setFeedsGroupOpen}
-                      >
-                        <CollapsibleTrigger asChild>
-                          <button
-                            type="button"
-                            className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                          >
-                            {feedsGroupOpen ? (
-                              <IconChevronDown className="h-3 w-3" />
-                            ) : (
-                              <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
-                            )}
-                            <span className="min-w-0 flex-1 text-start">
-                              Feeds
-                            </span>
-                            <span className="text-[10px]">
-                              {externalCalendars.length}
-                            </span>
-                          </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="space-y-0.5">
-                          {externalCalendars.map((cal) => (
-                            <div
-                              key={cal.id}
-                              className="group flex min-h-7 items-center gap-2 px-2 text-xs"
                             >
-                              <ColorPickerPopover
-                                color={cal.color}
-                                onColorChange={(color) =>
-                                  updateExternalColor.mutate({
-                                    id: cal.id,
-                                    color,
-                                  })
+                              {person.name || person.email}
+                            </span>
+                            {overlayStatusByEmail?.get(
+                              person.email.toLowerCase(),
+                            )?.status === "error" && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    tabIndex={0}
+                                    className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    aria-label={t(
+                                      "sidebar.overlayCalendarUnavailable",
+                                      { email: person.name || person.email },
+                                    )}
+                                  >
+                                    <IconAlertTriangle
+                                      className="h-3 w-3 text-muted-foreground/60"
+                                      aria-hidden="true"
+                                    />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="right">
+                                  {t("sidebar.overlayCalendarUnavailable", {
+                                    email: person.name || person.email,
+                                  })}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                            <div className="flex items-center">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  toggleHiddenCalendar("people", person.email)
+                                }
+                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                aria-label={
+                                  isHiddenCalendar("people", person.email)
+                                    ? t("sidebar.showCalendar")
+                                    : t("sidebar.hideCalendar")
                                 }
                               >
-                                <button
-                                  type="button"
-                                  className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-                                >
-                                  <span
-                                    className={cn(
-                                      "block h-2.5 w-2.5 rounded-full",
-                                      isHiddenCalendar("external", cal.id) &&
-                                        "opacity-40",
-                                    )}
-                                    style={{ backgroundColor: cal.color }}
-                                  />
-                                </button>
-                              </ColorPickerPopover>
-                              <span
-                                className={cn(
-                                  "min-w-0 flex-1 truncate",
-                                  isHiddenCalendar("external", cal.id)
-                                    ? "text-muted-foreground/40"
-                                    : "text-muted-foreground",
+                                {isHiddenCalendar("people", person.email) ? (
+                                  <IconEyeOff className="h-3 w-3" />
+                                ) : (
+                                  <IconEye className="h-3 w-3" />
                                 )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  removePerson.mutate(person.email)
+                                }
+                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
                               >
-                                {cal.name}
-                              </span>
-                              <div className="flex items-center">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    toggleHiddenCalendar("external", cal.id)
-                                  }
-                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
-                                  aria-label={
-                                    isHiddenCalendar("external", cal.id)
-                                      ? t("sidebar.showCalendar")
-                                      : t("sidebar.hideCalendar")
-                                  }
-                                >
-                                  {isHiddenCalendar("external", cal.id) ? (
-                                    <IconEyeOff className="h-3 w-3" />
-                                  ) : (
-                                    <IconEye className="h-3 w-3" />
-                                  )}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => removeExternal.mutate(cal.id)}
-                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
-                                >
-                                  <IconX className="h-3 w-3" />
-                                </button>
-                              </div>
+                                <IconX className="h-3 w-3" />
+                              </button>
                             </div>
-                          ))}
-                        </CollapsibleContent>
-                      </Collapsible>
-                    )}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+
+                  {externalCalendars.length > 0 && (
+                    <Collapsible
+                      open={feedsGroupOpen}
+                      onOpenChange={setFeedsGroupOpen}
+                    >
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        >
+                          {feedsGroupOpen ? (
+                            <IconChevronDown className="h-3 w-3" />
+                          ) : (
+                            <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
+                          )}
+                          <span className="min-w-0 flex-1 text-start">
+                            Feeds
+                          </span>
+                          <span className="text-[10px]">
+                            {externalCalendars.length}
+                          </span>
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-0.5">
+                        {externalCalendars.map((cal) => (
+                          <div
+                            key={cal.id}
+                            className="group flex min-h-7 items-center gap-2 px-2 text-xs"
+                          >
+                            <ColorPickerPopover
+                              color={cal.color}
+                              onColorChange={(color) =>
+                                updateExternalColor.mutate({
+                                  id: cal.id,
+                                  color,
+                                })
+                              }
+                            >
+                              <button
+                                type="button"
+                                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+                              >
+                                <span
+                                  className={cn(
+                                    "block h-2.5 w-2.5 rounded-full",
+                                    isHiddenCalendar("external", cal.id) &&
+                                      "opacity-40",
+                                  )}
+                                  style={{ backgroundColor: cal.color }}
+                                />
+                              </button>
+                            </ColorPickerPopover>
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 truncate",
+                                isHiddenCalendar("external", cal.id)
+                                  ? "text-muted-foreground/40"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {cal.name}
+                            </span>
+                            <div className="flex items-center">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  toggleHiddenCalendar("external", cal.id)
+                                }
+                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                aria-label={
+                                  isHiddenCalendar("external", cal.id)
+                                    ? t("sidebar.showCalendar")
+                                    : t("sidebar.hideCalendar")
+                                }
+                              >
+                                {isHiddenCalendar("external", cal.id) ? (
+                                  <IconEyeOff className="h-3 w-3" />
+                                ) : (
+                                  <IconEye className="h-3 w-3" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeExternal.mutate(cal.id)}
+                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
+                              >
+                                <IconX className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </AppSidebar>
     </>
   );

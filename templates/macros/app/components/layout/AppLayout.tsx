@@ -1,6 +1,4 @@
-import {
-  AgentSidebar,
-} from "@agent-native/core/client/agent-chat";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
@@ -225,17 +223,10 @@ function SidebarContent({
   ];
 
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
 
-  const orgSwitcher = (
-    <OrgSwitcher
-      compact={collapsed}
-    />
-  );
+  const orgSwitcher = <OrgSwitcher compact={collapsed} />;
 
   return (
     <AppSidebar

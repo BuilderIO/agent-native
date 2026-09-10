@@ -297,18 +297,10 @@ export function Sidebar({
   ];
 
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
 
-  const orgSwitcher = (
-    <OrgSwitcher
-      compact={collapsed}
-      reserveSpace
-    />
-  );
+  const orgSwitcher = <OrgSwitcher compact={collapsed} reserveSpace />;
 
   return (
     <AppSidebar

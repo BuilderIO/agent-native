@@ -43,7 +43,8 @@ export function Sidebar() {
       to: "/home",
       label: t("navigation.designs"),
       icon: IconPencil,
-      active: location.pathname === "/home" || location.pathname.startsWith("/d/"),
+      active:
+        location.pathname === "/home" || location.pathname.startsWith("/d/"),
     },
     {
       to: "/templates",
@@ -69,17 +70,10 @@ export function Sidebar() {
   ];
 
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
 
-  const orgSwitcher = (
-    <OrgSwitcher
-      compact={collapsed}
-    />
-  );
+  const orgSwitcher = <OrgSwitcher compact={collapsed} />;
 
   return (
     <AppSidebar

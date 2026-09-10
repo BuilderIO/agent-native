@@ -1938,14 +1938,10 @@ export function DocumentSidebar({
     </Tooltip>
   );
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
   const brandButton = (isCollapsed: boolean) => (
-    <div
-    >
+    <div>
       <button
         type="button"
         onClick={onToggleCollapsed}
@@ -1961,7 +1957,9 @@ export function DocumentSidebar({
           className="h-3.5 w-6 shrink-0 text-foreground"
         />
         {!isCollapsed && (
-          <span className="truncate text-sm font-semibold tracking-tight">Content</span>
+          <span className="truncate text-sm font-semibold tracking-tight">
+            Content
+          </span>
         )}
       </button>
       <EnvironmentBadge placement="inline" />
@@ -2361,11 +2359,11 @@ export function DocumentSidebar({
           {renderCollapsedNewButton()}
         </div>
         <div className="mt-auto shrink-0 w-full p-2 border-t border-border space-y-1">
-          <FeedbackButton
-            variant="icon"
-            side="right"
-          />
-          <div data-sidebar-footer-utilities className="flex flex-col items-center gap-1">
+          <FeedbackButton variant="icon" side="right" />
+          <div
+            data-sidebar-footer-utilities
+            className="flex flex-col items-center gap-1"
+          >
             <OrgSwitcher
               compact
               reserveSpace
@@ -2374,14 +2372,13 @@ export function DocumentSidebar({
             {isCodeMode ? <DevDatabaseLink /> : null}
             <Tooltip>
               <TooltipTrigger asChild>
-                <Link
-                  to="/settings"
-                  aria-label={t("navigation.settings")}
-                >
+                <Link to="/settings" aria-label={t("navigation.settings")}>
                   <IconSettings className="size-4" />
                 </Link>
               </TooltipTrigger>
-              <TooltipContent side="right">{t("navigation.settings")}</TooltipContent>
+              <TooltipContent side="right">
+                {t("navigation.settings")}
+              </TooltipContent>
             </Tooltip>
             {collapseButton}
           </div>
@@ -2537,11 +2534,11 @@ export function DocumentSidebar({
       </div>
 
       <div className="shrink-0 border-t border-border p-2 space-y-1.5">
-        <FeedbackButton
-          variant="sidebar"
-          side="right"
-        />
-        <div data-sidebar-footer-utilities className="flex items-center gap-0.5">
+        <FeedbackButton variant="sidebar" side="right" />
+        <div
+          data-sidebar-footer-utilities
+          className="flex items-center gap-0.5"
+        >
           <OrgSwitcher
             reserveSpace
             className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
@@ -2549,14 +2546,13 @@ export function DocumentSidebar({
           {isCodeMode ? <DevDatabaseLink /> : null}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Link
-                to="/settings"
-                aria-label={t("navigation.settings")}
-              >
+              <Link to="/settings" aria-label={t("navigation.settings")}>
                 <IconSettings className="size-4" />
               </Link>
             </TooltipTrigger>
-            <TooltipContent side="right">{t("navigation.settings")}</TooltipContent>
+            <TooltipContent side="right">
+              {t("navigation.settings")}
+            </TooltipContent>
           </Tooltip>
           {collapseButton}
         </div>
