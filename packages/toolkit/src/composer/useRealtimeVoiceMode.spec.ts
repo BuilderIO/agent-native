@@ -1019,6 +1019,39 @@ describe("Realtime voice startup and transcript ordering", () => {
     ]);
   });
 
+  it("preserves queued transcripts while resetting failed work", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "user-1", type: "message", role: "user" },
+    });
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "assistant-1", type: "message", role: "assistant" },
+    });
+    sequencer.handle({
+      type: "response.output_audio_transcript.done",
+      item_id: "assistant-1",
+      transcript: "Confirmed before failure.",
+    });
+
+    sequencer.reset({ preserveQueuedTranscripts: true });
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "user-1",
+      transcript: "Recovered question.",
+    });
+
+    expect(published.map(({ text }) => text)).toEqual([
+      "Recovered question.",
+      "Confirmed before failure.",
+    ]);
+  });
+
   it("matches legacy completions without item_id to a reserved role slot", () => {
     const published: Array<{ role: string; text: string }> = [];
     const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {

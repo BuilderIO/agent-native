@@ -367,7 +367,7 @@ export interface CompletedRealtimeVoiceTranscript {
 export interface RealtimeVoiceTranscriptSequencer {
   handle: (event: RealtimeServerEvent) => void;
   flush: () => void;
-  reset: () => void;
+  reset: (options?: { preserveQueuedTranscripts?: boolean }) => void;
 }
 
 interface SequencedRealtimeVoiceTranscript {
@@ -565,13 +565,14 @@ export function createRealtimeVoiceTranscriptSequencer(
       drain();
     },
     flush: flushLiveTranscripts,
-    reset() {
+    reset(options) {
+      liveBuffers.clear();
+      liveSequence = 0;
+      if (options?.preserveQueuedTranscripts) return;
       order.length = 0;
       items.clear();
       settledItemIds.clear();
       receivedTranscriptIds.clear();
-      liveBuffers.clear();
-      liveSequence = 0;
     },
   };
 }
@@ -2158,7 +2159,7 @@ function useRealtimeVoiceModeController(
           responseCoordinator.reset();
           toolManifestCoordinator.reset({ preserveSessionTools: true });
           toolManifestCoordinator.setProtocol(protocolRef.current);
-          transcriptSequencer.reset();
+          transcriptSequencer.reset({ preserveQueuedTranscripts: true });
           lastUserTextRef.current = "";
           lastAssistantTextRef.current = "";
           transition("listening");
