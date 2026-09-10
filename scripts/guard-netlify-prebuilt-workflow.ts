@@ -892,7 +892,8 @@ if (
     "did not settle before the five-minute cleanup deadline",
   ) ||
   !reusableBetaFreshness.includes("PREVIOUS_DEPLOY_ID") ||
-  !reusableBetaFreshness.includes("was superseded by published deploy")
+  !reusableBetaFreshness.includes("const publishedDeployId") ||
+  !reusableBetaFreshness.includes("skipping stale cleanup")
 ) {
   issues.push(
     `${reusablePath} must reject stale beta sources before upload and revert accepted stale deploys`,

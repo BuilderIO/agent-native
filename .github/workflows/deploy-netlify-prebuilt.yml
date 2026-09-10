@@ -1118,7 +1118,8 @@ jobs:
               await request(`${api}/sites/${siteId}`),
               "Netlify beta freshness site lookup",
             );
-            if (site.published_deploy?.id === deployId) {
+            const publishedDeployId = site.published_deploy?.id;
+            if (publishedDeployId === deployId) {
               if (!previousId) throw new Error("Cannot revert stale beta deploy without a previous published deploy.");
               const beforeRestore = await readJson(
                 await request(`${api}/sites/${siteId}`),
@@ -1145,6 +1146,12 @@ jobs:
                 await sleep(10_000);
               }
               throw new Error(`Netlify did not restore beta deploy ${previousId} within five minutes.`);
+            }
+            if (publishedDeployId && publishedDeployId !== previousId) {
+              console.log(
+                `Netlify beta deploy ${deployId} was already superseded by published deploy ${publishedDeployId}; skipping stale cleanup.`,
+              );
+              return;
             }
 
             const deploy = await readJson(

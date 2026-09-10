@@ -402,7 +402,8 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(reusableSource, /deploys\/\$\{deployId\}\/cancel/);
     assert.match(reusableSource, /cancellationRequested/);
     assert.match(reusableSource, /PREVIOUS_DEPLOY_ID/);
-    assert.match(reusableSource, /was superseded by published deploy/);
+    assert.match(reusableSource, /const publishedDeployId/);
+    assert.match(reusableSource, /skipping stale cleanup/);
     assert.match(reusableSource, /Netlify beta freshness restore precondition/);
     assert.match(
       reusableSource,
