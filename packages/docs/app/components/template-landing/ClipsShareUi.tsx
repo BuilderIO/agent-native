@@ -18,6 +18,9 @@
  * a header row and lifts the control above it; the bare illustration centres
  * the pair. Callers pass that in through `className`.
  *
+ * Both pieces are `select-none`: a text cursor dragging a highlight across the
+ * labels gives away that this is a drawing rather than a real menu.
+ *
  * i18n-raw-literal-disable-file -- this is artwork, not UI copy. Callers wrap
  * it in a `role="img"` with a localized `aria-label` and mark the frame
  * `aria-hidden`, so no assistive tech ever reads these strings.
@@ -97,7 +100,7 @@ export const CLIPS_SHARE_UI_CSS =
 export function ClipsShareControl({ className = "" }: { className?: string }) {
   return (
     <div
-      className={`clips-share-ui-trigger flex shrink-0 items-center ${className}`}
+      className={`clips-share-ui-trigger flex shrink-0 select-none items-center ${className}`}
     >
       <span className="inline-flex h-9 items-center gap-2 rounded-md rounded-e-none bg-primary px-3 text-sm font-medium text-primary-foreground">
         <IconUserPlus className="size-4" />
@@ -121,7 +124,7 @@ export function ClipsShareControl({ className = "" }: { className?: string }) {
 export function ClipsShareMenu({ className = "" }: { className?: string }) {
   return (
     <div
-      className={`w-[293px] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground ${className}`}
+      className={`w-[293px] select-none overflow-hidden rounded-md border border-border bg-popover text-popover-foreground ${className}`}
     >
       <div className="px-3 py-2">
         <div className="flex flex-col gap-3">
