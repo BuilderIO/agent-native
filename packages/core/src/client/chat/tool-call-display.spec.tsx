@@ -2153,6 +2153,34 @@ describe("WorkedForSummary", () => {
     expect(container.textContent).toContain("Worked for 5m");
   });
 
+  it("applies the running shimmer while the work summary is live", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary isRunning>
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(container.textContent).toContain("Working");
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
+    expect(container.querySelector(".agent-running-shimmer")?.textContent).toBe(
+      "Working",
+    );
+  });
+
+  it("does not shimmer after the work summary completes", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary durationMs={5 * 60_000}>
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(container.querySelector(".agent-running-shimmer")).toBeNull();
+  });
+
   it("starts open when completed work contains interactive UI", () => {
     act(() => {
       root.render(

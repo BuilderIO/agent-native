@@ -47,6 +47,7 @@ export function validateReusableWorkflowConcurrency(
     typeof group !== "string" ||
     !group.includes("inputs.caller") ||
     !group.includes("netlify-prebuilt-child") ||
+    !group.includes("netlify-prebuilt-preview-{0}-{1}") ||
     !group.includes("netlify-prebuilt-beta-{0}") ||
     !group.includes("netlify-prebuilt-beta-direct") ||
     !group.includes("agent-native-release-migrations") ||
@@ -181,6 +182,15 @@ export function validateNetlifyPrPreviewWorkflow(
   const build = asRecord(jobs?.build);
   const buildWith = asRecord(build?.with);
   const buildPermissions = asRecord(build?.permissions);
+  const discover = asRecord(jobs?.discover);
+  const discoverCheckout = (
+    (discover?.steps as Array<Record<string, unknown>> | undefined) ?? []
+  ).find(
+    (step) =>
+      typeof step.uses === "string" &&
+      step.uses.startsWith("actions/checkout@"),
+  );
+  const discoverCheckoutWith = asRecord(discoverCheckout?.with);
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
   const comment = asRecord(jobs?.comment);
@@ -209,6 +219,18 @@ export function validateNetlifyPrPreviewWorkflow(
   if (build?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
     issues.push(
       `${pullRequestPath} build job must call the reusable Netlify workflow`,
+    );
+  }
+  if (
+    discoverCheckoutWith?.ref !== "${{ github.event.pull_request.base.sha }}"
+  ) {
+    issues.push(
+      `${pullRequestPath} discover job must load its helper from the trusted pull request base`,
+    );
+  }
+  if (!source.includes('git fetch --no-tags origin "$HEAD_SHA"')) {
+    issues.push(
+      `${pullRequestPath} discover job must fetch the pull request head for its path diff`,
     );
   }
   if (buildWith?.target !== "preview" || buildWith?.deploy !== false) {
