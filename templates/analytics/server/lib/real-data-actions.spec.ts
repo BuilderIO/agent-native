@@ -1279,6 +1279,8 @@ describe("incomplete evidence detection", () => {
       "Refresh the dashboard every morning",
       "Have the dashboard refresh every morning",
       "Run the dashboard refresh every morning",
+      "Refresh the dashboard every 15 minutes",
+      "Run the dashboard refresh hourly",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
     }
@@ -1316,6 +1318,9 @@ describe("incomplete evidence detection", () => {
       "What is the frequency of dashboard updates?",
       "Tell me the dashboard refresh rate",
       "How often does the Revenue dashboard refresh?",
+      "What is the refresh frequency for my dashboard?",
+      "What is the refresh interval for our dashboard?",
+      "Tell me the refresh frequency of our dashboard",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
@@ -1348,6 +1353,9 @@ describe("incomplete evidence detection", () => {
       "What is the number of dashboard automations?",
       "Create a report showing the number of dashboard automations",
       "Build a chart of dashboard automation executions",
+      "Build a chart of dashboard automation conversion rates",
+      "Create a metric for dashboard automation conversion rate",
+      "Create a report showing dashboard automation failure rates",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
       expect(looksLikeAnalyticsDataRequest(request)).toBe(true);
@@ -1391,6 +1399,14 @@ describe("incomplete evidence detection", () => {
     expect(
       looksLikeDashboardConstructionRequest(
         "What is the refresh rate of the dashboard? Then build a Sales dashboard",
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves an elliptical dashboard target after a refresh-rate report", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a report showing the dashboard refresh rate and a Sales dashboard",
       ),
     ).toBe(true);
   });
