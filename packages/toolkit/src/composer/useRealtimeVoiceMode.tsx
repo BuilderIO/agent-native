@@ -1071,7 +1071,7 @@ export interface RealtimeVoiceToolManifestCoordinator {
   setProtocol: (protocol: RealtimeVoiceProtocol) => void;
   setSessionTools: (tools: readonly RealtimeVoiceFunctionTool[]) => void;
   handleError: (eventId: string | undefined, message?: string) => boolean;
-  reset: () => void;
+  reset: (options?: { preserveSessionTools?: boolean }) => void;
   getTools: () => readonly RealtimeVoiceFunctionTool[];
 }
 
@@ -1182,11 +1182,11 @@ export function createRealtimeVoiceToolManifestCoordinator(
       finish(message || "The provider rejected the discovered tool update.");
       return true;
     },
-    reset() {
+    reset(options) {
       if (active) clearTimeout(active.timer);
       active = undefined;
       queue.length = 0;
-      currentTools = [];
+      if (!options?.preserveSessionTools) currentTools = [];
       protocol = "realtime";
     },
     getTools() {
@@ -2115,8 +2115,9 @@ function useRealtimeVoiceModeController(
           handledCallsRef.current.clear();
           abortActiveToolCalls();
           responseCoordinator.reset();
-          toolManifestCoordinator.reset();
+          toolManifestCoordinator.reset({ preserveSessionTools: true });
           toolManifestCoordinator.setProtocol(protocolRef.current);
+          transcriptSequencer.reset();
           lastUserTextRef.current = "";
           lastAssistantTextRef.current = "";
           transition("listening");

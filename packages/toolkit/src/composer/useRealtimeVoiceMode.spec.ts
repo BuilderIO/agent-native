@@ -545,6 +545,37 @@ describe("Realtime voice dynamic tool manifests", () => {
     ]);
   });
 
+  it("preserves the active session tools when resetting failed Live work", () => {
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceToolManifestCoordinator((event) =>
+      sent.push(event),
+    );
+    coordinator.setProtocol("live");
+    coordinator.setSessionTools([realtimeTool("navigate")]);
+    coordinator.reset({ preserveSessionTools: true });
+    coordinator.setProtocol("live");
+    coordinator.enqueue({
+      callId: "call-live-after-failure",
+      status: "completed",
+      output: "Done",
+      expandedTools: [realtimeTool("open-dashboard")],
+    });
+
+    expect(sent[0]).toMatchObject({
+      type: "session.update",
+      session: {
+        delegation: {
+          responses: {
+            tools: [
+              expect.objectContaining({ name: "navigate" }),
+              expect.objectContaining({ name: "open-dashboard" }),
+            ],
+          },
+        },
+      },
+    });
+  });
+
   it("handles a rejected manifest update without failing the voice session", () => {
     const sent: Record<string, unknown>[] = [];
     const coordinator = createRealtimeVoiceToolManifestCoordinator((event) =>
