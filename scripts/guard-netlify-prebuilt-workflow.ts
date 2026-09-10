@@ -828,6 +828,7 @@ if (
   !reusableBetaFreshness.includes(
     "Beta source_ref must be a full 40-character commit SHA.",
   ) ||
+  !reusableBetaFreshness.includes("Beta source_ref must equal current main") ||
   reusableBetaFreshness.includes("requested || 'beta'") ||
   !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",
@@ -839,8 +840,14 @@ if (
     "Verify beta source is current after publish",
   ) ||
   !reusableBetaFreshness.includes("Revert stale beta deploy") ||
-  !reusableBetaFreshness.includes("/deploys/${previousId}/restore") ||
-  !reusableBetaFreshness.includes("/deploys/${deployId}/cancel")
+  !reusableBetaFreshness.includes(
+    "/sites/${siteId}/deploys/${previousId}/restore",
+  ) ||
+  !reusableBetaFreshness.includes("/deploys/${deployId}/cancel") ||
+  !reusableBetaFreshness.includes("cancellationRequested") ||
+  !reusableBetaFreshness.includes(
+    "did not settle before the five-minute cleanup deadline",
+  )
 ) {
   issues.push(
     `${reusablePath} must reject stale beta sources before upload and revert accepted stale deploys`,

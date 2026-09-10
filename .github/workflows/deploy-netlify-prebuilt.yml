@@ -189,6 +189,10 @@ jobs:
                 core.setFailed('Beta source_ref must be a full 40-character commit SHA.');
                 return;
               }
+              if (sourceSha.toLowerCase() !== mainSha.toLowerCase()) {
+                core.setFailed(`Beta source_ref must equal current main ${mainSha}.`);
+                return;
+              }
               core.setOutput('source_ref', sourceSha);
               return;
             }
@@ -1074,43 +1078,57 @@ jobs:
           const deployId = process.env.DEPLOY_ID;
           const previousId = process.env.PREVIOUS_DEPLOY_ID;
           if (!siteId || !deployId) throw new Error("Beta freshness cleanup is missing the site or deploy id.");
-          const site = await readJson(
-            await request(`${api}/sites/${siteId}`),
-            "Netlify beta freshness site lookup",
-          );
-          if (site.published_deploy?.id === deployId) {
-            if (!previousId) throw new Error("Cannot revert stale beta deploy without a previous published deploy.");
-            await readJson(
-              await request(`${api}/deploys/${previousId}/restore`, { method: "POST" }),
-              `Netlify beta freshness revert to ${previousId}`,
+          const deadline = Date.now() + 5 * 60 * 1000;
+          let cancellationRequested = false;
+          while (Date.now() < deadline) {
+            const site = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify beta freshness site lookup",
             );
-            const deadline = Date.now() + 5 * 60 * 1000;
-            while (Date.now() < deadline) {
-              const current = await readJson(
-                await request(`${api}/sites/${siteId}`),
-                "Netlify beta freshness revert verification",
+            if (site.published_deploy?.id === deployId) {
+              if (!previousId) throw new Error("Cannot revert stale beta deploy without a previous published deploy.");
+              await readJson(
+                await request(`${api}/sites/${siteId}/deploys/${previousId}/restore`, { method: "POST" }),
+                `Netlify beta freshness revert to ${previousId}`,
               );
-              if (current.published_deploy?.id === previousId) {
-                console.log(`Restored previous beta deploy ${previousId} after superseding ${deployId}.`);
-                process.exitCode = 1;
-                return;
+              while (Date.now() < deadline) {
+                const current = await readJson(
+                  await request(`${api}/sites/${siteId}`),
+                  "Netlify beta freshness revert verification",
+                );
+                if (current.published_deploy?.id === previousId) {
+                  console.log(`Restored previous beta deploy ${previousId} after superseding ${deployId}.`);
+                  process.exitCode = 1;
+                  return;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 10_000));
               }
-              await new Promise((resolve) => setTimeout(resolve, 10_000));
+              throw new Error(`Netlify did not restore beta deploy ${previousId} within five minutes.`);
             }
-            throw new Error(`Netlify did not restore beta deploy ${previousId} within five minutes.`);
-          }
-          const deploy = await readJson(
-            await request(`${api}/deploys/${deployId}`),
-            `Netlify beta freshness deploy ${deployId} lookup`,
-          );
-          if (!['error', 'canceled', 'rejected'].includes(deploy.state)) {
-            await readJson(
-              await request(`${api}/deploys/${deployId}/cancel`, { method: "POST" }),
-              `Netlify stale beta deploy ${deployId} cancellation`,
+
+            const deploy = await readJson(
+              await request(`${api}/deploys/${deployId}`),
+              `Netlify beta freshness deploy ${deployId} lookup`,
             );
-            console.log(`Canceled stale beta deploy ${deployId} before it could publish.`);
+            if (['error', 'canceled', 'rejected'].includes(deploy.state)) {
+              throw new Error(`Beta source ${deployId} was superseded by a newer main commit.`);
+            }
+            if (!cancellationRequested) {
+              try {
+                await readJson(
+                  await request(`${api}/deploys/${deployId}/cancel`, { method: "POST" }),
+                  `Netlify stale beta deploy ${deployId} cancellation`,
+                );
+                console.log(`Requested cancellation for stale beta deploy ${deployId}; observing until it settles.`);
+              } catch (error) {
+                console.log(`Netlify stale beta deploy ${deployId} did not accept cancellation; continuing to observe it.`);
+                console.log(error instanceof Error ? error.message : error);
+              }
+              cancellationRequested = true;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 10_000));
           }
-          throw new Error(`Beta source ${deployId} was superseded by a newer main commit.`);
+          throw new Error(`Stale beta deploy ${deployId} did not settle before the five-minute cleanup deadline.`);
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;

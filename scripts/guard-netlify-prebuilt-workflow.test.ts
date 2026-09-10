@@ -366,8 +366,16 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(reusableSource, /Verify beta source is current after publish/);
     assert.match(reusableSource, /Revert stale beta deploy/);
-    assert.match(reusableSource, /deploys\/\$\{previousId\}\/restore/);
+    assert.match(
+      reusableSource,
+      /sites\/\$\{siteId\}\/deploys\/\$\{previousId\}\/restore/,
+    );
     assert.match(reusableSource, /deploys\/\$\{deployId\}\/cancel/);
+    assert.match(reusableSource, /cancellationRequested/);
+    assert.match(
+      reusableSource,
+      /did not settle before the five-minute cleanup deadline/,
+    );
     assert.match(
       reusableSource,
       /inputs\.target == 'beta' \|\| \(inputs\.smoke && steps\.target\.outputs\.source_template != '@agent-native\/docs'\)/,
@@ -400,6 +408,7 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /Beta source_ref must be a full 40-character commit SHA/,
     );
+    assert.match(reusableSource, /Beta source_ref must equal current main/);
     assert.doesNotMatch(reusableSource, /requested \|\| 'beta'/);
     assert.match(
       reusableSource,
