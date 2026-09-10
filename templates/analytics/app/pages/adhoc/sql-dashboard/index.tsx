@@ -1240,8 +1240,8 @@ function SqlDashboardPageContent({
     }
 
     const revisions =
-      dashboardRevisions ?? (await refetchDashboardRevisions()).data ?? [];
-    if (!revisions.length) return;
+      dashboardRevisions ?? (await refetchDashboardRevisions()).data;
+    if (!revisions?.length) return;
     const targetIndex =
       undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
     const targetRevision = revisions[targetIndex];
